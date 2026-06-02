@@ -121,6 +121,7 @@ import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
@@ -253,11 +254,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         {!featureFlag.is_remote_configuration && (
                             <>
                                 <SceneDivider />
-                                {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
-                                {featureFlag.filters.super_groups && featureFlag.filters.super_groups.length > 0 && (
-                                    <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
-                                )}
-
                                 <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
 
                                 <SceneDivider />
@@ -276,7 +272,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         },
     ] as LemonTab<FeatureFlagsTab>[]
 
-    if (featureFlag.key && id) {
+    if (id) {
         tabs.push({
             label: 'Usage',
             key: FeatureFlagsTab.USAGE,
@@ -322,14 +318,26 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         label: (
             <div className="flex flex-row">
                 <div>Experiments</div>
-                <LemonTag className="ml-2 float-right uppercase" type="primary">
-                    New
-                </LemonTag>
             </div>
         ),
         key: FeatureFlagsTab.EXPERIMENTS,
         content: <ExperimentsTab featureFlag={featureFlag} />,
     })
+
+    if (id) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>Testing</div>
+                    <LemonTag className="ml-2 float-right uppercase" type="primary">
+                        New
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.TESTING,
+            content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+        })
+    }
 
     return (
         <>
@@ -1031,29 +1039,21 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
-    const {
-        key: featureFlagKey,
-        usage_dashboard: dashboardId,
-        has_enriched_analytics: hasEnrichedAnalytics,
-    } = featureFlag
-    const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
-    const { featureFlagLoading } = useValues(featureFlagLogic)
-    let dashboard: DashboardType<QueryBasedInsightModel> | null = null
-    if (dashboardId) {
-        // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
-        // eslint-disable-next-line react-hooks/rules-of-hooks
-        const dashboardLogicValues = useValues(
-            dashboardLogic({
-                id: dashboardId,
-                placement: DashboardPlacement.FeatureFlag,
-            })
-        )
-        dashboard = dashboardLogicValues.dashboard
+function ConnectedUsageDashboard({
+    featureFlag,
+    dashboardId,
+    hasEnrichedAnalytics,
+}: {
+    featureFlag: FeatureFlagType
+    dashboardId: number
+    hasEnrichedAnalytics: boolean | undefined
+}): JSX.Element | null {
+    const { dashboard } = useValues(dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })) as {
+        dashboard: DashboardType<QueryBasedInsightModel> | null
     }
-
-    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { enrichUsageDashboard } = useActions(featureFlagLogic)
 
     useEffect(() => {
         if (
@@ -1064,6 +1064,38 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
             enrichUsageDashboard()
         }
     }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
+
+    if (!dashboard) {
+        return <LemonSkeleton className="h-60" />
+    }
+
+    return (
+        <>
+            {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
+                    Get richer insights automatically by{' '}
+                    <Link to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics" target="_blank">
+                        enabling enriched analytics for flags{' '}
+                    </Link>
+                </LemonBanner>
+            )}
+            <Dashboard
+                id={dashboardId.toString()}
+                placement={DashboardPlacement.FeatureFlag}
+                backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlag.key }}
+            />
+        </>
+    )
+}
+
+function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    const {
+        key: featureFlagKey,
+        usage_dashboard: dashboardId,
+        has_enriched_analytics: hasEnrichedAnalytics,
+    } = featureFlag
+    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { featureFlagLoading } = useValues(featureFlagLogic)
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -1084,25 +1116,12 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
 
     return (
         <div data-attr="feature-flag-usage-container">
-            {dashboard ? (
-                <>
-                    {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
-                        <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
-                            Get richer insights automatically by{' '}
-                            <Link
-                                to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics"
-                                target="_blank"
-                            >
-                                enabling enriched analytics for flags{' '}
-                            </Link>
-                        </LemonBanner>
-                    )}
-                    <Dashboard
-                        id={dashboardId!.toString()}
-                        placement={DashboardPlacement.FeatureFlag}
-                        backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlagKey }}
-                    />
-                </>
+            {dashboardId ? (
+                <ConnectedUsageDashboard
+                    featureFlag={featureFlag}
+                    dashboardId={dashboardId}
+                    hasEnrichedAnalytics={hasEnrichedAnalytics}
+                />
             ) : (
                 <div>
                     <b>Dashboard</b>

@@ -9,6 +9,169 @@
  */
 import * as zod from 'zod'
 
+export const accountsCreateBodyNameMax = 400
+
+export const accountsCreateBodyExternalIdMax = 400
+
+export const AccountsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(accountsCreateBodyNameMax).describe('Human-readable name of the account.'),
+        external_id: zod
+            .string()
+            .max(accountsCreateBodyExternalIdMax)
+            .nullish()
+            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+        properties: zod
+            .object({
+                csm: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_executive: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_owner: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
+            })
+            .nullish()
+            .describe(
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+    })
+    .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+export const accountsNotebooksCreateBodyTitleMax = 256
+
+export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(accountsNotebooksCreateBodyTitleMax)
+        .nullish()
+        .describe('Human-readable title of the account notebook.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+})
+
+export const accountsUpdateBodyNameMax = 400
+
+export const accountsUpdateBodyExternalIdMax = 400
+
+export const AccountsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(accountsUpdateBodyNameMax).describe('Human-readable name of the account.'),
+        external_id: zod
+            .string()
+            .max(accountsUpdateBodyExternalIdMax)
+            .nullish()
+            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+        properties: zod
+            .object({
+                csm: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_executive: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_owner: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
+            })
+            .nullish()
+            .describe(
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+    })
+    .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+export const accountsPartialUpdateBodyNameMax = 400
+
+export const accountsPartialUpdateBodyExternalIdMax = 400
+
+export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the account.'),
+        external_id: zod
+            .string()
+            .max(accountsPartialUpdateBodyExternalIdMax)
+            .nullish()
+            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+        properties: zod
+            .object({
+                csm: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_executive: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                account_owner: zod
+                    .object({
+                        id: zod.number(),
+                        email: zod.string(),
+                    })
+                    .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
+            })
+            .nullish()
+            .describe(
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+            ),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+    })
+    .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
 export const customerJourneysCreateBodyNameMax = 400
 
 export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
@@ -17,9 +180,46 @@ export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
 })
 
+export const customerJourneysUpdateBodyNameMax = 400
+
+export const CustomerJourneysUpdateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number(),
+    name: zod.string().max(customerJourneysUpdateBodyNameMax),
+    description: zod.string().nullish(),
+})
+
+export const customerJourneysPartialUpdateBodyNameMax = 400
+
+export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number().optional(),
+    name: zod.string().max(customerJourneysPartialUpdateBodyNameMax).optional(),
+    description: zod.string().nullish(),
+})
+
 export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .describe(
+            '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
+        ),
+    content: zod.unknown().optional(),
+    sidebar: zod.unknown().optional(),
+})
+
+export const CustomerProfileConfigsUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .describe(
+            '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
+        ),
+    content: zod.unknown().optional(),
+    sidebar: zod.unknown().optional(),
+})
+
+export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .optional()
         .describe(
             '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
         ),

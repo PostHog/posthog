@@ -41,7 +41,7 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
 
 /** Collects the dash-pattern argument of every setLineDash call, including the trailing [] reset. */
 function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
-    return ctx.setLineDash.mock.calls.map(([p]: [number[]]) => p)
+    return ctx.setLineDash.mock.calls.map(([p]) => p as number[])
 }
 
 describe('hog-charts canvas-renderer', () => {
@@ -343,6 +343,59 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawArea — gradient fill', () => {
+        it('uses a vertical CanvasGradient as fillStyle when fill.gradient is true', () => {
+            const ctx = mockCanvasContext()
+            const gradient = { addColorStop: jest.fn() } as unknown as CanvasGradient
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest
+                .fn()
+                .mockReturnValue(gradient)
+
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's', data: [10, 20, 30], color: '#22d3ee', fill: { gradient: true } })
+
+            const recordedFillStyles: unknown[] = []
+            Object.defineProperty(ctx, 'fillStyle', {
+                get: () => undefined,
+                set: (v) => recordedFillStyles.push(v),
+            })
+
+            drawArea(makeDrawContext(ctx, labels), series)
+
+            expect(ctx.createLinearGradient).toHaveBeenCalledWith(
+                0,
+                dimensions.plotTop,
+                0,
+                dimensions.plotTop + dimensions.plotHeight
+            )
+            expect(gradient.addColorStop).toHaveBeenCalledWith(0, '#22d3ee')
+            expect(gradient.addColorStop).toHaveBeenCalledWith(1, 'transparent')
+            expect(recordedFillStyles).toContain(gradient)
+        })
+
+        it('ignores gradient when lowerData is set (fill-between needs a solid fill)', () => {
+            const ctx = mockCanvasContext()
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest.fn()
+            const labels = ['a', 'b']
+            const series = makeSeries({ key: 's', data: [50, 80], color: '#22d3ee', fill: { gradient: true } })
+            drawArea(makeDrawContext(ctx, labels), series, undefined, [10, 20])
+            expect(ctx.createLinearGradient).not.toHaveBeenCalled()
+        })
+
+        it('lets the area extend below baseline when bottomValues is omitted (single-series negative case)', () => {
+            // LineChart now skips stacking for a single fillable series, so drawArea is called
+            // without bottomValues — meaning negative data is plotted against the raw scale,
+            // not clamped to the baseline by a stacked band's Math.max(0, raw).
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's', data: [10, -5, 20], color: '#22d3ee', fill: {} })
+            drawArea(makeDrawContext(ctx, labels), series)
+            const baseline = dimensions.plotTop + dimensions.plotHeight
+            const lineToYs = (ctx.lineTo as jest.Mock).mock.calls.map(([, y]) => y as number)
+            expect(lineToYs.some((y) => y > baseline)).toBe(true)
+        })
+    })
+
     describe('drawArea — partial dashing', () => {
         it.each([
             {
@@ -453,13 +506,15 @@ describe('hog-charts canvas-renderer', () => {
             expect(fromY).toBe(toY)
         })
 
-        it('draws a vertical y-axis line at plotLeft as the final stroke', () => {
+        it('frames the plot area with left and right vertical axis lines', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']))
-            const lastMove = ctx.moveTo.mock.calls.at(-1)
-            const lastLine = ctx.lineTo.mock.calls.at(-1)
-            expect(lastMove).toEqual([dimensions.plotLeft + 0.5, dimensions.plotTop])
-            expect(lastLine).toEqual([dimensions.plotLeft + 0.5, dimensions.plotTop + dimensions.plotHeight])
+            const leftX = dimensions.plotLeft + 0.5
+            const rightX = dimensions.plotLeft + dimensions.plotWidth - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([leftX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([leftX, dimensions.plotTop + dimensions.plotHeight])
+            expect(ctx.moveTo.mock.calls).toContainEqual([rightX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([rightX, dimensions.plotTop + dimensions.plotHeight])
         })
 
         it('uses the provided gridColor', () => {
@@ -478,13 +533,15 @@ describe('hog-charts canvas-renderer', () => {
             expect(toY).toBe(dimensions.plotTop + dimensions.plotHeight)
         })
 
-        it('draws a horizontal top baseline as the final stroke (horizontal orientation)', () => {
+        it('frames the plot area with top and bottom baselines (horizontal orientation)', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation: 'horizontal' })
-            const lastMove = ctx.moveTo.mock.calls.at(-1)
-            const lastLine = ctx.lineTo.mock.calls.at(-1)
-            expect(lastMove).toEqual([dimensions.plotLeft, dimensions.plotTop + 0.5])
-            expect(lastLine).toEqual([dimensions.plotLeft + dimensions.plotWidth, dimensions.plotTop + 0.5])
+            const topY = dimensions.plotTop + 0.5
+            const bottomY = dimensions.plotTop + dimensions.plotHeight - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, topY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, topY])
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, bottomY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, bottomY])
         })
 
         describe('categoryTicks', () => {
@@ -550,6 +607,8 @@ describe('hog-charts canvas-renderer', () => {
                 hoverIndex,
                 hoverPosition: null,
                 theme: {} as ChartTheme,
+                hoverProgress: 1,
+                resetHoverFade: () => 0,
             }
         }
 

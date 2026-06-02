@@ -26,18 +26,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import (
-    SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
-    SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY,
-    AvailableFeature,
-)
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
-from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.security.url_validation import is_url_allowed
@@ -47,13 +41,14 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from products.product_analytics.backend.models.insight import Insight
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
-HOURLY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
-MAX_ACTIVE_HOURLY_SUBSCRIPTIONS_PER_ORG = 5
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -62,10 +57,6 @@ def _summary_quota_cache_key(organization_id) -> str:
 
 def _summary_cap_hit_dedupe_key(organization_id) -> str:
     return f"subscription:summary_cap_hit:org:{organization_id}"
-
-
-def _hourly_cap_hit_dedupe_key(organization_id) -> str:
-    return f"subscription:hourly_cap_hit:org:{organization_id}"
 
 
 def _count_active_summaries(organization) -> int:
@@ -168,12 +159,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "target_value": {
                 "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
             },
-            "frequency": {
-                "help_text": (
-                    "How often to deliver: hourly, daily, weekly, monthly, or yearly. "
-                    "Hourly is feature-flagged and limited to one active subscription per organization."
-                )
-            },
+            "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
                 "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
             },
@@ -203,8 +189,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return info.name if info else None
 
     def validate(self, attrs):
-        if not self.initial_data:
-            # Create
+        request = self.context.get("request")
+        # Re-run the free-tier cap on create AND on restore (deleted: true → false) —
+        # a soft-deleted row frees its slot, so PATCHing one back to active re-occupies
+        # one and must respect the limit, otherwise a free-tier team could soft-delete +
+        # create + restore its way past the cap.
+        is_create = request is not None and request.method == "POST"
+        is_restoring = self.instance is not None and self.instance.deleted and attrs.get("deleted") is False
+        if is_create or is_restoring:
+            msg = Subscription.check_subscription_limit(self.context["team_id"], self.context["get_organization"]())
+            if msg:
+                raise ValidationError({"subscription": [msg]})
+
+        if self.instance is None:
+            # Create: a subscription must export an insight or a dashboard.
             if not attrs.get("dashboard") and not attrs.get("insight"):
                 raise ValidationError("Either dashboard or insight is required for an export.")
 
@@ -296,19 +294,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # — otherwise PATCHing `deleted=False` on a grandfathered row would
         # bypass the cap entirely.
         if self._is_becoming_active_summary(attrs):
+            self._validate_summary_credit_budget()
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
-
-        # Hourly frequency is feature-flagged and capped at one active
-        # subscription per organization. Fire whenever the row is *becoming*
-        # an active hourly subscription (frequency=hourly AND enabled=True AND
-        # deleted=False) but wasn't before — catches creates, frequency
-        # changes, re-enables, and undeletes.
-        if self._is_becoming_active_hourly(attrs):
-            organization = self.context["get_organization"]()
-            if not self._hourly_frequency_feature_enabled():
-                raise exceptions.PermissionDenied("Hourly subscriptions are not enabled for this organization.")
-            self._validate_hourly_org_limit(organization)
 
         return attrs
 
@@ -321,6 +309,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         pre_active = pre_summary_enabled and not pre_deleted
         post_active = post_summary_enabled and not post_deleted
         return post_active and not pre_active
+
+    def _validate_summary_credit_budget(self) -> None:
+        # Refuse to turn a summary on while the org is over its AI credit budget,
+        # mirroring the chat assistant's gate (ee/api/conversation.py).
+        team = self.context["get_team"]()
+        if is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. "
+                "Increase the limits in Billing settings, or ask an org admin to do so."
+            )
 
     def _validate_summary_enabled_org_limit(self, organization) -> None:
         # Already-on subscriptions stay on for grandfathered orgs already over
@@ -373,76 +371,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _is_becoming_active_hourly(self, attrs: dict) -> bool:
-        pre_frequency = self.instance.frequency if self.instance else None
-        pre_enabled = self.instance.enabled if self.instance else True
-        pre_deleted = self.instance.deleted if self.instance else False
-        post_frequency = attrs.get("frequency", pre_frequency)
-        post_enabled = attrs.get("enabled", pre_enabled)
-        post_deleted = attrs.get("deleted", pre_deleted)
-
-        pre_active_hourly = (
-            pre_frequency == Subscription.SubscriptionFrequency.HOURLY and pre_enabled and not pre_deleted
-        )
-        post_active_hourly = (
-            post_frequency == Subscription.SubscriptionFrequency.HOURLY and post_enabled and not post_deleted
-        )
-        return post_active_hourly and not pre_active_hourly
-
-    def _validate_hourly_org_limit(self, organization) -> None:
-        existing = Subscription.objects.filter(
-            team__organization_id=organization.id,
-            frequency=Subscription.SubscriptionFrequency.HOURLY,
-            enabled=True,
-            deleted=False,
-        )
-        if self.instance is not None:
-            existing = existing.exclude(pk=self.instance.pk)
-        active_count = existing.count()
-        limit = MAX_ACTIVE_HOURLY_SUBSCRIPTIONS_PER_ORG
-        if active_count >= limit:
-            self._capture_hourly_cap_hit(organization, active_count, limit)
-            raise ValidationError(
-                {
-                    "frequency": [
-                        f"Your organization can have up to {limit} active hourly subscriptions. "
-                        "Disable or delete an existing hourly subscription before adding another."
-                    ]
-                }
-            )
-
-    def _capture_hourly_cap_hit(self, organization, active_count: int, limit: int) -> None:
-        # Rate-limited to one event per org per 10 minutes so a misbehaving
-        # client retrying in a loop doesn't spam the analytics stream. Within
-        # that window the user-visible 400 still fires every time.
-        dedupe_key = _hourly_cap_hit_dedupe_key(organization.id)
-        if cache.get(dedupe_key):
-            return
-        cache.set(dedupe_key, True, HOURLY_CAP_HIT_DEDUPE_TTL_SECONDS)
-
-        request = self.context.get("request")
-        distinct_id = (
-            str(request.user.distinct_id)
-            if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None)
-            else f"team_{self.context.get('team_id')}"
-        )
-        try:
-            posthoganalytics.capture(
-                distinct_id=distinct_id,
-                event="subscription_hourly_cap_hit",
-                properties={
-                    "team_id": self.context.get("team_id"),
-                    "organization_id": str(organization.id),
-                    "active_count": active_count,
-                    "limit": limit,
-                    "is_create": self.instance is None,
-                },
-                groups={"organization": str(organization.id)},
-            )
-        except Exception:
-            # Telemetry must never poison the validation path.
-            pass
-
     def _evaluate_feature_flag(self, flag_key: str) -> bool:
         """Evaluate a feature flag for the caller's organization.
 
@@ -464,9 +392,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 only_evaluate_locally=False,
             )
         )
-
-    def _hourly_frequency_feature_enabled(self) -> bool:
-        return self._evaluate_feature_flag(SUBSCRIPTION_HOURLY_FREQUENCY_FEATURE_FLAG_KEY)
 
     def _prompt_guide_feature_enabled(self) -> bool:
         return self._evaluate_feature_flag(SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY)
@@ -718,13 +643,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         ],
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.SUBSCRIPTIONS
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
         "title",
@@ -982,13 +905,11 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()
     serializer_class = SubscriptionDeliverySerializer
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.SUBSCRIPTIONS
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
 

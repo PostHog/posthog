@@ -37,7 +37,12 @@ class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConf
         }
 
     def get_schemas(
-        self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ChargebeeSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

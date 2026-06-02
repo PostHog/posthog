@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -43,13 +44,14 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'aggregationLoading',
                 'spanTree',
                 'spanTreeLoading',
+                'visibleRowDateRange',
             ],
             tracingFiltersLogic({ tabId: p.tabId }),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
             tracingDataLogic({ tabId: p.tabId }),
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree'],
+            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree', 'setVisibleRowRange'],
             tracingFiltersLogic({ tabId: p.tabId }),
             [
                 'setDateRange',
@@ -66,9 +68,10 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     actions({
         openTraceModal: (traceId: string) => ({ traceId }),
         closeTraceModal: true,
-        openCompareFlame: (spanName: string) => ({ spanName }),
+        openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
         closeCompareFlame: true,
         syncUrlAndRunQuery: true,
+        handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
     }),
 
     reducers({
@@ -83,6 +86,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             null as string | null,
             {
                 openCompareFlame: (_, { spanName }) => spanName,
+                closeCompareFlame: () => null,
+            },
+        ],
+        compareFlameServiceName: [
+            null as string | null,
+            {
+                openCompareFlame: (_, { serviceName }) => serviceName,
                 closeCompareFlame: () => null,
             },
         ],
@@ -121,36 +131,34 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
 
     listeners(({ actions, values }) => ({
         openTraceModal: ({ traceId }) => {
+            posthog.capture('tracing trace opened')
             const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)
             if (prefetchedSpans.length >= PREFETCH_SPANS) {
                 actions.loadTraceSpans(traceId)
             }
         },
-        openCompareFlame: ({ spanName }) => {
-            actions.fetchSpanTree({ spanName })
+        openCompareFlame: ({ spanName, serviceName }) => {
+            actions.fetchSpanTree({ spanName, serviceName })
         },
-        setDateRange: () => {
+        handleFilterChange: ({ filterType, extraProps }) => {
+            posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.syncUrlAndRunQuery()
         },
-        setServiceNames: () => {
-            actions.syncUrlAndRunQuery()
-        },
-        setFilterGroup: () => {
-            actions.syncUrlAndRunQuery()
-        },
-        setOrderBy: () => {
-            actions.syncUrlAndRunQuery()
-        },
-        setCompareMode: () => {
-            actions.syncUrlAndRunQuery()
-        },
+        setDateRange: () => actions.handleFilterChange('date_range'),
+        setServiceNames: () => actions.handleFilterChange('service_names'),
+        setFilterGroup: () => actions.handleFilterChange('filter_group'),
+        setOrderBy: () => actions.handleFilterChange('order_by'),
+        setCompareMode: ({ compareMode }) => actions.handleFilterChange('compare_mode', { enabled: compareMode }),
         setOverlayWindows: () => {
             // Overlay drags only refetch the aggregation — the sparkline canvas range
             // stays fixed while the user moves windows around within it. If the compare-flame
             // modal is open we also refetch its tree so it doesn't display stale windows.
             actions.fetchAggregation()
-            if (values.compareFlameSpanName) {
-                actions.fetchSpanTree({ spanName: values.compareFlameSpanName })
+            if (values.compareFlameSpanName && values.compareFlameServiceName) {
+                actions.fetchSpanTree({
+                    spanName: values.compareFlameSpanName,
+                    serviceName: values.compareFlameServiceName,
+                })
             }
         },
         setFilters: () => {

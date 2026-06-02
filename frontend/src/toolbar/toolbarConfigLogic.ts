@@ -5,11 +5,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarProps } from '~/types'
+import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import {
+    asNonEmptyString,
     cleanToolbarAuthHash,
     generatePKCE,
     LOCALSTORAGE_KEY,
@@ -19,6 +20,13 @@ import {
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
+
+const VALID_USER_INTENTS: ReadonlySet<ToolbarUserIntent> = new Set(TOOLBAR_USER_INTENTS)
+
+const asUserIntent = (v: unknown): ToolbarUserIntent | null => {
+    const s = asNonEmptyString(v)
+    return s && VALID_USER_INTENTS.has(s as ToolbarUserIntent) ? (s as ToolbarUserIntent) : null
+}
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -50,33 +58,33 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
         props: [props],
         accessToken: [
-            props.accessToken || null,
+            asNonEmptyString(props.accessToken),
             {
-                setOAuthTokens: (_, { accessToken }) => accessToken,
+                setOAuthTokens: (_, { accessToken }) => asNonEmptyString(accessToken),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         refreshToken: [
-            props.refreshToken || null,
+            asNonEmptyString(props.refreshToken),
             {
-                setOAuthTokens: (_, { refreshToken }) => refreshToken,
+                setOAuthTokens: (_, { refreshToken }) => asNonEmptyString(refreshToken),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         clientId: [
-            props.clientId || null,
+            asNonEmptyString(props.clientId),
             {
-                setOAuthTokens: (_, { clientId }) => clientId,
+                setOAuthTokens: (_, { clientId }) => asNonEmptyString(clientId),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
-        productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
-        userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
+        productTourId: [asNonEmptyString(props.productTourId), { logout: () => null, clearUserIntent: () => null }],
+        userIntent: [asUserIntent(props.userIntent), { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         authStatus: [
             'idle' as 'idle' | 'checking' | 'authenticating' | 'error',
@@ -252,9 +260,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // posthog-js reads these at load time but never cleans them from the URL.
             // Including them would cause a re-initialization loop after OAuth callback.
             const hash = window.location.hash
-                .replace(/[#&]__posthog=[^&]*/g, '')
-                .replace(/[#&]__posthog_toolbar=[^&]*/g, '')
-                .replace(/^&/, '#')
+                .replace(/[#?&]__posthog=[^&]*/g, '')
+                .replace(/[#?&]__posthog_toolbar=[^&]*/g, '')
+                .replace(/^[?&]/, '#')
                 .replace(/^#$/, '')
             const redirect = encodeURIComponent(
                 window.location.origin + window.location.pathname + window.location.search + hash
@@ -740,21 +748,24 @@ async function exchangeCodeForTokens(
             body: body.toString(),
         })
         const data = await res.json()
-        if (data.access_token && data.refresh_token) {
+        const access = asNonEmptyString(data?.access_token)
+        const refresh = asNonEmptyString(data?.refresh_token)
+        if (access && refresh) {
             toolbarPosthogJS.capture('toolbar oauth exchange', {
                 status: 'success',
                 duration_ms: Math.round(performance.now() - startTime),
             })
-            actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
+            actions.setOAuthTokens(access, refresh, clientId)
             return true
         }
+        const errorString = asNonEmptyString(data?.error) ?? 'unknown'
         toolbarPosthogJS.capture('toolbar oauth exchange', {
             status: 'error',
-            error: data.error || 'unknown',
+            error: errorString,
             duration_ms: Math.round(performance.now() - startTime),
         })
-        toolbarLogger.error('auth', 'Token exchange failed', { error: data.error || data })
-        captureToolbarException(new Error(`Token exchange failed: ${data.error || 'unknown'}`), 'token_exchange')
+        toolbarLogger.error('auth', 'Token exchange failed', { error: errorString })
+        captureToolbarException(new Error(`Token exchange failed: ${errorString}`), 'token_exchange')
         lemonToast.error('Authentication failed. Please try again.')
         return false
     } catch (err) {
@@ -793,6 +804,34 @@ export async function toolbarFetch(
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
+        // Pagination URLs come from response bodies — pin to uiHost (or apiHost, which
+        // is where Django's build_absolute_uri() sources its host) so they cannot
+        // redirect the Authorization header off-origin. Stub body matches the 401
+        // shape above so paginating callers fail gracefully on `results: []`.
+        const apiHost = logic?.values.apiHost
+        const allowedOrigins = [host, apiHost].filter(Boolean).map((h) => {
+            try {
+                return new URL(h as string).origin
+            } catch {
+                return null
+            }
+        })
+        if (allowedOrigins.length === 0) {
+            return new Response(JSON.stringify({ results: [], detail: 'no_uihost' }), { status: 400 })
+        }
+        let got: string
+        try {
+            got = new URL(url).origin
+        } catch {
+            return new Response(JSON.stringify({ results: [], detail: 'invalid_url' }), { status: 400 })
+        }
+        if (!allowedOrigins.includes(got)) {
+            toolbarLogger.warn('fetch', 'use-as-provided URL origin not in allowlist', {
+                allowed: allowedOrigins,
+                got,
+            })
+            return new Response(JSON.stringify({ results: [], detail: 'origin_mismatch' }), { status: 400 })
+        }
         fullUrl = url
     } else {
         const { pathname, searchParams } = combineUrl(url)

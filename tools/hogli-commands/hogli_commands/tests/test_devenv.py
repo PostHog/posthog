@@ -12,6 +12,7 @@ import yaml
 from hogli_commands.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
 from hogli_commands.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli_commands.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
+from hogli_commands.devenv.wizard import _parse_exclude_input
 from parameterized import parameterized
 
 
@@ -563,6 +564,19 @@ class TestInfoProcess:
         assert "hogli dev:setup" in shell
         assert "hogli dev:explain" in shell
 
+    def test_info_process_includes_path_and_secrets(self) -> None:
+        """Info process shell surfaces repo path and secrets source live."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "Path:" in shell
+        assert "${REPOSITORY_ROOT:-$PWD}" in shell
+
+        assert "Secrets:" in shell
+        assert "_POSTHOG_OP_RESOLVED" in shell
+        assert "1Password" in shell
+        assert "local .env files" in shell
+
 
 class TestMprocsGeneratorRegression:
     """Regression tests for generator behavior with the real intent map."""
@@ -738,3 +752,30 @@ class TestPersonhogEnvInjection:
                     assert var in shell, f"{var} should be in {proc_name} shell"
                 else:
                     assert var not in shell, f"{var} should not be in {proc_name} shell"
+
+
+class TestParseExcludeInput:
+    """The 'Units to exclude' prompt accepts numbers and/or names."""
+
+    UNITS = ["backend", "docker-compose", "feature-flags", "frontend", "migrate-postgres"]
+
+    @parameterized.expand(
+        [
+            ("3", ["feature-flags"], []),
+            ("feature-flags", ["feature-flags"], []),
+            ("1,3", ["backend", "feature-flags"], []),
+            ("1, feature-flags", ["backend", "feature-flags"], []),
+            ("  3  ,  1  ", ["feature-flags", "backend"], []),
+            ("", [], []),
+            ("   ", [], []),
+            ("  ,  ,  ", [], []),
+            ("99", [], [99]),
+            ("99, feature-flags", ["feature-flags"], [99]),
+            ("1, backend", ["backend", "backend"], []),
+            ("²", ["²"], []),
+        ]
+    )
+    def test_parse(self, raw: str, expected_excluded: list[str], expected_out_of_range: list[int]) -> None:
+        excluded, out_of_range = _parse_exclude_input(raw, self.UNITS)
+        assert excluded == expected_excluded
+        assert out_of_range == expected_out_of_range

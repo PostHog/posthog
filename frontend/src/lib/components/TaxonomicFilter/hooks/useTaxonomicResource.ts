@@ -111,6 +111,19 @@ function execute<T>(hash: string, fn: ResourceQueryFn<T>): Promise<T> {
             if (entry.abort !== abort) {
                 throw err
             }
+            // An abort is not a real failure. Storing it as `entry.error`
+            // would poison this cache key — the error-halts-autofetch guard
+            // in the effect then refuses to ever re-fetch it, so revisiting
+            // the same query key (e.g. backspacing to a search term whose
+            // in-flight request was cancelled by the next keystroke) shows a
+            // permanently empty list. Leave the entry clean (no data, no
+            // error, ts untouched) so a later visit re-fetches.
+            if (abort.signal.aborted) {
+                entry.inflight = undefined
+                entry.abort = undefined
+                notify(entry)
+                throw err
+            }
             entry.error = err
             entry.inflight = undefined
             entry.abort = undefined
@@ -234,6 +247,30 @@ export function __clearTaxonomicResourceCache(): void {
 export function invalidateTaxonomicResource(key: ReadonlyArray<unknown>): void {
     const entry = cache.get(hashKey(key))
     if (entry) {
+        entry.ts = 0
+        entry.error = undefined
+        notify(entry)
+    }
+}
+
+/**
+ * Invalidate every cached entry whose key matches a predicate. Used by
+ * domain models (e.g. cohortsModel) to flush taxonomic cache slices when
+ * the underlying data mutates. The hash is the JSON-stringified key so
+ * we re-parse to feed structured input back to the predicate — keys are
+ * always plain arrays of JSON-safe values so the round-trip is lossless.
+ */
+export function invalidateTaxonomicResourcesWhere(predicate: (key: unknown[]) => boolean): void {
+    for (const [hash, entry] of cache) {
+        let key: unknown[]
+        try {
+            key = JSON.parse(hash) as unknown[]
+        } catch {
+            continue
+        }
+        if (!predicate(key)) {
+            continue
+        }
         entry.ts = 0
         entry.error = undefined
         notify(entry)

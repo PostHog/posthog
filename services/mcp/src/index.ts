@@ -1,4 +1,3 @@
-import { getPostHogClient } from '@/lib/analytics'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import {
     buildInsufficientScopeChallenge,
@@ -6,36 +5,25 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from '@/lib/errors'
+import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { getPostHogClient } from '@/lib/posthog'
+import { MCP_ANALYTICS_VERSION } from '@/lib/posthog/analytics'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
+import { proxyToHono, shouldProxyToHono } from './proxy'
 
 function extendMcpServerLog(log: RequestLogger, props: RequestProperties): void {
     const mcpServerLog: Record<string, unknown> = {
-        ...(props.mcpAnalyticsProvider ? { mcpAnalyticsProvider: props.mcpAnalyticsProvider } : {}),
-        ...(props.mcpAnalyticsFlagKey ? { mcpAnalyticsFlagKey: props.mcpAnalyticsFlagKey } : {}),
-        ...(props.mcpAnalyticsFlagEnabled !== undefined
-            ? { mcpAnalyticsFlagEnabled: props.mcpAnalyticsFlagEnabled }
-            : {}),
-        ...(props.mcpAnalyticsFlagErrorName ? { mcpAnalyticsFlagErrorName: props.mcpAnalyticsFlagErrorName } : {}),
-        ...(props.mcpAnalyticsFlagErrorMessage
-            ? { mcpAnalyticsFlagErrorMessage: props.mcpAnalyticsFlagErrorMessage }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitAction
-            ? { posthogMcpAnalyticsInitAction: props.posthogMcpAnalyticsInitAction }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitReason
-            ? { posthogMcpAnalyticsInitReason: props.posthogMcpAnalyticsInitReason }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitErrorName
-            ? { posthogMcpAnalyticsInitErrorName: props.posthogMcpAnalyticsInitErrorName }
-            : {}),
-        ...(props.posthogMcpAnalyticsInitErrorMessage
-            ? { posthogMcpAnalyticsInitErrorMessage: props.posthogMcpAnalyticsInitErrorMessage }
+        ...(props.mcpAnalyticsInitAction ? { mcpAnalyticsInitAction: props.mcpAnalyticsInitAction } : {}),
+        ...(props.mcpAnalyticsInitReason ? { mcpAnalyticsInitReason: props.mcpAnalyticsInitReason } : {}),
+        ...(props.mcpAnalyticsInitErrorName ? { mcpAnalyticsInitErrorName: props.mcpAnalyticsInitErrorName } : {}),
+        ...(props.mcpAnalyticsInitErrorMessage
+            ? { mcpAnalyticsInitErrorMessage: props.mcpAnalyticsInitErrorMessage }
             : {}),
     }
 
@@ -148,7 +136,7 @@ const onCatchErrorHandler = async (
             team: 'posthog_ai',
             source: 'mcp_request_handler',
             mcp_transport: ctx.props?.transport,
-            mcp_version: ctx.props?.version,
+            mcp_version: MCP_ANALYTICS_VERSION,
             has_organization_id: !!ctx.props?.organizationId,
             has_project_id: !!ctx.props?.projectId,
         })
@@ -312,7 +300,7 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
+    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
@@ -358,6 +346,13 @@ const handleRequest = async (
     // the same `requestProperties.mcpConversationId` slot.
     const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
 
+    // Anthropic-set per-request identifier for the inner upstream client (e.g.
+    // `ClaudeCode`, `ClaudeAI`, `Cowork`). Distinct from `mcpClientName` (the
+    // MCP `initialize` body's `clientInfo.name`) because Claude pools MCP
+    // transports — the same `mcpSessionId` can carry requests from multiple
+    // upstream products, and only this header tracks the live one.
+    const mcpVendorClient = sanitizeHeaderValue(request.headers.get('x-anthropic-client') || undefined)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -371,6 +366,7 @@ const handleRequest = async (
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient,
         requestStartTime: Date.now(),
     })
 
@@ -390,7 +386,7 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnlyRaw = request.headers.get('x-posthog-read-only') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the
@@ -419,6 +415,11 @@ const handleRequest = async (
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
+        const proxyResult = await shouldProxyToHono(token, ctx.props.userHash, env.MCP_KV)
+        if (proxyResult.proxy) {
+            log.extend({ proxy: 'hono', region: proxyResult.region })
+            return proxyToHono(request, proxyResult.region)
+        }
         Object.assign(ctx.props, { transport: 'streamable-http' })
         server = MCP.serve('/mcp').fetch(request, env, ctx)
     }

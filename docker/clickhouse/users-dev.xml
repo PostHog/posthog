@@ -22,7 +22,6 @@
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
-            <enable_analyzer>0</enable_analyzer>
             <compatibility>25.8</compatibility>
             <distributed_product_mode>global</distributed_product_mode>
             <enable_parallel_replicas>0</enable_parallel_replicas>
@@ -54,6 +53,10 @@
         <app>
             <profile>default</profile>
         </app>
+
+        <billing>
+            <profile>default</profile>
+        </billing>
 
         <!-- Of course this is only for local dev, but mirrors prod to make tests useful.
              readonly=2 pinned via <constraints> is the load-bearing safety (no writes, no client-side settings changes).
@@ -179,6 +182,18 @@
 
             <quota>default</quota>
         </app>
+
+        <billing>
+            <password>billingpass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>billing</profile>
+
+            <quota>default</quota>
+        </billing>
 
         <!-- Of course this is local dev, but mirrors prod to make tests useful.
              - no table-function grants (url / s3 / file / executable / jdbc / ...)

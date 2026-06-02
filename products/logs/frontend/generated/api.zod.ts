@@ -9,65 +9,12 @@
  */
 import * as zod from 'zod'
 
-/**
- * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
- */
-export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
-
-export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
-    uuid: zod.string().describe('UUID of the log entry to explain'),
-    timestamp: zod.iso.datetime({ offset: true }).describe('Timestamp of the log entry (used for efficient lookup)'),
-    force_refresh: zod
-        .boolean()
-        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
-        .describe('Force regenerate explanation, bypassing cache'),
-})
-
-export const logsViewsCreateBodyNameMax = 400
-
-export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsCreateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsUpdateBodyNameMax = 400
-
-export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsUpdateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsPartialUpdateBodyNameMax = 400
-
-export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
+
 export const logsAlertsCreateBodyThresholdCountDefault = 100
+export const logsAlertsCreateBodyThresholdCountMin = 0
 
 export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
 export const logsAlertsCreateBodyWindowMinutesDefault = 5
@@ -91,17 +38,42 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsCreateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
-        .unknown()
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsCreateBodyThresholdCountMin)
         .default(logsAlertsCreateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -140,7 +112,9 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsUpdateBodyNameMax = 255
 
 export const logsAlertsUpdateBodyEnabledDefault = true
+
 export const logsAlertsUpdateBodyThresholdCountDefault = 100
+export const logsAlertsUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsUpdateBodyWindowMinutesDefault = 5
@@ -164,17 +138,42 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsUpdateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
-        .unknown()
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsUpdateBodyThresholdCountMin)
         .default(logsAlertsUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -213,7 +212,9 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsPartialUpdateBodyNameMax = 255
 
 export const logsAlertsPartialUpdateBodyEnabledDefault = true
+
 export const logsAlertsPartialUpdateBodyThresholdCountDefault = 100
+export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsPartialUpdateBodyWindowMinutesDefault = 5
@@ -237,17 +238,42 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsPartialUpdateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
-        .unknown()
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsPartialUpdateBodyThresholdCountMin)
         .default(logsAlertsPartialUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -315,6 +341,8 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
 
+export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
+
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
 
@@ -328,8 +356,38 @@ export const logsAlertsSimulateCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsSimulateCreateBodyCooldownMinutesMin = 0
 
 export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
-    threshold_count: zod.number().min(1).describe('Threshold count to evaluate against.'),
+    filters: zod
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
+        .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
+    threshold_count: zod
+        .number()
+        .min(logsAlertsSimulateCreateBodyThresholdCountMin)
+        .describe('Threshold count to evaluate against.'),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('\* `above` - Above\n\* `below` - Below')
@@ -546,6 +604,22 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The bucketed-count query to execute.'),
 })
 
+/**
+ * Explain a log entry using AI.
+
+POST /api/environments/:id/logs/explainLogWithAI/
+ */
+export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
+
+export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
+    uuid: zod.string().describe('UUID of the log entry to explain'),
+    timestamp: zod.iso.datetime({ offset: true }).describe('Timestamp of the log entry (used for efficient lookup)'),
+    force_refresh: zod
+        .boolean()
+        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
+        .describe('Force regenerate explanation, bypassing cache'),
+})
+
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
 export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
@@ -671,13 +745,13 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
             '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         )
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs\/sec for scope_service at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
         .max(logsSamplingRulesCreateBodyScopeServiceMax)
         .nullish()
-        .describe('If set, the rule applies only to this service name; null means all services.'),
+        .describe('Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.'),
     scope_path_pattern: zod
         .string()
         .max(logsSamplingRulesCreateBodyScopePathPatternMax)
@@ -692,7 +766,7 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
     config: zod
         .unknown()
         .describe(
-            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+            'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
 })
 
@@ -724,13 +798,13 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
             '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         )
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs\/sec for scope_service at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
         .max(logsSamplingRulesUpdateBodyScopeServiceMax)
         .nullish()
-        .describe('If set, the rule applies only to this service name; null means all services.'),
+        .describe('Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.'),
     scope_path_pattern: zod
         .string()
         .max(logsSamplingRulesUpdateBodyScopePathPatternMax)
@@ -745,7 +819,7 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
     config: zod
         .unknown()
         .describe(
-            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+            'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
 })
 
@@ -782,13 +856,13 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs\/sec for scope_service at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
         .max(logsSamplingRulesPartialUpdateBodyScopeServiceMax)
         .nullish()
-        .describe('If set, the rule applies only to this service name; null means all services.'),
+        .describe('Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.'),
     scope_path_pattern: zod
         .string()
         .max(logsSamplingRulesPartialUpdateBodyScopePathPatternMax)
@@ -804,7 +878,7 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+            'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
 })
 
@@ -998,4 +1072,43 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The sparkline query to execute.'),
+})
+
+export const logsViewsCreateBodyNameMax = 400
+
+export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsCreateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsUpdateBodyNameMax = 400
+
+export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsUpdateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsPartialUpdateBodyNameMax = 400
+
+export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
 })

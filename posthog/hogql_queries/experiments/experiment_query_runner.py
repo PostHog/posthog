@@ -29,6 +29,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
 from posthog.hogql_queries.experiments.cuped_config import get_cuped_config
@@ -37,6 +38,7 @@ from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
+from posthog.hogql_queries.experiments.experiment_query_context import ExperimentPrecomputationContext
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
@@ -140,9 +142,14 @@ class ExperimentQueryRunner(QueryRunner):
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
 
-        self.variants = [variant["key"] for variant in self.feature_flag.variants]
-        if self.experiment.holdout:
-            self.variants.append(f"holdout-{self.experiment.holdout.id}")
+        # Holdout is intentionally not appended: holdout users were never exposed to
+        # the experiment, so they don't belong in the metric scorecard.
+        # self.experiment.holdout is still readable for code paths that need it
+        # (e.g. the Distribution table on the Variants tab).
+        excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        self.variants = [
+            variant["key"] for variant in self.feature_flag.variants if variant["key"] not in excluded_variants
+        ]
 
         stats_config = self.experiment.stats_config or {}
         self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
@@ -182,7 +189,12 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
-        self.cuped_config = get_cuped_config(self.experiment.stats_config, self.metric)
+        self.cuped_config = get_cuped_config(
+            self.experiment.stats_config,
+            self.metric,
+            team_default_enabled=self._team_experiments_config.default_cuped_enabled,
+            team_default_lookback_days=self._team_experiments_config.default_cuped_lookback_days,
+        )
 
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
@@ -327,18 +339,31 @@ class ExperimentQueryRunner(QueryRunner):
 
         should_precompute = self._should_precompute()
 
+        exposure_job_ids: list[str] | None = None
+        metric_events_job_ids: list[str] | None = None
+
         # Skip precomputation for data warehouse metrics because the precomputed table
         # doesn't include the join keys needed to link exposures to data warehouse tables
         if should_precompute and not self.is_data_warehouse_query:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
-                    builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
+                    exposure_job_ids = [str(job_id) for job_id in result.job_ids]
                     self._is_precomputed = True
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
-            except Exception:
-                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
+            except Exception as e:
+                # Swallowed: the direct-scan fallback below still returns results, which would
+                # otherwise hide a broken precomputation path. Report so it isn't silent.
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "tag": "exposure_lazy_computation_failed",
+                        "experiment_id": self.experiment.id,
+                        "precomputation_path": "exposure",
+                        "metric_type": self.metric.metric_type,
+                    },
+                )
 
             # Precompute metric events for ordered funnel metrics. CUPED extends the
             # funnel scan back by `lookback_days` to source the pre-exposure covariate;
@@ -353,13 +378,26 @@ class ExperimentQueryRunner(QueryRunner):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)
                     if metric_result.ready:
-                        builder.metric_events_preaggregation_job_ids = [str(job_id) for job_id in metric_result.job_ids]
+                        metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
                     else:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
-                except Exception:
-                    logger.exception("metric_events_lazy_computation_failed", experiment_id=self.experiment.id)
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        additional_properties={
+                            "tag": "metric_events_lazy_computation_failed",
+                            "experiment_id": self.experiment.id,
+                            "precomputation_path": "metric_events",
+                            "metric_type": self.metric.metric_type,
+                        },
+                    )
 
-        return builder.build_query()
+        return builder.build_query(
+            precomputation_context=ExperimentPrecomputationContext(
+                exposure_job_ids=exposure_job_ids,
+                metric_events_job_ids=metric_events_job_ids,
+            )
+        )
 
     def _evaluate_experiment_query(
         self,
@@ -401,18 +439,19 @@ class ExperimentQueryRunner(QueryRunner):
 
         settings = HogQLGlobalSettings(
             max_execution_time=self.max_execution_time,
-            enable_analyzer=True,
             max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
         )
         # Mean metric queries join exposures with a potentially large metric-events table and
         # can exceed memory with the default hash join. grace_hash spills to disk when needed.
         if isinstance(self.metric, ExperimentMeanMetric):
             settings.join_algorithm = "grace_hash"
+            settings.grace_hash_join_initial_buckets = 2
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=modifiers,
             settings=settings,

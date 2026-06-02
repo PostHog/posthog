@@ -237,38 +237,10 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 )
             )
 
-        if self.query.after:
-            try:
-                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
-                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                cursor_uuid = cursor["uuid"]
-            except (KeyError, ValueError, json.JSONDecodeError) as e:
-                raise ValueError(f"Invalid cursor format: {e}")
-
-            op = ">" if self.query.orderBy == "earliest" else "<"
-            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
-
-            exprs.append(
-                parse_expr(
-                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
-                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
-                )
-            )
-            exprs.append(
-                parse_expr(
-                    f"timestamp {ts_op} {{cursor_ts}}",
-                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
-                )
-            )
-            exprs.append(
-                parse_expr(
-                    f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
-                    placeholders={
-                        "cursor_ts": ast.Constant(value=cursor_ts),
-                        "cursor_uuid": ast.Constant(value=cursor_uuid),
-                    },
-                )
-            )
+        # Note: the `after` cursor is intentionally NOT applied here. The list paginates at the
+        # trace level (see `TraceSpansQueryRunner.to_query`), so a span-level keyset would wrongly
+        # filter child spans of the kept traces. The shared where() is also used by the sparkline,
+        # aggregation and tree runners, which never paginate.
 
         return ast.And(exprs=exprs)
 
@@ -372,6 +344,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "duration_nano": result[10],
                 "is_root_span": result[11],
                 "matched_filter": result[12],
+                # Per-trace pagination key (earliest matching-span timestamp); identical for every
+                # span of a trace. Falls back to this row's timestamp on the off chance it is null.
+                "trace_start": (result[13] or result[8]).replace(tzinfo=ZoneInfo("UTC")),
             }
             results.append(row)
 
@@ -382,32 +357,88 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
         return response
 
+    def _parse_after_cursor(self) -> tuple[dt.datetime, str] | None:
+        """Decode the opaque `after` cursor into (trace_start_ts, trace_id_base64).
+
+        The cursor identifies the last trace of the previous page by its start time (the root
+        span's timestamp) and trace id. `trace_id` travels as hex (the human form the rest of the
+        API uses) and is re-encoded to the table's base64 storage form for comparison.
+        """
+        if not self.query.after:
+            return None
+        try:
+            cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
+            cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+            cursor_trace_id_b64 = base64.b64encode(bytes.fromhex(cursor["trace_id"])).decode("ascii")
+        except (KeyError, ValueError, json.JSONDecodeError) as e:
+            raise ValueError(f"Invalid cursor format: {e}")
+        return cursor_ts, cursor_trace_id_b64
+
     def to_query(self) -> ast.SelectQuery:
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
         limit_by_n = self.query.prefetchSpans or 1
 
-        trace_id_query = self.paginator.paginate(
-            parse_select(
-                """
+        # The list paginates by trace, ordered by each trace's start time (its earliest span, i.e.
+        # the root). We GROUP BY trace_id so the keyset cursor lands on a stable per-trace key —
+        # `LIMIT 1 BY trace_id` can't keyset cleanly because a multi-span trace straddling the
+        # cursor would be re-selected via its other spans.
+        cursor = self._parse_after_cursor()
+        op = ">" if self.query.orderBy == "earliest" else "<"
+        ts_op = ">=" if self.query.orderBy == "earliest" else "<="
+
+        subquery_where_exprs: list[ast.Expr] = [self.where()]
+        having_expr: ast.Expr | None = None
+        if cursor is not None:
+            cursor_ts, cursor_trace_id = cursor
+            # Scalar bound on time_bucket lets ClickHouse prune parts via the primary index;
+            # min(timestamp) of any kept trace is always within this bound.
+            subquery_where_exprs.append(
+                parse_expr(
+                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            having_expr = parse_expr(
+                f"(min(timestamp), trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
+                placeholders={
+                    "cursor_ts": ast.Constant(value=cursor_ts),
+                    "cursor_trace_id": ast.Constant(value=cursor_trace_id),
+                },
+            )
+
+        subquery_where = (
+            subquery_where_exprs[0] if len(subquery_where_exprs) == 1 else ast.And(exprs=subquery_where_exprs)
+        )
+
+        trace_id_query = parse_select(
+            """
             SELECT
                 trace_id
             FROM posthog.trace_spans
             WHERE {where}
-            LIMIT 1 by trace_id
+            GROUP BY trace_id
             LIMIT {limit}
         """,
-                placeholders={
-                    "where": self.where(),
-                    "limit": ast.Constant(value=self.query.limit),
-                },
-            )
+            placeholders={
+                "where": subquery_where,
+                "limit": ast.Constant(value=self.query.limit),
+            },
         )
 
         assert isinstance(trace_id_query, ast.SelectQuery)
         trace_id_query.order_by = [
-            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"min(timestamp) {order_dir}"),
+            parse_order_expr(f"trace_id {order_dir}"),
         ]
+        if having_expr is not None:
+            trace_id_query.having = having_expr
 
+        # `trace_start` is the per-trace pagination key — the earliest timestamp among the spans
+        # matching the filters, i.e. exactly what the subquery's `min(timestamp)` HAVING/ORDER BY
+        # uses. Computing it here as a window over the (untruncated) span set lets the view read the
+        # SQL key directly instead of re-deriving min() over the prefetched spans, which is wrong
+        # for a trace whose earliest span isn't in the prefetched slice (e.g. a rootless trace with
+        # prefetchSpans > 1 and orderBy="latest").
         query = parse_select(
             """
             SELECT
@@ -423,12 +454,14 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 end_time,
                 duration_nano,
                 is_root_span,
-                {where} as matched_filter
+                {where} as matched_filter,
+                min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start
             FROM posthog.trace_spans
             WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
+                "where_for_start": self.where(),
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
@@ -686,6 +719,7 @@ def run_tree_query(
     team: "Team",
     date_range: DateRange,
     span_name: str,
+    service_name: str,
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
@@ -694,6 +728,7 @@ def run_tree_query(
     query = TraceSpansTreeQuery(
         dateRange=date_range,
         spanName=span_name,
+        serviceName=service_name,
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,

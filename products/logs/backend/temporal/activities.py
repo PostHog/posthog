@@ -9,7 +9,6 @@ from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
-from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.db.models import Q
@@ -17,9 +16,13 @@ from django.db.utils import IntegrityError
 
 import structlog
 import temporalio.activity
+from pydantic import ValidationError as PydanticValidationError
+
+from posthog.schema import PropertyGroupFilter
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
 
 from products.logs.backend.alert_check_query import (
@@ -36,10 +39,16 @@ from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
 )
+from products.logs.backend.alert_signal_emitter import (
+    NotifiedAlert,
+    emit_alert_state_change_signal,
+    signal_action_and_weight,
+)
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertState,
     CheckResult,
+    ControlPlaneOutcome,
     NotificationAction,
     apply_outcome,
     evaluate_alert_check,
@@ -48,6 +57,7 @@ from products.logs.backend.alert_utils import advance_next_check_at, compute_sha
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
+    EMIT_SIGNAL_CONCURRENCY,
     MAX_ALERT_COHORT_SIZE,
     MAX_COHORTS_PER_BATCH,
     MAX_CONCURRENT_COHORTS_PER_BATCH,
@@ -71,9 +81,6 @@ from products.logs.backend.temporal.metrics import (
     record_scheduler_lag,
     record_worker_memory_snapshot,
 )
-
-if TYPE_CHECKING:
-    from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -300,6 +307,12 @@ class EvaluateCohortBatchOutput:
     alerts_fired: int
     alerts_resolved: int
     alerts_errored: int
+    notified: list[NotifiedAlert] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass(frozen=True)
+class EmitAlertSignalsInput:
+    notified: list[NotifiedAlert]
 
 
 def _due_alerts_qs(now: datetime):
@@ -371,6 +384,59 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
 
 
+def _detect_broken_filter_config(filters: object) -> str | None:
+    """Returns a human-readable reason if `filters` is structurally broken in a way
+    that will permanently prevent the alert from running. Returns None if the shape
+    is valid enough to attempt evaluation.
+    """
+    if not isinstance(filters, dict):
+        return f"filters must be a JSON object, got {type(filters).__name__}"
+    filter_group = filters.get("filterGroup")
+    if not filter_group:
+        return None
+    try:
+        PropertyGroupFilter.model_validate(filter_group)
+    except PydanticValidationError as e:
+        return f"Invalid filterGroup shape: {e.errors()[0]['msg']}"
+    return None
+
+
+def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
+    """Transition an alert to BROKEN because its configuration is structurally
+    invalid and can never succeed. Runs in the same sync DB pool as discovery —
+    each call is its own short transaction so a failure on one row doesn't
+    roll back the others.
+    """
+    try:
+        with transaction.atomic():
+            alert = LogsAlertConfiguration.objects.select_for_update().get(pk=alert_id)
+            if alert.state == LogsAlertConfiguration.State.BROKEN:
+                return
+            state_before = alert.state
+            outcome = ControlPlaneOutcome(
+                new_state=AlertState.BROKEN,
+                consecutive_failures=alert.consecutive_failures,
+            )
+            update_fields = apply_outcome(alert, outcome)
+            LogsAlertEvent.objects.create(
+                alert=alert,
+                kind=LogsAlertEvent.Kind.BROKEN_CONFIG,
+                threshold_breached=False,
+                state_before=state_before,
+                state_after=outcome.new_state.value,
+                error_message=reason,
+            )
+            alert.save(update_fields=update_fields)
+    except Exception as e:
+        logger.exception(
+            "Failed to mark alert BROKEN for invalid config",
+            alert_id=alert_id,
+            reason=reason,
+            error=str(e),
+        )
+        capture_exception(e)
+
+
 def _cohort_manifests_from_alerts(
     rows: Sequence[dict],
     *,
@@ -381,22 +447,46 @@ def _cohort_manifests_from_alerts(
 
     Cohort key + size-cap logic on plain dicts (no Django model hydration)
     so it stays cheap at scale and produces serialisable manifests for the
-    workflow.
+    workflow. Alerts with structurally broken filter configs are transitioned
+    to BROKEN and excluded from the manifests — they would never succeed
+    anyway, and one bad row must not brick discovery for the rest of the
+    project.
     """
     grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[str]] = defaultdict(list)
     for row in rows:
-        nca = row["next_check_at"] if row["next_check_at"] is not None else now
-        date_to = resolve_alert_date_to(nca, checkpoint)
-        projection_eligible = is_projection_eligible(row["filters"])
-        key = (
-            row["team_id"],
-            row["window_minutes"],
-            row["evaluation_periods"],
-            row["check_interval_minutes"],
-            projection_eligible,
-            date_to,
-        )
-        grouped[key].append(str(row["id"]))
+        try:
+            broken_reason = _detect_broken_filter_config(row["filters"])
+            if broken_reason is not None:
+                logger.warning(
+                    "Marking alert BROKEN due to invalid filter config",
+                    alert_id=str(row["id"]),
+                    team_id=row.get("team_id"),
+                    reason=broken_reason,
+                )
+                _mark_alert_broken_for_bad_config(str(row["id"]), broken_reason)
+                continue
+            nca = row["next_check_at"] if row["next_check_at"] is not None else now
+            date_to = resolve_alert_date_to(nca, checkpoint)
+            projection_eligible = is_projection_eligible(row["filters"])
+            key = (
+                row["team_id"],
+                row["window_minutes"],
+                row["evaluation_periods"],
+                row["check_interval_minutes"],
+                projection_eligible,
+                date_to,
+            )
+            grouped[key].append(str(row["id"]))
+        except Exception as e:
+            # Any unexpected per-row failure must not brick discovery for the
+            # rest of the project.
+            logger.exception(
+                "Skipping alert in cohort discovery due to malformed row",
+                alert_id=str(row.get("id")),
+                team_id=row.get("team_id"),
+                error=str(e),
+            )
+            capture_exception(e)
 
     manifests: list[CohortManifest] = []
     for (team_id, _wm, _ep, _cim, projection_eligible, date_to), alert_ids in grouped.items():
@@ -449,10 +539,15 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_COHORTS_PER_BATCH)
 
-    async def _run_one_cohort(manifest: CohortManifest) -> dict[str, int]:
-        """Process one cohort, returning its stats delta. Always returns —
-        per-cohort failure is captured into local_stats, never raised."""
+    async def _run_one_cohort(manifest: CohortManifest) -> tuple[dict[str, int], list[NotifiedAlert]]:
+        """Process one cohort, returning its stats delta and notified alerts. Always
+        returns — per-cohort failure is captured into local_stats, never raised.
+
+        Cohorts run concurrently under the semaphore, so this returns its deltas
+        for serial aggregation by the caller rather than mutating shared state.
+        """
         local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+        local_notified: list[NotifiedAlert] = []
 
         async with semaphore:
             try:
@@ -464,7 +559,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     missing_count=len(manifest.alert_ids),
                 )
                 local_stats["errored"] += len(manifest.alert_ids)
-                return local_stats
+                return local_stats, local_notified
 
             _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
 
@@ -477,7 +572,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     cohort_size=len(cohort.alerts),
                 )
                 local_stats["errored"] += len(cohort.alerts)
-                return local_stats
+                return local_stats, local_notified
 
             evaluations: list[_AlertEvaluation] = []
             eval_starts: list[float] = []
@@ -528,7 +623,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
                 local_stats["errored"] += len(dispatched)
                 local_stats["checked"] += len(dispatched)
-                return local_stats
+                return local_stats, local_notified
 
             elapsed_by_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
             for d in saved:
@@ -537,7 +632,8 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 local_stats["checked"] += 1
                 local_stats["errored"] += 1
 
-            return local_stats
+            local_notified.extend(_build_notified_from_saved(saved))
+            return local_stats, local_notified
 
     cohort_results = await asyncio.gather(
         *(_run_one_cohort(m) for m in input.manifests),
@@ -550,9 +646,11 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
     await asyncio.to_thread(_post_cohort_memory_cleanup)
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
-    for r in cohort_results:
-        for k, v in r.items():
+    batch_notified: list[NotifiedAlert] = []
+    for local_stats, local_notified in cohort_results:
+        for k, v in local_stats.items():
             stats[k] += v
+        batch_notified.extend(local_notified)
 
     if stats["checked"] > 0:
         logger.info("Cohort batch complete", **stats)
@@ -562,7 +660,55 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
         alerts_fired=stats["fired"],
         alerts_resolved=stats["resolved"],
         alerts_errored=stats["errored"],
+        notified=batch_notified,
     )
+
+
+def _load_teams_for_signals(team_ids: set[int]) -> dict[int, Team]:
+    """Load teams (with organization) for signal emission, keyed by id.
+
+    `emit_signal` reads `team.organization` for the AI-consent gate, so prefetch
+    it here to avoid a per-emit round-trip.
+    """
+    return {team.id: team for team in Team.objects.filter(id__in=team_ids).select_related("organization")}
+
+
+@temporalio.activity.defn
+async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
+    """Fan out emit_signal for alerts that notified this cycle.
+
+    Dedicated activity (off the eval hot path) with bounded concurrency,
+    heartbeats, and per-emit isolation — mirrors the data_imports signal pipeline.
+    Returns the number of signals successfully emitted.
+    """
+    if not input.notified:
+        return 0
+
+    team_ids = {na.team_id for na in input.notified}
+    teams = await database_sync_to_async_pool(_load_teams_for_signals)(team_ids)
+
+    semaphore = asyncio.Semaphore(EMIT_SIGNAL_CONCURRENCY)
+    completed = 0
+
+    async def _bounded(na: NotifiedAlert) -> bool:
+        nonlocal completed
+        async with semaphore:
+            team = teams.get(na.team_id)
+            if team is None:
+                logger.warning(
+                    "Team missing for logs alert signal; skipping",
+                    team_id=na.team_id,
+                    alert_id=na.alert_id,
+                )
+                return False
+            ok = await emit_alert_state_change_signal(team, na)
+            completed += 1
+            if completed % EMIT_SIGNAL_CONCURRENCY == 0:
+                temporalio.activity.heartbeat()
+            return ok
+
+    results = await asyncio.gather(*(_bounded(na) for na in input.notified))
+    return sum(1 for ok in results if ok)
 
 
 def _load_alerts_for_batch(alert_ids: set[str]) -> dict[str, LogsAlertConfiguration]:
@@ -939,6 +1085,40 @@ def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[s
         state_before_enum = AlertState(evaluation.state_before)
         if committed_state != state_before_enum:
             increment_state_transition(state_before_enum, committed_state)
+
+
+def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAlert]:
+    """Map saved+notified dispatched alerts to serialisable signal descriptors.
+
+    Only alerts whose committed outcome carried a signalable notification
+    (FIRE/BROKEN) and whose Kafka dispatch succeeded are included. RESOLVE/ERROR
+    map to None via signal_action_and_weight and are skipped here.
+    """
+    notified: list[NotifiedAlert] = []
+    for d in saved:
+        if d.notification_failed:
+            continue
+        mapping = signal_action_and_weight(d.evaluation.outcome.notification)
+        if mapping is None:
+            continue
+        action, weight = mapping
+        alert = d.evaluation.alert
+        notified.append(
+            NotifiedAlert(
+                alert_id=str(alert.id),
+                team_id=alert.team_id,
+                alert_name=alert.name,
+                action=action,
+                weight=weight,
+                threshold_count=alert.threshold_count,
+                threshold_operator=alert.threshold_operator,
+                window_minutes=alert.window_minutes,
+                result_count=d.evaluation.check_result.result_count,
+                consecutive_failures=d.evaluation.outcome.consecutive_failures,
+                filters=alert.filters,
+            )
+        )
+    return notified
 
 
 def _evaluate_single_alert(

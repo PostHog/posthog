@@ -5,8 +5,8 @@ from typing import Literal
 
 from posthog.temporal.data_imports.sources.common import config
 
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig
 
 
 @config.config
@@ -73,7 +73,7 @@ class SnowflakeAuthTypeConfig(config.Config):
 @config.config
 class StripeAuthMethodConfig(config.Config):
     stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
-    selection: Literal["oauth", "api_key"] = "oauth"
+    selection: Literal["api_key", "oauth"] = "api_key"
     stripe_secret_key: str | None = None
 
 
@@ -278,6 +278,14 @@ class ConvexSourceConfig(config.Config):
 @config.config
 class CopperSourceConfig(config.Config):
     pass
+
+
+@config.config
+class CustomSourceConfig(config.Config):
+    manifest_json: str
+    auth_token: str | None = None
+    auth_api_key: str | None = None
+    auth_password: str | None = None
 
 
 @config.config
@@ -594,6 +602,13 @@ class PendoSourceConfig(config.Config):
 
 
 @config.config
+class PgAnalyzeSourceConfig(config.Config):
+    api_key: str
+    organization_slug: str
+    api_url: str | None = None
+
+
+@config.config
 class PinterestAdsSourceConfig(config.Config):
     ad_account_id: str
     pinterest_ads_integration_id: int = config.value(converter=config.str_to_int)
@@ -616,7 +631,7 @@ class PlainSourceConfig(config.Config):
 
 @config.config
 class PolarSourceConfig(config.Config):
-    pass
+    polar_api_key: str
 
 
 @config.config
@@ -681,7 +696,8 @@ class ResendSourceConfig(config.Config):
 
 @config.config
 class RevenueCatSourceConfig(config.Config):
-    pass
+    secret_api_key: str
+    project_id: str
 
 
 @config.config
@@ -931,6 +947,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
         ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
+        ExternalDataSourceType.CUSTOM: CustomSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
@@ -989,6 +1006,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PARDOT: PardotSourceConfig,
         ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
         ExternalDataSourceType.PENDO: PendoSourceConfig,
+        ExternalDataSourceType.PGANALYZE: PgAnalyzeSourceConfig,
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,

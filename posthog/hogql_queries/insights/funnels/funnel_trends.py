@@ -13,10 +13,11 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF, FunnelUDFMixin
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
+from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
@@ -93,12 +94,25 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             return "any(person_id) as person_id,"
         return ""
 
-    def matched_event_select(self):
+    def matched_event_select(self, steps: str, exclusions: str):
         if self._include_matched_events():
-            return """
-                groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
+            # Pick the latest funnel-step event with a $session_id at-or-before the
+            # converting event's timestamp so mixed client/server funnels still surface
+            # a recording when the converting step is server-side.
+            return f"""
+                groupArray(tuple(
+                    timestamp,
+                    uuid,
+                    $session_id,
+                    $window_id,
+                    arrayFilter((x) -> x != 0, [{steps}{exclusions}])
+                )) as user_events,
                 mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
-                [user_events_map[af_tuple.4]] as matching_events,
+                arrayFilter(
+                    e -> e.3 != '' AND length(e.5) > 0 AND e.1 <= user_events_map[af_tuple.4].1,
+                    arraySort(e -> e.1, user_events)
+                ) as session_events,
+                [if(length(session_events) > 0, session_events[-1], user_events_map[af_tuple.4])] as matching_events,
                 """
         return ""
 
@@ -182,7 +196,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
                 af_tuple.3 as breakdown,
-                {self.matched_event_select()}
+                {self.matched_event_select(steps, exclusions)}
                 {self._person_id_select()}
                 aggregation_target as aggregation_target
             FROM {{inner_event_query}}

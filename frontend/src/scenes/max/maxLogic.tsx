@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -8,8 +8,8 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneTab } from 'scenes/sceneTypes'
@@ -135,9 +135,11 @@ function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
 }
 
 export const maxLogic = kea<maxLogicType>([
-    path(['scenes', 'max', 'maxLogic']),
-    props({} as { tabId: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }),
-    tabAwareScene(),
+    props(
+        {} as { tabId?: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }
+    ),
+    key((props) => props.tabId || 'scene'),
+    path((key) => ['scenes', 'max', 'maxLogic', key]),
 
     connect(() => ({
         values: [
@@ -157,12 +159,21 @@ export const maxLogic = kea<maxLogicType>([
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
+            tabUiStateLogic,
+            ['chatDraftFor'],
         ],
         actions: [
             maxContextLogic,
             ['resetContext'],
             maxGlobalLogic,
-            ['loadConversationHistory', 'prependOrReplaceConversation', 'loadConversationHistorySuccess'],
+            [
+                'loadConversationHistory',
+                'prependOrReplaceConversation',
+                'loadConversationHistorySuccess',
+                'deleteConversation',
+            ],
+            tabUiStateLogic,
+            ['setChatDraftForTab'],
         ],
     })),
 
@@ -416,8 +427,18 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        setQuestion: ({ question }) => {
+            // Side panel Max stays mounted across the whole app, so its question reducer
+            // already survives navigation — and there's no removeTab cleanup for it,
+            // which would turn the persisted draft into a memory leak.
+            if (props.tabId && props.tabId !== 'sidepanel') {
+                actions.setChatDraftForTab(props.tabId, question)
+            }
+        },
         incrActiveStreamingThreads: () => {
-            updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
+            if (props.tabId) {
+                updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
+            }
         },
         decrActiveStreamingThreads: () => {
             // Reducer runs before listener, so activeStreamingThreads is already decremented.
@@ -425,7 +446,9 @@ export const maxLogic = kea<maxLogicType>([
             if (values.activeStreamingThreads > 0) {
                 return
             }
-            updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
+            if (props.tabId) {
+                updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
+            }
         },
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
@@ -547,6 +570,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             actions.resetContext()
             actions.focusInput()
+            if (props.tabId && props.tabId !== 'sidepanel') {
+                actions.setChatDraftForTab(props.tabId, '')
+            }
         },
     })),
 
@@ -554,13 +580,22 @@ export const maxLogic = kea<maxLogicType>([
     // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
     subscriptions(({ props }) => ({
         chatTitle: (title: string | null) => {
-            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY) {
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY && props.tabId) {
                 updateInactiveTab(props.tabId, { title })
             }
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, props }) => {
+        // Restore per-tab chat draft (typed but unsent input that should survive scene unmount).
+        // Side panel Max is excluded — it stays mounted globally, doesn't go through removeTab cleanup.
+        if (!values.question && props.tabId && props.tabId !== 'sidepanel') {
+            const draft = values.chatDraftFor(props.tabId)
+            if (draft) {
+                actions.setQuestion(draft)
+            }
+        }
+
         // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
         if (!values.question) {
             try {
@@ -760,7 +795,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 requiresUserInput: true,
             },
             {
-                content: 'How can I set up the LLM analytics in…',
+                content: 'How can I set up AI observability in…',
                 requiresUserInput: true,
             },
             {
@@ -929,7 +964,7 @@ export const RESEARCH_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Run a cohort analysis comparing users by sign-up month',
             },
             {
-                content: 'Analyze LLM usage patterns and costs across features',
+                content: 'Analyze AI usage patterns and costs across features',
             },
         ],
     },

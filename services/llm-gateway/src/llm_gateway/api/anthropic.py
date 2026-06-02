@@ -1,4 +1,6 @@
+import asyncio
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -7,11 +9,19 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, _sanitize_request_data, handle_llm_request
+from llm_gateway.api.handler import (
+    ANTHROPIC_CONFIG,
+    BEDROCK_CONFIG,
+    _sanitize_request_data,
+    handle_llm_request,
+    normalize_litellm_model_name,
+)
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
+from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
-from llm_gateway.dependencies import RateLimitedUser
+from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.metrics.prometheus import (
+    ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
     BEDROCK_FALLBACK_FAILURE,
     BEDROCK_FALLBACK_SUCCESS,
     BEDROCK_FALLBACK_TRIGGERED,
@@ -94,7 +104,7 @@ async def _send_bedrock_messages(
     data = dict(request_data)
     bedrock_model = map_to_bedrock_model(data["model"], region_name=bedrock_region_name)
     # litellm can't infer the bedrock provider from regional inference profile
-    # ids like "us.anthropic.claude-opus-4-7-v1", so prefix explicitly.
+    # ids like "us.anthropic.claude-opus-4-7", so prefix explicitly.
     data["model"] = f"bedrock/{bedrock_model}"
 
     anthropic_beta = request.headers.get("anthropic-beta")
@@ -114,10 +124,79 @@ async def _send_bedrock_messages(
     )
 
 
+async def _maybe_bypass_anthropic(
+    breaker: AnthropicCircuitBreaker | None,
+    model: str,
+    product: str,
+    *,
+    use_bedrock_fallback: bool,
+) -> bool:
+    """Bypass requires the caller to have opted in via `use_bedrock_fallback`; without that
+    we never silently change the upstream provider, even if Anthropic looks unhealthy.
+    """
+    if breaker is None or not use_bedrock_fallback:
+        return False
+
+    decision = await breaker.evaluate()
+    if decision.bypass:
+        ANTHROPIC_CIRCUIT_BREAKER_BYPASSED.labels(model=model, product=product).inc()
+    return decision.bypass
+
+
+def _is_breaker_success(status_code: int) -> bool:
+    """4xx are caller-side errors and don't reflect Anthropic health, except 429 — that's
+    Anthropic-side throttling and is exactly the kind of degradation the breaker exists for.
+    """
+    if status_code == 429:
+        return False
+    return status_code < 500
+
+
+async def _record_anthropic_outcome(breaker: AnthropicCircuitBreaker | None, success: bool) -> None:
+    if breaker is None:
+        return
+    await breaker.record_outcome(success=success)
+
+
+def _wrap_stream_with_breaker(
+    response: StreamingResponse,
+    breaker: AnthropicCircuitBreaker | None,
+) -> StreamingResponse:
+    """Record the breaker outcome from inside the stream generator's lifecycle so mid-stream
+    Anthropic failures aren't misrecorded as successes — the connection-level success that
+    `handle_llm_request` returns isn't a reliable signal for streaming traffic.
+    """
+    if breaker is None:
+        return response
+
+    inner = response.body_iterator
+
+    async def wrapped() -> AsyncIterator[bytes]:
+        success = True
+        try:
+            async for chunk in inner:
+                yield chunk
+        except asyncio.CancelledError:
+            # Client disconnect — neither success nor failure of Anthropic.
+            raise
+        except Exception:
+            success = False
+            raise
+        finally:
+            try:
+                await breaker.record_outcome(success=success)
+            except Exception:
+                logger.exception("circuit_breaker_stream_record_failed")
+
+    response.body_iterator = wrapped()
+    return response
+
+
 async def _handle_anthropic_messages(
     body: AnthropicMessagesRequest,
     user: RateLimitedUser,
     request: Request,
+    breaker: AnthropicCircuitBreaker | None,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
@@ -127,10 +206,14 @@ async def _handle_anthropic_messages(
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
 
-    # Anthropic path
+    if await _maybe_bypass_anthropic(breaker, body.model, product, use_bedrock_fallback=use_bedrock_fallback):
+        return await _send_bedrock_messages(data, user, request, body.stream or False, product)
+
+    litellm_data = {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}
+
     try:
-        return await handle_llm_request(
-            request_data=data,
+        result = await handle_llm_request(
+            request_data=litellm_data,
             user=user,
             model=body.model,
             is_streaming=body.stream or False,
@@ -139,7 +222,9 @@ async def _handle_anthropic_messages(
             product=product,
         )
     except HTTPException as exc:
-        if not use_bedrock_fallback or exc.status_code < 500:
+        await _record_anthropic_outcome(breaker, success=_is_breaker_success(exc.status_code))
+        # Fall back to Bedrock for any provider-attributable failure (5xx + 429 throttling).
+        if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
             raise
 
         error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
@@ -160,12 +245,19 @@ async def _handle_anthropic_messages(
             BEDROCK_FALLBACK_FAILURE.labels(model=body.model, product=product).inc()
             logger.exception("Bedrock fallback also failed", model=body.model, product=product)
             raise exc from None
+    else:
+        if isinstance(result, StreamingResponse):
+            # Outcome recorded from inside the stream generator (see _wrap_stream_with_breaker).
+            return _wrap_stream_with_breaker(result, breaker)
+        await _record_anthropic_outcome(breaker, success=True)
+        return result
 
 
 async def _handle_count_tokens(
     body: AnthropicCountTokensRequest,
     user: RateLimitedUser,
     request: Request,
+    breaker: AnthropicCircuitBreaker | None,
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
     data = _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
@@ -175,11 +267,14 @@ async def _handle_count_tokens(
     if provider == "bedrock":
         return await _bedrock_count_tokens_impl(data, body.model, user, product)
 
-    # Anthropic path
+    if await _maybe_bypass_anthropic(breaker, body.model, product, use_bedrock_fallback=use_bedrock_fallback):
+        return await _bedrock_count_tokens_impl(data, body.model, user, product)
+
     try:
-        return await _anthropic_count_tokens_impl(data, body.model, user, product)
+        result = await _anthropic_count_tokens_impl(data, body.model, user, product)
     except HTTPException as exc:
-        if not use_bedrock_fallback or exc.status_code < 500:
+        await _record_anthropic_outcome(breaker, success=_is_breaker_success(exc.status_code))
+        if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
             raise
 
         error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
@@ -200,6 +295,9 @@ async def _handle_count_tokens(
             BEDROCK_FALLBACK_FAILURE.labels(model=body.model, product=product).inc()
             logger.exception("Bedrock count_tokens fallback also failed", model=body.model, product=product)
             raise exc from None
+    else:
+        await _record_anthropic_outcome(breaker, success=True)
+        return result
 
 
 async def _anthropic_count_tokens_impl(
@@ -339,8 +437,9 @@ async def anthropic_count_tokens(
     body: AnthropicCountTokensRequest,
     user: RateLimitedUser,
     request: Request,
+    breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any]:
-    return await _handle_count_tokens(body, user, request)
+    return await _handle_count_tokens(body, user, request, breaker)
 
 
 @anthropic_router.post("/{product}/v1/messages/count_tokens", response_model=None)
@@ -349,9 +448,10 @@ async def anthropic_count_tokens_with_product(
     user: RateLimitedUser,
     product: str,
     request: Request,
+    breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any]:
     validate_product(product)
-    return await _handle_count_tokens(body, user, request, product=product)
+    return await _handle_count_tokens(body, user, request, breaker, product=product)
 
 
 @anthropic_router.post("/v1/messages", response_model=None)
@@ -359,9 +459,10 @@ async def anthropic_messages(
     body: AnthropicMessagesRequest,
     user: RateLimitedUser,
     request: Request,
+    breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any] | StreamingResponse:
     apply_posthog_context_from_headers(request)
-    return await _handle_anthropic_messages(body, user, request)
+    return await _handle_anthropic_messages(body, user, request, breaker)
 
 
 @anthropic_router.post("/{product}/v1/messages", response_model=None)
@@ -370,7 +471,8 @@ async def anthropic_messages_with_product(
     user: RateLimitedUser,
     product: str,
     request: Request,
+    breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
     apply_posthog_context_from_headers(request)
-    return await _handle_anthropic_messages(body, user, request, product=product)
+    return await _handle_anthropic_messages(body, user, request, breaker, product=product)

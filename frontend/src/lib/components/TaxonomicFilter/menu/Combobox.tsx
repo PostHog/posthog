@@ -11,12 +11,30 @@
  * commit. Esc → onBack.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
+import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight } from '@posthog/icons'
-import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea, Separator } from '@posthog/quill'
+import {
+    cn,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    MenuLabel,
+    ScrollArea,
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Separator,
+    Skeleton,
+} from '@posthog/quill'
 
 import { createFuse } from 'lib/utils/fuseSearch'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -26,6 +44,7 @@ import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupTyp
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
+import { VerificationBadge } from './VerificationBadge'
 
 // `threshold` + `ignoreDiacritics` come from `createFuse` defaults; we
 // only override what's specific to the menu (keys + the
@@ -97,6 +116,11 @@ export function MenuFilterCombobox({
         return drillTo
     })
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
+    // Per-group loading flags reported up by `Fetcher`. We need this in the
+    // parent so the empty-state vs. skeleton decision sees the freshest
+    // fetch status across every visible (target) group, not just the one
+    // whose `useGroupList` hook last rendered.
+    const [loadingByType, setLoadingByType] = useState<Record<string, boolean>>({})
     // Seed the highlight with the committed selection so the preview
     // pane shows the right definition before any row hovers fire. Once
     // the list mounts, `autoHighlight="always"` + the reordered
@@ -152,10 +176,27 @@ export function MenuFilterCombobox({
         setItemsByType((prev) => (prev[type] === next ? prev : { ...prev, [type]: next }))
     }, [])
 
+    const reportLoading = useCallback((type: string, loading: boolean): void => {
+        setLoadingByType((prev) => (prev[type] === loading ? prev : { ...prev, [type]: loading }))
+    }, [])
+
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
     // category and hide the chip row per spec.
     const showChips = drillTo === 'all'
     const visibleChipGroups = useMemo(() => groups.filter((g) => !HIDDEN_FROM_CHIPS.has(g.type)), [groups])
+
+    // Ordered category list — drives the category dropdown and Tab cycling
+    // (kept in sync so the dropdown trigger reflects the active scope).
+    const categoryOptions = useMemo<{ value: DrillCategory; label: string }[]>(() => {
+        const opts: { value: DrillCategory; label: string }[] = [{ value: 'all', label: 'All' }]
+        if (suggestedItems && suggestedItems.length > 0) {
+            opts.push({ value: 'suggested', label: 'Suggested' })
+        }
+        for (const g of visibleChipGroups) {
+            opts.push({ value: g.type, label: g.name })
+        }
+        return opts
+    }, [suggestedItems, visibleChipGroups])
 
     // Resolve which groups feed the visible list, based on the active chip
     // (or the drill scope when chips are hidden).
@@ -170,6 +211,14 @@ export function MenuFilterCombobox({
         const g = groups.find((gr) => gr.type === scope)
         return g ? [g] : []
     }, [showChips, activeChip, drillTo, groups, visibleChipGroups])
+
+    // Mount + subscribe so `$survey_response_<question-id>` keys resolve to the
+    // actual question text. `getFriendlyLabel` reads through `getCoreFilterDefinition`,
+    // which falls back to a static label until `surveyQuestionLabelsLogic` has
+    // loaded. Subscribing here ensures `indexed` recomputes the labels once they
+    // arrive — without this, each entry's `friendlyLabel` would be frozen to the
+    // pre-load fallback for the lifetime of the popover.
+    const { surveyQuestionLabels } = useValues(surveyQuestionLabelsLogic)
 
     // Indexed entries — flat list across all visible groups (or
     // pre-resolved `drillItems` for recent/pinned, or pre-merged
@@ -209,11 +258,18 @@ export function MenuFilterCombobox({
                 scope === 'pinned' ||
                 scope === 'suggested'
             if (fitsScope) {
-                const selectedValue = selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name
+                // Stringify both sides so a synthetic `selected` shimmed in
+                // by callers like `TaxonomicPopoverMenu` (where the value
+                // arrives as e.g. `'5'`) dedups against the real entry
+                // returned by the endpoint (`cohort.id === 5`). Without this
+                // coercion the two land side-by-side with two checkmarks —
+                // the stableId path below already coerces, so matching here
+                // keeps the prepend logic aligned with how rows are keyed.
+                const selectedValue = String(selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name)
                 const present = merged.some(
                     (e) =>
                         e.group.type === selectedEntry.group.type &&
-                        (e.group.getValue?.(e.item) ?? e.name) === selectedValue
+                        String(e.group.getValue?.(e.item) ?? e.name) === selectedValue
                 )
                 if (!present) {
                     merged.unshift(selectedEntry)
@@ -221,15 +277,49 @@ export function MenuFilterCombobox({
             }
         }
         return merged
-    }, [drillItems, suggestedItems, targetGroups, itemsByType, selectedEntry, showChips, activeChip, drillTo])
+        // `surveyQuestionLabels` is a deliberate recompute trigger: it isn't read
+        // directly in the body, but `getFriendlyLabel` → `getCoreFilterDefinition`
+        // reads its value via `findMounted()`. Without this dep the memo would
+        // freeze each entry's `friendlyLabel` to the pre-load fallback.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        drillItems,
+        suggestedItems,
+        targetGroups,
+        itemsByType,
+        selectedEntry,
+        showChips,
+        activeChip,
+        drillTo,
+        surveyQuestionLabels,
+    ])
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        const base = q
-            ? createFuse(indexed, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
-                  .search(q)
-                  .map((r) => r.item)
-            : indexed
+        let base: MenuFilterEntry[]
+        if (!q) {
+            base = indexed
+        } else {
+            // The endpoint is the search authority for endpoint-backed
+            // groups (e.g. Cohorts use `name__icontains` server-side, plus
+            // server-side behavioral-cohort exclusion). Re-running the
+            // client Fuse over already-server-searched results filters them
+            // a *second*, fuzzier time — and Fuse scoring isn't monotonic as
+            // the query grows, so a valid match shown for "posthog te" can
+            // vanish at "posthog team". So only Fuse locally-sourced groups
+            // (Actions, etc., which load their full list client-side); pass
+            // server-searched entries through untouched, preserving order.
+            const localSourced = indexed.filter((e) => !e.group.endpoint)
+            const localMatches =
+                localSourced.length > 0
+                    ? new Set(
+                          createFuse(localSourced, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
+                              .search(q)
+                              .map((r) => r.item)
+                      )
+                    : null
+            base = indexed.filter((e) => !!e.group.endpoint || (localMatches?.has(e) ?? false))
+        }
         // Promote the committed selection to index 0 so base-ui's
         // `autoHighlight="always"` lands on it the moment the list
         // mounts — keyboard nav starts on the selected row, the
@@ -264,6 +354,18 @@ export function MenuFilterCombobox({
         return phrase ? `Search ${phrase}…` : (placeholder ?? 'Search…')
     }, [activeChip, groups, placeholder])
 
+    // True while any visible group is fetching its first page (or refetching
+    // with no kept-previous-data) — drives the skeleton fallback so the user
+    // doesn't see "No X found" before the request resolves. Drilled
+    // scopes that read from pre-resolved `drillItems` / `suggestedItems`
+    // never fetch and stay at `false`.
+    const isAnyLoading = useMemo(() => {
+        if (drillItems) {
+            return false
+        }
+        return targetGroups.some((g) => loadingByType[g.type])
+    }, [drillItems, targetGroups, loadingByType])
+
     // Empty-state message. Three branches:
     //   - "needs more characters" — when the active chip resolves to a
     //     single group with `minSearchQueryLength` and the search query
@@ -276,6 +378,12 @@ export function MenuFilterCombobox({
     //     entries (rare for finite groups).
     const emptyState = useMemo<{ title: string; body?: string } | null>(() => {
         if (filtered.length > 0) {
+            return null
+        }
+        // Suppress empty-state copy while a remote fetch is in flight —
+        // the skeleton fallback below takes its place so we don't flash
+        // "No X found" before the response resolves.
+        if (isAnyLoading) {
             return null
         }
         const scope = showChips ? activeChip : drillTo
@@ -301,7 +409,7 @@ export function MenuFilterCombobox({
         return {
             title: categoryLabel ? `No "${categoryLabel}" found` : 'No items',
         }
-    }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery])
+    }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery, isAnyLoading])
 
     const headerTitle =
         title ??
@@ -335,15 +443,19 @@ export function MenuFilterCombobox({
             return
         }
         if (e.key === 'Tab' && showChips && visibleChipGroups.length > 0) {
-            // Cycle chips while focus stays on input. Wraps both directions.
-            const ordered: DrillCategory[] = [
-                'all',
-                ...(suggestedItems && suggestedItems.length > 0 ? (['suggested'] as const) : []),
-                ...visibleChipGroups.map((g) => g.type),
-            ]
+            // Cycle categories while focus stays on input. Wraps both
+            // directions. Shares `categoryOptions` with the dropdown so the
+            // trigger label stays in sync.
+            const ordered = categoryOptions.map((o) => o.value)
             const idx = ordered.indexOf(activeChip)
             const dir = e.shiftKey ? -1 : 1
             const next = ordered[(idx + dir + ordered.length) % ordered.length]
+            posthog.capture('taxonomic filter menu category changed', {
+                fromChip: activeChip,
+                toChip: next,
+                via: 'tab',
+                direction: e.shiftKey ? 'backward' : 'forward',
+            })
             setActiveChip(next)
             e.preventDefault()
             e.stopPropagation()
@@ -395,59 +507,73 @@ export function MenuFilterCombobox({
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                 />
+                                {/* Category dropdown — trailing addon. Picks
+                                    the active scope; replaces the old
+                                    flex-wrapped chip row. Only shown when
+                                    there's more than the implicit "All"
+                                    category to choose between. */}
+                                {showChips && categoryOptions.length > 1 && (
+                                    <InputGroupAddon align="inline-end">
+                                        <Select<DrillCategory>
+                                            value={activeChip}
+                                            onValueChange={(value) => {
+                                                posthog.capture('taxonomic filter menu category changed', {
+                                                    fromChip: activeChip,
+                                                    toChip: value ?? 'all',
+                                                    via: 'dropdown',
+                                                })
+                                                setActiveChip(value ?? 'all')
+                                                inputRef.current?.focus()
+                                            }}
+                                            itemToStringLabel={(value) =>
+                                                categoryOptions.find((o) => o.value === value)?.label ?? 'All'
+                                            }
+                                        >
+                                            <SelectTrigger
+                                                size="sm"
+                                                aria-label="Filter category"
+                                                data-attr="menu-filter-category"
+                                                className="mr-0.5"
+                                            >
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent align="end">
+                                                <SelectGroup>
+                                                    {categoryOptions.map((o) => (
+                                                        <SelectItem key={o.value} value={o.value}>
+                                                            {o.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectGroup>
+                                            </SelectContent>
+                                        </Select>
+                                    </InputGroupAddon>
+                                )}
                             </InputGroup>
                         </div>
-                        {showChips && (
-                            <div role="tablist" className="flex flex-wrap gap-1 px-2 py-1 border-b">
-                                <ChipButton
-                                    label="All"
-                                    active={activeChip === 'all'}
-                                    onSelect={() => {
-                                        setActiveChip('all')
-                                        inputRef.current?.focus()
-                                    }}
-                                />
-                                {/* `Suggested` chip = Recent ∪ Pinned across
-                                    groups. Only render when there's something
-                                    to surface — empty Suggested just adds
-                                    visual noise. */}
-                                {suggestedItems && suggestedItems.length > 0 && (
-                                    <ChipButton
-                                        label="Suggested"
-                                        active={activeChip === 'suggested'}
-                                        onSelect={() => {
-                                            setActiveChip('suggested')
-                                            inputRef.current?.focus()
-                                        }}
-                                    />
-                                )}
-                                {visibleChipGroups.map((g) => (
-                                    <ChipButton
-                                        key={g.type}
-                                        label={g.name}
-                                        active={activeChip === g.type}
-                                        onSelect={() => {
-                                            setActiveChip(g.type)
-                                            inputRef.current?.focus()
-                                        }}
-                                    />
-                                ))}
-                            </div>
-                        )}
                         {!drillItems &&
-                            targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
+                            targetGroups.map((g) => (
+                                <Fetcher key={g.type} group={g} onItems={reportItems} onLoadingChange={reportLoading} />
+                            ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
                             <Autocomplete.List data-quill className="p-2 scroll-py-8">
                                 <Autocomplete.Empty className="empty:hidden">
-                                    {emptyState && (
-                                        <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-                                            <div className="text-sm font-semibold">{emptyState.title}</div>
-                                            {emptyState.body && (
-                                                <div className="text-xs text-secondary leading-relaxed">
-                                                    {emptyState.body}
-                                                </div>
-                                            )}
-                                        </div>
+                                    {isAnyLoading ? (
+                                        <LoadingRows />
+                                    ) : (
+                                        emptyState && (
+                                            <div
+                                                data-attr="menu-filter-empty"
+                                                className="flex flex-col items-center gap-2 px-4 py-8 text-center"
+                                            >
+                                                <div className="text-sm font-semibold">{emptyState.title}</div>
+                                                {emptyState.body && (
+                                                    <div className="text-xs text-secondary leading-relaxed">
+                                                        {emptyState.body}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
                                     )}
                                 </Autocomplete.Empty>
                                 <Autocomplete.Collection>
@@ -562,31 +688,10 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
                 </span>
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
+            <VerificationBadge entry={entry} />
             {isSelected && <IconCheck className="size-3.5 text-foreground shrink-0" />}
             {opensSubmenu && <IconChevronRight className="size-3.5 text-tertiary shrink-0" />}
         </Autocomplete.Item>
-    )
-}
-
-interface ChipButtonProps {
-    label: string
-    active: boolean
-    onSelect: () => void
-}
-
-function ChipButton({ label, active, onSelect }: ChipButtonProps): JSX.Element {
-    return (
-        <Button
-            type="button"
-            role="tab"
-            size="sm"
-            aria-selected={active}
-            variant={active ? 'primary' : 'outline'}
-            onMouseDown={(e: React.MouseEvent<HTMLButtonElement>) => e.preventDefault()}
-            onClick={onSelect}
-        >
-            {label}
-        </Button>
     )
 }
 
@@ -598,16 +703,48 @@ function ChipButton({ label, active, onSelect }: ChipButtonProps): JSX.Element {
 function Fetcher({
     group,
     onItems,
+    onLoadingChange,
 }: {
     group: TaxonomicFilterGroup
     onItems: (type: string, items: TaxonomicDefinitionTypes[]) => void
+    /** Reports `isLoading` (no items yet) so the parent can show a skeleton
+     *  instead of "No X found" during the first fetch. */
+    onLoadingChange: (type: string, loading: boolean) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const list = useGroupList(getGroupListInput(group))
     useEffect(() => {
         onItems(group.type, list.items)
     }, [group.type, list.items, onItems])
+    useEffect(() => {
+        onLoadingChange(group.type, list.showLoadingState)
+    }, [group.type, list.showLoadingState, onLoadingChange])
+    // Make sure we flip back to "not loading" when this group unmounts —
+    // otherwise a stale `true` from a previously-active chip would keep
+    // the skeleton on screen after we switch scope.
+    useEffect(() => {
+        return () => {
+            onLoadingChange(group.type, false)
+        }
+    }, [group.type, onLoadingChange])
     return null
+}
+
+/** Skeleton placeholder shown in place of the result list while a remote
+ *  fetch is in flight and we have nothing to show yet. Matches the row
+ *  layout (two-line label + tag stub) so the popover height doesn't jump
+ *  when results arrive. */
+function LoadingRows(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1 p-2" data-attr="menu-filter-loading">
+            {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex flex-col gap-1 px-2 py-1">
+                    <Skeleton className="h-3.5 w-2/3 rounded" />
+                    <Skeleton className="h-3 w-1/3 rounded" />
+                </div>
+            ))}
+        </div>
+    )
 }
 
 /**

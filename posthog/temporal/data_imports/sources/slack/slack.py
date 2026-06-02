@@ -3,6 +3,8 @@ import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
+from django.core.cache import cache
+
 import orjson
 import pyarrow as pa
 import requests
@@ -173,6 +175,41 @@ def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> li
     return public + private
 
 
+_CHANNELS_CACHE_TTL_SECONDS = 300
+
+
+def _channels_cache_key(integration_id: int) -> str:
+    # Keyed on the Integration row PK (unique per PostHog team × Slack workspace), matching
+    # the convention used by the HogFunctions Slack channel-list cache in posthog.api.integration.
+    return f"@dwh/slack/{integration_id}/channels"
+
+
+def _fetch_all_channels_cached(
+    integration_id: int,
+    access_token: str,
+    authed_user: str | None = None,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """Cached wrapper around `_fetch_all_channels`.
+
+    Slack's `conversations.list` is Tier 2 (~20 req/min). Workspaces with thousands of
+    channels exhaust that budget in a single discovery pass, so callers that don't
+    strictly need fresh data should go through this wrapper. Callers that need fresh
+    data (e.g. the user-triggered `refresh_schemas` action) should pass
+    ``force_refresh=True`` — the upstream call still happens, but the previous value
+    stays in cache until the new one is written, so concurrent readers don't pile up
+    on a missing key.
+    """
+    cache_key = _channels_cache_key(integration_id)
+    if not force_refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+    channels = _fetch_all_channels(access_token, authed_user)
+    cache.set(cache_key, channels, _CHANNELS_CACHE_TTL_SECONDS)
+    return channels
+
+
 def _fetch_messages_page(
     access_token: str,
     channel_id: str,
@@ -250,9 +287,17 @@ def _fetch_thread_replies(
         has_more = cursor is not None
 
 
-def get_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, str]]:
+def get_channels(
+    integration_id: int,
+    access_token: str,
+    authed_user: str | None = None,
+    force_refresh: bool = False,
+) -> list[dict[str, str]]:
     """Return channel id + name pairs for all accessible channels."""
-    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels(access_token, authed_user)]
+    return [
+        {"id": ch["id"], "name": ch["name"]}
+        for ch in _fetch_all_channels_cached(integration_id, access_token, authed_user, force_refresh=force_refresh)
+    ]
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
@@ -337,6 +382,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
 
 def slack_source(
     access_token: str,
+    integration_id: int,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -356,7 +402,7 @@ def slack_source(
         # public+private types are mixed, so we walk public and private separately and
         # scope private channels to the installer (matches get_schemas behavior).
         endpoint_config = ENDPOINTS[endpoint]
-        items = lambda: iter(_fetch_all_channels(access_token, authed_user))
+        items = lambda: iter(_fetch_all_channels_cached(integration_id, access_token, authed_user))
     elif endpoint in ENDPOINTS:
         # $users — served via the generic REST framework
         endpoint_config = ENDPOINTS[endpoint]

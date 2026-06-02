@@ -1,6 +1,7 @@
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -52,6 +53,7 @@ from posthog.hogql.database.models import (
     Table,
     TableNode,
     UnknownDatabaseField,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
@@ -62,6 +64,9 @@ from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.conversion_goal_attributed_preaggregated import (
+    ConversionGoalAttributedPreaggregatedTable,
+)
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
     DocumentEmbeddingsTable,
@@ -133,6 +138,12 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
 )
+from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
+from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
+from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -142,14 +153,17 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.team import WeekStartDay
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
 if TYPE_CHECKING:
+    from posthog.schema import DataWarehouseSyncWarning
+
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
 
@@ -283,6 +297,32 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
+                    "error_tracking_fingerprint_issue_state": TableNode(
+                        name="error_tracking_fingerprint_issue_state",
+                        table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
+                    "web_overview_preaggregated": TableNode(
+                        name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
+                    ),
+                    "conversion_goal_attributed_preaggregated": TableNode(
+                        name="conversion_goal_attributed_preaggregated",
+                        table=ConversionGoalAttributedPreaggregatedTable(),
+                    ),
+                    "web_stats_paths_preaggregated": TableNode(
+                        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
+                    ),
+                    "web_stats_preaggregated": TableNode(
+                        name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
+                    ),
+                    "web_vitals_paths_preaggregated": TableNode(
+                        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
+                    ),
+                    "web_stats_frustration_preaggregated": TableNode(
+                        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
+                    ),
+                    "web_goals_preaggregated": TableNode(
+                        name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
+                    ),
                 },
             ),
             "system": SystemTables(),
@@ -305,6 +345,9 @@ class Database(BaseModel):
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
+    # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
+    # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
+    _data_warehouse_sync_warnings: dict[str, list["DataWarehouseSyncWarning"]] = {}
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -329,6 +372,7 @@ class Database(BaseModel):
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
+        self._data_warehouse_sync_warnings = {}
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -444,7 +488,7 @@ class Database(BaseModel):
         if not isinstance(system_tables, SystemTables):
             return []
 
-        return ["query_log", *system_tables.resolve_all_table_names()]
+        return ["query_log", *system_tables.resolve_visible_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -600,7 +644,7 @@ class Database(BaseModel):
         include_only: set[str] | None = None,
         include_hidden_posthog_tables: bool = False,
     ) -> dict[str, DatabaseSchemaTable]:
-        from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -738,10 +782,15 @@ class Database(BaseModel):
                     )
                     fields_dict = {field.name: field for field in fields}
 
+                    # The table is also queryable by its raw underscore name, which is registered
+                    # separately from the dotted `table_key`. Surface it so search matches either form.
+                    search_aliases = [warehouse_table.name] if warehouse_table.name != table_key else None
+
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
                         fields=fields_dict,
                         id=str(warehouse_table.id),
                         name=table_key,
+                        search_aliases=search_aliases,
                         format=warehouse_table.format,
                         url_pattern=warehouse_table.url_pattern,
                         schema=schema,
@@ -840,7 +889,8 @@ class Database(BaseModel):
 
         from posthog.models import Team
 
-        from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_tools.backend.models.join import DataWarehouseJoin
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1137,6 +1187,7 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
+            sync_warnings_now = datetime.now(UTC)
             for table in tables:
                 if (
                     not database._is_direct_query()
@@ -1147,6 +1198,10 @@ class Database(BaseModel):
 
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
+
+                    sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
+                    if sync_warnings:
+                        database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
                     primary_table = s3_table
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
@@ -1646,7 +1701,9 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
         return
 
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
-    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids):
+    # select_related("source"): warning rendering reads schema.source.source_type, so avoid a
+    # per-schema lazy fetch when any of these tables turns out to be unhealthy.
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids).select_related("source"):
         schemas_by_table_id[str(schema.table_id)].append(schema)
 
     for warehouse_table in warehouse_tables:
@@ -1777,6 +1834,15 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, StringDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UUIDDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,

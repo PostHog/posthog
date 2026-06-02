@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import {
     __clearTaxonomicResourceCache,
     invalidateTaxonomicResource,
+    invalidateTaxonomicResourcesWhere,
     peekTaxonomicResource,
     useTaxonomicResource,
 } from './useTaxonomicResource'
@@ -151,6 +152,37 @@ describe('useTaxonomicResource', () => {
         expect(seenSignals[0].aborted).toBe(true)
     })
 
+    it('does not poison the cache key when an in-flight request is aborted', async () => {
+        // First call rejects with an AbortError when its signal aborts;
+        // second call (after re-mount) resolves normally.
+        const fn = jest
+            .fn()
+            .mockImplementationOnce(
+                ({ signal }: { signal: AbortSignal }) =>
+                    new Promise<string>((_resolve, reject) => {
+                        signal.addEventListener('abort', () =>
+                            reject(new DOMException('The operation was aborted.', 'AbortError'))
+                        )
+                    })
+            )
+            .mockResolvedValueOnce('second')
+
+        // Mount, then unmount before the request settles → aborts it.
+        const { unmount } = renderHook(() => useTaxonomicResource(['poison'], fn))
+        unmount()
+        // Let the abort rejection settle.
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        // Re-mounting the same key must re-fetch — the aborted request must
+        // not have stored an error that halts auto-fetch forever.
+        const r2 = renderHook(() => useTaxonomicResource(['poison'], fn))
+        await waitFor(() => expect(r2.result.current.data).toBe('second'))
+        expect(r2.result.current.error).toBeUndefined()
+        expect(fn).toHaveBeenCalledTimes(2)
+    })
+
     it('passes a fresh AbortSignal that is not aborted while a subscriber is mounted', async () => {
         const seen: AbortSignal[] = []
         const fn = jest.fn().mockImplementation(({ signal }: { signal: AbortSignal }) => {
@@ -179,6 +211,33 @@ describe('useTaxonomicResource', () => {
         rerender()
         await waitFor(() => expect(result.current.data).toBe('y'))
         expect(fn).toHaveBeenCalledTimes(2)
+    })
+
+    it('invalidateTaxonomicResourcesWhere() invalidates every key matching the predicate', async () => {
+        const fnA = jest.fn().mockResolvedValueOnce('a1').mockResolvedValueOnce('a2')
+        const fnB = jest.fn().mockResolvedValueOnce('b1').mockResolvedValueOnce('b2')
+        const fnC = jest.fn().mockResolvedValueOnce('c1')
+
+        const ra = renderHook(() => useTaxonomicResource(['taxonomic-list', 'cohorts', 'k1'], fnA))
+        const rb = renderHook(() => useTaxonomicResource(['taxonomic-list', 'cohorts', 'k2'], fnB))
+        const rc = renderHook(() => useTaxonomicResource(['taxonomic-list', 'events', 'k3'], fnC))
+
+        await waitFor(() => expect(ra.result.current.data).toBe('a1'))
+        await waitFor(() => expect(rb.result.current.data).toBe('b1'))
+        await waitFor(() => expect(rc.result.current.data).toBe('c1'))
+
+        // Invalidate only the cohort entries — events stays cached.
+        invalidateTaxonomicResourcesWhere((key) => key[0] === 'taxonomic-list' && key[1] === 'cohorts')
+
+        ra.rerender()
+        rb.rerender()
+        rc.rerender()
+
+        await waitFor(() => expect(ra.result.current.data).toBe('a2'))
+        await waitFor(() => expect(rb.result.current.data).toBe('b2'))
+        expect(fnA).toHaveBeenCalledTimes(2)
+        expect(fnB).toHaveBeenCalledTimes(2)
+        expect(fnC).toHaveBeenCalledTimes(1)
     })
 
     it('peekTaxonomicResource() returns current cached value', async () => {

@@ -36,11 +36,19 @@ BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
         "team_id",
         "Error Tracking Fingerprints",
     ),
-    ("posthog.models.feature_flag.feature_flag.FeatureFlagHashKeyOverride", "team_id", "Feature Flag Overrides"),
+    (
+        "products.feature_flags.backend.models.feature_flag.FeatureFlagHashKeyOverride",
+        "team_id",
+        "Feature Flag Overrides",
+    ),
     ("posthog.models.group.group.Group", "team_id", "Groups"),
     ("posthog.models.group_type_mapping.GroupTypeMapping", "team_id", "Group Type Mappings"),
     ("posthog.models.person.Person", "team_id", "Persons"),
-    ("posthog.models.insight_caching_state.InsightCachingState", "team_id", "Insight Caching States"),
+    (
+        "products.product_analytics.backend.models.insight_caching_state.InsightCachingState",
+        "team_id",
+        "Insight Caching States",
+    ),
 )
 
 
@@ -136,6 +144,7 @@ class UsageReportForm(forms.Form):
         return report_date
 
 
+@admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
@@ -157,6 +166,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_hipaa",
         "is_platform",
         "members_can_invite",
+        "is_ai_data_processing_approved",
+        "is_ai_training_opted_in",
+        "is_ai_training_locked",
+        "is_ai_training_cta_shown",
     ]
     inlines = [
         ProjectInline,

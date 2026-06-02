@@ -46,7 +46,34 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
+export interface QuarantineSourceRunApi {
+    id: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+}
+
+export interface BaselineQuarantineSummaryApi {
+    created_by?: UserBasicInfoApi | null
+    source_run?: QuarantineSourceRunApi | null
+    id: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+}
+
 export interface BaselineEntryApi {
+    /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+    quarantine?: BaselineQuarantineSummaryApi | null
     identifier: string
     run_type: string
     /** @nullable */
@@ -83,14 +110,10 @@ export interface BaselineOverviewApi {
     generated_at: string
 }
 
-export interface UserBasicInfoApi {
-    id: number
-    first_name: string
-    email: string
-}
-
 export interface QuarantinedIdentifierEntryApi {
     created_by?: UserBasicInfoApi | null
+    /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+    source_run?: QuarantineSourceRunApi | null
     id: string
     identifier: string
     run_type: string
@@ -111,10 +134,21 @@ export interface PaginatedQuarantinedIdentifierEntryListApi {
 }
 
 export interface QuarantineInputApi {
-    /** @maxLength 512 */
+    /**
+     * Snapshot identifier to quarantine.
+     * @maxLength 512
+     */
     identifier: string
-    /** @maxLength 255 */
+    /**
+     * Why this snapshot is being quarantined.
+     * @maxLength 255
+     */
     reason: string
+    /**
+     * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+     * @nullable
+     */
+    source_run_id?: string | null
     /** @nullable */
     expires_at?: string | null
 }
@@ -268,13 +302,18 @@ export interface AddSnapshotsResultApi {
 }
 
 export interface ApproveSnapshotInputApi {
+    /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
     identifier: string
+    /** The content hash of the new baseline image to record for this identifier. */
     new_hash: string
 }
 
 export interface ApproveRunRequestInputApi {
+    /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
     snapshots?: ApproveSnapshotInputApi[]
+    /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
     approve_all?: boolean
+    /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
     commit_to_github?: boolean
 }
 
@@ -317,6 +356,7 @@ export interface SnapshotApi {
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
     id: string
+    run_id: string
     identifier: string
     result: string
     classification_reason: string
@@ -348,6 +388,7 @@ export interface PaginatedSnapshotListApi {
 }
 
 export interface MarkToleratedInputApi {
+    /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
     snapshot_id: string
 }
 

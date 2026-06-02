@@ -2,7 +2,6 @@ import './FeatureFlag.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -93,7 +92,6 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
 export function FeatureFlagReleaseConditions({
     id,
     readOnly,
-    isSuper,
     excludeTitle,
     filters,
     onChange,
@@ -105,7 +103,6 @@ export function FeatureFlagReleaseConditions({
     isDisabled,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
-    isSuper?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
@@ -114,7 +111,6 @@ export function FeatureFlagReleaseConditions({
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
         readOnly,
-        isSuper,
         excludeTitle,
         filters,
         onChange,
@@ -142,8 +138,7 @@ export function FeatureFlagReleaseConditions({
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } =
-        useValues(featureFlagLogic)
+    const { hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } = useValues(featureFlagLogic)
     const { setBucketingIdentifier, setFeatureFlag } = useActions(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
@@ -413,7 +408,11 @@ export function FeatureFlagReleaseConditions({
                         >
                             <div className="text-sm ">
                                 Rolled out to{' '}
-                                {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
+                                {group.rollout_percentage != null ? (
+                                    <b className="tabular-nums">{group.rollout_percentage}</b>
+                                ) : (
+                                    <b className="tabular-nums">100</b>
+                                )}
                                 <b>%</b>
                                 <span> of </span>
                                 <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
@@ -450,7 +449,7 @@ export function FeatureFlagReleaseConditions({
                                 of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set. Will
                                 match approximately{' '}
                                 {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
-                                    <b>
+                                    <b className="tabular-nums">
                                         {`${
                                             Math.max(
                                                 computeBlastRadiusPercentage(
@@ -475,9 +474,13 @@ export function FeatureFlagReleaseConditions({
                                         const rolloutPct = Number.isNaN(group.rollout_percentage)
                                             ? 0
                                             : (group.rollout_percentage ?? 100)
-                                        return `(${humanFriendlyNumber(
-                                            Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
-                                        )} / ${humanFriendlyNumber(total)})`
+                                        return (
+                                            <span className="tabular-nums">
+                                                {`(${humanFriendlyNumber(
+                                                    Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
+                                                )} / ${humanFriendlyNumber(total)})`}
+                                            </span>
+                                        )
                                     }
                                     return ''
                                 })()}{' '}
@@ -546,74 +549,9 @@ export function FeatureFlagReleaseConditions({
         )
     }
 
-    const renderSuperReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
-        if (!readOnly) {
-            return <></>
-        }
-
-        // TODO: EarlyAccessFeatureType is not the correct type for featureFlag.features, hence bypassing TS check
-        const hasMatchingEarlyAccessFeature = earlyAccessFeaturesList?.find((f: any) => f.flagKey === featureFlagKey)
-
-        return (
-            <div className="w-full" key={group.sort_key}>
-                {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
-                <div className="mb-4 rounded p-4 bg-surface-primary">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                            <div>
-                                {group.properties?.length ? (
-                                    <>
-                                        Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> against
-                                        value set on <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match{' '}
-                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    <LemonDivider className="my-3" />
-
-                    {(group.properties?.length || 0) > 0 && (
-                        <>
-                            <div className="feature-flag-property-display">
-                                <LemonButton icon={<IconSubArrowRight className="arrow-right" />} size="small" />
-                                <span>
-                                    If null, default to <b>Release conditions</b>
-                                </span>
-                            </div>
-                            <LemonDivider className="my-3" />
-                        </>
-                    )}
-                    <div className="flex items-center justify-between">
-                        <div />
-                        <LemonButton
-                            disabledReason={
-                                !hasMatchingEarlyAccessFeature &&
-                                'The matching Early Access Feature was not found. You can create it in the Early Access Management tab.'
-                            }
-                            aria-label="more"
-                            data-attr="feature-flag-feature-list-button"
-                            size="small"
-                            onClick={() =>
-                                hasEarlyAccessFeatures &&
-                                router.actions.push(urls.earlyAccessFeature(earlyAccessFeaturesList[0].id))
-                            }
-                        >
-                            {hasMatchingEarlyAccessFeature ? 'View Early Access Feature' : 'No Early Access Feature'}
-                        </LemonButton>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
     return (
         <SceneSection
-            title={excludeTitle ? null : isSuper ? 'Super release conditions' : 'Release conditions'}
+            title={excludeTitle ? null : 'Release conditions'}
             data-attr="feature-flag-release-conditions"
             description={
                 !readOnly &&
@@ -797,11 +735,7 @@ export function FeatureFlagReleaseConditions({
             )}
             <div className="FeatureConditionCard max-w-prose">
                 {filterGroups.map((group, index) => (
-                    <div key={group.sort_key || index}>
-                        {isSuper
-                            ? renderSuperReleaseConditionGroup(group, index)
-                            : renderReleaseConditionGroup(group, index)}
-                    </div>
+                    <div key={group.sort_key || index}>{renderReleaseConditionGroup(group, index)}</div>
                 ))}
             </div>
             {!readOnly && (

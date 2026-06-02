@@ -57,7 +57,7 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
-// Builds the resolver mcp.ts hands to initPostHogMcpAnalytics in single-exec
+// Builds the resolver mcp.ts hands to initMcpAnalytics in single-exec
 // mode: given a request, return the inner tool's { name, description } when
 // the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
 // here (alongside parseExecCallInnerToolName) so tests can import the exact
@@ -79,28 +79,27 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
-// surface a targeted redirect to the v2 replacement instead of dumping the full
-// tool catalog. Sourced from tools marked `new_mcp: false` in
-// schema/tool-definitions.json. Keep the redirect text editorial — schemas
-// don't carry "use X instead" guidance.
+// Tools that were removed from the MCP server. When the model attempts to call
+// one, surface a targeted redirect to the replacement instead of dumping the
+// full tool catalog. Keep the redirect text editorial — schemas don't carry
+// "use X instead" guidance.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     'entity-search': () =>
-        'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
+        'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
     'event-definitions-list': () =>
-        'Tool "event-definitions-list" was removed in MCP v2. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
+        'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
-        'Tool "properties-list" was removed in MCP v2. Use "read-data-schema": { "query": { "kind": "event_properties", "event_name": "..." } } for event properties, or { "kind": "entity_properties", "entity": "person" | "session" | "group/<n>" } for entity properties.',
+        'Tool "properties-list" was removed. Use "read-data-schema": { "query": { "kind": "event_properties", "event_name": "..." } } for event properties, or { "kind": "entity_properties", "entity": "person" | "session" | "group/<n>" } for entity properties.',
     'property-definitions': () =>
-        'Tool "property-definitions" was removed in MCP v2. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
+        'Tool "property-definitions" was removed. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
-        'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
+        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))
             .map((t) => `- ${t.name}: ${t.description.split('\n')[0]}`)
             .join('\n')
-        return `Tool "query-run" was removed in MCP v2. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
+        return `Tool "query-run" was removed. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
     },
 }
 
@@ -202,8 +201,12 @@ export function createExecTool(
                         return fullOutput
                     }
 
-                    // Schema too large — return summary with drill-down hints
-                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
+                    // Schema too large — return summary with drill-down hints.
+                    // Each complex field's `hint` carries the imperative to run
+                    // `schema` before populating it, so no separate directive is
+                    // needed here.
+                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    return serialize(topShape, summary)
                 }
 
                 case 'schema': {
@@ -215,6 +218,9 @@ export function createExecTool(
                     const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
 
                     if (!fieldPath) {
+                        // The bare `schema <tool>` view is always a summary. Any
+                        // field that still needs drilling carries the imperative
+                        // in its own `hint`, so the summary stands on its own.
                         return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
@@ -232,10 +238,12 @@ export function createExecTool(
                         return serialized
                     }
 
-                    // Field schema too large — return summary with sub-path hints
+                    // Field schema too large — return a summary instead. The
+                    // summary's complex sub-fields carry the drill-down `hint`,
+                    // so the response shape stays the same as the inline case
+                    // (`{ field, schema }`) — no separate top-level note.
                     return JSON.stringify({
                         field: fieldPath,
-                        note: `Full schema is ${Math.ceil(serialized.length / 6000)}k+ tokens. Showing summary. Drill into sub-fields for details.`,
                         schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
                     })
                 }
@@ -301,9 +309,9 @@ export function createExecTool(
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `undefined` bypasses the coding-agent suppression in
+                                // Passing `false` bypasses coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.
-                                clientName: undefined,
+                                suppressStructuredContentForFormattedResults: false,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })

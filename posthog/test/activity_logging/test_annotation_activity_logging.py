@@ -2,10 +2,10 @@ from typing import Any, cast
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.annotation import Annotation
-from posthog.models.insight import Insight
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAnnotationActivityLogging(ActivityLogTestHelper):

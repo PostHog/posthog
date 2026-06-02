@@ -4,7 +4,7 @@ use std::{
 };
 
 use rdkafka::{
-    consumer::{Consumer, ConsumerGroupMetadata, StreamConsumer},
+    consumer::{CommitMode, Consumer, ConsumerGroupMetadata, StreamConsumer},
     error::KafkaError,
     ClientConfig, Message,
 };
@@ -188,6 +188,10 @@ impl SingleTopicConsumer {
             .consumer
             .group_metadata()
             .expect("It is impossible to construct a stream consumer without a group id")
+    }
+
+    pub fn commit(&self) -> Result<(), KafkaError> {
+        self.inner.consumer.commit_consumer_state(CommitMode::Sync)
     }
 }
 

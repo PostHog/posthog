@@ -17,12 +17,13 @@ from posthog.schema import (
 
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from posthog.models.insight import Insight
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
@@ -73,6 +74,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - For percentage-based thresholds, set threshold_type to "percentage" and use decimal values (e.g., 0.5 for 50%)
 
     # Calculation intervals
+    - **every_15_minutes**: Check every 15 minutes (Boost+ and feature flag required)
     - **hourly**: Check every hour
     - **daily**: Check once per day (default for create)
     - **weekly**: Check once per week
@@ -111,7 +113,7 @@ class CreateAlertAction(BaseModel):
     )
     calculation_interval: AlertCalculationInterval = Field(
         default=AlertCalculationInterval.DAILY,
-        description="How often to check: hourly, daily, weekly, or monthly",
+        description="How often to check: every_15_minutes (Boost+), hourly, daily, weekly, or monthly",
     )
     upper_threshold: float | None = Field(
         default=None,
@@ -144,7 +146,10 @@ class UpdateAlertAction(BaseModel):
     alert_id: str = Field(description="The ID of the alert to update (find via list_data with kind='alerts')")
     name: str | None = Field(default=None, description="New alert name")
     condition_type: AlertConditionType | None = Field(default=None, description="New condition type")
-    calculation_interval: AlertCalculationInterval | None = Field(default=None, description="New calculation interval")
+    calculation_interval: AlertCalculationInterval | None = Field(
+        default=None,
+        description="New calculation interval (every_15_minutes requires Boost+ and feature flag)",
+    )
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
     threshold_type: InsightThresholdType | None = Field(default=None, description="New threshold type")
@@ -191,6 +196,21 @@ class UpsertAlertTool(MaxTool):
         else:
             return await self._handle_update(action)
 
+    async def _validate_every_15_minutes_interval(
+        self,
+        calculation_interval: str | AlertCalculationInterval | None,
+        *,
+        existing_interval: str | AlertCalculationInterval | None = None,
+    ) -> str | None:
+        team = self._team
+        user = self._user
+        org = await sync_to_async(lambda: team.organization)()
+        return await sync_to_async(AlertConfiguration.every_15_minutes_interval_validation_error)(
+            calculation_interval=calculation_interval or existing_interval,
+            user_distinct_id=str(user.distinct_id),
+            organization=org,
+        )
+
     async def _handle_create(self, action: CreateAlertAction) -> tuple[str, dict[str, Any]]:
         try:
             team = self._team
@@ -203,6 +223,9 @@ class UpsertAlertTool(MaxTool):
 
             if limit_msg := await self._check_alert_limit():
                 return limit_msg, {"error": "plan_limit_reached"}
+
+            if interval_msg := await self._validate_every_15_minutes_interval(action.calculation_interval):
+                return interval_msg, {"error": "validation_failed"}
 
             try:
                 insight, was_auto_saved = await self._resolve_and_validate_insight(
@@ -281,6 +304,12 @@ class UpsertAlertTool(MaxTool):
                 return f"Alert '{action.alert_id}' not found.", {"error": "alert_not_found"}
 
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
+
+            if interval_msg := await self._validate_every_15_minutes_interval(
+                action.calculation_interval,
+                existing_interval=alert.calculation_interval,
+            ):
+                return interval_msg, {"error": "validation_failed"}
 
             update_fields: list[str] = []
             conditions_or_threshold_changed = False

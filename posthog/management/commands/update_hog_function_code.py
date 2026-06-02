@@ -6,7 +6,8 @@ from django.core.paginator import Paginator
 import structlog
 
 from posthog.cdp.validation import compile_hog
-from posthog.models.hog_functions.hog_function import HogFunction
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
 

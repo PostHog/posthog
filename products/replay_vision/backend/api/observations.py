@@ -2,62 +2,125 @@ import uuid
 
 from django.db.models import QuerySet
 
+import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
-from products.replay_vision.backend.models.replay_lens import ReplayLens
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_scanner import (
+    ReplayScanner,
+    ScannerModel,
+    ScannerProvider,
+    ScannerType,
+)
+from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+
+logger = structlog.get_logger(__name__)
+
+
+class ScannerSnapshotSerializer(serializers.Serializer):
+    """Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation."""
+
+    name = serializers.CharField(
+        help_text="Scanner name at run time.",
+    )
+    scanner_type = serializers.ChoiceField(
+        choices=ScannerType.choices,
+        help_text="Scanner type (monitor, classifier, scorer, summarizer) at run time.",
+    )
+    scanner_version = serializers.IntegerField(
+        help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
+    )
+    model = serializers.ChoiceField(
+        choices=ScannerModel.choices,
+        help_text="Concrete model that ran the observation.",
+    )
+    provider = serializers.ChoiceField(
+        choices=ScannerProvider.choices,
+        help_text="Concrete provider that ran the observation.",
+    )
+    emits_signals = serializers.BooleanField(
+        help_text="Whether the observation was run with Signal emission enabled.",
+    )
+    scanner_config = serializers.JSONField(
+        help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
+    )
+
+
+class ScannerResultSerializer(serializers.Serializer):
+    """Mirrors `temporal.types.ScannerResult` for OpenAPI generation."""
+
+    model_output = serializers.JSONField(
+        help_text="Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`.",
+    )
+    signals_count = serializers.IntegerField(
+        min_value=0,
+        help_text="Number of PostHog Signals emitted from this observation.",
+    )
 
 
 class ReplayObservationSerializer(serializers.ModelSerializer):
-    lens_id = serializers.UUIDField(read_only=True, help_text="The lens that produced this observation.")
-    session_id = serializers.CharField(read_only=True, help_text="Session recording id this lens was applied to.")
+    scanner_id = serializers.UUIDField(read_only=True, help_text="The scanner that produced this observation.")
+    session_id = serializers.CharField(read_only=True, help_text="Session recording id this scanner was applied to.")
     status = serializers.ChoiceField(
         choices=ObservationStatus.choices,
         read_only=True,
-        help_text="Observation status (pending, running, succeeded, failed).",
+        help_text="Observation status (pending, running, succeeded, failed, ineligible).",
     )
     error_reason = serializers.CharField(
         read_only=True,
         allow_blank=True,
-        help_text="Populated on failure. Includes the malformed model response when validation fails.",
+        help_text=(
+            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
+            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
+            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
+            "validation_failed / internal_error."
+        ),
     )
     workflow_id = serializers.CharField(
         read_only=True,
         allow_blank=True,
         help_text="Temporal workflow id for progress queries and debugging. Empty until the workflow starts.",
     )
-    lens_version = serializers.IntegerField(
-        read_only=True,
-        help_text="The `ReplayLens.lens_version` value at the moment the workflow ran.",
+    scanner_snapshot = serializers.SerializerMethodField(
+        help_text="Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation.",
     )
-    # TODO: type against the same Pydantic shape used to validate `ReplayLens.lens_config`.
-    lens_config_snapshot = serializers.JSONField(
-        read_only=True,
-        help_text="Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations.",
+    scanner_result = serializers.SerializerMethodField(
+        help_text="Result data persisted on success; null until the observation succeeds.",
     )
-    model_used = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text="Concrete model that ran the observation.",
-    )
-    provider_used = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text="Concrete provider that ran the observation.",
-    )
+
+    @extend_schema_field(ScannerSnapshotSerializer(allow_null=True))
+    def get_scanner_snapshot(self, obj: ReplayObservation) -> dict | None:
+        if not obj.scanner_snapshot:
+            return None  # Snapshot is supposed to be populated at create; an empty blob is a write-side bug.
+        try:
+            return ScannerSnapshot.model_validate(obj.scanner_snapshot).model_dump(mode="json")
+        except PydanticValidationError:
+            logger.exception("replay_vision.observation.malformed_scanner_snapshot", observation_id=str(obj.id))
+            return None
+
+    @extend_schema_field(ScannerResultSerializer(allow_null=True))
+    def get_scanner_result(self, obj: ReplayObservation) -> dict | None:
+        if not obj.scanner_result:
+            return None
+        try:
+            return ScannerResult.model_validate(obj.scanner_result).model_dump(mode="json")
+        except PydanticValidationError:
+            logger.exception("replay_vision.observation.malformed_scanner_result", observation_id=str(obj.id))
+            return None
+
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
@@ -66,28 +129,35 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by_user = UserBasicSerializer(
         read_only=True,
         allow_null=True,
-        help_text="User who triggered an on-demand observation. Null for scheduled observations.",
+        help_text="User who triggered an on-demand observation; null for scheduled observations.",
     )
 
     class Meta:
         model = ReplayObservation
         fields = [
             "id",
-            "lens_id",
+            "scanner_id",
             "session_id",
             "status",
             "error_reason",
             "workflow_id",
-            "lens_version",
-            "lens_config_snapshot",
-            "model_used",
-            "provider_used",
+            "scanner_snapshot",
+            "scanner_result",
             "triggered_by",
             "triggered_by_user",
             "started_at",
             "completed_at",
             "created_at",
         ]
+
+
+# Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
+OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
+
+
+def _ordering_enum(fields: tuple[str, ...]) -> list[str]:
+    """Ascending + descending (`-`-prefixed) variants of each field, matching OrderingFilter's accepted values."""
+    return [value for field in fields for value in (field, f"-{field}")]
 
 
 class ReplayObservationFilter(django_filters.FilterSet):
@@ -106,12 +176,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
         help_text="Filter to observations of a specific session recording.",
     )
     order_by = django_filters.OrderingFilter(
-        fields=(
-            ("created_at", "created_at"),
-            ("started_at", "started_at"),
-            ("completed_at", "completed_at"),
-            ("status", "status"),
-        ),
+        fields=tuple((field, field) for field in OBSERVATION_ORDER_FIELDS),
         help_text="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
     )
 
@@ -120,17 +185,32 @@ class ReplayObservationFilter(django_filters.FilterSet):
         fields = ["status", "triggered_by", "session_id"]
 
 
-@extend_schema(tags=[VISION_TAG])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+            OpenApiParameter(
+                "order_by",
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=_ordering_enum(OBSERVATION_ORDER_FIELDS),
+                description="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
+            )
+        ]
+    )
+)
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Read-only access to observations produced by a lens."""
+    """Read-only access to observations produced by a scanner."""
 
-    scope_object = "replay_lens"
-    required_scopes = ["replay_lens:read", "session_recording:read"]
+    scope_object = "replay_scanner"
+    required_scopes = ["replay_scanner:read", "session_recording:read"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
@@ -139,18 +219,63 @@ class ReplayObservationViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         try:
-            lens_id = uuid.UUID(self.kwargs["parent_lookup_lens_id"])
+            scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        lens = ReplayLens.objects.filter(team_id=self.team_id, id=lens_id).first()
-        if lens is None:
+        scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
+        if scanner is None:
             raise NotFound()
-        # Observations expose recording-derived output, so observe inherits the lens's RBAC and also requires session_recording read.
-        self.check_object_permissions(self.request, lens)
+        # Observations expose recording-derived output, so observe inherits the scanner's RBAC and also requires session_recording read.
+        self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
         return (
-            queryset.filter(team_id=self.team_id, lens_id=lens_id)
+            queryset.filter(team_id=self.team_id, scanner_id=scanner_id)
             .select_related("triggered_by_user")
             .order_by("-created_at", "id")
         )
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "session_id",
+                str,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Session recording id to return observations for.",
+            )
+        ]
+    )
+)
+class SessionReplayObservationViewSet(ReplayObservationViewSet):
+    """Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock."""
+
+    # The dock fetches one session's observations; `session_id` is required and enforced in
+    # safely_get_queryset, so this viewset needs none of the base's optional list filters.
+    filter_backends: list = []
+
+    def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        # Observations expose recording-derived output, so reading them requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        # Observations inherit their scanner's RBAC. The generic access filter keys on the ReplayObservation
+        # row rather than its scanner, so scope explicitly to the scanners this caller can read.
+        readable_scanner_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(
+                ReplayScanner.objects.filter(team_id=self.team_id)
+            ).values_list("id", flat=True)
+        )
+        queryset = (
+            queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
+            .select_related("triggered_by_user")
+            .order_by("-created_at", "id")
+        )
+        # A bare list would scan the whole team's observation history; the replay page always has a session.
+        if self.action == "list":
+            session_id = self.request.query_params.get("session_id")
+            if not session_id:
+                raise ValidationError("The `session_id` query parameter is required.")
+            queryset = queryset.filter(session_id=session_id)
+        return queryset

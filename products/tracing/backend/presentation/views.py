@@ -11,6 +11,8 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
+import base64
+import datetime as dt
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -34,8 +36,8 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 from ..logic import (
     TraceSpansQueryRunner,
@@ -234,6 +236,14 @@ class _TracingTreeQueryBodySerializer(serializers.Serializer):
             "(trace_id, parent_span_id) self-join is unsafe without bounding the matched traces."
         ),
     )
+    serviceName = serializers.CharField(
+        required=True,
+        help_text=(
+            "Service name that scopes the returned tree. Applied to the spans CTE so "
+            "the call-tree only contains spans from this service, even when matched "
+            "traces span multiple services."
+        ),
+    )
     dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the primary window. Defaults to last hour.",
@@ -259,7 +269,6 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
-@extend_schema(tags=["tracing"])
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
@@ -325,22 +334,57 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetchSpans=prefetch_spans,
         )
 
-        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
-            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
+        runner = TraceSpansQueryRunner(spans_query, self.team)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        all_results = list(response.results)
 
-        results = list(
-            time_sliced_results(
-                runner=TraceSpansQueryRunner(spans_query, self.team),
-                order_by_earliest=order_by == "earliest",
-                make_runner=make_runner,
-            )
+        # Paginate at the trace level. The runner fetched up to requested_limit + 1 traces ordered
+        # by start time; decide hasMore on the trace count, drop the spans of the overflow trace,
+        # and emit a cursor pointing at the last kept trace. `trace_start` is the SQL pagination key
+        # carried on every span row (see TraceSpansQueryRunner.to_query) — read it directly rather
+        # than re-deriving min() over the prefetched spans, which can disagree with the SQL key.
+        earliest_first = order_by == "earliest"
+        trace_start: dict[str, dt.datetime] = {span["trace_id"]: span["trace_start"] for span in all_results}
+
+        ordered_traces = sorted(
+            trace_start.items(),
+            key=lambda item: (item[1], base64.b64encode(bytes.fromhex(item[0])).decode("ascii")),
+            reverse=not earliest_first,
+        )
+        has_more = len(ordered_traces) > requested_limit
+        kept_trace_ids = {tid for tid, _ in ordered_traces[:requested_limit]}
+        results = [span for span in all_results if span["trace_id"] in kept_trace_ids]
+
+        next_cursor = None
+        if has_more:
+            boundary_trace_id, boundary_ts = ordered_traces[requested_limit - 1]
+            next_cursor = base64.b64encode(
+                json.dumps({"timestamp": boundary_ts.isoformat(), "trace_id": boundary_trace_id}).encode("utf-8")
+            ).decode("utf-8")
+
+        report_user_action(
+            request.user,
+            "tracing query executed",
+            {
+                "traces_count": len(kept_trace_ids),
+                "spans_count": len(results),
+                "has_more": has_more,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+                "order_by": order_by,
+                "is_paginated": bool(after_cursor),
+            },
+            team=self.team,
+            request=request,
         )
 
         return Response(
             {
                 "results": results,
-                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
-                "nextCursor": None,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
             },
             status=status.HTTP_200_OK,
         )
@@ -426,6 +470,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        service_name = query_data.get("serviceName")
+        if not service_name or not isinstance(service_name, str):
+            return Response(
+                {"detail": "`serviceName` is required for tree aggregation queries."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
 
         try:
@@ -449,6 +500,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             team=self.team,
             date_range=date_range,
             span_name=span_name,
+            service_name=service_name,
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),

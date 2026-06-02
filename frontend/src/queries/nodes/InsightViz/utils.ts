@@ -164,7 +164,7 @@ export const getDefaultQuery = (
 
 /** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
 export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | null
+    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
 ): DashboardType<QueryBasedInsightModel> | null => {
     if (dashboard == null) {
         return null
@@ -189,6 +189,16 @@ export const extractValidationError = (error: Error | Record<string, any> | null
         return error?.status === 400 || error?.status === 512
             ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
             : null
+    }
+
+    return null
+}
+
+export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        if (error?.status === 400 || error?.status === 512) {
+            return error.code ?? error.data?.code ?? null
+        }
     }
 
     return null

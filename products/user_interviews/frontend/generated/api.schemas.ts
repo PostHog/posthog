@@ -171,6 +171,22 @@ export interface PaginatedInterviewInviteResultListApi {
     results: InterviewInviteResultApi[]
 }
 
+export interface LatestTestInterviewApi {
+    /** When the test interview was completed. */
+    completed_at: string
+    /** Full transcript of the test call, if Vapi delivered one. May be empty. */
+    transcript: string
+    /** AI-generated summary of the test call, if Vapi delivered one. May be empty. */
+    summary: string
+}
+
+export interface TestInterviewLinkApi {
+    /** Public, unauthenticated URL the topic author opens to dogfood the voice interview themselves — does not count against the targeted interviewees. */
+    interview_url: string
+    /** Most recent test interview completed by the topic author, or null if none yet. */
+    latest_test_interview: LatestTestInterviewApi | null
+}
+
 export interface IntervieweeContextApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -210,6 +226,33 @@ export interface PatchedIntervieweeContextApi {
      * @maxLength 10000
      */
     agent_context?: string
+}
+
+export interface BulkIntervieweeContextItemApi {
+    /**
+     * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+     * @maxLength 400
+     */
+    interviewee_identifier: string
+    /**
+     * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+     * @maxLength 10000
+     */
+    agent_context: string
+}
+
+export interface BulkIntervieweeContextRequestApi {
+    /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+    items: BulkIntervieweeContextItemApi[]
+}
+
+export interface BulkIntervieweeContextResponseApi {
+    /** Number of rows inserted by this request. */
+    inserted_count: number
+    /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+    skipped_count: number
+    /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+    skipped_identifiers: string[]
 }
 
 export interface UserInterviewApi {

@@ -35,7 +35,6 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
-from posthog.api.insight import capture_legacy_api_call
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_target_entity
@@ -78,6 +77,8 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+
+from products.product_analytics.backend.api.insight import capture_legacy_api_call
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -291,6 +292,11 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         if isinstance(instance, Person):
             representation = super().to_representation(instance)
             representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+            restricted = self.context.get("restricted_person_properties")
+            if restricted and representation.get("properties"):
+                representation["properties"] = {
+                    k: v for k, v in representation["properties"].items() if k not in restricted
+                }
             return representation
         elif isinstance(instance, MissingPerson):
             return {
@@ -387,7 +393,7 @@ _PERSON_ID_PARAMETER = OpenApiParameter(
 _id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
 
 
-@extend_schema(tags=[ProductKey.PERSONS])
+@extend_schema(extensions={"x-product": ProductKey.PERSONS})
 @extend_schema_view(
     retrieve=_id_schema,
     update=_id_schema,
@@ -424,6 +430,20 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PersonsWebBurstThrottle(),
             PersonsWebSustainedThrottle(),
         ]
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.property_access_control import get_restricted_property_names
+
+        user = self.request.user if self.request.user.is_authenticated else None
+        context["restricted_person_properties"] = get_restricted_property_names(
+            team_id=self.team_id,
+            user=user,
+            property_type=PropertyDefinition.Type.PERSON,
+        )
+        return context
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(
@@ -503,6 +523,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         actor_ids = [row[0] for row in raw_paginated_result]
         serialized_actors = get_serialized_people(team, actor_ids)
+
+        restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
+        if restricted_person_properties:
+            for person_dict in serialized_actors:
+                properties = person_dict.get("properties")
+                if isinstance(properties, dict):
+                    person_dict["properties"] = {
+                        k: v for k, v in properties.items() if k not in restricted_person_properties
+                    }
+
         _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
@@ -735,6 +765,23 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return resp
 
             tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
+            # Check field-level access control: return empty results for restricted properties
+            from posthog.models import PropertyDefinition
+
+            from products.access_control.backend.property_access_control import get_restricted_property_names
+
+            user = request.user if request.user.is_authenticated else None
+            restricted = get_restricted_property_names(
+                team_id=self.team.pk,
+                user=user,
+                property_type=PropertyDefinition.Type.PERSON,
+            )
+            if key in restricted:
+                span.set_attribute("result_count", 0)
+                resp = response.Response({"results": [], "refreshing": False})
+                resp["Cache-Control"] = "max-age=10"
+                return resp
+
             refresh = refresh_requested_by_client(request)
             runner = PropertyValuesQueryRunner(
                 team=self.team,
@@ -839,7 +886,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
-        self._set_properties({request.data["key"]: request.data["value"]}, request.user)
+        key = request.data["key"]
+        non_writable = self._get_non_writable_person_properties(request)
+        if key in non_writable:
+            raise ValidationError(f'You do not have write access to the property "{key}".')
+        self._set_properties({key: request.data["value"]}, request.user)
         return Response(status=202)
 
     @extend_schema(request=PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
@@ -848,6 +899,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person = get_person_by_pk_or_uuid(self.team_id, pk)
         if person is None:
             raise Person.DoesNotExist
+
+        key = request.data.get("$unset")
+        if key:
+            non_writable = self._get_non_writable_person_properties(request)
+            if key in non_writable:
+                raise ValidationError(f'You do not have write access to the property "{key}".')
 
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
@@ -991,6 +1048,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
+        non_writable = self._get_non_writable_person_properties(request)
+        if non_writable:
+            blocked_keys = set(request.data["properties"].keys()) & non_writable
+            if blocked_keys:
+                raise ValidationError(
+                    f"You do not have write access to the following properties: {', '.join(sorted(blocked_keys))}."
+                )
         self._set_properties(request.data["properties"], request.user)
         return Response(status=202)
 
@@ -999,6 +1063,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         raise MethodNotAllowed(
             method="POST",
             detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/product-analytics/identify for details.",
+        )
+
+    def _get_non_writable_person_properties(self, request: request.Request) -> set[str]:
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.property_access_control import get_non_writable_property_names
+
+        user = request.user if request.user.is_authenticated else None
+        return get_non_writable_property_names(
+            team_id=self.team_id,
+            user=user,
+            property_type=PropertyDefinition.Type.PERSON,
         )
 
     def _set_properties(self, properties, user):

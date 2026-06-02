@@ -8,7 +8,7 @@ import { RobotHog } from 'lib/components/hedgehogs'
 
 import { InterviewExportPayload } from '../types'
 
-type CallState = 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
+type CallState = 'already-replied' | 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
 
 type ConversationPhase = 'agent-talking' | 'listening' | 'thinking'
 
@@ -109,6 +109,18 @@ function EndedPanel(): JSX.Element {
     )
 }
 
+function AlreadyRepliedPanel({ interview }: { interview: InterviewExportPayload }): JSX.Element {
+    return (
+        <>
+            <h2 className="text-2xl font-bold mb-2">Thanks for your response!</h2>
+            <p className="text-muted">
+                We've already received your interview about <strong>{interview.topic}</strong>. We really appreciate you
+                taking the time — your feedback helps us build a better product.
+            </p>
+        </>
+    )
+}
+
 function ErrorPanel({ errorMessage }: { errorMessage: string | null }): JSX.Element {
     return (
         <div className="text-danger">
@@ -150,6 +162,7 @@ function CallActionButton({
                     Try again
                 </LemonButton>
             )
+        case 'already-replied':
         case 'connecting':
         case 'ended':
             return null
@@ -174,6 +187,7 @@ const CallBodyPanel = memo(function CallBodyPanel({
     const isPreCall = state === 'idle' || state === 'loading'
     return (
         <div className="flex-1 min-w-0">
+            {state === 'already-replied' && <AlreadyRepliedPanel interview={interview} />}
             {isPreCall && <PreCallIntro interview={interview} />}
             {state === 'connecting' && <ConnectingPanel />}
             {state === 'in-call' && <LivePanel />}
@@ -211,7 +225,7 @@ export default function ExporterInterviewScene({
     interview: InterviewExportPayload
     accessToken?: string
 }): JSX.Element {
-    const [state, setState] = useState<CallState>('idle')
+    const [state, setState] = useState<CallState>(interview.already_replied ? 'already-replied' : 'idle')
     // Default to 'thinking' — between connection-up and the agent's first speech-start
     // the assistant is loading its opener, which can take a few seconds. After
     // speech-end transitions us into 'listening', subsequent silent moments correctly
@@ -262,10 +276,34 @@ export default function ExporterInterviewScene({
                     lastPhaseRef.current = next
                     setConversationPhase(next)
                 }
-                vapi.on('call-end', () => setState('ended'))
+                // Daily.co's normal end-of-call eviction surfaces as an `error` event in the
+                // Vapi SDK ("Meeting ended due to ejection: Meeting has ended"), often racing
+                // with the `call-end` event. Suppress that race so the error panel doesn't
+                // flash as the interview wraps up — but ONLY when the call actually got off
+                // the ground. A pre-connection failure that happens to mention "Meeting has
+                // ended" (e.g. joining an already-ended room) must still surface as an
+                // error so the user gets the retry affordance.
+                const callEndedRef = { current: false }
+                const callConnectedRef = { current: false }
+                const isBenignEndOfCallError = (msg: string): boolean =>
+                    msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
+                vapi.on('call-end', () => {
+                    callEndedRef.current = true
+                    setState('ended')
+                })
                 vapi.on('error', (e: unknown) => {
+                    const message = e instanceof Error ? e.message : ''
+                    // call-end already fired — definitely post-end, swallow.
+                    if (callEndedRef.current) {
+                        return
+                    }
+                    // Benign message + we'd reached in-call → call is ending, swallow.
+                    // Benign message but never connected → real failure, surface it.
+                    if (callConnectedRef.current && isBenignEndOfCallError(message)) {
+                        return
+                    }
                     vapi.stop()
-                    setErrorMessage(e instanceof Error ? e.message : 'Vapi reported an error during the call.')
+                    setErrorMessage(message || 'Vapi reported an error during the call.')
                     setState('error')
                 })
                 vapi.on('speech-start', () => {
@@ -300,6 +338,9 @@ export default function ExporterInterviewScene({
                     vapi.stop()
                     return
                 }
+                // Mark that the call actually connected — gates the benign-error suppression
+                // so pre-connection "Meeting has ended" failures still surface to the user.
+                callConnectedRef.current = true
                 setState((current) => (current === 'connecting' ? 'in-call' : current))
             } catch (e) {
                 if (!isMountedRef.current) {

@@ -16,6 +16,7 @@ from ..facade.contracts import (
     AutoApproveResult,
     BaselineEntry,
     BaselineOverview,
+    BaselineQuarantineSummary,
     BaselineTotals,
     ClusterSummary,
     CreateRepoInput,
@@ -24,6 +25,7 @@ from ..facade.contracts import (
     DiffCluster,
     QuarantinedIdentifierEntry,
     QuarantineInput,
+    QuarantineSourceRun,
     RecomputeResult,
     Repo,
     Run,
@@ -147,13 +149,55 @@ class UpdateRepoInputSerializer(DataclassSerializer):
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(
+        help_text="The snapshot identifier to approve (e.g. Storybook story id plus theme).",
+    )
+    new_hash = serializers.CharField(
+        help_text="The content hash of the new baseline image to record for this identifier.",
+    )
+
     class Meta:
         dataclass = ApproveSnapshotInput
 
 
 class ApproveRunInputSerializer(DataclassSerializer):
+    snapshots = ApproveSnapshotInputSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true."
+        ),
+    )
+    approve_all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Approve every changed and new snapshot in the run. "
+            "Mutually exclusive with `snapshots` — pass one or the other."
+        ),
+    )
+    commit_to_github = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether to commit the updated baseline YAML to the PR branch on GitHub. "
+            "Set to false to record the approval without pushing a commit."
+        ),
+    )
+
     class Meta:
         dataclass = ApproveRunRequestInput
+
+    def validate(self, attrs: ApproveRunRequestInput) -> ApproveRunRequestInput:
+        if attrs.approve_all and attrs.snapshots:
+            raise serializers.ValidationError(
+                {"approve_all": "`approve_all` and `snapshots` are mutually exclusive — pass one or the other."}
+            )
+        if not attrs.approve_all and not attrs.snapshots:
+            raise serializers.ValidationError(
+                {"snapshots": "Provide a non-empty `snapshots` list or set `approve_all: true`."}
+            )
+        return attrs
 
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
@@ -169,19 +213,50 @@ class ToleratedHashEntrySerializer(DataclassSerializer):
 
 
 class MarkToleratedInputSerializer(serializers.Serializer):
-    snapshot_id = serializers.UUIDField()
+    snapshot_id = serializers.UUIDField(
+        help_text=(
+            "UUID of the changed snapshot to mark as a known tolerated alternate. "
+            "Future runs that produce the same alternate hash for this identifier will not be flagged as changes."
+        ),
+    )
+
+
+class QuarantineSourceRunSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineSourceRun
 
 
 class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
     created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    source_run = QuarantineSourceRunSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context.",
+    )
 
     class Meta:
         dataclass = QuarantinedIdentifierEntry
 
 
+class BaselineQuarantineSummarySerializer(DataclassSerializer):
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    source_run = QuarantineSourceRunSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = BaselineQuarantineSummary
+
+
 class QuarantineInputSerializer(DataclassSerializer):
-    identifier = serializers.CharField(max_length=512)
-    reason = serializers.CharField(max_length=255)
+    identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to quarantine.")
+    reason = serializers.CharField(max_length=255, help_text="Why this snapshot is being quarantined.")
+    source_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — "
+            "used to surface a 'view the failing run' link later."
+        ),
+    )
 
     class Meta:
         dataclass = QuarantineInput
@@ -197,6 +272,12 @@ class CreateRepoInputSerializer(DataclassSerializer):
 
 
 class BaselineEntrySerializer(DataclassSerializer):
+    quarantine = BaselineQuarantineSummarySerializer(
+        allow_null=True,
+        required=False,
+        help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
+    )
+
     class Meta:
         dataclass = BaselineEntry
 
