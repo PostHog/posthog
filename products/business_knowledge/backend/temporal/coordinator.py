@@ -1,12 +1,16 @@
 """
-Stage 5 background-refresh coordinator for business_knowledge.
+Background-refresh coordinator for business_knowledge.
 
 One global hourly Temporal schedule drives this single coordinator workflow
 (no per-source schedules — see the Stage 5 plan for why). Each run:
 
   1. sweeps tombstoned documents past their grace period,
-  2. classifies any documents still awaiting a safety verdict,
-  3. refreshes every URL source whose auto-refresh interval is due.
+  2. refreshes every URL source whose auto-refresh interval is due,
+  3. classifies any documents still awaiting a safety verdict.
+
+Refresh runs *before* classification so that documents whose content changed
+during the refresh (reset to ``unknown``) get classified in the same pass —
+otherwise they'd be searchable as ``unknown`` until the next hourly run.
 
 Per-source refresh reuses the shipped, idempotent `logic.refresh_source`; the
 existing per-team advisory lock ("one PROCESSING source per team") plus the
@@ -180,13 +184,9 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        classified = await workflow.execute_activity(
-            classify_pending_documents_activity,
-            start_to_close_timeout=timedelta(minutes=30),
-            heartbeat_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
-
+        # Refresh *before* classify: refreshed docs whose content changed are
+        # reset to `unknown`, so running classification second picks them up in
+        # the same pass instead of leaving them searchable until the next run.
         due: list[tuple[int, str, str]] = await workflow.execute_activity(
             list_due_refresh_sources_activity,
             start_to_close_timeout=timedelta(minutes=2),
@@ -215,14 +215,21 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
                 else:
                     skipped += 1
 
+        classified = await workflow.execute_activity(
+            classify_pending_documents_activity,
+            start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
         return {
             "tombstoned_deleted": swept,
-            "documents_classified": classified.get("classified", 0),
-            "documents_unsafe": classified.get("unsafe", 0),
             "sources_due": len(due),
             "sources_refreshed": refreshed,
             "sources_skipped": skipped,
             "sources_failed": failed,
+            "documents_classified": classified.get("classified", 0),
+            "documents_unsafe": classified.get("unsafe", 0),
         }
 
     @staticmethod
