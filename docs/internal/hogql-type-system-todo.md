@@ -13,8 +13,8 @@ Dialect differences should be explicit type-system facts, not accidental printer
 
 ## Implementation Status
 
-This branch adds the first implementation slice described by this TODO.
-The original document intentionally scoped a multi-phase project; this status section records the pieces that are now real in code and the pieces that remain optimizer or catalog-expansion work.
+This branch now contains several implementation slices described by this TODO.
+The original document intentionally scoped a multi-phase project; this status section records the pieces that are now real in code and the pieces that remain optimizer, rollout-policy, or catalog-expansion work.
 
 Completed in this branch:
 
@@ -70,7 +70,7 @@ Still intentionally left as follow-up work:
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Broader aggregate-state/combinator coverage, especially map/forEach variants and validation of compatible state/merge pairs.
 - Strict resolver mode.
-- Query-corpus unknown-type baselines and ClickHouse integration tests for planner/index wins.
+- Query-corpus unknown-type baselines and broader ClickHouse integration tests for inferred result types, nullability, timezone-sensitive behavior, and planner/index wins beyond the typed materialized-property cases already covered.
 
 The compatibility constraint below still applies.
 Unknown or partially-known expressions remain printable by default; missing signatures are optimizer barriers, not user-facing errors.
@@ -236,13 +236,15 @@ This blocks typed handling for broader preaggregation and aggregation state tran
 Property handling currently spans type resolution, transform-time metadata lookup, and printing:
 
 - `FieldType.get_child()` returns `PropertyType` for `StringJSONDatabaseField`, `StringArrayDatabaseField`, and `StructDatabaseField`.
-- `PropertyType.resolve_constant_type()` can traverse `StructDatabaseField` fields and propagate nested nullability.
-- For JSON and array-ish properties, `PropertyType` mostly returns the underlying field's constant type with `nullable=True`.
+- `PropertyType.resolve_constant_type()` can traverse `StructDatabaseField` fields, propagate nested nullability, and resolve simple property paths through loaded property-definition metadata when available.
+- For JSON and array-ish properties without loaded metadata, `PropertyType` still falls back to the underlying field's constant type with `nullable=True`.
 - `build_property_swapper()` loads `PropertyDefinition` rows and materialized slot metadata.
-- `PropertySwapper` wraps typed properties with conversion calls such as `toFloat(...)`, `toDateTime(...)`, and `toBool(...)`.
+- `PropertySwapper` wraps typed properties with conversion calls such as `toFloat(...)`, `toDateTime(...)`, and `toBool(...)`, and generated conversion calls now carry explicit return metadata for downstream aliases and outer calls.
 - The printer decides between JSON extraction, materialized columns, dynamic materialized slots, and property group columns.
+- Property comparison planning now combines semantic property types, physical source types, source index metadata, and restricted-property rules before materialized comparison rewrites run.
+- Exact-type `JSONExtract(properties, 'key', 'Type')` calls can use a materialized column when the requested parsed type matches the physical materialized column type.
 
-This means property type knowledge is not one coherent type source.
+This means property type knowledge is more coherent for comparison planning, but it is still not one fully unified type source.
 Some type facts are in the schema.
 Some are in property definitions.
 Some are in materialized column metadata.
@@ -251,6 +253,7 @@ Some are only visible in printer logic.
 The skip-index tests show why this matters.
 A materialized property column can be directly usable by ClickHouse indexes.
 If we add a conversion call around the column because the type system cannot prove the column and literal are already compatible, the query may execute correctly but lose index eligibility.
+Typed physical numeric and datetime materialized columns now have integration tests proving that direct range comparisons stay visible to ClickHouse minmax skip indexes.
 
 ### Typed Metadata Lifecycle
 
@@ -786,6 +789,8 @@ It should not become the default behavior for user-authored HogQL unless there i
 - [x] Guard the existing materialized string range rewrite with property comparison planning.
 - [x] Add typed materialized property comparison optimization for typed physical sources.
 - [x] Add skip-index integration tests for typed materialized property comparisons.
+- [x] Add a typed physical materialized-column test/storage hook.
+- [x] Add safe exact-type `JSONExtract(...)` materialized-column rewrites.
 - [ ] Add strict mode for internal tests after coverage is high.
 - [ ] Remove obsolete ad hoc workarounds and document the new workflow.
 

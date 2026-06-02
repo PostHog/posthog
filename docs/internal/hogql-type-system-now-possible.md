@@ -1,6 +1,6 @@
 # HogQL Type System: What Is Now Possible
 
-This document describes the HogQL type-system capabilities added by the first real implementation slice of the HogQL type-system project.
+This document describes the HogQL type-system capabilities that are now implemented on this branch.
 It is a companion to `docs/internal/hogql-type-system-todo.md`.
 
 The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, safe typed `JSONExtract(...)` materialized-column rewrites, and an opt-in internal simplifier for conservative type-aware rewrites.
@@ -377,8 +377,8 @@ Property-definition metadata is now part of property comparison planning.
 `posthog/hogql/property_planner.py` combines semantic property-definition types, physical source metadata, materialized-column index metadata, restricted-property access control, and comparison compatibility.
 The ClickHouse materialized range rewrite now consumes that plan before using direct physical-source comparisons.
 
-Current individually materialized property columns are still generally physically strings.
-The test materialization helper can now create typed physical columns, but that is a storage hook and proof path rather than a production policy change.
+Production-created individually materialized property columns are still generally physically strings today.
+The materialization helper can now create typed physical columns with `column_type=...`, but that is a storage hook and proof path rather than a production rollout policy change.
 For those columns, numeric and datetime direct range rewrites remain blocked because replacing `toFloat(col) < 5` or `parseDateTime64BestEffortOrNull(col) < ts` with a bare string comparison would change ordering semantics.
 The planner treats that source/semantic mismatch as an optimizer barrier.
 
