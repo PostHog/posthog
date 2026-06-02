@@ -60,6 +60,7 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="https://your-instance.service-now.com",
+                        secret=False,
                     ),
                     SourceFieldSelectConfig(
                         name="auth_method",
@@ -79,6 +80,7 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=False,
                                             placeholder="admin",
+                                            secret=False,
                                         ),
                                         SourceFieldInputConfig(
                                             name="password",
@@ -161,7 +163,7 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
             return False, str(exc)
 
         table = SERVICENOW_ENDPOINTS[schema_name].table if schema_name in SERVICENOW_ENDPOINTS else None
-        return validate_servicenow_credentials(config.instance_url, auth, table=table)
+        return validate_servicenow_credentials(config.instance_url, auth, team_id, table=table)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ServiceNowResumeConfig]:
         return ResumableSourceManager[ServiceNowResumeConfig](inputs, ServiceNowResumeConfig)
@@ -178,6 +180,7 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            team_id=inputs.team_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

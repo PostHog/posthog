@@ -166,6 +166,7 @@ class TestServiceNowSource:
         assert kwargs["instance_url"] == "https://acme.service-now.com"
         assert kwargs["auth"] == ServiceNowAuth(api_key="abc")
         assert kwargs["endpoint"] == "problems"
+        assert kwargs["team_id"] == 1
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01 00:00:00"
         assert kwargs["incremental_field"] == "sys_updated_on"

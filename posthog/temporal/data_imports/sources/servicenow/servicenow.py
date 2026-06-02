@@ -7,9 +7,11 @@ from urllib.parse import urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.servicenow.settings import SERVICENOW_ENDPOINTS
 
@@ -25,6 +27,10 @@ MAX_RETRY_ATTEMPTS = 5
 
 class ServiceNowRetryableError(Exception):
     pass
+
+
+class ServiceNowError(Exception):
+    """Non-retryable ServiceNow transport error (e.g. an unexpected redirect)."""
 
 
 @dataclasses.dataclass
@@ -53,25 +59,47 @@ class ServiceNowAuth:
 
 
 def normalize_instance_url(instance: str) -> str:
-    """Accept a bare subdomain, host, or full URL and return `https://<host>`.
+    """Accept a bare subdomain, host, or full URL and return `https://<host>[:port]`.
+
+    Forces HTTPS and strips any path, query, fragment, or userinfo so only the
+    host (and optional port) survive. This keeps the value safe to feed into the
+    SSRF host check and to build Table API paths against.
 
     Examples: ``dev12345`` -> ``https://dev12345.service-now.com``;
-    ``https://acme.service-now.com/`` -> ``https://acme.service-now.com``.
+    ``https://acme.service-now.com/foo?x=1`` -> ``https://acme.service-now.com``.
     """
     value = (instance or "").strip().rstrip("/")
     if not value:
         raise ValueError("ServiceNow instance URL is required")
 
-    if "://" in value:
-        parsed = urlparse(value)
-        host = parsed.netloc or parsed.path
-        return f"https://{host}".rstrip("/")
-
-    # Bare subdomain (no dot) expands to the standard ServiceNow domain.
-    if "." not in value:
+    # Bare subdomain (no scheme, no dot) expands to the standard ServiceNow domain.
+    if "://" not in value and "." not in value:
         return f"https://{value}.service-now.com"
 
-    return f"https://{value}"
+    if "://" not in value:
+        value = f"https://{value}"
+
+    parsed = urlparse(value)
+    host = parsed.hostname
+    if not host:
+        raise ValueError("Invalid ServiceNow instance URL")
+
+    netloc = f"{host}:{parsed.port}" if parsed.port else host
+    return f"https://{netloc}"
+
+
+def _resolve_base_url(instance_url: str, team_id: int) -> str:
+    """Normalize the instance URL and reject internal/private hosts (SSRF guard).
+
+    ``_is_host_safe`` is a no-op outside of PostHog Cloud, so self-hosted
+    instances can still reach any host.
+    """
+    base_url = normalize_instance_url(instance_url)
+    hostname = urlparse(base_url).hostname or ""
+    is_safe, error = _is_host_safe(hostname, team_id)
+    if not is_safe:
+        raise ValueError(error or "ServiceNow instance host is not allowed.")
+    return base_url
 
 
 def _format_datetime(value: Any) -> Optional[str]:
@@ -107,10 +135,11 @@ def build_sysparm_query(cursor_field: Optional[str], last_value: Optional[str], 
 def validate_credentials(
     instance_url: str,
     auth: ServiceNowAuth,
+    team_id: int,
     table: Optional[str] = None,
 ) -> tuple[bool, str | None]:
     try:
-        base_url = normalize_instance_url(instance_url)
+        base_url = _resolve_base_url(instance_url, team_id)
     except ValueError as exc:
         return False, str(exc)
 
@@ -118,15 +147,18 @@ def validate_credentials(
     # `sys_user`; otherwise probe the requested table to confirm scope for it.
     probe_table = table or "sys_user"
     url = f"{base_url}/api/now/table/{probe_table}"
-    params = {"sysparm_limit": 1, "sysparm_fields": "sys_id"}
+    params: dict[str, Any] = {"sysparm_limit": 1, "sysparm_fields": "sys_id"}
 
     try:
+        # `instance_url` is user-supplied; don't follow redirects so a safe-looking
+        # host can't bounce us to an internal one (SSRF guard).
         response = make_tracked_session().get(
             url,
             params=params,
             headers=auth.headers(),
             auth=auth.basic_auth(),
             timeout=10,
+            allow_redirects=False,
         )
     except requests.RequestException as exc:
         return False, str(exc)
@@ -174,6 +206,11 @@ def get_rows(
     query = build_sysparm_query(cursor_field, last_value, sort_field)
     url = f"{base_url}/api/now/table/{table}"
 
+    # One session for the whole paginated fetch so the TCP/TLS connection is reused
+    # across pages. Disable urllib3-level retries — `tenacity` below is the single
+    # retry mechanism (otherwise a 429 would be retried by both layers).
+    session = make_tracked_session(retry=Retry(total=0))
+
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume_config.offset if resume_config else 0
     if resume_config:
@@ -186,24 +223,32 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_offset: int) -> list[dict[str, Any]]:
-        params = {
+        params: dict[str, Any] = {
             "sysparm_query": query,
             "sysparm_limit": DEFAULT_PAGE_SIZE,
             "sysparm_offset": page_offset,
             "sysparm_display_value": "false",
             "sysparm_exclude_reference_link": "true",
         }
-        response = make_tracked_session().get(
+        # `base_url` is user-supplied; refuse redirects so a safe-looking host can't
+        # bounce us to an internal one (SSRF guard).
+        response = session.get(
             url,
             params=params,
             headers=headers,
             auth=basic_auth,
             timeout=REQUEST_TIMEOUT,
+            allow_redirects=False,
         )
 
         if response.status_code == 429 or response.status_code >= 500:
             raise ServiceNowRetryableError(
                 f"ServiceNow API error (retryable): status={response.status_code}, table={table}"
+            )
+
+        if 300 <= response.status_code < 400:
+            raise ServiceNowError(
+                f"ServiceNow returned an unexpected redirect (status={response.status_code}, table={table}); refusing to follow"
             )
 
         if not response.ok:
@@ -234,12 +279,13 @@ def servicenow_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ServiceNowResumeConfig],
+    team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
     endpoint_config = SERVICENOW_ENDPOINTS[endpoint]
-    base_url = normalize_instance_url(instance_url)
+    base_url = _resolve_base_url(instance_url, team_id)
 
     return SourceResponse(
         name=endpoint,

@@ -36,7 +36,7 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error")
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=None)
 
 
 class FakeResumeManager:
@@ -70,6 +70,10 @@ class TestNormalizeInstanceUrl:
             ("bare_subdomain", "dev12345", "https://dev12345.service-now.com"),
             ("host_with_dot_no_scheme", "acme.service-now.com", "https://acme.service-now.com"),
             ("whitespace", "  acme.service-now.com  ", "https://acme.service-now.com"),
+            ("strips_path_and_query", "https://acme.service-now.com/foo?x=1", "https://acme.service-now.com"),
+            ("strips_path_no_scheme", "acme.service-now.com/foo", "https://acme.service-now.com"),
+            ("strips_userinfo", "https://user:pass@acme.service-now.com", "https://acme.service-now.com"),
+            ("keeps_port", "https://acme.service-now.com:8443", "https://acme.service-now.com:8443"),
         ]
     )
     def test_normalize(self, _name: str, value: str, expected: str) -> None:
@@ -140,18 +144,29 @@ class TestValidateCredentials:
     def test_status_mapping(self, _name: str, status: int, table: str | None, expected_valid: bool) -> None:
         get_mock = mock.Mock(return_value=FakeResponse(status_code=status))
         with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
-            valid, _ = validate_credentials("https://acme.service-now.com", ServiceNowAuth(api_key="x"), table=table)
+            valid, _ = validate_credentials(
+                "https://acme.service-now.com", ServiceNowAuth(api_key="x"), team_id=1, table=table
+            )
         assert valid is expected_valid
 
+    def test_redirect_is_rejected(self) -> None:
+        get_mock = mock.Mock(return_value=FakeResponse(status_code=302))
+        with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
+            valid, error = validate_credentials("https://acme.service-now.com", ServiceNowAuth(api_key="x"), team_id=1)
+        assert valid is False
+        assert error is not None
+        # redirects must not be followed (SSRF guard)
+        assert get_mock.call_args.kwargs["allow_redirects"] is False
+
     def test_invalid_instance_url(self) -> None:
-        valid, error = validate_credentials("", ServiceNowAuth(api_key="x"))
+        valid, error = validate_credentials("", ServiceNowAuth(api_key="x"), team_id=1)
         assert valid is False
         assert error is not None
 
     def test_network_error_is_handled(self) -> None:
         get_mock = mock.Mock(side_effect=requests.ConnectionError("boom"))
         with mock.patch.object(servicenow_module, "make_tracked_session", return_value=_patch_session(get_mock)):
-            valid, error = validate_credentials("https://acme.service-now.com", ServiceNowAuth(api_key="x"))
+            valid, error = validate_credentials("https://acme.service-now.com", ServiceNowAuth(api_key="x"), team_id=1)
         assert valid is False
         assert error is not None
 
@@ -245,6 +260,7 @@ class TestServiceNowSource:
             endpoint=endpoint,
             logger=mock.MagicMock(),
             resumable_source_manager=FakeResumeManager(),  # type: ignore[arg-type]
+            team_id=1,
         )
         assert response.name == endpoint
         assert response.primary_keys == ["sys_id"]
