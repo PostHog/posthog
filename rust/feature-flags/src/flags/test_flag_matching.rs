@@ -1,14 +1,17 @@
 #[cfg(test)]
 mod tests {
+    use common_geoip::MockGeoIpClient;
     use common_types::TeamId;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
+    use std::net::{IpAddr, Ipv4Addr};
     use std::sync::Arc;
     use uuid::Uuid;
 
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
+        flags::flag_request::FlagRequest,
         flags::{
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::GroupTypeCacheManager,
@@ -23,6 +26,7 @@ mod tests {
                 Holdout, MultivariateFlagOptions, MultivariateFlagVariant,
             },
         },
+        handler::properties,
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::{
@@ -231,7 +235,7 @@ mod tests {
 
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
-            distinct_id,
+            distinct_id.clone(),
             None, // device_id
             team.id,
             router,
@@ -240,14 +244,25 @@ mod tests {
             None,
         );
 
+        let geoip = MockGeoIpClient::default().into();
+        let request = FlagRequest {
+            distinct_id: Some(distinct_id.clone()),
+            geoip_disable: Some(true),
+            ..Default::default()
+        };
+        let overrides = properties::prepare_overrides(
+            &request,
+            Some(&distinct_id),
+            &IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            &geoip,
+        )
+        .unwrap();
+
         let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
-                Some(HashMap::from([(
-                    "distinct_id".to_string(),
-                    json!(distinct_id.clone()),
-                )])),
+                overrides.person_properties,
                 None,
                 None,
                 Uuid::new_v4(),

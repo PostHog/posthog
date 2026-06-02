@@ -3,19 +3,21 @@ use common_geoip::GeoIpClient;
 use serde_json::Value;
 use std::{collections::HashMap, net::IpAddr};
 
-use super::types::{RequestContext, RequestPropertyOverrides};
+use super::types::RequestPropertyOverrides;
 
 pub fn prepare_overrides(
-    context: &RequestContext,
     request: &FlagRequest,
+    distinct_id: Option<&str>,
+    ip: &IpAddr,
+    geoip_service: &GeoIpClient,
 ) -> Result<RequestPropertyOverrides, FlagError> {
     let geoip_disabled = request.geoip_disable.unwrap_or(false);
     let person_property_overrides = get_person_property_overrides(
         geoip_disabled,
-        request.distinct_id.as_deref(),
+        distinct_id,
         request.person_properties.clone(),
-        &context.ip,
-        &context.state.geoip,
+        ip,
+        geoip_service,
     );
 
     let groups = request.groups.clone();
@@ -42,6 +44,11 @@ pub fn prepare_overrides(
     })
 }
 
+/// Build merged person-property overrides for a request.
+///
+/// `distinct_id`, when `Some`, is surfaced as a `distinct_id` person property
+/// unless `person_properties` already contains one. Mirrors Python local
+/// evaluation. Returns `None` when the merged map is empty.
 pub fn get_person_property_overrides(
     geoip_disabled: bool,
     distinct_id: Option<&str>,
@@ -57,8 +64,8 @@ pub fn get_person_property_overrides(
         }
     }
 
-    // Match Python local evaluation behavior by always exposing the top-level
-    // distinct_id as a person property unless the request explicitly overrides it.
+    // Match Python local evaluation behavior by always exposing the matcher
+    // distinct_id as a person property unless person_properties already has one.
     if let Some(distinct_id) = distinct_id {
         props
             .entry("distinct_id".to_string())

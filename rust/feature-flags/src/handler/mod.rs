@@ -199,7 +199,12 @@ async fn process_request_inner(
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
-            let property_overrides = properties::prepare_overrides(&context, &request)?;
+            let property_overrides = properties::prepare_overrides(
+                &request,
+                Some(&distinct_id),
+                &context.ip,
+                &context.state.geoip,
+            )?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
             let response = flags::evaluate_for_request(

@@ -201,6 +201,33 @@ fn test_distinct_id_override_skips_db_preparation_for_distinct_id_flag() {
 }
 
 #[test]
+fn test_prepare_overrides_uses_resolved_distinct_id() {
+    let geoip_service = create_test_geoip_service();
+    let request = crate::flags::flag_request::FlagRequest {
+        distinct_id: Some("raw_request_user".to_string()),
+        geoip_disable: Some(true),
+        ..Default::default()
+    };
+
+    let overrides = properties::prepare_overrides(
+        &request,
+        Some("resolved_matcher_user"),
+        &IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        &geoip_service,
+    )
+    .expect("overrides should prepare successfully");
+
+    assert_eq!(
+        overrides
+            .person_properties
+            .expect("resolved distinct_id should create person overrides")
+            .get("distinct_id"),
+        Some(&json!("resolved_matcher_user")),
+        "prepare_overrides should expose the resolved matcher distinct_id, not the raw request value"
+    );
+}
+
+#[test]
 fn test_geoip_enabled_local_ip() {
     let geoip_service = create_test_geoip_service();
 
