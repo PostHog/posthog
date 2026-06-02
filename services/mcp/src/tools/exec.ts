@@ -184,8 +184,8 @@ export function createExecTool(
                                 missing_scopes: t.missingScopes,
                             })),
                             hint:
-                                `These tools also match but are hidden because your PostHog API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. Add them to your personal API key to use these tools.`,
+                                `These tools also match but are hidden because the API key is missing the ` +
+                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
                         })
                     }
                     if (matches.length === 0) {
