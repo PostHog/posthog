@@ -9,7 +9,12 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
-from posthog.hogql.type_diagnostics import function_catalog_inventory, resolve_with_type_diagnostics
+from posthog.hogql.type_diagnostics import (
+    build_select_expression_type_name_query,
+    compare_select_expression_types_with_type_names,
+    function_catalog_inventory,
+    resolve_with_type_diagnostics,
+)
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -464,6 +469,73 @@ class TestHogQLTypeSystem:
         assert diagnostics.report.optimizer_blockers_by_source() == {"missing_function_signature": 1}
         assert diagnostics.report.unknowns[0].detail == "formatReadableSize"
 
+    def test_type_diagnostics_reports_select_expression_types(self) -> None:
+        diagnostics = resolve_with_type_diagnostics(
+            self._select("SELECT 1 AS one, 'event' AS event_name, [1, 2.0] AS numbers"),
+            self.context,
+            dialect="clickhouse",
+        )
+
+        assert diagnostics.report.unknown_count == 0
+        assert [diagnostic.alias for diagnostic in diagnostics.report.select_expressions] == [
+            "one",
+            "event_name",
+            "numbers",
+        ]
+
+        by_alias = diagnostics.report.select_expression_types_by_alias()
+        assert by_alias["one"].runtime_type.family == "integer"
+        assert by_alias["one"].runtime_type.nullable is False
+        assert by_alias["event_name"].runtime_type_display == "String"
+        assert by_alias["numbers"].runtime_type.family == "array"
+        assert by_alias["numbers"].runtime_type.item_type is not None
+        assert by_alias["numbers"].runtime_type.item_type.family == "float"
+        assert by_alias["one"].debug_dict()["runtime_type"] == {
+            "family": "integer",
+            "nullable": False,
+            "dialect": "common",
+            "signed": True,
+            "bits": 64,
+        }
+
+    def test_type_diagnostics_builds_type_name_query_and_compares_results(self) -> None:
+        query = self._select("SELECT 1 AS one, 2.5 AS score, toString('x') AS text")
+        diagnostics = resolve_with_type_diagnostics(query, self.context, dialect="clickhouse")
+        type_name_query = build_select_expression_type_name_query(query, self.context, dialect="clickhouse")
+        resolved_type_name_query = resolve_types(type_name_query, self.context, dialect="clickhouse")
+        sql = print_prepared_ast(resolved_type_name_query, self.context, dialect="clickhouse")
+
+        assert "toTypeName(1) AS __hogql_type_1" in sql
+        assert "toTypeName(2.5) AS __hogql_type_2" in sql
+        assert "toTypeName(toString(" in sql
+        assert "AS __hogql_type_3" in sql
+
+        comparisons = compare_select_expression_types_with_type_names(
+            diagnostics.report,
+            ["UInt8", "Float64", "String"],
+            dialect="clickhouse",
+        )
+
+        assert [comparison.matches for comparison in comparisons] == [True, True, True]
+        assert comparisons[0].inferred_runtime_type.display() == "Int64"
+        assert comparisons[0].clickhouse_runtime_type.display() == "UInt8"
+
+        selected_type_name_query = build_select_expression_type_name_query(
+            query,
+            self.context,
+            dialect="clickhouse",
+            expression_indexes=[1],
+        )
+        assert len(selected_type_name_query.select) == 1
+        selected_comparisons = compare_select_expression_types_with_type_names(
+            diagnostics.report,
+            ["Float64"],
+            dialect="clickhouse",
+            expression_indexes=[1],
+        )
+        assert selected_comparisons[0].index == 1
+        assert selected_comparisons[0].matches is True
+
     def test_type_diagnostics_treats_typed_string_functions_as_known(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
             self._select(
@@ -546,6 +618,32 @@ class TestHogQLTypeSystem:
         assert "1 AS c" in sql
         assert "1 AS d" in sql
         assert "1 AS e" in sql
+
+    def test_type_aware_simplification_folds_safe_literal_arithmetic(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT 1 + 2 * 3 AS value, 4 / 2 AS ratio, 1 / 0 AS unsafe"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = cast(
+            ast.SelectQuery,
+            simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse"),
+        )
+
+        value_alias = cast(ast.Alias, simplified.select[0])
+        ratio_alias = cast(ast.Alias, simplified.select[1])
+        unsafe_alias = cast(ast.Alias, simplified.select[2])
+
+        assert isinstance(value_alias.expr, ast.Constant)
+        assert value_alias.expr.value == 7
+        assert value_alias.expr.type == ast.IntegerType(nullable=False)
+        assert isinstance(ratio_alias.expr, ast.Constant)
+        assert ratio_alias.expr.value == 2.0
+        assert ratio_alias.expr.type == ast.FloatType(nullable=False)
+        assert isinstance(unsafe_alias.expr, ast.ArithmeticOperation)
 
     def test_type_aware_simplification_keeps_unsafe_casts(self) -> None:
         resolved = cast(

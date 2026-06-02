@@ -60,6 +60,9 @@ Completed in this branch:
 - Added tuple field names to the resolver-facing `TupleType` compatibility layer, plus named `tupleElement(tuple, 'field')` inference for typed tuple metadata such as `JSONExtract(..., 'Tuple(name String, score Float64)')` and struct database fields.
 - Added `AggregateStateType` as a compatibility type for aggregate state expressions, with generic inference for common state/merge pairs such as `countState`/`countMerge`, `sumState`/`sumMerge` when the state is typed, `avgState`/`avgMerge`, and `quantilesState`/`quantilesMerge`.
 - Extended the opt-in type-aware simplifier to remove redundant `toDateTime(DateTime)` and repeated compatible safe casts when precision, timezone, family, and nullability facts match.
+- `TypeDiagnosticReport` now includes typed top-level select-expression diagnostics, including alias, printable expression text, resolver `ConstantType`, and structured runtime type details.
+- Added a `toTypeName(...)` companion-query builder and comparison helper so inferred select-expression families/nullability can be checked against ClickHouse type-name output.
+- Extended the opt-in type-aware simplifier to fold finite numeric literal arithmetic for typed integer and float constants while preserving divide-by-zero and other unsafe cases.
 
 Still intentionally left as follow-up work:
 
@@ -579,7 +582,7 @@ TODO:
   - [ ] avoid lazy joins when a typed virtual field can be satisfied by an events-table column
   - [ ] keep projection pushdown type-safe after pruning
 - [ ] Add constant folding for typed literals where low-risk:
-  - [ ] simple arithmetic
+  - [x] simple arithmetic
   - [ ] date interval constants
   - [ ] casted constants
   - [ ] literal JSON paths
@@ -603,10 +606,10 @@ TODO:
   - [ ] unsupported AST node
   - [ ] transform invalidated type
   - [ ] dialect-specific unknown
-- [ ] Add debug output that can explain the inferred type for each select expression.
+- [x] Add debug output that can explain the inferred type for each select expression.
 - [ ] Add a query-corpus job that compiles representative HogQL queries and reports unknown-type rates.
 - [ ] Add a way to compare inferred types with ClickHouse result metadata.
-- [ ] Add a way to compare inferred expression types with `toTypeName(...)` for selected expressions.
+- [x] Add a way to compare inferred expression types with `toTypeName(...)` for selected expressions.
 - [ ] Include timings so stronger typing does not silently slow query compilation.
 
 Acceptance criteria:
@@ -809,4 +812,5 @@ It should not become the default behavior for user-authored HogQL unless there i
 ## Immediate Next Step
 
 Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, the existing materialized string-column range rewrite now consumes that planner, physically typed materialized property columns can now use direct numeric/datetime range comparisons, and ClickHouse planner tests now prove those shapes use minmax skip indexes.
-The next concrete task should be deciding when production property materialization should create typed physical columns instead of string columns, plus expanding semantic-equivalence tests for remaining JSON/materialized extraction rewrites.
+The diagnostics hook now also explains top-level select expression types and can build `toTypeName(...)` companion queries, and the guarded simplifier can fold simple numeric literal arithmetic.
+The next concrete task should be deciding when production property materialization should create typed physical columns instead of string columns, plus expanding semantic-equivalence tests for remaining JSON/materialized extraction rewrites and the next low-risk constant-folding families.

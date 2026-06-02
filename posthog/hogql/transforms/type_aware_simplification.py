@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import dataclasses
 from typing import cast
 
@@ -38,6 +39,10 @@ class TypeAwareSimplifier(CloningVisitor):
         if _is_redundant_cast(source_type=source_type, target_type=target_type):
             return node.expr
         return node
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
+        node = cast(ast.ArithmeticOperation, super().visit_arithmetic_operation(node))
+        return _fold_numeric_arithmetic_operation(node, self.context) or node
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
         node = cast(ast.Call, super().visit_call(node))
@@ -108,6 +113,69 @@ def _conversion_call_target_type(normalized_name: str, source_type: RuntimeType)
     if normalized_name == "tobool" and source_type.family == "boolean":
         return dataclasses.replace(source_type, family="boolean")
     return None
+
+
+def _fold_numeric_arithmetic_operation(node: ast.ArithmeticOperation, context: HogQLContext) -> ast.Constant | None:
+    if not isinstance(node.left, ast.Constant) or not isinstance(node.right, ast.Constant):
+        return None
+
+    if not _is_numeric_literal(node.left.value) or not _is_numeric_literal(node.right.value):
+        return None
+
+    left_type = _constant_type(node.left, context)
+    right_type = _constant_type(node.right, context)
+    if left_type is None or right_type is None:
+        return None
+
+    left_runtime_type = runtime_type_from_constant_type(left_type)
+    right_runtime_type = runtime_type_from_constant_type(right_type)
+    if left_runtime_type.family not in {"integer", "float"} or right_runtime_type.family not in {"integer", "float"}:
+        return None
+    if left_runtime_type.nullable or right_runtime_type.nullable:
+        return None
+
+    result = _evaluate_numeric_arithmetic(node.op, node.left.value, node.right.value)
+    if result is None:
+        return None
+
+    return ast.Constant(value=result, type=_constant_type_from_literal(result), start=node.start, end=node.end)
+
+
+def _evaluate_numeric_arithmetic(
+    op: ast.ArithmeticOperationOp,
+    left: int | float,
+    right: int | float,
+) -> int | float | None:
+    if op == ast.ArithmeticOperationOp.Add:
+        result = left + right
+    elif op == ast.ArithmeticOperationOp.Sub:
+        result = left - right
+    elif op == ast.ArithmeticOperationOp.Mult:
+        result = left * right
+    elif op == ast.ArithmeticOperationOp.Div:
+        if right == 0:
+            return None
+        result = left / right
+    elif op == ast.ArithmeticOperationOp.Mod:
+        if right == 0:
+            return None
+        result = left % right
+    else:
+        return None
+
+    if isinstance(result, float) and not math.isfinite(result):
+        return None
+    return result
+
+
+def _is_numeric_literal(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _constant_type_from_literal(value: int | float) -> ast.ConstantType:
+    if isinstance(value, int):
+        return ast.IntegerType(nullable=False)
+    return ast.FloatType(nullable=False)
 
 
 def _is_redundant_cast(source_type: RuntimeType, target_type: RuntimeType) -> bool:

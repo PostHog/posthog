@@ -3,7 +3,7 @@
 This document describes the HogQL type-system capabilities that are now implemented on this branch.
 It is a companion to `docs/internal/hogql-type-system-todo.md`.
 
-The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, safe typed `JSONExtract(...)` materialized-column rewrites, and an opt-in internal simplifier for conservative type-aware rewrites.
+The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing and what each top-level select expression resolves to, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, safe typed `JSONExtract(...)` materialized-column rewrites, and an opt-in internal simplifier for conservative type-aware rewrites and numeric literal arithmetic folding.
 The old resolver-facing `ConstantType` classes still exist and remain the compatibility surface for the resolver, printers, and transforms.
 The new model sits behind that surface so existing query compilation remains permissive while optimizers can start asking sharper questions.
 
@@ -279,11 +279,13 @@ This gives projection pushdown, CTE consumers, and future strict validation a mo
 
 ## Diagnostics
 
-`posthog/hogql/type_diagnostics.py` adds two entry points.
+`posthog/hogql/type_diagnostics.py` adds several developer-facing entry points.
 
 `resolve_with_type_diagnostics(...)` returns a resolved AST plus a `TypeDiagnosticReport`.
 The report records unknown-type occurrences and groups them by source.
 It also exposes optimizer blockers, which are unknown expressions that typed rewrites must treat as hard boundaries.
+The report now also includes `select_expressions`, one diagnostic per top-level selected expression.
+Each entry records the select index, alias, printable expression text, resolver-facing `ConstantType`, structured runtime type, source span, and a `debug_dict()` representation for developer tooling.
 
 Example:
 
@@ -293,7 +295,17 @@ diagnostics.report.unknowns_by_source()
 # {"missing_function_signature": 1}
 diagnostics.report.optimizer_blockers_by_source()
 # {"missing_function_signature": 1}
+
+diagnostics = resolve_with_type_diagnostics(parse_select("SELECT 1 AS one"), context)
+diagnostics.report.select_expression_types_by_alias()["one"].runtime_type.display()
+# "Int64"
 ```
+
+`build_select_expression_type_name_query(...)` builds a companion query that selects `toTypeName(...)` for the chosen top-level expressions.
+That gives tests and diagnostics a direct way to ask ClickHouse what runtime type it sees for the same expression shape.
+
+`compare_select_expression_types_with_type_names(...)` compares the inferred select-expression runtime families and nullability with `toTypeName(...)` output.
+The comparison is intentionally family/nullability based rather than exact-width based because the current resolver compatibility layer can infer `Integer` while ClickHouse reports a narrower literal type such as `UInt8`.
 
 `function_catalog_inventory()` summarizes runtime function-catalog coverage:
 
@@ -352,6 +364,12 @@ Nullability simplification:
 - known nullable expressions can preserve current wrapper behavior
 - unknown expressions remain barriers
 - common non-null string and URL helper calls such as `base64Encode('test')` and `protocol('https://posthog.com')` now stay non-null through resolution, so emitted comparisons no longer need manual `assumeNotNull(...)` to avoid nullable boolean wrappers
+
+Constant folding:
+
+- finite integer/float literal arithmetic can fold inside the opt-in simplifier, for example `1 + 2 * 3` becomes `7`
+- division and modulo by zero remain untouched
+- date interval constants, casted constants, and literal JSON-path folding are still follow-up work
 
 Set-query planning:
 
@@ -452,6 +470,7 @@ The simplifier currently removes conservative no-op operations:
 - `ifNull(non_nullable_expr, fallback)`
 - `coalesce(non_nullable_expr, ...)`
 - repeated compatible casts in those safe families
+- finite numeric literal arithmetic for typed integer and float constants
 
 It deliberately does not remove casts for families where the current compatibility type model lacks enough precision:
 
@@ -459,6 +478,8 @@ It deliberately does not remove casts for families where the current compatibili
 - numeric casts, because signedness and width can matter
 - decimal casts, because precision and scale can matter
 - unknown expressions, which remain optimizer barriers
+
+It also does not fold arithmetic when either side is nullable, non-literal, non-numeric, non-finite, or would require division/modulo by zero.
 
 This gives internal callers a safe way to compare emitted SQL before and after simplification without changing user-authored HogQL behavior.
 
