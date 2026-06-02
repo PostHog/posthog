@@ -52,7 +52,10 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                   -- that this replaces, so it's at least no worse 🙈
                   AND event IN ('$pageview', '$screen', '$autocapture', '$feature_flag_called', '$pageleave', '$identify', '$web_vitals', '$set', 'Application Opened', 'Application Backgrounded')
                   -- exclude anonymous users since we don't care if user "anonymous" watched a gajillion recordings
-                  AND (properties.$process_person_profile = true or properties.$is_identified = true)
+                  -- compare against the string 'true' so the clause stays type-safe when these
+                  -- properties are materialized as String columns (a boolean literal compiles to UInt8,
+                  -- which has no common type with the materialized String and hard-fails the query)
+                  AND (properties.$process_person_profile = 'true' or properties.$is_identified = 'true')
                 GROUP BY $session_id
             )
             -- now we can count the distinct sessions per person
