@@ -74,11 +74,11 @@ You can create an API key in your [Brevo account settings](https://app.brevo.com
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=(fields := INCREMENTAL_FIELDS.get(endpoint)) is not None,
+                supports_append=fields is not None,
+                incremental_fields=fields or [],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:

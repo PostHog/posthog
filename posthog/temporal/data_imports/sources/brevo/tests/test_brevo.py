@@ -141,7 +141,7 @@ class TestGetRowsPagination:
         ]
         _drive_get_rows("contacts", manager, responses)
 
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        saved = [saved_call.args[0] for saved_call in manager.save_state.call_args_list]
         assert saved == [BrevoResumeConfig(offset=2)]
 
     def test_single_terminal_page_does_not_save_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,6 +207,40 @@ class TestGetRowsErrors:
         responses = [_make_response({"message": "Key not found", "code": "unauthorized"}, status_code=401)]
         with pytest.raises(HTTPError):
             _drive_get_rows("contacts", manager, responses)
+
+    def test_missing_envelope_key_raises(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        # 200 OK with an unexpected body shape must fail loudly, not sync zero rows.
+        responses = [_make_response({"unexpected": []})]
+        with pytest.raises(KeyError):
+            _drive_get_rows("contacts", manager, responses)
+
+
+class TestGetRowsSession:
+    def test_session_disables_transport_retry_and_redacts_key(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch("posthog.temporal.data_imports.sources.brevo.brevo.make_tracked_session") as MockSession:
+            MockSession.return_value.get.return_value = _make_response({"contacts": [{"id": 1}]})
+            list(
+                get_rows(
+                    api_key="test-key",
+                    endpoint="contacts",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        kwargs = MockSession.call_args.kwargs
+        assert kwargs["retry"].total == 0
+        assert kwargs["redact_values"] == ("test-key",)
+        assert kwargs["headers"]["api-key"] == "test-key"
+        # Session is created once and reused across the sync.
+        MockSession.assert_called_once()
+        MockSession.return_value.close.assert_called_once()
 
 
 class TestValidateCredentials:

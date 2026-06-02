@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.brevo.settings import BREVO_ENDPOINTS, BrevoEndpointConfig
@@ -51,7 +52,8 @@ def _format_datetime(value: Any) -> str:
 def validate_credentials(api_key: str) -> bool:
     """Cheap probe to confirm the API key is genuine."""
     try:
-        response = make_tracked_session().get(f"{BREVO_BASE_URL}/account", headers=_get_headers(api_key), timeout=10)
+        session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
+        response = session.get(f"{BREVO_BASE_URL}/account", timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -88,7 +90,6 @@ def get_rows(
     incremental_field: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = BREVO_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
     base_params = _build_base_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
@@ -97,6 +98,11 @@ def get_rows(
     offset = resume_config.offset if resume_config else 0
     if resume_config is not None:
         logger.debug(f"Brevo: resuming {endpoint} from offset {offset}")
+
+    # One session reused across all pages (TCP/connection reuse). `tenacity` below is the sole
+    # retry mechanism, so disable the transport's built-in urllib3 retries to avoid nested backoff.
+    # `redact_values` masks the api-key header value in logs and sample capture.
+    session = make_tracked_session(headers=_get_headers(api_key), retry=Retry(total=0), redact_values=(api_key,))
 
     @retry(
         retry=retry_if_exception_type((BrevoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -109,7 +115,7 @@ def get_rows(
         if params:
             url = f"{url}?{urlencode(params)}"
 
-        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise BrevoRetryableError(f"Brevo API error (retryable): status={response.status_code}, url={url}")
@@ -120,25 +126,30 @@ def get_rows(
 
         return response.json()
 
-    while True:
-        params = dict(base_params)
-        if config.paginate:
-            params["limit"] = config.page_size
-            params["offset"] = offset
+    try:
+        while True:
+            params = dict(base_params)
+            if config.paginate:
+                params["limit"] = config.page_size
+                params["offset"] = offset
 
-        data = fetch_page(params)
-        items = data.get(config.data_key) or []
+            data = fetch_page(params)
+            # Fail loudly if the expected envelope key is missing (e.g. an API-shape change),
+            # rather than silently reporting a successful sync of zero rows.
+            items = data[config.data_key]
 
-        if items:
-            yield items
+            if items:
+                yield items
 
-        if not config.paginate or len(items) < config.page_size:
-            break
+            if not config.paginate or len(items) < config.page_size:
+                break
 
-        offset += config.page_size
-        # Save AFTER yielding so a crash re-yields the last page (merge dedupes on primary key)
-        # rather than skipping it.
-        resumable_source_manager.save_state(BrevoResumeConfig(offset=offset))
+            offset += config.page_size
+            # Save AFTER yielding so a crash re-yields the last page (merge dedupes on primary key)
+            # rather than skipping it.
+            resumable_source_manager.save_state(BrevoResumeConfig(offset=offset))
+    finally:
+        session.close()
 
 
 def brevo_source(

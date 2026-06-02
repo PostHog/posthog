@@ -7,22 +7,22 @@ official `getbrevo/brevo-python` SDK docs).
 Sorting: every list endpoint only sorts by **record creation date** via `sort=asc|desc` (default `desc`).
 We always request `sort=asc` for stable pagination boundaries and monotonic `createdAt` ordering.
 
-| Schema             | Path                | Array key   | Page size | Incremental                         | Partition key |
-| ------------------ | ------------------- | ----------- | --------- | ----------------------------------- | ------------- |
-| `contacts`         | `/contacts`         | `contacts`  | 1000      | `createdSince` / `modifiedSince`    | `createdAt`   |
-| `contact_lists`    | `/contacts/lists`   | `lists`     | 50        | — (full refresh)                    | —             |
-| `contact_folders`  | `/contacts/folders` | `folders`   | 50        | — (full refresh)                    | —             |
-| `contact_segments` | `/contacts/segments`| `segments`  | 50        | — (full refresh)                    | —             |
-| `email_campaigns`  | `/emailCampaigns`   | `campaigns` | 100       | — (full refresh)                    | `createdAt`   |
-| `sms_campaigns`    | `/smsCampaigns`     | `campaigns` | 100       | — (full refresh)                    | `createdAt`   |
-| `email_templates`  | `/smtp/templates`   | `templates` | 100       | — (full refresh)                    | —             |
-| `senders`          | `/senders`          | `senders`   | n/a       | — (full refresh, single request)    | —             |
+| Schema             | Path                 | Array key   | Page size | Incremental                      | Partition key |
+| ------------------ | -------------------- | ----------- | --------- | -------------------------------- | ------------- |
+| `contacts`         | `/contacts`          | `contacts`  | 1000      | `createdSince` / `modifiedSince` | `createdAt`   |
+| `contact_lists`    | `/contacts/lists`    | `lists`     | 50        | — (full refresh)                 | —             |
+| `contact_folders`  | `/contacts/folders`  | `folders`   | 50        | — (full refresh)                 | —             |
+| `contact_segments` | `/contacts/segments` | `segments`  | 50        | — (full refresh)                 | —             |
+| `email_campaigns`  | `/emailCampaigns`    | `campaigns` | 100       | — (full refresh)                 | `createdAt`   |
+| `sms_campaigns`    | `/smsCampaigns`      | `campaigns` | 100       | — (full refresh)                 | `createdAt`   |
+| `email_templates`  | `/smtp/templates`    | `templates` | 100       | — (full refresh)                 | —             |
+| `senders`          | `/senders`           | `senders`   | n/a       | — (full refresh, single request) | —             |
 
 ## Incremental notes
 
 Only `/contacts` exposes genuine server-side timestamp filters (`createdSince`, `modifiedSince`,
 both `YYYY-MM-DDTHH:mm:ss.SSSZ`). All other list endpoints accept `sort` but no `*Since` filter, so
-they ship as full refresh. `email_campaigns` has `startDate`/`endDate`, but they only filter *sent*
+they ship as full refresh. `email_campaigns` has `startDate`/`endDate`, but they only filter _sent_
 campaigns by send date — not a general modification cursor — so it stays full refresh.
 
 `/contacts` sorts by creation date only. With `sort=asc` a `createdAt` cursor is strictly monotonic.
