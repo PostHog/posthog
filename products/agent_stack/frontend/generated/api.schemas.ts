@@ -113,6 +113,33 @@ export interface AgentMemorySearchResponseApi {
     results: AgentMemorySearchResultApi[]
 }
 
+export interface AgentTableHeaderApi {
+    /** Table name. */
+    name: string
+    /** Object size in bytes. */
+    size: number
+}
+
+export interface AgentTablesListResponseApi {
+    /** Number of tables. */
+    count: number
+    /** Tabular-reference tables for this agent (the @posthog/table-* JSONL tables). */
+    tables: AgentTableHeaderApi[]
+}
+
+export type AgentTableRowsResponseApiRowsItem = { [key: string]: unknown }
+
+export interface AgentTableRowsResponseApi {
+    name: string
+    /** Total rows in the table. */
+    total: number
+    /** Rows in this response (capped by limit). */
+    returned: number
+    limit: number
+    /** The rows (arbitrary JSON objects). */
+    rows: AgentTableRowsResponseApiRowsItem[]
+}
+
 /**
  * Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}.
  */
@@ -1627,6 +1654,13 @@ export type AgentMemorySearchParams = {
      * Search cue — plain natural language is fine.
      */
     q: string
+}
+
+export type AgentMemoryReadTableParams = {
+    /**
+     * Max rows to return (default 500, max 5000).
+     */
+    limit?: number
 }
 
 export type AgentApplicationsRevisionsListParams = {

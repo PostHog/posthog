@@ -608,6 +608,12 @@ tools:
     agent-memory-list-files:
         operation: agent_memory_list_files
         enabled: false
+    agent-memory-list-tables:
+        operation: agent_memory_list_tables
+        enabled: false
+    agent-memory-read-table:
+        operation: agent_memory_read_table
+        enabled: false
     agent-memory-search:
         operation: agent_memory_search
         enabled: false

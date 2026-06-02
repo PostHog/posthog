@@ -7875,6 +7875,33 @@ export namespace Schemas {
       resolved_natives: string[];
     }
 
+    export interface AgentTableHeader {
+      /** Table name. */
+      name: string;
+      /** Object size in bytes. */
+      size: number;
+    }
+
+    export type AgentTableRowsResponseRowsItem = { [key: string]: unknown };
+
+    export interface AgentTableRowsResponse {
+      name: string;
+      /** Total rows in the table. */
+      total: number;
+      /** Rows in this response (capped by limit). */
+      returned: number;
+      limit: number;
+      /** The rows (arbitrary JSON objects). */
+      rows: AgentTableRowsResponseRowsItem[];
+    }
+
+    export interface AgentTablesListResponse {
+      /** Number of tables. */
+      count: number;
+      /** Tabular-reference tables for this agent (the @posthog/table-* JSONL tables). */
+      tables: AgentTableHeader[];
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -46857,6 +46884,13 @@ export namespace Schemas {
      * Search cue — plain natural language is fine.
      */
     q: string;
+    };
+
+    export type AgentMemoryReadTableParams = {
+    /**
+     * Max rows to return (default 500, max 5000).
+     */
+    limit?: number;
     };
 
     export type AgentApplicationsRevisionsListParams = {
