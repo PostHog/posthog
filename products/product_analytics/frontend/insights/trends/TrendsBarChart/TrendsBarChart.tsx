@@ -77,7 +77,7 @@ const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
 export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, isInDashboardContext } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -237,6 +237,9 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
+            // On a dashboard the tile is a fixed height: fit the rows that fit instead of growing
+            // the tile and scrolling. On the full insight page, keep the grow-to-fit-all behavior.
+            bars: { fitToHeight: isInDashboardContext },
         }
     }, [
         yAxisScaleType,
@@ -245,6 +248,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         trendsFilter?.yAxisLabel,
         displayLabels,
         labels,
+        isInDashboardContext,
     ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal

@@ -30,7 +30,8 @@ import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
-import { buildGroupRepository, createPersonHogClient } from './ingestion/personhog'
+import { createPersonHogClient } from './ingestion/personhog'
+import { PersonHogGroupReadRepository } from './ingestion/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from './ingestion/personhog/personhog-person-read-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -41,8 +42,7 @@ import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
+import { GroupReadRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonReadRepository } from './worker/ingestion/persons/repositories/person-repository'
 
 /**
@@ -363,7 +363,7 @@ export class PluginServer implements NodeServer {
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
         personRepository: PersonReadRepository
-        groupRepository: GroupRepository
+        groupRepository: GroupReadRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
@@ -379,16 +379,7 @@ export class PluginServer implements NodeServer {
         }
 
         const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
-
-        // Groups still use the old rollout-based repository for now
-        const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
-        const groupRepository = buildGroupRepository(
-            personhogClient,
-            postgresGroupRepository,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
+        const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
