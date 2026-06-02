@@ -2,11 +2,29 @@ import os
 import json
 from contextlib import suppress
 
+from posthog.settings.access import SECRET_KEY
 from posthog.settings.utils import get_from_env, get_list
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
+
+# Encryption keys for remote-config feature flag payloads, kept separate from
+# Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
+# FLAGS_SECRET_KEY encrypts new payloads; FLAGS_FALLBACK_KEYS are tried during
+# decryption, which is what lets us rotate the key without a hard cutover:
+# promote a new key, keep the old one as a fallback, re-encrypt existing payloads
+# (manage.py reencrypt_flag_payloads), then drop the old key. Both default to
+# SECRET_KEY to preserve existing ciphertext until a dedicated key is set.
+FLAGS_SECRET_KEY: str = os.getenv("FLAGS_SECRET_KEY", SECRET_KEY)
+# Default to a single-element [SECRET_KEY] rather than get_list(SECRET_KEY): SECRET_KEY
+# is one key, and comma-splitting it would corrupt a key that legitimately contains a
+# comma. An explicitly set FLAGS_FALLBACK_KEYS (including empty, meaning no fallbacks)
+# is still comma-separated.
+_flags_fallback_keys_env = os.getenv("FLAGS_FALLBACK_KEYS")
+FLAGS_FALLBACK_KEYS: list[str] = (
+    get_list(_flags_fallback_keys_env) if _flags_fallback_keys_env is not None else [SECRET_KEY]
+)
 
 # Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
 LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
