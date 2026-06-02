@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import asyncio
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
@@ -405,6 +406,20 @@ def _get_cdc_extraction_schedule_id(source_id: str) -> str:
     return f"cdc-extraction-{source_id}"
 
 
+CDC_DEFAULT_INTERVAL = timedelta(hours=1)
+
+
+def cdc_min_interval(sync_frequency_intervals: Iterable[timedelta | None]) -> timedelta:
+    """CDC extraction interval for a source: the minimum sync frequency across its active CDC
+    schemas, falling back to `CDC_DEFAULT_INTERVAL` when none declare one.
+
+    Single source of truth shared by `sync_cdc_extraction_schedule` (per source) and the
+    `backfill_cdc_extraction_schedules` command (batched), so the rule can't drift.
+    """
+    intervals = [interval for interval in sync_frequency_intervals if interval is not None]
+    return min(intervals) if intervals else CDC_DEFAULT_INTERVAL
+
+
 def get_cdc_extraction_schedule(
     source: ExternalDataSource,
     min_interval: timedelta,
@@ -472,8 +487,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
             pass
         return
 
-    intervals = [s.sync_frequency_interval for s in cdc_schemas if s.sync_frequency_interval is not None]
-    min_interval = min(intervals) if intervals else timedelta(hours=1)
+    min_interval = cdc_min_interval(schema.sync_frequency_interval for schema in cdc_schemas)
 
     temporal = sync_connect()
     schedule = get_cdc_extraction_schedule(source, min_interval)

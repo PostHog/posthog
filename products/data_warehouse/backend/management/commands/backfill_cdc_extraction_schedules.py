@@ -34,14 +34,11 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from products.data_warehouse.backend.data_load.service import bulk_sync_cdc_extraction_schedules
+from products.data_warehouse.backend.data_load.service import bulk_sync_cdc_extraction_schedules, cdc_min_interval
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
-
-# Mirrors the fallback in `sync_cdc_extraction_schedule` when no schema declares an interval.
-_DEFAULT_INTERVAL = timedelta(hours=1)
 
 
 class Command(BaseCommand):
@@ -85,18 +82,15 @@ class Command(BaseCommand):
         if team_id_filter is not None:
             schema_qs = schema_qs.filter(team_id=team_id_filter)
 
-        # One schedule per source; interval is the minimum across the source's CDC schemas.
+        # One schedule per source; `cdc_min_interval` collapses each source's schema
+        # intervals to the value `sync_cdc_extraction_schedule` would compute per source.
         sources: dict[Any, ExternalDataSource] = {}
-        intervals: dict[Any, list[timedelta]] = defaultdict(list)
+        intervals: dict[Any, list[timedelta | None]] = defaultdict(list)
         for schema in schema_qs.iterator(chunk_size=500):
             sources[schema.source_id] = schema.source
-            if schema.sync_frequency_interval is not None:
-                intervals[schema.source_id].append(schema.sync_frequency_interval)
+            intervals[schema.source_id].append(schema.sync_frequency_interval)
 
-        source_intervals = [
-            (source, min(intervals[source_id]) if intervals[source_id] else _DEFAULT_INTERVAL)
-            for source_id, source in sources.items()
-        ]
+        source_intervals = [(source, cdc_min_interval(intervals[source_id])) for source_id, source in sources.items()]
 
         self.stdout.write(f"Found {len(source_intervals)} CDC sources to process (live_run={live_run}).")
 
