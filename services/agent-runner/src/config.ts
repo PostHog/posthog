@@ -68,6 +68,37 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .default('1')
         .transform((v) => v === '1' || v === 'true')
         .describe('forcePathStyle for the S3 client. Default true (MinIO needs it; real S3 accepts it).'),
+    bundleS3Endpoint: z
+        .string()
+        .url()
+        .optional()
+        .describe(
+            'S3 / MinIO endpoint for agent-bundle storage. Unset is a hard error in prod — the runner reads bundles to start a session.'
+        ),
+    bundleS3Region: z
+        .string()
+        .default('us-east-1')
+        .describe('Region for the bundle bucket. MinIO ignores; real S3 honours.'),
+    bundleS3Bucket: z
+        .string()
+        .optional()
+        .describe(
+            'Bucket holding agent bundles (per-revision compiled code + spec + skills). Unset disables session execution.'
+        ),
+    bundleS3Prefix: z
+        .string()
+        .default('agent_bundles')
+        .describe('Per-deployment key prefix inside the bucket. Default `agent_bundles`.'),
+    bundleS3AccessKeyId: z
+        .string()
+        .optional()
+        .describe('Optional explicit S3 access key id; falls back to SDK default chain.'),
+    bundleS3SecretAccessKey: z.string().optional().describe('Optional explicit S3 secret access key.'),
+    bundleS3ForcePathStyle: z
+        .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
+        .default('1')
+        .transform((v) => v === '1' || v === 'true')
+        .describe('forcePathStyle for the S3 client. Default true (MinIO needs it; real S3 accepts it).'),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -89,6 +120,13 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_MEMORY_S3_ACCESS_KEY_ID: 'memoryS3AccessKeyId',
     AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'memoryS3SecretAccessKey',
     AGENT_MEMORY_S3_FORCE_PATH_STYLE: 'memoryS3ForcePathStyle',
+    AGENT_BUNDLE_S3_ENDPOINT: 'bundleS3Endpoint',
+    AGENT_BUNDLE_S3_REGION: 'bundleS3Region',
+    AGENT_BUNDLE_S3_BUCKET: 'bundleS3Bucket',
+    AGENT_BUNDLE_S3_PREFIX: 'bundleS3Prefix',
+    AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'bundleS3AccessKeyId',
+    AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'bundleS3SecretAccessKey',
+    AGENT_BUNDLE_S3_FORCE_PATH_STYLE: 'bundleS3ForcePathStyle',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {
