@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 import posthoganalytics
 from anthropic import AsyncAnthropic
+from anthropic.types import MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -136,7 +137,7 @@ async def _summarize_description(
     summarization_prompt: str,
     threshold: int,
 ) -> SignalEmitterOutput:
-    messages: list[dict[str, str]] = [
+    messages: list[MessageParam] = [
         {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
     ]
     extra_headers = _signals_extra_headers(output, stage="summarization")
@@ -148,7 +149,7 @@ async def _summarize_description(
             response = await asyncio.wait_for(
                 client.messages.create(
                     model=LLM_MODEL,
-                    messages=messages,  # type: ignore[arg-type]
+                    messages=messages,
                     max_tokens=LLM_MAX_OUTPUT_TOKENS,
                     metadata={"user_id": f"team-{team_id}"},
                     extra_headers=extra_headers,
