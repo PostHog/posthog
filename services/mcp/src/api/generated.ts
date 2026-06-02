@@ -2175,6 +2175,8 @@ export namespace Schemas {
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
       smoothingIntervals?: number | null;
+      /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+      stackBreakdownValues?: boolean | null;
       /** Custom label rendered under the X axis. */
       xAxisLabel?: string | null;
       /** Custom label rendered alongside the Y axis. */
@@ -34419,6 +34421,14 @@ export namespace Schemas {
       source_version: string;
       /** Structured profile content. v1 has `inventory` only. */
       payload: ProjectProfilePayload;
+    }
+
+    export interface PromotedProductIntent {
+      /**
+         * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+         * @nullable
+         */
+      product_key: string | null;
     }
 
     export interface Property {

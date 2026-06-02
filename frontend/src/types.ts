@@ -4792,6 +4792,7 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
+    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
