@@ -57,7 +57,10 @@ const userInterviewTopicsAddInterviewee = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsCreateSchema = UserInterviewTopicsCreateBody
+const UserInterviewTopicsCreateSchema = UserInterviewTopicsCreateBody.omit({
+    invite_subject: true,
+    invite_message: true,
+})
 
 const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateSchema, Schemas.UserInterviewTopic> => ({
     name: 'user-interview-topics-create',
@@ -268,7 +271,7 @@ const userInterviewTopicsList = (): ToolBase<
 })
 
 const UserInterviewTopicsPartialUpdateSchema = UserInterviewTopicsPartialUpdateParams.omit({ project_id: true }).extend(
-    UserInterviewTopicsPartialUpdateBody.shape
+    UserInterviewTopicsPartialUpdateBody.omit({ invite_subject: true, invite_message: true }).shape
 )
 
 const userInterviewTopicsPartialUpdate = (): ToolBase<

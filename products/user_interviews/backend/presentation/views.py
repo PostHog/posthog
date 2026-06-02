@@ -37,6 +37,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import EmailMessage, is_email_available
+from posthog.helpers.email_utils import validate_display_name, validate_message_body
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -46,6 +47,7 @@ from posthog.utils import absolute_uri
 
 from ..facade.api import parse_interviewee_identifier
 from ..facade.enums import SEARCH_DOCUMENT_TYPES
+from ..invite_email import build_invite_email_context
 from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
@@ -504,6 +506,26 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Ordered list of questions the voice agent should work through during the interview.",
     )
+    invite_subject = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "Subject line for the invitation email. Plain text only — URLs, angle brackets, and control "
+            "characters are rejected. Leave blank to use the default subject. Personalization is handled by "
+            "the email template, so do not include placeholders."
+        ),
+    )
+    invite_message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text=(
+            "Intro message shown in the invitation email body, above the interview link. Plain prose only — "
+            "URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank "
+            "to use the default copy."
+        ),
+    )
 
     class Meta:
         model = UserInterviewTopic
@@ -516,8 +538,16 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
             "topic",
             "agent_context",
             "questions",
+            "invite_subject",
+            "invite_message",
         )
         read_only_fields = ("id", "created_by", "created_at")
+
+    def validate_invite_subject(self, value: str | None) -> str | None:
+        return validate_display_name(value)
+
+    def validate_invite_message(self, value: str | None) -> str | None:
+        return validate_message_body(value)
 
     MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
 
@@ -791,7 +821,10 @@ class SendInvitesRequestSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
         max_length=200,
-        help_text="Override the default email subject line. Defaults to a friendly prompt referencing the topic.",
+        help_text=(
+            "Override the email subject line for this send. Plain text only — URLs, angle brackets, and "
+            "control characters are rejected. Falls back to the topic's saved subject, then a default."
+        ),
     )
     reply_to = serializers.EmailField(
         required=False,
@@ -802,6 +835,9 @@ class SendInvitesRequestSerializer(serializers.Serializer):
         default=True,
         help_text="If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately.",
     )
+
+    def validate_subject(self, value: str | None) -> str | None:
+        return validate_display_name(value)
 
 
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -957,8 +993,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        topic_label = topic.topic or "a quick research interview"
-        subject = params.validated_data.get("subject") or f"Got 5 minutes to talk about {topic_label}?"
+        subject_override = params.validated_data.get("subject") or ""
         reply_to = params.validated_data.get("reply_to")
         if not reply_to and topic.created_by_id and topic.created_by and topic.created_by.email:
             reply_to = topic.created_by.email
@@ -975,18 +1010,19 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append({**base, "sent": False, "reason": "not_an_email"})
                 continue
 
+            built = build_invite_email_context(
+                topic=topic,
+                user_name=link["user_name"],
+                interview_url=link["interview_url"],
+                subject_override=subject_override,
+            )
             campaign_key = f"interview_invite_{link['sharing_configuration'].id}"
             try:
                 message = EmailMessage(
                     campaign_key=campaign_key,
                     template_name="interview_invite",
-                    subject=subject,
-                    template_context={
-                        "user_name": link["user_name"],
-                        "topic": topic_label,
-                        "interview_url": link["interview_url"],
-                        "site_url": settings.SITE_URL,
-                    },
+                    subject=built["subject"],
+                    template_context=built["template_context"],
                     reply_to=reply_to,
                 )
                 message.add_recipient(email=link["email"], name=link["user_name"])
