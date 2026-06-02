@@ -6,9 +6,14 @@
 //! runs the Stage 1 loop lives in [`crate::workers`].
 
 pub mod offset_tracker;
+pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
 
 pub use offset_tracker::{is_replay, MarkOutcome, OffsetTracker};
+pub use rebalance::{
+    run_rebalance_worker, CohortConsumerContext, ConsumerCommand, ConsumerCommandReceiver,
+    ConsumerCommandSender, RebalanceEvent, RebalanceEventReceiver,
+};
 pub use router::{PartitionRouter, RouteError};
 pub use shuffle_message::ShuffleMessage;

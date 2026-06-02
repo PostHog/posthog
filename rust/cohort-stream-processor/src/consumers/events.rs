@@ -9,12 +9,12 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use lifecycle::Handle;
 use metrics::{counter, histogram};
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
 use serde::Deserialize;
@@ -26,8 +26,11 @@ use crate::observability::metrics::{
     COHORT_STREAM_EMPTY_PAYLOAD, COHORT_STREAM_EVENTS_CONSUMED, COHORT_STREAM_EVENTS_DISPATCHED,
     COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_OFFSET_COMMITS,
     COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS, COHORT_STREAM_WORKERS_SPAWNED,
+    PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL,
+    REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
+use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
 use crate::partitions::router::PartitionRouter;
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
@@ -76,16 +79,23 @@ pub struct ConsumedEvent {
     pub offset: i64,
 }
 
-/// The Kafka-free routing core: dispatches a consumed batch to per-partition workers and tracks
-/// processed offsets.
+/// The Kafka-free routing core: dispatches a consumed batch to per-partition workers, tracks
+/// processed offsets, and owns the partition lifecycle the rebalance handler drives.
+///
+/// `router`, `workers`, and `owned` are shared `Arc`s so the [`CohortConsumerContext`] and its async
+/// rebalance worker drive the *same* state this dispatcher routes through.
 pub struct EventDispatcher {
-    router: PartitionRouter,
+    router: Arc<PartitionRouter>,
     /// `Arc` because each worker records its own offsets here (after producing) while the commit
     /// loop reads it — shared, not dispatcher-owned.
     tracker: Arc<OffsetTracker>,
-    /// Interior mutability so the consume loop can spawn through a shared `&self`; also the join set
-    /// drained on shutdown.
-    workers: DashMap<i32, Stage1Worker>,
+    /// Interior mutability so the consume loop can spawn through a shared `&self`, the rebalance
+    /// worker can evict through it, and shutdown can drain it — all over one coherent set.
+    workers: Arc<DashMap<i32, Stage1Worker>>,
+    /// Partitions currently assigned to this consumer. Set by `assign_partition`, cleared by
+    /// `revoke_partition_sync`, and re-checked by `revoke_partition_drain` so a rapid revoke→assign
+    /// leaves the live worker and its state untouched.
+    owned: Arc<DashSet<i32>>,
     store: CohortStore,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
@@ -100,9 +110,10 @@ impl EventDispatcher {
         sink: Arc<dyn MembershipSink>,
     ) -> Self {
         Self {
-            router,
+            router: Arc::new(router),
             tracker,
-            workers: DashMap::new(),
+            workers: Arc::new(DashMap::new()),
+            owned: Arc::new(DashSet::new()),
             store,
             catalog,
             sink,
@@ -185,55 +196,147 @@ impl EventDispatcher {
         }
     }
 
+    /// Whether `partition` is currently assigned to this consumer.
+    pub fn owns(&self, partition: i32) -> bool {
+        self.owned.contains(&partition)
+    }
+
+    /// Record a newly-assigned partition. The worker spawns lazily on the first message
+    /// ([`ensure_worker`](Self::ensure_worker)), so there is no eager setup here.
+    pub fn assign_partition(&self, partition: i32) {
+        self.owned.insert(partition);
+        counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
+    }
+
+    /// Synchronous half of a revoke, safe to call from the librdkafka poll thread: mark the partition
+    /// un-owned so the async drain's ownership re-check is accurate even if a reassign races in.
+    ///
+    /// The worker's channel is deliberately left intact. Under cooperative-sticky the broker has
+    /// already stopped delivering this partition, so dropping the sender now would only tear down a
+    /// worker a rapid revoke→assign is about to hand straight back. Teardown is decided in
+    /// [`revoke_partition_drain`](Self::revoke_partition_drain), once the race has settled.
+    pub fn revoke_partition_sync(&self, partition: i32) {
+        self.owned.remove(&partition);
+        counter!(PARTITIONS_REVOKED_TOTAL).increment(1);
+    }
+
+    /// Asynchronous half of a revoke: reclaim the partition unless a reassign re-acquired it.
+    ///
+    /// Run off the poll thread (it does async I/O). Re-checks ownership against the *current* state,
+    /// not the queued snapshot — the rapid revoke→assign guard:
+    /// - **Re-acquired** → skip entirely. The worker, its channel, and its state are still ours.
+    /// - **Truly revoked** → drop the sender (the worker drains its tail, produces, and exits), evict
+    ///   it from `workers`, then delete its on-disk state slice.
+    ///
+    /// Evicting from `workers` is mandatory: [`ensure_worker`](Self::ensure_worker) gates on
+    /// `workers.contains_key`, so a stale entry would block a future reassignment from respawning the
+    /// partition — its messages would `RouteError` and replay forever. The eviction sits *after* the
+    /// ownership re-check so it never tears down a re-acquired partition.
+    pub async fn revoke_partition_drain(&self, partition: i32) {
+        if self.owned.contains(&partition) {
+            counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL).increment(1);
+            debug!(
+                partition,
+                "skipping revoke cleanup: partition re-assigned before cleanup ran"
+            );
+            return;
+        }
+
+        self.router.remove_partition(partition);
+        if let Some((_, worker)) = self.workers.remove(&partition) {
+            let started = Instant::now();
+            if let Err(err) = worker.join().await {
+                warn!(partition, error = %err, "stage 1 worker panicked during revoke drain");
+            }
+            histogram!(REVOKE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+        }
+
+        // Reclaim the state slice so a later tenure of this partition never reads a previous owner's
+        // state. `delete_partition` takes the store's `u16` partition id; guard the cast rather than
+        // silently truncate (the shuffler emits 64 partitions, so this never bites in practice).
+        let Some(partition_id) = partition_to_store_id(partition) else {
+            warn!(
+                partition,
+                "revoked partition out of u16 range; skipping state delete"
+            );
+            return;
+        };
+        match self.store.delete_partition(partition_id) {
+            Ok(()) => counter!(PARTITION_STATE_DELETED_TOTAL).increment(1),
+            Err(err) => {
+                warn!(partition, error = %err, "failed to delete revoked partition state")
+            }
+        }
+    }
+
     fn tracker(&self) -> &OffsetTracker {
         self.tracker.as_ref()
     }
 
-    /// Stop feeding workers and drain them. Dropping the router closes every worker channel, so each
-    /// worker drains its queued batches, produces their membership changes, marks their offsets, and
-    /// exits. Joining *after* the drop guarantees all state is durable and all offsets marked before
-    /// the caller's final commit. Returns the shared tracker so the caller can build that commit.
-    async fn shutdown(self) -> Arc<OffsetTracker> {
-        let Self {
-            router,
-            tracker,
-            workers,
-            ..
-        } = self;
-        drop(router);
-        for (partition, worker) in workers {
-            if let Err(err) = worker.join().await {
-                warn!(partition, error = %err, "stage 1 worker panicked during shutdown drain");
+    /// Stop feeding workers and drain them. [`clear`](PartitionRouter::clear)ing the router closes
+    /// every worker channel, so each worker drains its queued batches, produces their membership
+    /// changes, marks their offsets, and exits. Joining *after* the clear guarantees all state is
+    /// durable and all offsets marked before the caller's final commit. Returns the shared tracker
+    /// so the caller can build that commit.
+    ///
+    /// Takes `&self` (not `self`): the dispatcher is shared (`Arc`) with the rebalance context, so it
+    /// cannot be consumed. Removing each worker from the shared `workers` map before joining means a
+    /// concurrent `revoke_partition_drain` and this drain can never both join the same worker — the
+    /// `DashMap::remove` hands the worker to exactly one of them.
+    async fn shutdown(&self) -> Arc<OffsetTracker> {
+        self.router.clear();
+        let partitions: Vec<i32> = self.workers.iter().map(|entry| *entry.key()).collect();
+        for partition in partitions {
+            if let Some((_, worker)) = self.workers.remove(&partition) {
+                if let Err(err) = worker.join().await {
+                    warn!(partition, error = %err, "stage 1 worker panicked during shutdown drain");
+                }
             }
         }
-        tracker
+        self.tracker.clone()
     }
+}
+
+/// Map a Kafka partition (`i32`) to the store's `u16` partition id. Returns `None` for an
+/// out-of-range value rather than silently truncating; consistent with the `partition as u16` cast
+/// in [`EventDispatcher::ensure_worker`].
+fn partition_to_store_id(partition: i32) -> Option<u16> {
+    u16::try_from(partition).ok()
 }
 
 /// The `cohort_stream_events` group consumer: consume → route → commit.
 ///
 /// Uses a raw `StreamConsumer` with manual commit rather than `common-kafka`'s
 /// `SingleTopicConsumer`, because the per-partition [`OffsetTracker`] commits a
-/// `TopicPartitionList` the wrapper can't express.
+/// `TopicPartitionList` the wrapper can't express. The consumer carries a
+/// [`CohortConsumerContext`] so Kafka's rebalance callbacks drive the partition lifecycle.
 pub struct CohortStreamEventsConsumer {
-    consumer: StreamConsumer,
+    consumer: StreamConsumer<CohortConsumerContext>,
     topic: String,
-    dispatcher: EventDispatcher,
+    /// Shared with the rebalance context: the consume loop dispatches through it while the context's
+    /// async worker assigns/revokes partitions on the same shared router/workers/owned state.
+    dispatcher: Arc<EventDispatcher>,
     handle: Handle,
     recv_batch_size: usize,
     recv_batch_timeout: Duration,
     offset_commit_interval: Duration,
+    /// Receiver for [`ConsumerCommand`](crate::partitions::ConsumerCommand)s; currently unused, held
+    /// so the channel stays open.
+    #[allow(dead_code)]
+    consumer_command_rx: ConsumerCommandReceiver,
 }
 
 impl CohortStreamEventsConsumer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        consumer: StreamConsumer,
+        consumer: StreamConsumer<CohortConsumerContext>,
         topic: String,
-        dispatcher: EventDispatcher,
+        dispatcher: Arc<EventDispatcher>,
         handle: Handle,
         recv_batch_size: usize,
         recv_batch_timeout: Duration,
         offset_commit_interval: Duration,
+        consumer_command_rx: ConsumerCommandReceiver,
     ) -> Self {
         Self {
             consumer,
@@ -243,6 +346,7 @@ impl CohortStreamEventsConsumer {
             recv_batch_size,
             recv_batch_timeout,
             offset_commit_interval,
+            consumer_command_rx,
         }
     }
 
@@ -286,15 +390,9 @@ impl CohortStreamEventsConsumer {
             }
         }
 
-        let Self {
-            consumer,
-            dispatcher,
-            topic,
-            ..
-        } = self;
-        let tracker = dispatcher.shutdown().await;
-        commit_offsets(&consumer, &tracker, &topic, CommitMode::Sync);
-        info!(topic = %topic, "cohort_stream_events consume loop stopped");
+        let tracker = self.dispatcher.shutdown().await;
+        commit_offsets(&self.consumer, &tracker, &self.topic, CommitMode::Sync);
+        info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
     /// Account for a consumed batch, dispatch it, and heartbeat. A transport error suppresses the
@@ -401,9 +499,10 @@ fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> TopicPartitionL
 }
 
 /// Commit the tracker's processed offsets to Kafka and record what was acked. A free function so
-/// both the periodic (async) and final (sync) commits reuse it.
-fn commit_offsets(
-    consumer: &StreamConsumer,
+/// both the periodic (async) and final (sync) commits reuse it. Generic over the consumer context
+/// so it works regardless of which [`ConsumerContext`] the consumer carries.
+fn commit_offsets<C: ConsumerContext>(
+    consumer: &StreamConsumer<C>,
     tracker: &OffsetTracker,
     topic: &str,
     mode: CommitMode,
@@ -435,7 +534,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
-    use crate::producer::CaptureSink;
+    use crate::producer::{CaptureSink, MembershipStatus};
     use crate::stage1::{Stage1State, StatefulRecord};
     use crate::store::{LeafStateKey, Stage1Key, StoreConfig};
 
@@ -582,13 +681,24 @@ mod tests {
     }
 
     fn dispatcher_with(store: &CohortStore, catalog: Arc<CatalogHandle>) -> EventDispatcher {
-        EventDispatcher::new(
+        dispatcher_and_sink(store, catalog).0
+    }
+
+    /// Like [`dispatcher_with`] but also returns the capture sink, so a test can assert what the
+    /// workers produced (e.g. that a revoke drain flushed a partition's tail before reclaiming it).
+    fn dispatcher_and_sink(
+        store: &CohortStore,
+        catalog: Arc<CatalogHandle>,
+    ) -> (EventDispatcher, Arc<CaptureSink>) {
+        let sink = Arc::new(CaptureSink::new());
+        let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
             store.clone(),
             catalog,
-            Arc::new(CaptureSink::new()),
-        )
+            sink.clone(),
+        );
+        (dispatcher, sink)
     }
 
     /// The behavioral leaf's `LeafStateKey`, read through the catalog like the worker does rather
@@ -756,5 +866,134 @@ mod tests {
         assert_eq!(dispatcher.workers.len(), 0);
         assert!(dispatcher.tracker().committable_offsets().is_empty());
         let _tracker = dispatcher.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn revoke_partition_drains_produces_evicts_and_deletes_state() {
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let (dispatcher, sink) = dispatcher_and_sink(&store, catalog);
+
+        dispatcher.assign_partition(0);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+
+        // Sync half marks un-owned but leaves the worker running (cooperative-sticky has already
+        // stopped delivery), so the sender survives until the async drain.
+        dispatcher.revoke_partition_sync(0);
+        assert!(!dispatcher.owns(0));
+        assert_eq!(dispatcher.router.partition_count(), 1);
+
+        dispatcher.revoke_partition_drain(0).await;
+
+        // Drained: person 1's enter was produced before the slice was reclaimed.
+        let changes = sink.changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert_eq!(changes[0].person_id, person(1).to_string());
+
+        assert_eq!(dispatcher.workers.len(), 0, "worker evicted");
+        assert_eq!(dispatcher.router.partition_count(), 0, "sender removed");
+        assert!(
+            behavioral_state(&store, 0, person(1), lsk).is_none(),
+            "the partition's state slice was deleted",
+        );
+    }
+
+    #[tokio::test]
+    async fn reassign_after_a_full_revoke_respawns_and_advances_offsets() {
+        // Guards the eviction gotcha: a fully-revoked partition must respawn cleanly on reassignment.
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        dispatcher.assign_partition(0);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.revoke_partition_drain(0).await;
+        assert_eq!(dispatcher.workers.len(), 0);
+
+        dispatcher.assign_partition(0);
+        dispatcher.dispatch(vec![consumed(person(2), 0, 20)]).await;
+        assert_eq!(
+            dispatcher.workers.len(),
+            1,
+            "a reassigned partition respawns"
+        );
+
+        let tracker = dispatcher.shutdown().await;
+        assert_eq!(tracker.committable_offsets().get(&0), Some(&21));
+    }
+
+    #[tokio::test]
+    async fn rapid_revoke_then_assign_skips_cleanup_and_keeps_the_live_worker() {
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = dispatcher_with(&store, catalog);
+
+        dispatcher.assign_partition(0);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+
+        // Revoke then re-assign before the async cleanup runs: the drain must skip.
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.assign_partition(0);
+        dispatcher.revoke_partition_drain(0).await;
+
+        assert!(dispatcher.owns(0), "re-owned partition stays owned");
+        assert_eq!(dispatcher.workers.len(), 1, "worker preserved");
+        assert_eq!(dispatcher.router.partition_count(), 1, "sender preserved");
+
+        // The same worker keeps routing — a fresh message lands on it and advances the offset.
+        dispatcher.dispatch(vec![consumed(person(2), 0, 11)]).await;
+        let tracker = dispatcher.shutdown().await;
+        assert_eq!(tracker.committable_offsets().get(&0), Some(&12));
+        assert!(
+            behavioral_state(&store, 0, person(1), lsk).is_some(),
+            "state survived the skipped cleanup",
+        );
+    }
+
+    #[tokio::test]
+    async fn revoke_then_shutdown_drain_each_worker_exactly_once() {
+        // Revoke and shutdown share one `Arc<DashMap>`: `remove` hands a worker to exactly one of
+        // them, so neither double-drains and both partitions' tails are marked.
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        dispatcher
+            .dispatch(vec![consumed(person(1), 0, 10), consumed(person(2), 1, 20)])
+            .await;
+        assert_eq!(dispatcher.workers.len(), 2);
+
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.revoke_partition_drain(0).await;
+        assert_eq!(dispatcher.workers.len(), 1);
+
+        let tracker = dispatcher.shutdown().await;
+        assert_eq!(dispatcher.workers.len(), 0);
+        assert_eq!(
+            tracker.committable_offsets().get(&0),
+            Some(&11),
+            "the revoked partition's tail was drained once",
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&1),
+            Some(&21),
+            "the survivor drained on shutdown",
+        );
+    }
+
+    #[tokio::test]
+    async fn assign_and_revoke_track_ownership() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        assert!(!dispatcher.owns(3));
+        dispatcher.assign_partition(3);
+        assert!(dispatcher.owns(3));
+        dispatcher.revoke_partition_sync(3);
+        assert!(!dispatcher.owns(3));
     }
 }

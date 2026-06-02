@@ -25,6 +25,7 @@ use crate::stage1::key::{LeafStateKey, Stage1Key};
 
 // Shared between `StoreError::Backend { op }` and the metric `op` label.
 const OP_OPEN: &str = "open";
+const OP_DESTROY: &str = "destroy";
 const OP_GET: &str = "get";
 const OP_WRITE_BATCH: &str = "write_batch";
 const OP_DELETE_PARTITION: &str = "delete_partition";
@@ -42,6 +43,11 @@ pub struct StoreConfig {
     pub write_buffer_bytes: usize,
     pub max_open_files: i32,
     pub create_if_missing: bool,
+    /// Destroy any existing database at `path` before opening, for a guaranteed stale-free start:
+    /// re-acquiring a partition must never serve per-partition state a previous owner left on disk.
+    /// Off by default (preserving state across a reopen); the service sets it from
+    /// [`Config::wipe_store_on_start`](crate::config::Config::wipe_store_on_start).
+    pub wipe_on_start: bool,
 }
 
 impl Default for StoreConfig {
@@ -52,6 +58,7 @@ impl Default for StoreConfig {
             write_buffer_bytes: DEFAULT_WRITE_BUFFER_BYTES,
             max_open_files: DEFAULT_MAX_OPEN_FILES,
             create_if_missing: true,
+            wipe_on_start: false,
         }
     }
 }
@@ -94,9 +101,26 @@ pub struct CohortStore {
 
 impl CohortStore {
     /// Open the three state column families at `config.path`, creating them if missing.
+    ///
+    /// When [`wipe_on_start`](StoreConfig::wipe_on_start) is set and a database already exists at
+    /// `config.path`, it is destroyed first so the process starts from an empty store.
     pub fn open(config: &StoreConfig) -> Result<Self, StoreError> {
         let cache = Cache::new_lru_cache(config.block_cache_bytes);
         let db_opts = db_options(config);
+
+        if config.wipe_on_start && config.path.exists() {
+            // `destroy` requires the DB be closed; it is, since we have not opened it yet.
+            DBWithThreadMode::<SingleThreaded>::destroy(&db_opts, &config.path).map_err(
+                |source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_DESTROY).increment(1);
+                    StoreError::Open {
+                        path: config.path.clone(),
+                        source,
+                    }
+                },
+            )?;
+        }
+
         let descriptors = column_families::descriptors(config, &cache);
 
         let db = DBWithThreadMode::<SingleThreaded>::open_cf_descriptors(
@@ -278,6 +302,75 @@ fn db_options(config: &StoreConfig) -> Options {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    fn stage1_key() -> Stage1Key {
+        Stage1Key {
+            partition_id: 3,
+            team_id: 7,
+            leaf_state_key: LeafStateKey([0xAB; 16]),
+            person_id: Uuid::from_u128(1),
+        }
+    }
+
+    #[test]
+    fn wipe_on_start_clears_existing_state_and_is_a_noop_when_off() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("db");
+        let key = stage1_key();
+
+        // Seed a value, then close the database (drop the only handle).
+        {
+            let store = CohortStore::open(&StoreConfig {
+                path: path.clone(),
+                ..StoreConfig::default()
+            })
+            .unwrap();
+            store.write_batch(|b| b.put_stage1(&key, b"state")).unwrap();
+            assert_eq!(
+                store.get_stage1(&key).unwrap().as_deref(),
+                Some(b"state".as_slice()),
+            );
+        }
+
+        // Reopen without wiping: the value survives a restart.
+        {
+            let store = CohortStore::open(&StoreConfig {
+                path: path.clone(),
+                wipe_on_start: false,
+                ..StoreConfig::default()
+            })
+            .unwrap();
+            assert_eq!(
+                store.get_stage1(&key).unwrap().as_deref(),
+                Some(b"state".as_slice()),
+            );
+        }
+
+        // Reopen with wiping: the previous owner's state is gone.
+        {
+            let store = CohortStore::open(&StoreConfig {
+                path: path.clone(),
+                wipe_on_start: true,
+                ..StoreConfig::default()
+            })
+            .unwrap();
+            assert_eq!(store.get_stage1(&key).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn wipe_on_start_opens_cleanly_when_no_store_exists_yet() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("fresh"),
+            wipe_on_start: true,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        assert_eq!(store.get_stage1(&stage1_key()).unwrap(), None);
+    }
 
     #[test]
     fn default_config_is_sane() {

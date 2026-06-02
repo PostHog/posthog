@@ -118,6 +118,13 @@ impl PartitionRouter {
         }
     }
 
+    /// Drop every sender at once, signalling all workers to drain and exit. Used on shutdown, where
+    /// the router is shared (`Arc`) so it cannot be dropped to close the channels.
+    pub fn clear(&self) {
+        self.senders.clear();
+        self.emit_active_gauge();
+    }
+
     /// Group a mixed-partition batch by partition and dispatch each sub-batch to its worker,
     /// preserving per-partition arrival order (the affinity guarantee). Per-partition failures are
     /// collected into the returned `Vec` rather than aborting the batch.

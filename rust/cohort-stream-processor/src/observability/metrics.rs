@@ -43,6 +43,28 @@ pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
 /// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
 
+// ── Rebalance handling ─────────────────────────────────────────────────────────
+/// Non-empty rebalance callbacks observed, labelled by `event_type` (`assign`|`revoke`) (counter).
+/// One per callback; pairs with the per-partition [`PARTITIONS_ASSIGNED_TOTAL`] /
+/// [`PARTITIONS_REVOKED_TOTAL`].
+pub const REBALANCES_TOTAL: &str = "rebalances_total";
+/// Partitions assigned to this consumer across all rebalances (counter).
+pub const PARTITIONS_ASSIGNED_TOTAL: &str = "partitions_assigned_total";
+/// Partitions revoked from this consumer across all rebalances (counter).
+pub const PARTITIONS_REVOKED_TOTAL: &str = "partitions_revoked_total";
+/// Empty rebalance callbacks short-circuited, labelled by `event_type` (counter). Cooperative-sticky
+/// fires these whenever group membership changes without moving this consumer's partitions.
+pub const REBALANCE_EMPTY_SKIPPED_TOTAL: &str = "rebalance_empty_skipped_total";
+/// Per-partition revoke drain (worker join) latency (histogram, seconds). The drain produces and
+/// acks the partition's tail before it is reclaimed.
+pub const REVOKE_DRAIN_DURATION_SECONDS: &str = "revoke_drain_duration_seconds";
+/// Per-partition RocksDB state slices reclaimed on revoke (counter). Pairs with
+/// [`PARTITIONS_REVOKED_TOTAL`]; the gap is revokes that re-acquired before cleanup ran.
+pub const PARTITION_STATE_DELETED_TOTAL: &str = "partition_state_deleted_total";
+/// Revoke cleanups skipped because the partition was re-assigned before the async drain ran — the
+/// rapid revoke→assign race (counter).
+pub const REBALANCE_CLEANUP_SKIPPED_TOTAL: &str = "rebalance_cleanup_skipped_total";
+
 // ── Stage 1 worker ─────────────────────────────────────────────────────────────
 /// Events fully processed; with [`STAGE1_EVENTS_SKIPPED`] accounts for every dequeued event
 /// (counter).

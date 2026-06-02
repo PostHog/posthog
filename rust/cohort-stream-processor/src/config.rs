@@ -152,6 +152,23 @@ pub struct Config {
     #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 
+    /// How long the broker waits for heartbeats before declaring this consumer dead. With static
+    /// membership the broker holds this consumer's partitions for this long after it disappears, so a
+    /// restart within the window reclaims them with no rebalance.
+    #[envconfig(default = "60000")]
+    pub kafka_session_timeout_ms: u64,
+
+    // ── Static group membership (sticky partitions across restarts) ────────
+    /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership so a
+    /// restart reclaims its exact partitions with no rebalance. Read from `POD_NAME`, else `HOSTNAME`
+    /// (which K8s sets to the pod name). Absent → no static membership, just cooperative rebalancing.
+    /// See [`Config::pod_identity`].
+    #[envconfig(from = "POD_NAME")]
+    pub pod_name: Option<String>,
+
+    #[envconfig(from = "HOSTNAME")]
+    pub pod_hostname: Option<String>,
+
     // ── Producer (output: cohort_membership_changed_shadow) ────────────────
     /// The shadow output topic, distinct from the legacy `cohort_membership_changed` so the new
     /// pipeline can run side-by-side for parity.
@@ -183,6 +200,13 @@ pub struct Config {
     /// On-disk path for the per-process RocksDB state store.
     #[envconfig(default = "cohort-store")]
     pub store_path: String,
+
+    /// Destroy any existing store at `store_path` before opening, for a guaranteed stale-free start
+    /// regardless of what disk the deployment mounts: re-acquiring a partition must never serve stale
+    /// per-partition state left by a previous owner. See
+    /// [`crate::store::StoreConfig::wipe_on_start`].
+    #[envconfig(default = "true")]
+    pub wipe_store_on_start: bool,
 }
 
 impl Config {
@@ -223,12 +247,24 @@ impl Config {
         Duration::from_millis(self.offset_commit_interval_ms)
     }
 
-    /// RocksDB settings for the state store. Only the path is configurable; the rest use defaults.
+    /// RocksDB settings for the state store. Only the path and the wipe-on-start flag are
+    /// configurable; the rest use defaults.
     pub fn store_config(&self) -> StoreConfig {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
+            wipe_on_start: self.wipe_store_on_start,
             ..StoreConfig::default()
         }
+    }
+
+    /// Stable per-pod identity for static group membership, `POD_NAME` preferred over `HOSTNAME`.
+    /// `None` (or a blank value) leaves static membership off, so the consumer joins as a dynamic
+    /// member and only cooperative-sticky's incremental rebalancing applies.
+    pub fn pod_identity(&self) -> Option<&str> {
+        [self.pod_name.as_deref(), self.pod_hostname.as_deref()]
+            .into_iter()
+            .flatten()
+            .find(|id| !id.is_empty())
     }
 
     /// Build the `rdkafka` client config for the `cohort_stream_events` group consumer.
@@ -237,6 +273,10 @@ impl Config {
     /// sub-batch is routed, and the commit tick turns the
     /// [`OffsetTracker`](crate::partitions::OffsetTracker) snapshot into the committed
     /// `TopicPartitionList`.
+    ///
+    /// `cooperative-sticky` + static membership are load-bearing for a stateful, partition-affined
+    /// consumer: a membership change revokes only the partitions that actually move, and a pod that
+    /// restarts within `session.timeout.ms` reclaims its exact partitions with no rebalance at all.
     pub fn consumer_client_config(&self) -> ClientConfig {
         let mut config = ClientConfig::new();
         config
@@ -245,11 +285,20 @@ impl Config {
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
             .set("auto.offset.reset", &self.kafka_consumer_offset_reset)
+            .set("partition.assignment.strategy", "cooperative-sticky")
             .set("socket.timeout.ms", "10000")
-            .set("session.timeout.ms", "60000")
+            .set(
+                "session.timeout.ms",
+                self.kafka_session_timeout_ms.to_string(),
+            )
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
 
+        // Static membership: a stable id lets the broker hold this pod's partitions across a quick
+        // restart. Sets `client.id` too; an explicit `kafka_client_id` overrides it below.
+        if let Some(id) = self.pod_identity() {
+            config.set("group.instance.id", id).set("client.id", id);
+        }
         if !self.kafka_client_id.is_empty() {
             config.set("client.id", &self.kafka_client_id);
         }
@@ -314,6 +363,9 @@ mod tests {
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
             kafka_consumer_offset_reset: "latest".to_string(),
+            kafka_session_timeout_ms: 60000,
+            pod_name: None,
+            pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             kafka_producer_partitioner: "murmur2_random".to_string(),
             kafka_compression_codec: "none".to_string(),
@@ -321,6 +373,7 @@ mod tests {
             recv_batch_timeout_ms: 500,
             offset_commit_interval_ms: 5000,
             store_path: "cohort-store".to_string(),
+            wipe_store_on_start: true,
         }
     }
 
@@ -359,6 +412,70 @@ mod tests {
         assert_eq!(client.get("group.id"), Some("cohort-stream-processor"));
         assert_eq!(client.get("auto.offset.reset"), Some("latest"));
         assert_eq!(client.get("bootstrap.servers"), Some("localhost:9092"));
+    }
+
+    #[test]
+    fn consumer_config_uses_cooperative_sticky_and_the_configured_session_timeout() {
+        let mut config = test_config();
+        config.kafka_session_timeout_ms = 45000;
+        let client = config.consumer_client_config();
+        assert_eq!(
+            client.get("partition.assignment.strategy"),
+            Some("cooperative-sticky"),
+        );
+        assert_eq!(client.get("session.timeout.ms"), Some("45000"));
+    }
+
+    #[test]
+    fn consumer_config_sets_static_membership_only_when_pod_identity_is_present() {
+        let mut config = test_config();
+        // No pod identity → dynamic membership, no instance id.
+        assert_eq!(
+            config.consumer_client_config().get("group.instance.id"),
+            None,
+        );
+
+        config.pod_hostname = Some("cohort-stream-processor-2".to_string());
+        let client = config.consumer_client_config();
+        assert_eq!(
+            client.get("group.instance.id"),
+            Some("cohort-stream-processor-2"),
+        );
+        assert_eq!(client.get("client.id"), Some("cohort-stream-processor-2"));
+    }
+
+    #[test]
+    fn pod_identity_prefers_pod_name_and_ignores_blanks() {
+        let mut config = test_config();
+        config.pod_name = Some("pod-from-downward-api".to_string());
+        config.pod_hostname = Some("hostname".to_string());
+        assert_eq!(config.pod_identity(), Some("pod-from-downward-api"));
+
+        config.pod_name = Some(String::new());
+        assert_eq!(config.pod_identity(), Some("hostname"));
+
+        config.pod_hostname = None;
+        assert_eq!(config.pod_identity(), None);
+    }
+
+    #[test]
+    fn explicit_client_id_overrides_pod_identity() {
+        let mut config = test_config();
+        config.pod_hostname = Some("hostname".to_string());
+        config.kafka_client_id = "explicit-client".to_string();
+        let client = config.consumer_client_config();
+        // Static membership still keyed on the pod identity, but client.id is the explicit override.
+        assert_eq!(client.get("group.instance.id"), Some("hostname"));
+        assert_eq!(client.get("client.id"), Some("explicit-client"));
+    }
+
+    #[test]
+    fn store_config_threads_the_wipe_on_start_flag() {
+        let mut config = test_config();
+        config.wipe_store_on_start = true;
+        assert!(config.store_config().wipe_on_start);
+        config.wipe_store_on_start = false;
+        assert!(!config.store_config().wipe_on_start);
     }
 
     #[test]

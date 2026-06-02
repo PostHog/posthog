@@ -7,6 +7,7 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -16,7 +17,9 @@ use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispatcher};
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::observability;
-use cohort_stream_processor::partitions::{OffsetTracker, PartitionRouter};
+use cohort_stream_processor::partitions::{
+    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionRouter,
+};
 use cohort_stream_processor::producer::{KafkaMembershipSink, MembershipSink};
 use cohort_stream_processor::store::CohortStore;
 
@@ -92,7 +95,9 @@ async fn async_main(config: Config) -> Result<()> {
     }
 
     // The `StreamConsumer` subscribes here but does not fetch until `process()` polls it after the
-    // monitor starts, so building it now keeps the fail-fast discipline above.
+    // monitor starts, so building it now keeps the fail-fast discipline above. `wipe_store_on_start`
+    // makes `open` destroy any on-disk state first, so a restart never serves a previous owner's
+    // per-partition state.
     let store = CohortStore::open(&config.store_config()).context("opening RocksDB state store")?;
     let router = PartitionRouter::new(config.partition_channel_buffer);
     let offset_tracker = Arc::new(OffsetTracker::new());
@@ -108,13 +113,31 @@ async fn async_main(config: Config) -> Result<()> {
         .context("creating shadow producer")?,
     );
 
-    let stream_consumer: StreamConsumer = config
+    // The dispatcher owns the shared router/workers/ownership state; the consume loop dispatches
+    // through it while the rebalance context (and its async worker) drive the partition lifecycle
+    // over the *same* state. It shares the catalog snapshot the refresh loop swaps, and hands the
+    // sink + offset tracker to each per-partition worker.
+    let dispatcher = Arc::new(EventDispatcher::new(
+        router,
+        offset_tracker,
+        store,
+        catalog.clone(),
+        sink,
+    ));
+
+    // The consumer carries the rebalance context, so `create_with_context` (which pings broker
+    // metadata) still fails fast here on a bad Kafka config.
+    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
+    let stream_consumer: StreamConsumer<CohortConsumerContext> = config
         .consumer_client_config()
-        .create()
+        .create_with_context(context)
         .context("creating cohort_stream_events consumer")?;
     stream_consumer
         .subscribe(&[config.cohort_stream_events_topic.as_str()])
         .context("subscribing to cohort_stream_events")?;
+
+    // Currently unused; wired through to the rebalance worker and the consume loop.
+    let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
 
     let guard = manager.monitor_background();
 
@@ -133,9 +156,15 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    // The dispatcher shares the catalog snapshot the refresh loop swaps, and hands the sink + offset
-    // tracker to each per-partition worker it spawns.
-    let dispatcher = EventDispatcher::new(router, offset_tracker, store, catalog.clone(), sink);
+    // The async half of rebalancing: reclaim revoked partitions off the poll thread, exiting on the
+    // consumer's shutdown token. Held so teardown can await it after the consume loop stops.
+    let rebalance_worker = tokio::spawn(run_rebalance_worker(
+        rebalance_rx,
+        dispatcher.clone(),
+        consumer_command_tx,
+        consumer_handle.shutdown_token(),
+    ));
+
     let events_consumer = CohortStreamEventsConsumer::new(
         stream_consumer,
         config.cohort_stream_events_topic.clone(),
@@ -144,6 +173,7 @@ async fn async_main(config: Config) -> Result<()> {
         config.recv_batch_size,
         config.recv_batch_timeout(),
         config.offset_commit_interval(),
+        consumer_command_rx,
     );
     tokio::spawn(events_consumer.process());
 
@@ -162,6 +192,12 @@ async fn async_main(config: Config) -> Result<()> {
 
     guard.wait().await?;
 
+    // The consume loop has stopped and drained its workers; wait for the rebalance worker to finish
+    // any in-flight revoke cleanup before exiting.
+    if let Err(err) = rebalance_worker.await {
+        warn!(error = %err, "rebalance worker task did not exit cleanly");
+    }
+
     info!(service = SERVICE_NAME, "service stopped");
     Ok(())
 }
@@ -176,9 +212,12 @@ fn log_startup(config: &Config) {
         output_topic = %config.cohort_membership_changed_topic,
         consumer_group = %config.kafka_consumer_group,
         offset_reset = %config.kafka_consumer_offset_reset,
+        session_timeout_ms = config.kafka_session_timeout_ms,
+        pod_identity = config.pod_identity().unwrap_or("<dynamic>"),
         recv_batch_size = config.recv_batch_size,
         partition_channel_buffer = config.partition_channel_buffer,
         store_path = %config.store_path,
+        wipe_store_on_start = config.wipe_store_on_start,
         filter_catalog_refresh_secs = config.filter_catalog_refresh_secs,
         filter_catalog_refresh_jitter_secs = config.filter_catalog_refresh_jitter_secs,
         team_allowlist = ?config.team_allowlist,

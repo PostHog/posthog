@@ -17,7 +17,9 @@ use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispat
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::{OffsetTracker, PartitionRouter};
+use cohort_stream_processor::partitions::{
+    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionRouter,
+};
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
 };
@@ -35,6 +37,7 @@ use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde_json::json;
 use tempfile::TempDir;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 const TEAM: i32 = 7;
@@ -157,24 +160,35 @@ fn build_consumer(
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
 ) -> CohortStreamEventsConsumer {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", bootstrap_servers())
-        .set("group.id", group)
-        .set("enable.auto.commit", "false")
-        .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("session.timeout.ms", "6000")
-        .create()
-        .expect("create consumer");
-    consumer.subscribe(&[topic]).expect("subscribe");
-
-    let dispatcher = EventDispatcher::new(
+    let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
         store,
         Arc::new(catalog),
         sink,
-    );
+    ));
+
+    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
+    let consumer: StreamConsumer<CohortConsumerContext> = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", group)
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("partition.assignment.strategy", "cooperative-sticky")
+        .set("session.timeout.ms", "6000")
+        .create_with_context(context)
+        .expect("create consumer");
+    consumer.subscribe(&[topic]).expect("subscribe");
+
+    let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
+    tokio::spawn(run_rebalance_worker(
+        rebalance_rx,
+        dispatcher.clone(),
+        consumer_command_tx,
+        handle.shutdown_token(),
+    ));
+
     CohortStreamEventsConsumer::new(
         consumer,
         topic.to_string(),
@@ -183,6 +197,7 @@ fn build_consumer(
         100,
         Duration::from_millis(200),
         offset_commit_interval,
+        consumer_command_rx,
     )
 }
 
@@ -746,4 +761,182 @@ async fn does_not_commit_past_a_blocked_produce() {
 
     shutdown_handle.request_shutdown();
     task.await.expect("consumer task panicked");
+}
+
+/// Whether any produced person has behavioral state under `partition` in `store`.
+fn partition_has_state(store: &CohortStore, partition: i32, lsk: LeafStateKey) -> bool {
+    (1..=PERSONS).any(|n| {
+        let key = Stage1Key {
+            partition_id: partition as u16,
+            team_id: TEAM as u64,
+            leaf_state_key: lsk,
+            person_id: person(n),
+        };
+        store.get_stage1(&key).unwrap().is_some()
+    })
+}
+
+/// Distinct persons that entered, across a set of shadow membership changes — collapses the
+/// idempotent re-produces a moved partition replays.
+fn distinct_entered(changes: &[CohortMembershipChange]) -> usize {
+    changes
+        .iter()
+        .filter(|change| change.status == MembershipStatus::Entered)
+        .map(|change| change.person_id.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+}
+
+/// Poll the group's committed-offset sum until it reaches `target` or the deadline elapses.
+async fn wait_for_committed(
+    consumer: &StreamConsumer,
+    topic: &str,
+    target: i64,
+    deadline: Duration,
+) {
+    let start = Instant::now();
+    loop {
+        let sum = committed_sum(consumer, topic);
+        if sum >= target {
+            return;
+        }
+        assert!(
+            start.elapsed() < deadline,
+            "timed out waiting for committed sum to reach {target}; last {sum}",
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// Two consumers in one group force a cooperative-sticky incremental migration. After it settles:
+/// (a) the committed-offset sum still covers every produced event (no Kafka-level loss), (b) the
+/// distinct persons that entered match the oracle (idempotent re-produce aside), and (c) the
+/// partition co-location invariant holds — no partition's state lives in both pods, and every person
+/// ends up in exactly one.
+///
+/// Batch 2 exercises the cold-rebuild path: a partition that moves to B carries no state, so B
+/// rebuilds it from the events that arrive after the migration.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation() {
+    let suffix = Uuid::new_v4();
+    let topic = format!("cohort_stream_events_migrate_{suffix}");
+    let group = format!("cohort-stream-processor-migrate-{suffix}");
+    create_topic(&topic).await;
+
+    // A fresh, identical catalog per pod (same conditionHash → same leaf-state key); `CatalogHandle`
+    // is not `Clone`, and each consumer owns its own.
+    let catalog_a = behavioral_catalog();
+    let catalog_b = behavioral_catalog();
+    let lsk = behavioral_lsk(&catalog_a);
+
+    let dir_a = TempDir::new().unwrap();
+    let store_a = CohortStore::open(&StoreConfig {
+        path: dir_a.path().join("db"),
+        ..StoreConfig::default()
+    })
+    .expect("open store A");
+    let dir_b = TempDir::new().unwrap();
+    let store_b = CohortStore::open(&StoreConfig {
+        path: dir_b.path().join("db"),
+        ..StoreConfig::default()
+    })
+    .expect("open store B");
+
+    // Per-pod capture sinks stand in for the shadow topic, so the test reads each pod's output
+    // directly without a second consumer group.
+    let sink_a = Arc::new(CaptureSink::new());
+    let sink_b = Arc::new(CaptureSink::new());
+
+    // Subscribed nowhere, so it reads committed offsets via OffsetFetch without joining the group.
+    let verifier: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", &group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("create verifier");
+
+    let mut manager = Manager::builder("migrate-itest")
+        .with_trap_signals(false)
+        .build();
+    let handle_a = manager.register(
+        "consumer-a",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let handle_b = manager.register(
+        "consumer-b",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let shutdown = handle_a.clone();
+    let _monitor = manager.monitor_background();
+
+    // Batch 1: only A is up, so it builds state for every stateful partition.
+    let batch1 = produce_events(&topic).await;
+    let consumer_a = build_consumer(
+        &topic,
+        &group,
+        store_a.clone(),
+        catalog_a,
+        handle_a,
+        sink_a.clone(),
+        Duration::from_millis(250),
+    );
+    let task_a = tokio::spawn(consumer_a.process());
+    wait_for_committed(&verifier, &topic, batch1 as i64, Duration::from_secs(60)).await;
+
+    // B joins the same group → cooperative-sticky moves ~half the partitions off A, which deletes
+    // their state on revoke.
+    let consumer_b = build_consumer(
+        &topic,
+        &group,
+        store_b.clone(),
+        catalog_b,
+        handle_b,
+        sink_b.clone(),
+        Duration::from_millis(250),
+    );
+    let task_b = tokio::spawn(consumer_b.process());
+
+    // Batch 2: now split across both pods; B rebuilds state for the partitions it gained.
+    let batch2 = produce_events(&topic).await;
+    let total = (batch1 + batch2) as i64;
+    wait_for_committed(&verifier, &topic, total, Duration::from_secs(60)).await;
+    // Let any in-flight revoke cleanup settle.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    shutdown.request_shutdown();
+    task_a.await.expect("consumer A panicked");
+    task_b.await.expect("consumer B panicked");
+
+    // (a) No Kafka-level loss across the migration.
+    assert_eq!(
+        committed_sum(&verifier, &topic),
+        total,
+        "committed offsets cover every produced event",
+    );
+
+    // (c) Co-location: no partition's state lives in both pods at once.
+    for partition in 0..NUM_PARTITIONS {
+        assert!(
+            !(partition_has_state(&store_a, partition, lsk)
+                && partition_has_state(&store_b, partition, lsk)),
+            "partition {partition} has state in both pods — affinity invariant violated",
+        );
+    }
+    let entered_a = entered_persons(&store_a, lsk);
+    let entered_b = entered_persons(&store_b, lsk);
+    assert_eq!(
+        entered_a + entered_b,
+        PERSONS as usize,
+        "every person has state in exactly one pod (a={entered_a}, b={entered_b})",
+    );
+
+    // (b) Distinct entered persons across both pods' output match the oracle.
+    let mut changes = sink_a.changes();
+    changes.extend(sink_b.changes());
+    assert_eq!(
+        distinct_entered(&changes),
+        PERSONS as usize,
+        "every person entered exactly once (idempotent re-produce aside)",
+    );
 }

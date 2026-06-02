@@ -49,6 +49,9 @@ sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+# `CancellationToken` for the rebalance worker's shutdown signal (from `lifecycle::Handle`), the
+# same primitive the sibling consumers use for cooperative cancellation.
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 uuid = { workspace = true }
