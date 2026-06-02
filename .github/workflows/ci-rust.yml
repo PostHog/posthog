@@ -89,39 +89,14 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Build affected-services tool
-              uses: ./.github/actions/rust-build-affected-services
-
             - name: Compute affected crates
               id: affected
-              env:
-                  PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-                  PUSH_BEFORE_SHA: ${{ github.event.before }}
-                  EVENT_NAME: ${{ github.event_name }}
-              working-directory: rust
-              run: |
-                  if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                      result=$(./target/release/affected-services --files rust/Cargo.lock)
-                  elif [ "$EVENT_NAME" = "push" ]; then
-                      base_ref="$PUSH_BEFORE_SHA"
-                  else
-                      base_ref="$PR_BASE_SHA"
-                  fi
-
-                  if [ -z "${result:-}" ]; then
-                      if [ -z "$base_ref" ] || echo "$base_ref" | grep -qE '^0+$'; then
-                          echo "No valid base ref — rebuilding all"
-                          result=$(./target/release/affected-services --files rust/Cargo.lock)
-                      else
-                          result=$(./target/release/affected-services --base-ref "$base_ref")
-                      fi
-                  fi
-
-                  crates=$(echo "$result" | jq -c '.crates')
-                  count=$(echo "$result" | jq '.crates | length')
-                  rebuild=$(echo "$result" | jq -r '.rebuild_all')
-                  echo "Affected crates ($count), rebuild_all=$rebuild: $crates"
-                  echo "crates=$crates" >> "$GITHUB_OUTPUT"
+              uses: ./.github/actions/rust-compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  push-before-sha: ${{ github.event.before }}
+                  rebuild-all: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
 
             # Bin-pack affected packages into balanced test shards.
             - name: Compute test shards
