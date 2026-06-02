@@ -31,8 +31,10 @@ class CampaignMonitorRetryableError(Exception):
 
 @dataclasses.dataclass
 class CampaignMonitorResumeConfig:
-    # Index into the fan-out parents (subscriber lists). Always 0 for non-fan-out endpoints.
-    parent_index: int = 0
+    # The fan-out list currently being processed. A stable list-ID bookmark (not a positional
+    # index) so reordered/added/removed lists between a crash and the retry can't resume us into
+    # the wrong list and write rows under the wrong primary key. None for non-fan-out endpoints.
+    list_id: str | None = None
     # Next page to fetch (1-based). Always 1 for non-paginated array endpoints.
     page: int = 1
 
@@ -89,7 +91,7 @@ def _list_ids_for_client(
     data = _fetch_json(session, api_key, _build_url(f"clients/{client_id}/lists.json"), logger)
     if not isinstance(data, list):
         return []
-    return [item["ListID"] for item in data if isinstance(item, dict) and item.get("ListID")]
+    return [item["ListID"] for item in data if isinstance(item, dict) and "ListID" in item]
 
 
 def _page_params(config: CampaignMonitorEndpointConfig, page: int) -> dict[str, Any]:
@@ -110,7 +112,7 @@ def _iter_paginated(
     logger: FilteringBoundLogger,
     extra_row_fields: dict[str, Any],
     resumable_source_manager: ResumableSourceManager[CampaignMonitorResumeConfig],
-    parent_index: int,
+    resume_list_id: str | None,
     start_page: int,
 ) -> Iterator[list[dict[str, Any]]]:
     page = start_page
@@ -125,9 +127,7 @@ def _iter_paginated(
             # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
             # page rather than skipping it — the pipeline's merge dedupes on the primary key.
             if not is_last_page:
-                resumable_source_manager.save_state(
-                    CampaignMonitorResumeConfig(parent_index=parent_index, page=page + 1)
-                )
+                resumable_source_manager.save_state(CampaignMonitorResumeConfig(list_id=resume_list_id, page=page + 1))
 
         if is_last_page:
             break
@@ -145,15 +145,23 @@ def get_rows(
     session = make_tracked_session(redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_parent_index = resume.parent_index if resume else 0
-    start_page = resume.page if resume else 1
 
     if config.fan_out_over_lists:
         list_ids = _list_ids_for_client(session, api_key, client_id, logger)
-        for parent_index in range(start_parent_index, len(list_ids)):
+
+        # Resolve the saved list-ID bookmark to a position. If the list no longer exists (deleted
+        # between runs), fall back to restarting from the first list — merge dedupes the re-pulled
+        # rows on the primary key.
+        start_index = 0
+        start_page = 1
+        if resume and resume.list_id is not None and resume.list_id in list_ids:
+            start_index = list_ids.index(resume.list_id)
+            start_page = resume.page
+
+        for parent_index in range(start_index, len(list_ids)):
             list_id = list_ids[parent_index]
             # Only the list we resumed into keeps its saved page; later lists start at page 1.
-            page = start_page if parent_index == start_parent_index else 1
+            page = start_page if parent_index == start_index else 1
             yield from _iter_paginated(
                 session,
                 api_key,
@@ -162,16 +170,23 @@ def get_rows(
                 logger,
                 {"ListID": list_id},
                 resumable_source_manager,
-                parent_index,
+                list_id,
                 page,
             )
-            resumable_source_manager.save_state(CampaignMonitorResumeConfig(parent_index=parent_index + 1, page=1))
+            # Advance the bookmark to the next list so a crash between lists resumes correctly.
+            if parent_index + 1 < len(list_ids):
+                resumable_source_manager.save_state(
+                    CampaignMonitorResumeConfig(list_id=list_ids[parent_index + 1], page=1)
+                )
         return
 
     path = config.path.format(client_id=client_id)
 
     if config.paginated:
-        yield from _iter_paginated(session, api_key, config, path, logger, {}, resumable_source_manager, 0, start_page)
+        start_page = resume.page if resume else 1
+        yield from _iter_paginated(
+            session, api_key, config, path, logger, {}, resumable_source_manager, None, start_page
+        )
         return
 
     # Non-paginated endpoints return a bare JSON array.

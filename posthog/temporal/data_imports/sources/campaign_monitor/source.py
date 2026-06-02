@@ -48,12 +48,11 @@ class CampaignMonitorSource(ResumableSource[CampaignMonitorSourceConfig, Campaig
             SourceSchema(
                 name=endpoint,
                 # Every endpoint ships full refresh until the server-side `date` filter is verified
-                # against a live account (see settings.py for the incremental migration path).
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                and len(INCREMENTAL_FIELDS[endpoint]) > 0,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                and len(INCREMENTAL_FIELDS[endpoint]) > 0,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                # against a live account (see settings.py for the incremental migration path), so
+                # INCREMENTAL_FIELDS is empty for all endpoints today.
+                supports_incremental=bool(INCREMENTAL_FIELDS[endpoint]),
+                supports_append=bool(INCREMENTAL_FIELDS[endpoint]),
+                incremental_fields=INCREMENTAL_FIELDS[endpoint],
             )
             for endpoint in list(ENDPOINTS)
         ]

@@ -132,12 +132,12 @@ class TestGetRowsPaginated:
         assert batches == [[{"EmailAddress": "a@x.com"}], [{"EmailAddress": "b@x.com"}]]
         # First page is not terminal -> save next page; second page is terminal -> no save.
         saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CampaignMonitorResumeConfig(parent_index=0, page=2)]
+        assert saved == [CampaignMonitorResumeConfig(list_id=None, page=2)]
         assert "page=1" in session.urls[0]
         assert "page=2" in session.urls[1]
 
     def test_resume_starts_from_saved_page(self) -> None:
-        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(parent_index=0, page=2))
+        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(list_id=None, page=2))
         responses = [
             _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 2, "PageNumber": 2}),
         ]
@@ -167,7 +167,7 @@ class TestGetRowsFanOut:
         assert "lists/l1/active.json" in session.urls[1]
         assert "lists/l2/active.json" in session.urls[2]
 
-    def test_fan_out_advances_parent_index_in_saved_state(self) -> None:
+    def test_fan_out_advances_bookmark_to_next_list(self) -> None:
         manager = _manager()
         responses = [
             _make_response([{"ListID": "l1"}, {"ListID": "l2"}]),
@@ -177,15 +177,12 @@ class TestGetRowsFanOut:
         _drive("active_subscribers", responses, manager)
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
-        # Each list finishes on a single (terminal) page, so the only saves are the
-        # cross-list advances written after each list completes.
-        assert saved == [
-            CampaignMonitorResumeConfig(parent_index=1, page=1),
-            CampaignMonitorResumeConfig(parent_index=2, page=1),
-        ]
+        # Each list finishes on a single (terminal) page, so the only save is the cross-list
+        # advance written after the first list. No save after the last list (nothing follows).
+        assert saved == [CampaignMonitorResumeConfig(list_id="l2", page=1)]
 
     def test_fan_out_resumes_into_correct_list_and_page(self) -> None:
-        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(parent_index=1, page=1))
+        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(list_id="l2", page=1))
         responses = [
             _make_response([{"ListID": "l1"}, {"ListID": "l2"}]),
             _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # l2 only
@@ -195,6 +192,24 @@ class TestGetRowsFanOut:
         assert batches == [[{"EmailAddress": "b@x.com", "ListID": "l2"}]]
         # lists.json is re-fetched to rebuild the ordering, then we skip straight to l2.
         assert "lists/l2/active.json" in session.urls[1]
+
+    def test_fan_out_resume_restarts_when_bookmarked_list_is_gone(self) -> None:
+        # The bookmarked list was deleted between runs: fall back to the first list rather than
+        # resuming into the wrong one (the index-based bookmark would have silently mis-resumed).
+        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(list_id="deleted", page=3))
+        responses = [
+            _make_response([{"ListID": "l1"}, {"ListID": "l2"}]),
+            _make_response({"Results": [{"EmailAddress": "a@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),
+            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),
+        ]
+        session, batches = _drive("active_subscribers", responses, manager)
+
+        assert batches == [
+            [{"EmailAddress": "a@x.com", "ListID": "l1"}],
+            [{"EmailAddress": "b@x.com", "ListID": "l2"}],
+        ]
+        assert "lists/l1/active.json" in session.urls[1]
+        assert "page=1" in session.urls[1]
 
 
 class TestCampaignMonitorSourceResponse:
