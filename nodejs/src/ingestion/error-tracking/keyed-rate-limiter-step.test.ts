@@ -201,33 +201,50 @@ describe('createKeyedRateLimiterStep', () => {
         })
     })
 
-    it('collapses high-cardinality keys under getAppSourceId for app_metrics2', async () => {
-        const aggregator = mkAggregator()
-        const step = createKeyedRateLimiterStep<Input>(
-            baseOpts({
-                rateLimiter: mkLimiter({}),
-                appMetricsAggregator: aggregator,
-                reportingMode: true,
-                getAppSourceId: (i) => `${i.teamId}:exceptions:per_issue`,
-            })
-        )
+    // Three distinct per-issue keys must collapse into one row per outcome under
+    // getAppSourceId — never one row per key — regardless of the outcome mix.
+    it.each([
+        ['all allowed', {}, [{ metric_name: 'allowed', count: 3 }]],
+        [
+            'mixed outcomes',
+            { '1:exceptions:issue:aaa': true },
+            [
+                { metric_name: 'allowed', count: 2 },
+                { metric_name: 'rate_limited', count: 1 },
+            ],
+        ],
+    ] as const)(
+        'collapses high-cardinality keys under getAppSourceId for app_metrics2 (%s)',
+        async (_label, decisions, expectedRows) => {
+            const aggregator = mkAggregator()
+            const step = createKeyedRateLimiterStep<Input>(
+                baseOpts({
+                    rateLimiter: mkLimiter(decisions),
+                    appMetricsAggregator: aggregator,
+                    reportingMode: true,
+                    getAppSourceId: (i) => `${i.teamId}:exceptions:per_issue`,
+                })
+            )
 
-        await step([
-            { teamId: 1, key: '1:exceptions:issue:aaa' },
-            { teamId: 1, key: '1:exceptions:issue:bbb' },
-            { teamId: 1, key: '1:exceptions:issue:ccc' },
-        ])
+            await step([
+                { teamId: 1, key: '1:exceptions:issue:aaa' },
+                { teamId: 1, key: '1:exceptions:issue:bbb' },
+                { teamId: 1, key: '1:exceptions:issue:ccc' },
+            ])
 
-        expect(aggregator.queue).toHaveBeenCalledTimes(1)
-        expect(aggregator.queue).toHaveBeenCalledWith({
-            team_id: 1,
-            app_source: 'exceptions',
-            app_source_id: '1:exceptions:per_issue',
-            metric_kind: 'rate_limiting',
-            metric_name: 'allowed',
-            count: 3,
-        })
-    })
+            expect(aggregator.queue).toHaveBeenCalledTimes(expectedRows.length)
+            for (const { metric_name, count } of expectedRows) {
+                expect(aggregator.queue).toHaveBeenCalledWith({
+                    team_id: 1,
+                    app_source: 'exceptions',
+                    app_source_id: '1:exceptions:per_issue',
+                    metric_kind: 'rate_limiting',
+                    metric_name,
+                    count,
+                })
+            }
+        }
+    )
 
     it('does not emit metrics when aggregator is undefined', async () => {
         const limiter = mkLimiter({ a: true })
