@@ -183,6 +183,47 @@ class TestHogQLTypeSystem:
             "SELECT mapValues(map('a', 1, 'b', 2.0))",
             ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
         )
+        self._assert_first_column_type(
+            "SELECT mapFilter((k, v) -> v > 1, map('a', 1, 'b', 2))",
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.IntegerType(nullable=False),
+            ),
+        )
+        self._assert_first_column_type(
+            "SELECT mapApply((k, v) -> tuple(k, v + 0.5), map('a', 1))",
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.FloatType(nullable=False),
+            ),
+        )
+
+    def test_resolver_binds_higher_order_map_lambda_argument_types(self) -> None:
+        node = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT mapFilter((k, v) -> v > 1, map('a', 1, 'b', 2))"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+
+        call = cast(ast.Call, node.select[0])
+        lambda_node = cast(ast.Lambda, call.args[0])
+        lambda_type = cast(ast.SelectQueryType, lambda_node.type)
+        key_arg = cast(ast.FieldAliasType, lambda_type.aliases["k"])
+        value_arg = cast(ast.FieldAliasType, lambda_type.aliases["v"])
+
+        assert key_arg.resolve_constant_type(self.context) == ast.StringType(nullable=False)
+        assert value_arg.resolve_constant_type(self.context) == ast.IntegerType(nullable=False)
+        assert call.type is not None
+        assert call.type.resolve_constant_type(self.context) == ast.MapType(
+            nullable=False,
+            key_type=ast.StringType(nullable=False),
+            value_type=ast.IntegerType(nullable=False),
+        )
 
     def test_resolver_binds_higher_order_array_lambda_argument_types(self) -> None:
         node = cast(

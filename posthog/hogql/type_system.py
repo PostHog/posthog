@@ -916,6 +916,12 @@ def _infer_generic_function_type(
     if normalized_name in {"mapkeys", "mapvalues"} and arg_types:
         return _infer_map_items_type(arg_types[0], keys=normalized_name == "mapkeys")
 
+    if normalized_name == "mapfilter" and len(arg_types) >= 2:
+        return _infer_map_filter_type(arg_types[1])
+
+    if normalized_name == "mapapply" and len(arg_types) >= 2:
+        return _infer_map_apply_type(arg_types=arg_types, args=args)
+
     if normalized_name == "arrayconcat":
         return _infer_array_concat_type(arg_types, dialect=dialect)
 
@@ -1196,6 +1202,33 @@ def _infer_map_items_type(map_type: ast.ConstantType, keys: bool) -> ast.ArrayTy
         return ast.ArrayType(nullable=True, item_type=ast.UnknownType())
     item_type = map_type.key_type if keys else map_type.value_type
     return ast.ArrayType(nullable=map_type.nullable, item_type=dataclasses.replace(item_type))
+
+
+def _infer_map_filter_type(map_type: ast.ConstantType) -> ast.ConstantType:
+    if not isinstance(map_type, ast.MapType):
+        return ast.UnknownType()
+    return dataclasses.replace(
+        map_type,
+        key_type=dataclasses.replace(map_type.key_type),
+        value_type=dataclasses.replace(map_type.value_type),
+    )
+
+
+def _infer_map_apply_type(arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]]) -> ast.ConstantType:
+    map_type = arg_types[1]
+    if not isinstance(map_type, ast.MapType):
+        return ast.UnknownType()
+
+    if args and isinstance(args[0], ast.Lambda):
+        lambda_return_type = _context_free_constant_type(args[0].expr.type) if args[0].expr.type is not None else None
+        if isinstance(lambda_return_type, ast.TupleType) and len(lambda_return_type.item_types) >= 2:
+            return ast.MapType(
+                nullable=map_type.nullable,
+                key_type=dataclasses.replace(lambda_return_type.item_types[0]),
+                value_type=dataclasses.replace(lambda_return_type.item_types[1]),
+            )
+
+    return _infer_map_filter_type(map_type)
 
 
 def _infer_higher_order_array_type(

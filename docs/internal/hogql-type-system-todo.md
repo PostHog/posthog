@@ -30,6 +30,8 @@ Completed in this branch:
 - Added resolver typing for `TypeCast`, `TryCast`, array literals, tuple literals, array access, array slices, tuple access, common aggregate calls, and set-query output columns.
 - Added unified output-column typing for `SelectSetQueryType`, while preserving the branch-type list for lineage consumers.
 - Added `MapType` compatibility metadata and generic inference for `map(...)`, `mapFromArrays(...)`, `mapKeys(...)`, `mapValues(...)`, map access, and parsed `Map(K, V)` return types.
+- Added resolver binding for higher-order map lambdas, so `mapFilter(...)` and `mapApply(...)` lambda parameters inherit key/value types from the input map.
+- Added `mapFilter(...)` result typing and `mapApply(...)` result typing when the lambda returns a typed key/value tuple.
 - Added structural array function inference for `arrayZip(...)` and `arrayFlatten(...)`.
 - Added array helper inference for array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, and `arrayReverse(...)`, plus scalar helpers such as `arraySum(...)`, `arrayAvg(...)`, `arrayMin(...)`, and `arrayMax(...)`.
 - Added `arrayReduce(...)` inference for supported aggregate names such as `sum`, `avg`, `min`, `max`, and `uniq`.
@@ -48,7 +50,7 @@ Still intentionally left as follow-up work:
 
 - Full ClickHouse parity for every function signature and aggregate combinator.
 - Full higher-order array parity beyond common lambda-first functions, especially lambda-aware array sorting and strict lambda arity/return validation.
-- Full higher-order map parity, including lambda argument binding for `mapFilter(...)` and lambda-return typing for `mapApply(...)`.
+- Full higher-order map parity beyond key/value binding, especially strict lambda arity and return validation.
 - Property-definition planning metadata and materialized-property comparison rewrites.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Strict resolver mode.
@@ -414,7 +416,7 @@ TODO:
   - [x] tuple construction and access
   - [ ] named tuple access
   - [x] `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapContains`
-  - [ ] `mapFilter`, `mapApply`
+  - [x] `mapFilter`, `mapApply`
 - [ ] Cover aggregate functions:
   - [x] `count`, `countIf`
   - [ ] `countState`, `countMerge`

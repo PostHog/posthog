@@ -163,7 +163,7 @@ Newly inferred function groups include:
 - JSON extraction: `JSONExtract(..., 'Type')` parses the return-type literal, including `Array(...)`, tuple, numeric, date, datetime, boolean, UUID, and nullable wrappers supported by the runtime type parser
 - JSON helpers: `JSONExtractInt`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtractString`, `JSONExtractRaw`, `JSONExtractKeys`, `JSONExtractArrayRaw`, `JSONExtractKeysAndValues`, `JSON_VALUE`, `JSONHas`, `JSONType`, and `JSONLength`
 - array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arrayReduce`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
-- tuple functions: `tuple`, `tupleElement`
+- tuple and map functions: `tuple`, `tupleElement`, `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapFilter`, and `mapApply`
 - common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `argMin`, `argMax`, `quantile*`, `median*`, `groupArray`, `array_agg`
 
 This is not full ClickHouse function parity.
@@ -248,7 +248,10 @@ SELECT map('a', 1)['a']
 
 resolves to `IntegerType`.
 
-Higher-order map functions are still follow-up work because they need lambda argument binding for key/value pairs and lambda-return validation.
+Higher-order map functions now bind lambda arguments from the input map key/value types.
+`mapFilter(...)` preserves the input map type.
+`mapApply(...)` can infer a new map type when the lambda returns a typed key/value tuple.
+Strict lambda arity and return validation are still follow-up work.
 
 ## Set Query Output Typing
 

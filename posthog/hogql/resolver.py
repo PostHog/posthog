@@ -96,6 +96,7 @@ _HIGHER_ORDER_ARRAY_FUNCTIONS = frozenset(
         "arraymap",
     }
 )
+_HIGHER_ORDER_MAP_FUNCTIONS = frozenset({"mapapply", "mapfilter"})
 
 # Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
 assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
@@ -1559,6 +1560,8 @@ class Resolver(CloningVisitor):
 
         if self._is_higher_order_array_call(node):
             node = self._visit_higher_order_array_call(node)
+        elif self._is_higher_order_map_call(node):
+            node = self._visit_higher_order_map_call(node)
         else:
             node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -1635,6 +1638,37 @@ class Resolver(CloningVisitor):
             filter_expr=self.visit(node.filter_expr) if node.filter_expr is not None else None,
         )
 
+    @staticmethod
+    def _is_higher_order_map_call(node: ast.Call) -> bool:
+        return (
+            node.name.lower() in _HIGHER_ORDER_MAP_FUNCTIONS
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Lambda)
+        )
+
+    def _visit_higher_order_map_call(self, node: ast.Call) -> ast.Call:
+        resolved_map_args = [self.visit(arg) for arg in node.args[1:]]
+        lambda_arg_types = self._lambda_argument_types_from_map_arg(
+            resolved_map_args[0],
+            lambda_arg_count=len(cast(ast.Lambda, node.args[0]).args),
+        )
+
+        return ast.Call(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            name=node.name,
+            args=[
+                self._visit_lambda_with_argument_types(cast(ast.Lambda, node.args[0]), lambda_arg_types),
+                *resolved_map_args,
+            ],
+            params=[self.visit(param) for param in node.params] if node.params is not None else None,
+            distinct=node.distinct,
+            within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by is not None else None,
+            filter_expr=self.visit(node.filter_expr) if node.filter_expr is not None else None,
+        )
+
     def _lambda_argument_types_from_array_args(
         self, array_args: list[ast.Expr], lambda_arg_count: int
     ) -> list[ast.ConstantType]:
@@ -1647,6 +1681,18 @@ class Resolver(CloningVisitor):
             array_type = (array_args[index].type or ast.UnknownType()).resolve_constant_type(self.context)
             arg_types.append(infer_array_access_constant_type(array_type))
         return arg_types
+
+    def _lambda_argument_types_from_map_arg(self, map_arg: ast.Expr, lambda_arg_count: int) -> list[ast.ConstantType]:
+        map_type = (map_arg.type or ast.UnknownType()).resolve_constant_type(self.context)
+        if isinstance(map_type, ast.MapType):
+            map_arg_types = [map_type.key_type, map_type.value_type]
+        else:
+            map_arg_types = [ast.UnknownType(), ast.UnknownType()]
+
+        return [
+            map_arg_types[index] if index < len(map_arg_types) else ast.UnknownType()
+            for index in range(lambda_arg_count)
+        ]
 
     def _visit_lambda_with_argument_types(self, node: ast.Lambda, arg_types: list[ast.ConstantType]) -> ast.Lambda:
         node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
