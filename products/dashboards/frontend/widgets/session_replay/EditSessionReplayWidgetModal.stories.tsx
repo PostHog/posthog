@@ -14,7 +14,6 @@ function EditSessionReplayWidgetModalStory({
     isOpen = true,
     onClose = () => undefined,
     onSave = () => Promise.resolve(),
-    onSaveMetadata = () => Promise.resolve(),
     config = DEFAULT_CONFIG,
     name = 'Recent recordings',
     defaultTitle = SESSION_REPLAY_CATALOG.headerTitle ?? SESSION_REPLAY_CATALOG.label,
@@ -27,7 +26,6 @@ function EditSessionReplayWidgetModalStory({
             onClose={onClose}
             config={config}
             onSave={onSave}
-            onSaveMetadata={onSaveMetadata}
             name={name}
             defaultTitle={defaultTitle}
             description={description}

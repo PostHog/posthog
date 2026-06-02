@@ -28,7 +28,6 @@ function EditSessionReplayWidgetModalContents(): JSX.Element {
         saveDisabledReason,
         onClose,
         defaultTitle,
-        onSaveMetadata,
     } = useValues(editSessionReplayWidgetModalLogic)
     const {
         setLimit,
@@ -41,7 +40,7 @@ function EditSessionReplayWidgetModalContents(): JSX.Element {
         submit,
     } = useActions(editSessionReplayWidgetModalLogic)
 
-    const showTileDetails = !!onSaveMetadata
+    const showTileDetails = true
 
     return (
         <LemonModal
@@ -151,7 +150,6 @@ export function EditSessionReplayWidgetModal({
     name,
     defaultTitle,
     description,
-    onSaveMetadata,
 }: DashboardWidgetEditModalProps): JSX.Element | null {
     if (!isOpen) {
         return null
@@ -160,7 +158,7 @@ export function EditSessionReplayWidgetModal({
     return (
         <BindLogic
             logic={editSessionReplayWidgetModalLogic}
-            props={{ onClose, config, onSave, name, defaultTitle, description, onSaveMetadata }}
+            props={{ onClose, config, onSave, name, defaultTitle, description }}
         >
             <EditSessionReplayWidgetModalContents />
         </BindLogic>

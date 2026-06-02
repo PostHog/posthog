@@ -14,7 +14,7 @@ import {
     widgetEditModalPropSelectors,
     widgetEditModalTileActions,
 } from '../editWidgetModalBuilders'
-import { getWidgetEditModalTileDefaults, saveWidgetTileMetadataAfterConfig } from '../editWidgetModalTileUtils'
+import { buildWidgetTileMetadataPatch, getWidgetEditModalTileDefaults } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editSessionReplayWidgetModalLogicType } from './editSessionReplayWidgetModalLogicType'
 import {
@@ -32,7 +32,6 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
         config: {},
         onSave: async () => {},
         onClose: () => {},
-        onSaveMetadata: undefined,
         name: '',
         defaultTitle: 'Untitled',
         description: '',
@@ -199,8 +198,10 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
             }
 
             try {
-                await props.onSave(result.config)
-                await saveWidgetTileMetadataAfterConfig(props, values.tileName, values.tileDescription)
+                await props.onSave(
+                    result.config,
+                    buildWidgetTileMetadataPatch(props, values.tileName, values.tileDescription)
+                )
                 actions.setFieldErrors({})
                 props.onClose()
                 actions.submitSuccess()

@@ -59,7 +59,8 @@ describe('EditSessionReplayWidgetModal', () => {
                 orderBy: 'start_time',
                 filterTestAccounts: true,
                 dateRange: { date_from: '-7d' },
-            })
+            }),
+            {}
         )
     })
 
