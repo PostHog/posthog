@@ -40,7 +40,7 @@ const meta: Meta<StoryProps> = {
             patch: {
                 '/api/projects/:id': async ({ request }) => {
                     // bounce the setting back as is
-                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await request.json()) }
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) }
                     return HttpResponse.json(newTeamSettings)
                 },
             },

@@ -52,8 +52,10 @@ describe('subscriptionLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team/subscriptions': (req, res, ctx) =>
-                    res(ctx.json({ id: 42, ...(req.body as Partial<SubscriptionType>) } as SubscriptionType)),
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    const body = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 42, ...body } as SubscriptionType]
+                },
             },
         })
         initKeaTests()

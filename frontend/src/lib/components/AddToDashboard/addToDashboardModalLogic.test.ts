@@ -95,7 +95,7 @@ describe('addToDashboardModalLogic', () => {
             },
             patch: {
                 '/api/environments/:team_id/insights/:id': async ({ request }) => {
-                    const payload = await request.json()
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...MOCK_INSIGHT, ...payload }]
                 },
             },
@@ -163,7 +163,7 @@ describe('addToDashboardModalLogic', () => {
             },
             patch: {
                 '/api/environments/:team_id/insights/:id': async ({ request }) => {
-                    const payload = await request.json()
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...insightOnlyOnDash2, ...payload }]
                 },
             },
@@ -216,7 +216,7 @@ describe('addToDashboardModalLogic', () => {
             },
             patch: {
                 '/api/environments/:team_id/insights/:id': async ({ request }) => {
-                    const payload = await request.json()
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...insightOnlyOnDash2, ...payload }]
                 },
             },
@@ -268,7 +268,7 @@ describe('addToDashboardModalLogic', () => {
             },
             patch: {
                 '/api/environments/:team_id/insights/:id': async ({ request }) => {
-                    const payload = await request.json()
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...insightOnlyOnDash2, ...payload }]
                 },
             },

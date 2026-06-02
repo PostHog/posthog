@@ -239,7 +239,7 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = await request.json()
+                    const body = (await request.json()) as Record<string, any>
                     if (body.kind == 'EventsQuery') {
                         return HttpResponse.json(MOCK_SURVEY_RESULTS)
                     }

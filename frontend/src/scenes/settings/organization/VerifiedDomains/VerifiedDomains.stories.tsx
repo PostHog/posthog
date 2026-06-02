@@ -117,7 +117,7 @@ const meta: Meta<typeof App> = {
             },
             patch: {
                 '/api/projects/:id': async ({ request }) => {
-                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await request.json()) }
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) }
                     return HttpResponse.json(newTeamSettings)
                 },
             },

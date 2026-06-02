@@ -27,7 +27,7 @@ describe('deploymentProjectLogic', () => {
                     { count: 1, next: null, previous: null, results: [projectA] },
                 ],
                 '/api/projects/:team/deployment_projects/:project_id/deployments/': (req) => {
-                    lastDeploymentsRequestUrl = req.url.toString()
+                    lastDeploymentsRequestUrl = req.request.url
                     return [
                         200,
                         {

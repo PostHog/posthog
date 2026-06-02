@@ -62,7 +62,7 @@ const hogFunctionTemplatesMock: MockSignature = ({ request }) => {
     return HttpResponse.json(results)
 }
 
-function posthogCORSResponse({ request }: MockResolverInfo): HttpResponse {
+function posthogCORSResponse({ request }: MockResolverInfo): Response {
     const referer = request.headers.get('referer')
     return HttpResponse.json('ok', {
         status: 200,

@@ -134,7 +134,7 @@ export function createDifferentiatedQueryHandler(
     }
 ): MockSignature {
     return async ({ request }) => {
-        const body = await request.json()
+        const body = (await request.json()) as Record<string, any>
         const query = body.query?.query || ''
 
         if (query.includes('$session_id =')) {

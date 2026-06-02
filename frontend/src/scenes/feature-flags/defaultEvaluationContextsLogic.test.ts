@@ -24,7 +24,7 @@ describe('defaultEvaluationContextsLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/default_evaluation_contexts/': async ({ request }) => {
-                    const body = await request.json()
+                    const body = (await request.json()) as Record<string, any>
                     const contextName = body.context_name
                     const newContext = {
                         id: Math.floor(Math.random() * 10000),
@@ -49,7 +49,7 @@ describe('defaultEvaluationContextsLogic', () => {
             },
             patch: {
                 '/api/environments/:team_id/': async ({ request }) => {
-                    const body = await request.json()
+                    const body = (await request.json()) as Record<string, any>
                     return [200, { ...body }]
                 },
             },

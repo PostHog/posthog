@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { delay } from 'msw'
 
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 
@@ -120,14 +121,16 @@ export const TimeoutError: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/persons/trends/*': (_, __, ctx) => [
-                    ctx.delay(200),
-                    ctx.status(512),
-                    ctx.json({
-                        type: 'server_error',
-                        detail: 'Estimated query execution time (34.5 seconds) is too long. Try reducing its scope by changing the time range.',
-                    }),
-                ],
+                '/api/projects/:team_id/persons/trends/*': async () => {
+                    await delay(200)
+                    return [
+                        512,
+                        {
+                            type: 'server_error',
+                            detail: 'Estimated query execution time (34.5 seconds) is too long. Try reducing its scope by changing the time range.',
+                        },
+                    ]
+                },
             },
         })
 
@@ -143,14 +146,16 @@ export const ServerError: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/persons/trends/*': (_, __, ctx) => [
-                    ctx.delay(200),
-                    ctx.status(500),
-                    ctx.json({
-                        type: 'server_error',
-                        detail: 'There is nothing you can do to stop the impending catastrophe.',
-                    }),
-                ],
+                '/api/projects/:team_id/persons/trends/*': async () => {
+                    await delay(200)
+                    return [
+                        500,
+                        {
+                            type: 'server_error',
+                            detail: 'There is nothing you can do to stop the impending catastrophe.',
+                        },
+                    ]
+                },
             },
         })
 
