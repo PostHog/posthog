@@ -2287,6 +2287,21 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
+    def test_authorize_rejection_emits_ceiling_log(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.logger") as mock_logger:
+            response = self.client.get(f"{self.base_authorization_url}&scope=experiment:write")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        rejection_calls = [
+            call for call in mock_logger.warning.call_args_list if call.args and call.args[0] == "oauth_scope_ceiling_rejected"
+        ]
+        self.assertEqual(len(rejection_calls), 1)
+        kwargs = rejection_calls[0].kwargs
+        self.assertEqual(kwargs["client_id"], "test_confidential_client_id")
+        self.assertEqual(kwargs["is_first_party"], self.confidential_application.is_first_party)
+        self.assertEqual(kwargs["requested"], ["experiment:write"])
+        self.assertEqual(kwargs["ceiling"], ["experiment:read"])
+
     def test_authorize_accepts_scope_within_app_ceiling(self):
         self._set_ceiling("experiment:read", "dashboard:read")
         response = self._authorize_post("experiment:read")

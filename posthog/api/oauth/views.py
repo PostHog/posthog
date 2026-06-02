@@ -394,8 +394,19 @@ class OAuthValidator(OAuth2Validator):
             return True
 
         if has_ceiling:
-            return "*" not in to_check and to_check.issubset(effective)
-        return to_check.issubset(UNPRIVILEGED_SCOPES | {"*"})
+            allowed = "*" not in to_check and to_check.issubset(effective)
+        else:
+            allowed = to_check.issubset(UNPRIVILEGED_SCOPES | {"*"})
+
+        if not allowed:
+            logger.warning(
+                "oauth_scope_ceiling_rejected",
+                client_id=client_id,
+                is_first_party=getattr(client, "is_first_party", False),
+                requested=sorted(to_check),
+                ceiling=sorted(effective),
+            )
+        return allowed
 
     def get_original_scopes(self, refresh_token, request, *args, **kwargs):
         """Cap refreshed scopes at the application's current ceiling.
