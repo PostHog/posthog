@@ -22,12 +22,6 @@ export const VisionObservationsListParams = /* @__PURE__ */ zod.object({
 export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    order_by: zod
-        .string()
-        .optional()
-        .describe(
-            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.'
-        ),
     session_id: zod.string().describe('Session recording id to return observations for.'),
 })
 
@@ -68,9 +62,11 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .string()
+        .array(zod.string())
         .optional()
-        .describe('Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.'),
+        .describe(
+            'Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.\n\n* `name` - Name\n* `-name` - Name (descending)\n* `created_at` - Created at\n* `-created_at` - Created at (descending)\n* `updated_at` - Updated at\n* `-updated_at` - Updated at (descending)\n* `scanner_type` - Scanner type\n* `-scanner_type` - Scanner type (descending)'
+        ),
     scanner_type: zod
         .enum(['classifier', 'monitor', 'scorer', 'summarizer'])
         .optional()
@@ -291,10 +287,10 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .string()
+        .array(zod.string())
         .optional()
         .describe(
-            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.'
+            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.\n\n* `created_at` - Created at\n* `-created_at` - Created at (descending)\n* `started_at` - Started at\n* `-started_at` - Started at (descending)\n* `completed_at` - Completed at\n* `-completed_at` - Completed at (descending)\n* `status` - Status\n* `-status` - Status (descending)'
         ),
     session_id: zod.string().optional().describe('Filter to observations of a specific session recording.'),
     status: zod
