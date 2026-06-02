@@ -296,7 +296,9 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 _NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
 
 
-def has_preserved_credentials(existing: dict, incoming: dict, sensitive_fields: set[str]) -> bool:
+def has_preserved_credentials(
+    existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]
+) -> bool:
     """True if any stored secret would be reused because the update didn't re-supply it.
 
     Checks both top-level secret fields and the nested auth containers where sources like
