@@ -120,7 +120,7 @@ call — handy for confirming which version is actually the slow one.
 ## Workflow
 
 1. Identify the endpoint by name. If the user gave a URL, parse the name from
-   `/api/environments/{team_id}/endpoints/{name}/run`.
+   `/api/projects/{team_id}/endpoints/{name}/run`.
 2. `endpoint-get` to fetch full config. Note: `data_freshness_seconds`, `is_materialized`,
    current version, query kind.
 3. `endpoint-materialization-status` to see materialisation health (failed? eligible?).

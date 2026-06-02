@@ -59,7 +59,7 @@ must be unique within the project. Lean toward:
 - **No version in the name** — versions are managed by the endpoint itself
 - **No "endpoint" in the name** — redundant
 
-The name appears in the URL: `/api/environments/{team_id}/endpoints/{name}/run`. It's not
+The name appears in the URL: `/api/projects/{team_id}/endpoints/{name}/run`. It's not
 trivially renameable later (callers depend on the path) — get it right at creation.
 
 ### 3. Pick the query kind
@@ -173,18 +173,18 @@ Agent:
    should we be pushing data to them? Endpoints are pull-only."
 - User: "On demand"
 - "Got it. A few choices:
-   1. Name: how about monthly_active_users? Lowercase, descriptive,
-      no version baggage.
-   2. The query — is it HogQL or are you exposing an existing insight?
-      HogQL gives you exact column control; insight reuses what you've
-      already built.
-   3. What should the partner be able to filter by? Org, time window,
-      both?
-   4. How fresh? If MAU drifts within a day is fine, we can cache
-      results for 1-24 hours and serve almost everything from cache.
-   5. Materialisation: if the partner is going to hit this many times
-      per day, materialising it would make responses near-instant.
-      The trade-off is ~10-15 minute staleness.
+   - Name: how about monthly_active_users? Lowercase, descriptive,
+     no version baggage.
+   - The query — is it HogQL or are you exposing an existing insight?
+     HogQL gives you exact column control; insight reuses what you've
+     already built.
+   - What should the partner be able to filter by? Org, time window,
+     both?
+   - How fresh? If MAU drifts within a day is fine, we can cache
+     results for 1-24 hours and serve almost everything from cache.
+   - Materialisation: if the partner is going to hit this many times
+     per day, materialising it would make responses near-instant.
+     The trade-off is ~10-15 minute staleness.
 
    What's your starting point on these?"
 

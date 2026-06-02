@@ -199,7 +199,7 @@ Agent steps:
    That gives you typed client functions.
 
    A minimum call looks like:
-     POST /api/environments/12345/endpoints/monthly_active_users/run
+     POST /api/projects/12345/endpoints/monthly_active_users/run
      Authorization: Bearer <PH_API_KEY>
      Content-Type: application/json
 
