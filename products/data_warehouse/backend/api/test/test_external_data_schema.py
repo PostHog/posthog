@@ -105,7 +105,7 @@ class TestExternalDataSchema(APIBaseTest):
             "append_available": True,
             "cdc_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": False,
+            "supports_webhooks": True,
             "available_columns": [],
             "detected_primary_keys": None,
         }
@@ -284,6 +284,64 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["cdc_available"] is expected_cdc_available
+
+    def test_incremental_fields_matches_schema_by_name(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="C123",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+
+        # Mimics sources (e.g. Slack) that ignore `names` and return every schema. The first
+        # element is an unrelated table; the endpoint must pick the one matching instance.name.
+        all_schemas = [
+            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
+            SourceSchema(name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", return_value=all_schemas),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["supports_webhooks"] is True
+
+    def test_incremental_fields_returns_400_when_schema_name_absent(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="C999",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+
+        other_schemas = [
+            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
+        ]
+
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", return_value=other_schemas),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
@@ -492,6 +550,12 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock.MagicMock(),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+
         with (
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
@@ -499,6 +563,10 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
                 return_value=True,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
             ),
         ):
             response = self.client.patch(

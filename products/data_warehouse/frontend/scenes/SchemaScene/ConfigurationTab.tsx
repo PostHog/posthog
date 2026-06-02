@@ -59,9 +59,18 @@ export interface ConfigurationTabProps {
     schema: ExternalDataSourceSchema
     source: ExternalDataSource | null
     section: SchemaConfigurationSection
+    onConfigureSyncMethod: () => void
+    onViewSyncHistory: () => void
 }
 
-export function ConfigurationTab({ sourceId, schema, source, section }: ConfigurationTabProps): JSX.Element {
+export function ConfigurationTab({
+    sourceId,
+    schema,
+    source,
+    section,
+    onConfigureSyncMethod,
+    onViewSyncHistory,
+}: ConfigurationTabProps): JSX.Element {
     const logic = sourceSettingsLogic({ id: sourceId })
     const { isProjectTime, refreshingSchemas } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
@@ -76,6 +85,8 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
+                    onConfigureSyncMethod={onConfigureSyncMethod}
+                    onViewSyncHistory={onViewSyncHistory}
                 />
             )
         case 'sync-method':
@@ -128,12 +139,16 @@ function DetailsSection({
     reloadSchema,
     cancelSchema,
     updateSchema,
+    onConfigureSyncMethod,
+    onViewSyncHistory,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
+    onConfigureSyncMethod: () => void
+    onViewSyncHistory: () => void
 }): JSX.Element {
     return (
         <div>
@@ -153,12 +168,14 @@ function DetailsSection({
                     </div>
                     <SourceEditorAction source={source}>
                         <LemonSwitch
-                            disabledReason={
-                                schema.sync_type === null ? 'You must set up the sync method first' : undefined
-                            }
                             checked={schema.should_sync}
                             label={schema.should_sync ? 'Syncing' : 'Disabled'}
                             onChange={(active) => {
+                                if (active && !schema.sync_type) {
+                                    // No sync method saved yet — open the sync method section to set one up.
+                                    onConfigureSyncMethod()
+                                    return
+                                }
                                 if (!active && schema.sync_type === 'cdc') {
                                     LemonDialog.open({
                                         title: 'Disable CDC table?',
@@ -283,6 +300,9 @@ function DetailsSection({
                         )}
                     </SourceEditorAction>
                 )}
+                <LemonButton type="secondary" onClick={onViewSyncHistory}>
+                    View sync history
+                </LemonButton>
             </div>
         </div>
     )

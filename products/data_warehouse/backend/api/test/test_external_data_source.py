@@ -2459,6 +2459,119 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_leaves_unenabled_schemas_without_sync_type(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        mock_add_table,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        # A CDC source discovers every table, but the user only enables a few. Tables the user
+        # didn't enable haven't had a sync method set up, so they must be created with a blank
+        # sync_type (the schemas UI keys off this to prompt setup). Only the enabled table gets
+        # the concrete `cdc` method + config + publication add.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "analytics"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "analytics",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=True,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="analytics",
+                source_table_name="events",
+            ),
+            SourceSchema(
+                name="analytics.sessions",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=True,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="analytics",
+                source_table_name="sessions",
+            ),
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+        mock_get_primary_key_columns.return_value = {"events": ["id"]}
+
+        def setup_cdc_resources(_adapter, source_model, _payload):
+            source_model.job_inputs = {
+                **(source_model.job_inputs or {}),
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            }
+            source_model.save(update_fields=["job_inputs", "updated_at"])
+            return None
+
+        mock_setup_cdc_resources.side_effect = setup_cdc_resources
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "analytics",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "analytics.events", "should_sync": True, "sync_type": "cdc"},
+                        {"name": "analytics.sessions", "should_sync": False, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+        enabled = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.events")
+        assert enabled.sync_type == ExternalDataSchema.SyncType.CDC
+        assert enabled.sync_type_config["cdc_mode"] == "snapshot"
+        assert enabled.sync_type_config["cdc_table_mode"] == "consolidated"
+
+        unenabled = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.sessions")
+        assert unenabled.sync_type is None
+        assert unenabled.should_sync is False
+        # No CDC config noise — just the discovered metadata so column selection still works.
+        assert "cdc_mode" not in unenabled.sync_type_config
+        assert "cdc_table_mode" not in unenabled.sync_type_config
+
+        # Only the enabled table is added to the replication publication. The adapter reads the
+        # publication name from config itself, so the call is just (source, schema, table).
+        mock_add_table.assert_called_once()
+        assert mock_add_table.call_args.args[1:] == ("analytics", "events")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table")
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_postgres_cdc_rejects_table_without_primary_key(
         self,
         mock_get_source,
@@ -5704,9 +5817,8 @@ class TestCreateWebhook(APIBaseTest):
             category=[],
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_success(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_success(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
 
@@ -5736,8 +5848,7 @@ class TestCreateWebhook(APIBaseTest):
 
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_create_webhook_no_job_inputs(self, _mock_flag):
+    def test_create_webhook_no_job_inputs(self):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -5755,9 +5866,8 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["message"] == "Source has no configuration"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_external_creation_fails(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_external_creation_fails(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result(success=False, error="Permission denied")
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -5777,10 +5887,9 @@ class TestCreateWebhook(APIBaseTest):
 
         assert HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_create_webhook_url_uses_cloud_deployment(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_url_uses_cloud_deployment(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5793,10 +5902,9 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://webhooks.us.posthog.com")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT=None, SITE_URL="https://my.posthog.instance")
-    def test_create_webhook_url_uses_site_url_for_self_hosted(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_url_uses_site_url_for_self_hosted(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5809,9 +5917,8 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://my.posthog.instance")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
 
@@ -5847,8 +5954,7 @@ class TestCreateWebhook(APIBaseTest):
         assert charge_object_type in schema_mapping
         assert customer_object_type in schema_mapping
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_create_webhook_template_not_in_db(self, _mock_flag):
+    def test_create_webhook_template_not_in_db(self):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
@@ -5859,9 +5965,8 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "sync_hog_function_templates" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_saves_extra_inputs(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_saves_extra_inputs(self, mock_create_webhook):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_test123"})
@@ -5882,10 +5987,9 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs is not None
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_test123"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs(self, mock_create_webhook, mock_inputs_updated, _mock_flag):
+    def test_update_webhook_inputs(self, mock_create_webhook, mock_inputs_updated):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result()
@@ -5920,12 +6024,9 @@ class TestCreateWebhook(APIBaseTest):
         assert call_args.args[2] == self.team.pk
         assert call_args.args[3] == {"signing_secret": "whsec_manual123"}
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_propagates_failure_from_source(
-        self, mock_create_webhook, mock_inputs_updated, _mock_flag
-    ):
+    def test_update_webhook_inputs_propagates_failure_from_source(self, mock_create_webhook, mock_inputs_updated):
         # If the source's webhook_inputs_updated reports failure (e.g. Customer.io
         # rejects the request to enable the webhook), surface that to the caller as
         # a 400 instead of returning 200 + success=true while the webhook stays
@@ -5949,9 +6050,8 @@ class TestCreateWebhook(APIBaseTest):
         assert body["success"] is False
         assert "Customer.io rejected" in body["error"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    def test_update_webhook_inputs_requires_job_inputs(self, mock_inputs_updated, _mock_flag):
+    def test_update_webhook_inputs_requires_job_inputs(self, mock_inputs_updated):
         # Sources persisted without job_inputs can't be parsed into a config, so
         # we should bail out with a 400 before saving anything to the HogFunction.
         source = self._create_stripe_source(job_inputs={})
@@ -5967,9 +6067,8 @@ class TestCreateWebhook(APIBaseTest):
         assert response.json()["message"] == "Source has no configuration"
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    def test_update_webhook_inputs_rejects_invalid_keys(self, mock_inputs_updated, _mock_flag):
+    def test_update_webhook_inputs_rejects_invalid_keys(self, mock_inputs_updated):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
@@ -5983,9 +6082,8 @@ class TestCreateWebhook(APIBaseTest):
         assert "Invalid input keys" in response.json()["message"]
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    def test_update_webhook_inputs_no_hog_function(self, mock_inputs_updated, _mock_flag):
+    def test_update_webhook_inputs_no_hog_function(self, mock_inputs_updated):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
@@ -5999,9 +6097,8 @@ class TestCreateWebhook(APIBaseTest):
         assert "No webhook function found" in response.json()["message"]
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_rejects_blanked_required_field(self, mock_create_webhook, _mock_flag):
+    def test_update_webhook_inputs_rejects_blanked_required_field(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -6017,11 +6114,8 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "signing_secret" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_partial_update_preserves_other_required_fields(
-        self, mock_create_webhook, _mock_flag
-    ):
+    def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
         from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -6091,8 +6185,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not support webhooks" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_update_webhook_inputs_rejects_empty_payload(self, _mock_flag):
+    def test_update_webhook_inputs_rejects_empty_payload(self):
         source = self._create_stripe_source()
 
         response = self.client.post(
@@ -6104,11 +6197,10 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No inputs provided" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_rotates_secret_without_webhook_schemas(
-        self, mock_create_webhook, mock_inputs_updated, _mock_flag
+        self, mock_create_webhook, mock_inputs_updated
     ):
         # Regression for Zendesk 57818: the signing secret is a source-level credential
         # stored on the HogFunction inputs, not per-schema. A source can legitimately
@@ -6142,9 +6234,8 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_rotated"
         mock_inputs_updated.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook):
         """Regression: creating a source with multiple webhook tables then hitting the
         create_webhook endpoint must populate schema_mapping for every webhook schema.
         Webhook schemas have sync_type='webhook' (not 'incremental')."""
@@ -6530,8 +6621,7 @@ class TestWebhookInfo(APIBaseTest):
             },
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_webhook_info_non_webhook_source(self, _mock_flag):
+    def test_webhook_info_non_webhook_source(self):
         source = self._create_postgres_source()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
@@ -6540,8 +6630,7 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["supports_webhooks"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_webhook_info_no_hog_function(self, _mock_flag):
+    def test_webhook_info_no_hog_function(self):
         source = self._create_stripe_source()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
@@ -6551,9 +6640,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["supports_webhooks"] is True
         assert data["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
-    def test_webhook_info_with_hog_function(self, mock_get_info, _mock_flag):
+    def test_webhook_info_with_hog_function(self, mock_get_info):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
@@ -6581,9 +6669,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"]["status"] == "enabled"
         assert data["external_status"]["enabled_events"] == ["charge.created", "charge.updated"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
-    def test_webhook_info_external_not_found(self, mock_get_info, _mock_flag):
+    def test_webhook_info_external_not_found(self, mock_get_info):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(exists=False)
@@ -6598,9 +6685,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"]["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
-    def test_webhook_info_external_error(self, mock_get_info, _mock_flag):
+    def test_webhook_info_external_error(self, mock_get_info):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
@@ -6618,8 +6704,7 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"]["error"] is not None
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_webhook_info_source_returns_none(self, _mock_flag):
+    def test_webhook_info_source_returns_none(self):
         """When a source doesn't implement get_external_webhook_info, external_status should be null."""
         source = self._create_stripe_source()
         self._create_hog_function(source)
@@ -6637,11 +6722,10 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"] is None
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
     )
-    def test_webhook_info_masks_set_secret_input(self, _mock_info, _mock_flag):
+    def test_webhook_info_masks_set_secret_input(self, _mock_info):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         source = self._create_stripe_source()
@@ -6664,11 +6748,10 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["inputs"] == {"signing_secret": {"secret": True}}
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
     )
-    def test_webhook_info_omits_unset_inputs(self, _mock_info, _mock_flag):
+    def test_webhook_info_omits_unset_inputs(self, _mock_info):
         source = self._create_stripe_source()
         self._create_hog_function(source)
 
@@ -6739,9 +6822,8 @@ class TestDeleteWebhook(APIBaseTest):
             should_sync=True,
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
-    def test_delete_webhook_success(self, mock_delete_webhook, _mock_flag):
+    def test_delete_webhook_success(self, mock_delete_webhook):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
@@ -6764,8 +6846,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.deleted is True
         assert hog_function.enabled is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_blocked_by_webhook_schemas(self, _mock_flag):
+    def test_delete_webhook_blocked_by_webhook_schemas(self):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, "Customers")
         self._create_hog_function(source)
@@ -6778,9 +6859,8 @@ class TestDeleteWebhook(APIBaseTest):
         assert "webhook sync" in response.json()["message"]
         assert "Customers" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
-    def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook, _mock_flag):
+    def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=False, error="Permission denied")
@@ -6803,8 +6883,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.deleted is True
         assert hog_function.enabled is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_no_hog_function(self, _mock_flag):
+    def test_delete_webhook_no_hog_function(self):
         source = self._create_stripe_source()
 
         response = self.client.post(
@@ -6816,8 +6895,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert data["success"] is True
         assert data["external_deleted"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_non_webhook_source(self, _mock_flag):
+    def test_delete_webhook_non_webhook_source(self):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -6835,8 +6913,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not support webhooks" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_no_job_inputs_still_cleans_up_hog_function(self, _mock_flag):
+    def test_delete_webhook_no_job_inputs_still_cleans_up_hog_function(self):
         source = self._create_stripe_source(job_inputs={})
         hog_function = self._create_hog_function(source)
 
@@ -6855,9 +6932,8 @@ class TestDeleteWebhook(APIBaseTest):
 
 
 class TestDestroySourceCleansUpWebhook(APIBaseTest):
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
-    def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook, _mock_flag):
+    def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -6895,15 +6971,12 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
         assert hog_function.enabled is False
         mock_delete_webhook.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
         side_effect=Exception("Stripe API error"),
     )
-    def test_destroy_source_continues_if_webhook_cleanup_fails(
-        self, _mock_delete_webhook, mock_capture_exception, _mock_flag
-    ):
+    def test_destroy_source_continues_if_webhook_cleanup_fails(self, _mock_delete_webhook, mock_capture_exception):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         source = ExternalDataSource.objects.create(
