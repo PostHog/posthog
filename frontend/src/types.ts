@@ -186,6 +186,7 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     ADVANCED_PERMISSIONS = 'advanced_permissions', // TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = 'access_control',
+    PROPERTY_ACCESS_CONTROL = 'property_access_control',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
@@ -4791,6 +4792,7 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
+    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -6562,6 +6564,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
+        | 'non_failure_status_codes'
     key: string
     label: string
     choices?: { value: string; label: string }[]

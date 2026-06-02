@@ -71,6 +71,7 @@ function TracingSceneContents(): JSX.Element {
         compareFlameSpanName,
         hasMoreToLoad,
         visibleRowDateRange,
+        expandedSpanIds,
     } = useValues(tracingSceneLogic({ tabId }))
     const {
         openTraceModal,
@@ -81,6 +82,7 @@ function TracingSceneContents(): JSX.Element {
         closeCompareFlame,
         fetchNextPage,
         setVisibleRowRange,
+        toggleExpandSpan,
     } = useActions(tracingSceneLogic({ tabId }))
     const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
@@ -90,6 +92,10 @@ function TracingSceneContents(): JSX.Element {
             product_type: ProductKey.TRACING,
             intent_context: ProductIntentContext.TRACING_DOCS_VIEWED,
         })
+    }
+
+    const onFeedbackClick = (): void => {
+        posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID)
     }
 
     // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay
@@ -118,15 +124,20 @@ function TracingSceneContents(): JSX.Element {
                     type: 'tracing',
                 }}
                 actions={
-                    <LemonButton
-                        to={TRACING_DOCS_URL}
-                        onClick={onDocsLinkClick}
-                        type="secondary"
-                        size="small"
-                        targetBlank
-                    >
-                        Documentation
-                    </LemonButton>
+                    <>
+                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
+                            Feedback
+                        </LemonButton>
+                        <LemonButton
+                            to={TRACING_DOCS_URL}
+                            onClick={onDocsLinkClick}
+                            type="secondary"
+                            size="small"
+                            targetBlank
+                        >
+                            Documentation
+                        </LemonButton>
+                    </>
                 }
             />
             <LemonBanner
@@ -135,7 +146,7 @@ function TracingSceneContents(): JSX.Element {
                 action={{
                     icon: <IconFeedback />,
                     children: 'Share feedback',
-                    onClick: () => posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID),
+                    onClick: onFeedbackClick,
                 }}
             >
                 Tracing is in alpha. Expect bugs, missing features, and breaking changes.
@@ -171,6 +182,8 @@ function TracingSceneContents(): JSX.Element {
                     hasMoreToLoad={hasMoreToLoad}
                     onLoadMore={fetchNextPage}
                     onVisibleRowRangeChange={setVisibleRowRange}
+                    expandedSpanIds={expandedSpanIds}
+                    onToggleExpand={toggleExpandSpan}
                     emptyState={
                         <div className="flex flex-col items-center gap-1">
                             <span>No spans found</span>
