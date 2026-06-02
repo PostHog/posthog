@@ -21,6 +21,7 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
         config: {},
         onSave: async () => {},
         onClose: () => {},
+        onSaveMetadata: undefined,
         name: '',
         defaultTitle: 'Untitled',
         description: '',
