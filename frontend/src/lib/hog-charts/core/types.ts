@@ -249,6 +249,11 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
+    /** Horizontal bar charts only — fit the chart to the height it's given instead of expanding the
+     *  container (the {@link minBandSize} default behavior). Rows that don't fit at `minBandSize` are
+     *  dropped, keeping the leading (value-sorted) rows, so bands never crush below `minBandSize` and
+     *  the container never grows or scrolls. Use inside fixed-height tiles such as dashboard cards. */
+    fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
