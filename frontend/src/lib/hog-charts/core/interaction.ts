@@ -98,7 +98,14 @@ export function buildTooltipContext<Meta = unknown>(
         // `resolveValue` is the value shown to the user (the segment); `resolvePositionValue`
         // is where to anchor (the stacked top). They diverge only for stacked charts.
         if (s.visibility?.tooltip !== false) {
-            seriesData.push({ series: s, value: resolveValue(s, dataIndex), color: s.color })
+            // Per-bar charts (a single series with `barColors`/`barMeta`/`barLabels`) carry each
+            // bar's identity by index — surface it so the tooltip reads the right color/meta/label.
+            const color = s.barColors?.[dataIndex] ?? s.color
+            const entrySeries =
+                s.barMeta || s.barLabels
+                    ? { ...s, meta: s.barMeta?.[dataIndex] ?? s.meta, label: s.barLabels?.[dataIndex] ?? s.label }
+                    : s
+            seriesData.push({ series: entrySeries, value: resolveValue(s, dataIndex), color })
         }
         const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
         const px = seriesValueScale(resolvePositionValue(s, dataIndex))

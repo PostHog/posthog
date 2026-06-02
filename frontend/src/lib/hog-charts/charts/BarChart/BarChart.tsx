@@ -574,7 +574,8 @@ function BarChartInner<Meta = unknown>({
                         highlightRadius
                     )
                 } else {
-                    const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
+                    const barColor = s.barColors?.[bar.dataIndex] ?? s.color
+                    const highlightColor = d3.color(barColor)?.darker(0.6).toString() ?? barColor
                     drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
                 }
             }

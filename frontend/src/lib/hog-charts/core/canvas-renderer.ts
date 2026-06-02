@@ -510,7 +510,7 @@ export function drawBars(
         const useHatch =
             hatch !== null &&
             ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
-        ctx.fillStyle = useHatch ? hatch : series.color
+        ctx.fillStyle = useHatch ? hatch : (series.barColors?.[bar.dataIndex] ?? series.color)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()

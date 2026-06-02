@@ -142,6 +142,35 @@ describe('hog-charts canvas-renderer (bars)', () => {
             expect(ctx.fillStyle).toBe('#abcdef')
         })
 
+        it('uses per-bar barColors by data index, falling back to series.color where absent', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b', 'c'])
+            const series = makeSeries({
+                key: 's',
+                data: [1, 2, 3],
+                color: '#000000',
+                barColors: ['#ff0000', undefined, '#0000ff'],
+            })
+            const seen: (string | CanvasPattern)[] = []
+            const original = Object.getOwnPropertyDescriptor(ctx, 'fillStyle')
+            Object.defineProperty(ctx, 'fillStyle', {
+                set(v: string | CanvasPattern) {
+                    seen.push(v)
+                },
+                configurable: true,
+            })
+            try {
+                drawBars(drawCtx, series, [
+                    bar({ x: 0, dataIndex: 0 }),
+                    bar({ x: 60, dataIndex: 1 }),
+                    bar({ dataIndex: 2 }),
+                ])
+            } finally {
+                Object.defineProperty(ctx, 'fillStyle', original!)
+            }
+            expect(seen).toEqual(['#ff0000', '#000000', '#0000ff'])
+        })
+
         it('fills all bars when partial fromIndex is set (some hatched, some solid)', () => {
             // The hatch pattern cache is module-level keyed by color; we verify the bar count
             // rather than whether createPattern was invoked, since prior tests may have warmed the cache.

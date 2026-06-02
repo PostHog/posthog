@@ -252,7 +252,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         ).toContain('rotate(-90')
     })
 
-    it('emits one series per breakdown so each bar gets its own color', async () => {
+    it('emits one series with a colored bar per breakdown value', async () => {
         renderInsight({
             query: aggregatedBar({
                 series: [
@@ -270,14 +270,12 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        // Five hedgehog breakdowns → five sparse-stacked series sharing five bands.
+        // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands
+        // (the old sparse "one series per bar" model was O(n²)).
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: /chart with 5 data series/i,
-                    })
-                ).toBeInTheDocument()
+                expect(getHogChart().yTicks()).toHaveLength(5)
             },
             { timeout: 5000 }
         )
@@ -291,7 +289,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -403,7 +401,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
 
         // Spike has aggregated_value 11 — largest, so it's the topmost row in DESC layout.
         const canvas = screen.getByRole('img', { name: /chart with/i })
