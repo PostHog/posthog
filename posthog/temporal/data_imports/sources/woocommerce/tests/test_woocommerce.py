@@ -121,26 +121,32 @@ class TestWooCommercePaginator:
         assert paginator.get_resume_state() is None
 
 
+def _endpoint(resource: Any) -> dict[str, Any]:
+    # `EndpointResource["endpoint"]` is typed `str | Endpoint | None`; in our resources it's
+    # always the dict form, so cast for indexing in assertions.
+    return cast(dict[str, Any], resource["endpoint"])
+
+
 class TestGetResource:
     @pytest.mark.parametrize("endpoint", sorted(ENDPOINT_PATHS))
     def test_path_and_name(self, endpoint: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=False)
         assert resource["name"] == endpoint
         assert resource["table_name"] == endpoint
-        assert resource["endpoint"]["path"] == ENDPOINT_PATHS[endpoint]
+        assert _endpoint(resource)["path"] == ENDPOINT_PATHS[endpoint]
         assert resource["table_format"] == "delta"
 
     def test_full_refresh_uses_replace(self) -> None:
         resource = get_resource("customers", should_use_incremental_field=False)
         assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["params"] == {}
+        assert _endpoint(resource)["params"] == {}
 
     @pytest.mark.parametrize("endpoint", sorted(INCREMENTAL_FIELDS))
     def test_incremental_uses_merge_and_modified_after(self, endpoint: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=True)
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        params = cast(dict[str, Any], _endpoint(resource)["params"])
         assert params["dates_are_gmt"] == "true"
         modified_after = cast(dict[str, Any], params["modified_after"])
         assert modified_after["type"] == "incremental"
@@ -150,7 +156,7 @@ class TestGetResource:
         # `customers` has no server-side modified filter, so incremental must not be wired up.
         resource = get_resource("customers", should_use_incremental_field=True)
         assert resource["write_disposition"] == "replace"
-        assert "modified_after" not in resource["endpoint"]["params"]
+        assert "modified_after" not in cast(dict[str, Any], _endpoint(resource)["params"])
 
 
 def _make_http_response(body: list[dict[str, Any]], total_pages: int | None = None, status_code: int = 200) -> Response:
