@@ -13,8 +13,6 @@ permissions:
 env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
     SEMGREP_IMAGE: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
 jobs:
     semgrep-python:
@@ -23,7 +21,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -57,7 +55,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -89,7 +87,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -123,7 +121,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -154,7 +152,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -186,7 +184,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -237,7 +235,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -282,7 +280,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
