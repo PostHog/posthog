@@ -103,6 +103,13 @@ export interface LemonCalendarSelectProps {
     granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
     selectionPeriodLimit?: dayjs.Dayjs | null
+    /**
+     * Timezone the picked wall clock will be interpreted in. The past/upcoming boundary is
+     * evaluated against the current moment in this timezone rather than the browser's, so a
+     * picker whose value is later reinterpreted (e.g. in the project timezone) blocks the right
+     * range. Defaults to the browser's local time when omitted.
+     */
+    selectionPeriodTimezone?: string
     showTimeToggle?: boolean
     onToggleTime?: (value: boolean) => void
     /** Use 24-hour format instead of 12-hour with AM/PM */
@@ -117,6 +124,7 @@ export function LemonCalendarSelect({
     granularity = 'day',
     selectionPeriod,
     selectionPeriodLimit,
+    selectionPeriodTimezone,
     showTimeToggle,
     onToggleTime,
     use24HourFormat = false,
@@ -124,7 +132,12 @@ export function LemonCalendarSelect({
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
 
-    const now = dayjs()
+    // When a timezone is given, the picked value's wall clock is interpreted in that timezone, so
+    // the boundary must be the current moment expressed as that timezone's wall clock (as a naive
+    // local Dayjs) to stay comparable to the picked dates. Otherwise use the browser's local time.
+    const now = selectionPeriodTimezone
+        ? dayjs(dayjs().tz(selectionPeriodTimezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
+        : dayjs()
     const today = now.startOf('day')
 
     const scrollToTime = (date: dayjs.Dayjs, skipAnimation: boolean): void => {

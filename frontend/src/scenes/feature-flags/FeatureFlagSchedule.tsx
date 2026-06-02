@@ -467,6 +467,8 @@ function FeatureFlagScheduleV2(): JSX.Element {
     } = useActions(featureFlagScheduleEditLogic({ id: featureFlag.id ?? 'new' }))
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const scheduleTimezone = currentTeam?.timezone || 'UTC'
 
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
@@ -540,6 +542,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                     }}
                                     placeholder="Select date"
                                     selectionPeriod="upcoming"
+                                    selectionPeriodTimezone={scheduleTimezone}
                                     granularity={repeatsValue === 'cron' ? 'day' : 'minute'}
                                     format={repeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
                                     clearable
@@ -685,6 +688,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                             onChange={(value) => setEndDate(value)}
                                             placeholder="Never"
                                             selectionPeriod="upcoming"
+                                            selectionPeriodTimezone={scheduleTimezone}
                                             granularity="day"
                                             clearable
                                         />
@@ -1058,6 +1062,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                             }}
                             placeholder="Select date"
                             selectionPeriod="upcoming"
+                            selectionPeriodTimezone={scheduleTimezone}
                             granularity={editRepeatsValue === 'cron' ? 'day' : 'minute'}
                             format={editRepeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
                             clearable
@@ -1109,6 +1114,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                 onChange={(value) => setEditEndDate(value)}
                                 placeholder="Never"
                                 selectionPeriod="upcoming"
+                                selectionPeriodTimezone={scheduleTimezone}
                                 granularity="day"
                                 clearable
                             />
@@ -1412,6 +1418,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                                 onChange={(value) => setScheduleDateMarker(value)}
                                 placeholder="Select date"
                                 selectionPeriod="upcoming"
+                                selectionPeriodTimezone={tz}
                                 granularity="minute"
                             />
                         </div>
@@ -1473,6 +1480,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                                     onChange={(value) => setEndDate(value)}
                                     placeholder="No end date"
                                     selectionPeriod="upcoming"
+                                    selectionPeriodTimezone={tz}
                                     granularity="day"
                                     clearable
                                 />
