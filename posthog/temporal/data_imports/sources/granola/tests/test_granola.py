@@ -142,6 +142,25 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_path",
+        [
+            (None, "/v1/notes"),
+            ("notes", "/v1/notes"),
+            ("folders", "/v1/folders"),
+            ("unknown", "/v1/notes"),
+        ],
+    )
+    def test_probes_path_matching_schema(self, schema_name, expected_path) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200)
+
+            validate_credentials("grn_test", schema_name)
+
+            called_url = mock_session.return_value.get.call_args[0][0]
+
+        assert called_url.startswith(f"{GRANOLA_BASE_URL}{expected_path}?")
+
 
 class TestGetRows:
     def _run(self, manager: _StubManager, pages: list[dict[str, Any]], **kwargs: Any) -> list[list[dict[str, Any]]]:
@@ -223,7 +242,8 @@ class TestGranolaSource:
 
         assert response.name == "notes"
         assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
+        # "desc" defers the incremental watermark commit until every page is processed.
+        assert response.sort_mode == "desc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "week"

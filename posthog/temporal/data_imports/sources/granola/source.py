@@ -80,7 +80,7 @@ Only notes with a generated AI summary and transcript are returned by the API.
                 supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None and len(INCREMENTAL_FIELDS[endpoint]) > 0,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)

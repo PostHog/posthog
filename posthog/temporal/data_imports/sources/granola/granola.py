@@ -73,13 +73,16 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
 
 
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
-    """Probe the notes endpoint to confirm the API key is genuine.
+    """Probe the endpoint matching the schema being validated to confirm the API key is genuine.
 
     A 401 means the key is missing or invalid. A 403 means a valid key without the scope
     for this endpoint - accepted at source-create (schema_name is None) since users may only
-    grant the scopes for the streams they want to sync.
+    grant the scopes for the streams they want to sync. Probing the schema's own path means a
+    scope-limited key (e.g. folders-only) isn't rejected by an unrelated stream's probe.
     """
-    url = _build_url("/v1/notes", {"page_size": 1})
+    endpoint = GRANOLA_ENDPOINTS.get(schema_name) if schema_name else None
+    path = endpoint.path if endpoint else GRANOLA_ENDPOINTS["notes"].path
+    url = _build_url(path, {"page_size": 1})
     try:
         response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
@@ -184,10 +187,13 @@ def granola_source(
         ),
         primary_keys=["id"],
         # Granola's list endpoints have no sort parameter, so within-page ordering is
-        # undefined. Each sync paginates to completion via the opaque cursor, so the
-        # incremental watermark (max updated_at/created_at) only advances once a run has
-        # fetched every page; merge semantics dedupe the boundary row on `id`.
-        sort_mode="asc",
+        # undefined. "desc" here is the pipeline's "commit the incremental watermark only
+        # after every page has been processed" mode - with undefined ordering we must not
+        # advance the watermark per-batch (that could persist a high value early and skip
+        # older, not-yet-fetched rows on the next run's server-side `*_after` filter).
+        # Pagination is driven entirely by the opaque cursor, so we don't rely on ordering
+        # or on `db_incremental_field_earliest_value` to scroll; merge dedupes on `id`.
+        sort_mode="desc",
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
