@@ -3,6 +3,8 @@ export type ChartKind =
     | 'chartjs'
     | 'hog-bar'
     | 'hog-bar-horizontal'
+    | 'chartjs-bar'
+    | 'chartjs-bar-horizontal'
     | 'adapter-hog'
     | 'adapter-chartjs'
     | 'adapter-bar'

@@ -14,6 +14,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ChartJsBarChart } from './ChartJsBarChart'
 import { ChartJsLineChart } from './ChartJsLineChart'
 import { generateBenchData } from './generateBenchData'
 import { HogChartsBarChart } from './HogChartsBarChart'
@@ -30,6 +31,9 @@ import type { ChartKind as SweepChartKind, SweepResult } from './sweepTypes'
  *   - `hog-bar`              — raw `TimeSeriesBarChart`, vertical bars
  *   - `hog-bar-horizontal`   — raw `TimeSeriesBarChart`, horizontal bars
  *                              (same data, rotated)
+ *   - `chartjs-bar`          — raw chart.js bar, stacked vertical bars
+ *   - `chartjs-bar-horizontal`— raw chart.js bar, `indexAxis: 'y'`
+ *                              (engine-cost counterpart to the hog bars)
  *   - `adapter-hog`          — real `TrendsLineChart` adapter fed through the
  *                              full insight kea logic tree (insight + data +
  *                              insightViz + trendsData) with cached results
@@ -82,6 +86,8 @@ const CHART_OPTIONS: { label: string; value: ChartKind }[] = [
     { label: 'chart.js line (raw)', value: 'chartjs' },
     { label: 'hog-charts bar (raw)', value: 'hog-bar' },
     { label: 'hog-charts bar horizontal (raw)', value: 'hog-bar-horizontal' },
+    { label: 'chart.js bar (raw)', value: 'chartjs-bar' },
+    { label: 'chart.js bar horizontal (raw)', value: 'chartjs-bar-horizontal' },
     { label: 'hog-charts (TrendsLineChart adapter)', value: 'adapter-hog' },
     { label: 'chart.js (ActionsLineGraph adapter)', value: 'adapter-chartjs' },
     { label: 'hog-charts (TrendsBarChart adapter)', value: 'adapter-bar' },
@@ -92,6 +98,7 @@ const CHART_OPTIONS: { label: string; value: ChartKind }[] = [
  * travel vertically to cross successive bars instead of horizontally. */
 const HORIZONTAL_CHART_KINDS: ReadonlySet<ChartKind> = new Set<ChartKind>([
     'hog-bar-horizontal',
+    'chartjs-bar-horizontal',
     'adapter-bar-horizontal',
 ])
 
@@ -170,6 +177,8 @@ const ALL_CHART_KINDS: ChartKind[] = [
     'chartjs',
     'hog-bar',
     'hog-bar-horizontal',
+    'chartjs-bar',
+    'chartjs-bar-horizontal',
     'adapter-hog',
     'adapter-chartjs',
     'adapter-bar',
@@ -196,6 +205,9 @@ function ChartCell({ chart, series, points, seed, fillArea, showGrid, runKey }: 
     }
     if (chart === 'hog-bar' || chart === 'hog-bar-horizontal') {
         return <HogChartsBarChart data={data} showGrid={showGrid} horizontal={chart === 'hog-bar-horizontal'} />
+    }
+    if (chart === 'chartjs-bar' || chart === 'chartjs-bar-horizontal') {
+        return <ChartJsBarChart data={data} showGrid={showGrid} horizontal={chart === 'chartjs-bar-horizontal'} />
     }
     return <RealAdaptersCell kind={chart} data={data} runKey={runKey} fillArea={fillArea} />
 }
