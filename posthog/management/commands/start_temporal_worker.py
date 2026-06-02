@@ -171,10 +171,6 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
-from products.deployments.backend.temporal import (
-    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
-    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
-)
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
