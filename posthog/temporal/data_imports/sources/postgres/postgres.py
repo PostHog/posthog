@@ -147,7 +147,9 @@ def _handle_source_connect_error(e: psycopg.OperationalError, *, require_ssl: bo
         ) from e
     if any(substring in message for substring in SOURCE_CONNECTIVITY_ERROR_SUBSTRINGS):
         raise PostgresSourceConnectionError(message) from e
-    raise e
+    # Bare re-raise so the original psycopg.connect() traceback is preserved —
+    # valid because this helper is always called from inside an except block.
+    raise
 
 
 # Substrings PgBouncer / libpq use when the upstream backend connection died
