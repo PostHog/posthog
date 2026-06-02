@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import OktaSourceConfig
 from posthog.temporal.data_imports.sources.okta.okta import (
+    HOST_NOT_ALLOWED_ERROR,
     OktaResumeConfig,
     okta_source,
     validate_credentials as validate_okta_credentials,
@@ -76,6 +77,7 @@ The token's user should have read access to the resources you want to sync, for 
         return {
             "401 Client Error": "Invalid Okta API token. Please generate a new token and reconnect.",
             "403 Client Error": "Your Okta API token lacks the required permissions. Please check the token's scopes and try again.",
+            HOST_NOT_ALLOWED_ERROR: "The Okta domain is not allowed. Please use your organization's Okta domain.",
         }
 
     def get_schemas(
@@ -94,7 +96,7 @@ The token's user should have read access to the resources you want to sync, for 
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description="Only syncs the last 90 days on initial sync" if endpoint == "logs" else None,
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)
@@ -104,7 +106,7 @@ The token's user should have read access to the resources you want to sync, for 
     def validate_credentials(
         self, config: OktaSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        return validate_okta_credentials(config.okta_domain, config.api_key, schema_name)
+        return validate_okta_credentials(config.okta_domain, config.api_key, schema_name, team_id)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OktaResumeConfig]:
         return ResumableSourceManager[OktaResumeConfig](inputs, OktaResumeConfig)
@@ -121,6 +123,7 @@ The token's user should have read access to the resources you want to sync, for 
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            team_id=inputs.team_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

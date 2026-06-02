@@ -143,6 +143,16 @@ class TestBuildInitialParams:
         assert "since" not in params
         assert params["sortOrder"] == "ASCENDING"
 
+    def test_logs_full_refresh_ignores_stray_watermark(self):
+        # Even if a watermark leaks in, a non-incremental run must not apply a `since` filter.
+        params = _build_initial_params(
+            OKTA_ENDPOINTS["logs"],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field=None,
+        )
+        assert "since" not in params
+
     def test_non_incremental_endpoint_only_limit(self):
         params = _build_initial_params(
             OKTA_ENDPOINTS["group_rules"],
@@ -223,6 +233,18 @@ class TestValidateCredentials:
             assert valid is False
             assert "boom" in (msg or "")
 
+    def test_blocks_unsafe_host(self):
+        # When a team_id is supplied, a host that resolves to an internal address is rejected
+        # before any HTTP request is made (SSRF guard).
+        with (
+            mock.patch.object(okta_module, "_is_host_safe", return_value=(False, "internal address")),
+            self._patch_session(_response(status_code=200)) as patched,
+        ):
+            valid, msg = validate_credentials("10.0.0.1", "tok", team_id=99)
+            assert valid is False
+            assert msg == "internal address"
+            patched.return_value.get.assert_not_called()
+
 
 class TestOktaSourceResponse:
     @pytest.mark.parametrize(
@@ -243,6 +265,7 @@ class TestOktaSourceResponse:
             endpoint=endpoint,
             logger=mock.MagicMock(),
             resumable_source_manager=mock.MagicMock(),
+            team_id=1,
         )
         assert response.name == endpoint
         assert response.primary_keys == [primary_key]
@@ -270,6 +293,7 @@ class TestGetRows:
                 endpoint="users",
                 logger=mock.MagicMock(),
                 resumable_source_manager=manager,
+                team_id=1,
             ):
                 rows.extend(table)
         return rows, session
@@ -323,3 +347,53 @@ class TestGetRows:
 
         assert rows == []
         assert session.get.call_count == 1
+
+    def test_does_not_follow_next_url_on_foreign_host(self):
+        # A server-controlled Link header pointing off-org must not be followed (SSRF guard).
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        page1 = _response(
+            json_data=[{"id": "1"}],
+            link='<http://169.254.169.254/latest/meta-data/>; rel="next"',
+        )
+        rows, session = self._run(manager, [page1])
+
+        assert [r["id"] for r in rows] == ["1"]
+        assert session.get.call_count == 1
+
+    def test_ignores_resume_url_on_foreign_host(self):
+        # A poisoned resume URL must fall back to the initial org URL, not be followed.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = OktaResumeConfig(next_url="http://169.254.169.254/latest/meta-data/")
+        rows, session = self._run(manager, [_response(json_data=[{"id": "1"}])])
+
+        first_url = session.get.call_args_list[0].args[0]
+        assert first_url.startswith("https://example.okta.com/api/v1/users")
+        assert [r["id"] for r in rows] == ["1"]
+
+
+class TestRetryAfter:
+    @pytest.mark.parametrize(
+        "header, expected",
+        [
+            ({"Retry-After": "5"}, 5.0),
+            ({"Retry-After": "  9 "}, 9.0),
+            ({"Retry-After": "100000"}, 60.0),  # capped
+            ({"Retry-After": "Wed, 21 Oct 2025 07:28:00 GMT"}, None),  # HTTP-date ignored
+            ({}, None),
+        ],
+    )
+    def test_parse_retry_after(self, header, expected):
+        from posthog.temporal.data_imports.sources.okta.okta import _parse_retry_after
+
+        response = mock.MagicMock()
+        response.headers = header
+        assert _parse_retry_after(response) == expected
+
+    def test_retry_wait_prefers_retry_after(self):
+        from posthog.temporal.data_imports.sources.okta.okta import OktaRetryableError, _retry_wait
+
+        state = mock.MagicMock()
+        state.outcome.exception.return_value = OktaRetryableError("rate limited", retry_after=7.0)
+        assert _retry_wait(state) == 7.0

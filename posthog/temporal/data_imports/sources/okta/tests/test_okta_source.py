@@ -93,7 +93,7 @@ class TestOktaSource:
         result = self.source.validate_credentials(self.config, self.team_id, schema_name="users")
 
         assert result == expected
-        mock_validate.assert_called_once_with(self.config.okta_domain, self.config.api_key, "users")
+        mock_validate.assert_called_once_with(self.config.okta_domain, self.config.api_key, "users", self.team_id)
 
     def test_get_resumable_source_manager(self):
         inputs = mock.MagicMock()
@@ -105,6 +105,7 @@ class TestOktaSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_okta_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "users"
+        inputs.team_id = 42
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-01T00:00:00.000Z"
         inputs.incremental_field = "lastUpdated"
@@ -118,6 +119,7 @@ class TestOktaSource:
         assert kwargs["api_key"] == "00token"
         assert kwargs["endpoint"] == "users"
         assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["team_id"] == 42
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00.000Z"
         assert kwargs["incremental_field"] == "lastUpdated"

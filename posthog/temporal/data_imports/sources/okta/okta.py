@@ -3,23 +3,33 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.okta.settings import OKTA_ENDPOINTS, OktaEndpointConfig
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
+MAX_RETRY_AFTER_SECONDS = 60
+
+HOST_NOT_ALLOWED_ERROR = "Okta domain is not allowed"
 
 
 class OktaRetryableError(Exception):
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class OktaHostNotAllowedError(Exception):
     pass
 
 
@@ -78,11 +88,12 @@ def _build_initial_params(
         # The System Log defaults to the last 7 days when `since` is omitted, so on the
         # first sync we explicitly reach back to the start of Okta's retention window.
         params["sortOrder"] = "ASCENDING"
-        since_value = db_incremental_field_last_value
-        if should_use_incremental_field and not since_value and config.default_lookback_days:
-            since_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
-        if since_value:
-            params["since"] = _format_incremental_value(since_value)
+        if should_use_incremental_field:
+            since_value = db_incremental_field_last_value
+            if not since_value and config.default_lookback_days:
+                since_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
+            if since_value:
+                params["since"] = _format_incremental_value(since_value)
         return params
 
     if config.incremental_param == "filter" and should_use_incremental_field and db_incremental_field_last_value:
@@ -117,7 +128,22 @@ def _parse_next_url(link_header: str) -> str | None:
     return None
 
 
-def validate_credentials(domain: str, api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
+def _is_same_host(url: str, domain: str) -> bool:
+    """Whether ``url`` points at the configured Okta org host.
+
+    Pagination/resume URLs are server-controlled (they arrive in the Link header), so we
+    pin them to the validated org host to avoid being redirected at an arbitrary internal
+    address (SSRF).
+    """
+    try:
+        return (urlparse(url).hostname or "").lower() == normalize_domain(domain).lower()
+    except Exception:
+        return False
+
+
+def validate_credentials(
+    domain: str, api_key: str, schema_name: Optional[str] = None, team_id: Optional[int] = None
+) -> tuple[bool, str | None]:
     """Probe a cheap list endpoint to confirm the SSWS token is genuine.
 
     At source-create (``schema_name is None``) a 403 is accepted: the token is valid but may
@@ -131,6 +157,13 @@ def validate_credentials(domain: str, api_key: str, schema_name: Optional[str] =
 
     if not normalized or not re.match(r"^[A-Za-z0-9.\-]+$", normalized):
         return False, "Invalid Okta domain"
+
+    # The org domain is fully customer-controlled, so block hosts that resolve to private/
+    # internal addresses (SSRF). Only enforced on cloud — see _is_host_safe.
+    if team_id is not None:
+        host_ok, host_err = _is_host_safe(normalized, team_id)
+        if not host_ok:
+            return False, host_err or HOST_NOT_ALLOWED_ERROR
 
     url = f"https://{normalized}/api/v1/users"
     try:
@@ -157,12 +190,29 @@ def validate_credentials(domain: str, api_key: str, schema_name: Optional[str] =
         return False, response.text
 
 
+def _parse_retry_after(response: requests.Response) -> float | None:
+    """Okta sends ``Retry-After`` in whole seconds on 429. Ignore HTTP-date forms."""
+    raw = response.headers.get("Retry-After")
+    if raw and raw.strip().isdigit():
+        return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
+    return None
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    """Honor a server-provided Retry-After when present, else exponential backoff."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, OktaRetryableError) and exc.retry_after is not None:
+        return exc.retry_after
+    return wait_exponential_jitter(initial=1, max=30)(retry_state)
+
+
 def get_rows(
     domain: str,
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[OktaResumeConfig],
+    team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
@@ -171,28 +221,41 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
+    # Re-check at run time (not just at source-create) in case the domain was edited or now
+    # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+    host_ok, host_err = _is_host_safe(normalize_domain(domain), team_id)
+    if not host_ok:
+        raise OktaHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
+    initial_url = _build_initial_url(domain, config, params)
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
+    if resume_config is not None and _is_same_host(resume_config.next_url, domain):
         url: str = resume_config.next_url
         logger.debug(f"Okta: resuming from URL: {url}")
     else:
-        url = _build_initial_url(domain, config, params)
+        if resume_config is not None:
+            logger.warning("Okta: ignoring resume URL whose host does not match the configured domain")
+        url = initial_url
 
     @retry(
         retry=retry_if_exception_type((OktaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=30),
+        wait=_retry_wait,
         reraise=True,
     )
     def fetch_page(page_url: str) -> requests.Response:
         response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
-            raise OktaRetryableError(f"Okta API error (retryable): status={response.status_code}, url={page_url}")
+            retry_after = _parse_retry_after(response) if response.status_code == 429 else None
+            raise OktaRetryableError(
+                f"Okta API error (retryable): status={response.status_code}, url={page_url}",
+                retry_after=retry_after,
+            )
 
         if not response.ok:
             logger.error(f"Okta API error: status={response.status_code}, body={response.text}, url={page_url}")
@@ -225,6 +288,11 @@ def get_rows(
         if not next_url:
             break
 
+        # The next-page URL is server-controlled; only follow it if it stays on the org host.
+        if not _is_same_host(next_url, domain):
+            logger.warning("Okta: stopping pagination, next URL host does not match the configured domain")
+            break
+
         url = next_url
 
     if batcher.should_yield(include_incomplete_chunk=True):
@@ -238,6 +306,7 @@ def okta_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[OktaResumeConfig],
+    team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -252,6 +321,7 @@ def okta_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            team_id=team_id,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
