@@ -38,6 +38,7 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.personhog_client.metrics import PERSONHOG_PENDING_ORM_ACCESS_TOTAL, get_client_name
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
@@ -1937,6 +1938,19 @@ def convert_team_usage_rows_to_dict(
     return team_id_map
 
 
+def _get_group_types_total_with_instrumentation() -> list[dict[str, int]]:
+    PERSONHOG_PENDING_ORM_ACCESS_TOTAL.labels(
+        operation="group_types_total_aggregation",
+        callsite="posthog.tasks.usage_report",
+        client_name=get_client_name(),
+    ).inc()
+    return list(
+        GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+        .annotate(total=Count("id"))
+        .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+    )
+
+
 def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period. Clickhouse is good at counting things so
@@ -2008,11 +2022,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
         ),
-        "teams_with_group_types_total": list(
-            GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
-            .annotate(total=Count("id"))
-            .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
-        ),
+        "teams_with_group_types_total": _get_group_types_total_with_instrumentation(),
         "teams_with_dashboard_count": list(
             Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),

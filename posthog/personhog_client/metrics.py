@@ -26,3 +26,9 @@ PERSONHOG_TEAM_MISMATCH_TOTAL = Counter(
     "Persons dropped because personhog returned a mismatched team_id",
     labelnames=["operation", "client_name"],
 )
+
+PERSONHOG_PENDING_ORM_ACCESS_TOTAL = Counter(
+    "personhog_pending_orm_access_total",
+    "Direct ORM access to persons DB tables pending migration to personhog",
+    labelnames=["operation", "callsite", "client_name"],
+)

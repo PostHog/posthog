@@ -47,6 +47,7 @@ from django.db.models import Count
 
 from posthog.constants import FlagRequestType
 from posthog.models import GroupTypeMapping
+from posthog.personhog_client.metrics import PERSONHOG_PENDING_ORM_ACCESS_TOTAL, get_client_name
 from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
@@ -96,6 +97,11 @@ from products.surveys.backend.models import Survey
 
 
 def _group_types_total() -> list[dict[str, int]]:
+    PERSONHOG_PENDING_ORM_ACCESS_TOTAL.labels(
+        operation="group_types_total_aggregation",
+        callsite="posthog.temporal.usage_report.queries",
+        client_name=get_client_name(),
+    ).inc()
     return list(
         GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
         .annotate(total=Count("id"))

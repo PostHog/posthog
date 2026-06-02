@@ -11,6 +11,7 @@ from celery import shared_task
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person, PersonDistinctId
+from posthog.personhog_client.metrics import PERSONHOG_PENDING_ORM_ACCESS_TOTAL, get_client_name
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
@@ -51,6 +52,11 @@ def verify_persons_data_in_sync(
     limit: int = LIMIT,
     emit_results: bool = True,
 ) -> Counter:
+    PERSONHOG_PENDING_ORM_ACCESS_TOTAL.labels(
+        operation="verify_persons_data_in_sync",
+        callsite="posthog.tasks.verify_persons_data_in_sync",
+        client_name=get_client_name(),
+    ).inc()
     # :KLUDGE: Rather than filter on created_at directly which is unindexed, we look up the latest value in 'id' column
     #   and leverage that to narrow down filtering in an index-efficient way
     max_pk = (

@@ -4,6 +4,8 @@ import structlog
 from celery import shared_task
 
 from posthog.models import Person
+from posthog.models.person.util import get_person_by_id
+from posthog.personhog_client.metrics import PERSONHOG_PENDING_ORM_ACCESS_TOTAL, get_client_name
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
@@ -62,6 +64,11 @@ def split_person(
                 "split_person legacy path: querying PersonDistinctId for team_id",
                 person_id=person_id,
             )
+            PERSONHOG_PENDING_ORM_ACCESS_TOTAL.labels(
+                operation="split_person_legacy_pdi_lookup",
+                callsite="posthog.tasks.split_person",
+                client_name=get_client_name(),
+            ).inc()
             # Lookup team_id via PersonDistinctId which has person_id FK
             pdi = (
                 # nosemgrep: no-direct-persons-db-orm
@@ -78,7 +85,11 @@ def split_person(
                 person_id=person_id,
                 team_id=resolved_team_id,
             )
-            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)  # nosemgrep: no-direct-persons-db-orm
+            person = get_person_by_id(resolved_team_id, person_id)
+            if not person:
+                raise Person.DoesNotExist(
+                    f"Person matching query does not exist. team_id={resolved_team_id}, pk={person_id}"
+                )
             logger.info(
                 "split_person legacy path: calling split_person on model",
                 person_id=person_id,
@@ -96,7 +107,11 @@ def split_person(
                 person_id=person_id,
                 team_id=resolved_team_id,
             )
-            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)  # nosemgrep: no-direct-persons-db-orm
+            person = get_person_by_id(resolved_team_id, person_id)
+            if not person:
+                raise Person.DoesNotExist(
+                    f"Person matching query does not exist. team_id={resolved_team_id}, pk={person_id}"
+                )
             logger.info(
                 "split_person new path: calling split_person on model",
                 person_id=person_id,
