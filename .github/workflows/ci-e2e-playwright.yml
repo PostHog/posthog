@@ -239,10 +239,20 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -278,6 +288,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-e2e-playwright.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -800,10 +811,20 @@ jobs:
                       playwright/snapshots.yml
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

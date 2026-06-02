@@ -78,6 +78,15 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -86,6 +95,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -116,6 +126,15 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -124,6 +143,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -200,10 +220,20 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -251,6 +281,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Download MaxMind Database
               run: |
