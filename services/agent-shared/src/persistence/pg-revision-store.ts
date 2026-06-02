@@ -5,6 +5,7 @@
 
 import type { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
+import { ZodError } from 'zod'
 
 import { createLogger } from '../runtime/logger'
 import { AgentApplication, AgentRevision, AgentSpec, AgentSpecSchema, RevisionState } from '../spec/spec'
@@ -243,16 +244,23 @@ function rowToRev(row: RevisionRow): AgentRevision {
  * (`getRevision`) deliberately stay strict so a direct fetch surfaces the real
  * error; this tolerant variant is for the bulk/fleet reads where one bad row
  * must not take out the rest. Exported for unit testing.
+ *
+ * Only `ZodError` (schema drift) is tolerated — any other throw (a real bug in
+ * `rowToRev`, e.g. a null `created_at`) re-raises so it surfaces loudly rather
+ * than silently dropping rows across every fleet read.
  */
 export function safeRowToRev(row: RevisionRow): AgentRevision | null {
     try {
         return rowToRev(row)
     } catch (err) {
+        if (!(err instanceof ZodError)) {
+            throw err
+        }
         log.warn(
             {
                 revision_id: row.id,
                 application_id: row.application_id,
-                err: (err as Error).message,
+                err: err.message,
             },
             'agent.revision.spec_unparseable'
         )

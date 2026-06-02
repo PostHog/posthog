@@ -18,21 +18,36 @@ const baseRow = {
 }
 
 describe('safeRowToRev', () => {
-    it('parses a valid spec row into a revision', () => {
-        const rev = safeRowToRev({ ...baseRow, spec: { model: 'claude-sonnet-4-6' } })
-        expect(rev).not.toBeNull()
-        expect(rev!.id).toBe(baseRow.id)
-        expect(rev!.spec.model).toBe('claude-sonnet-4-6')
+    // Schema drift is tolerated: a valid spec parses; a cron trigger frozen
+    // before `prompt`/`name` were required is rejected by the current schema
+    // and skipped (null), never thrown.
+    it.each<[string, unknown, boolean]>([
+        ['valid spec', { model: 'claude-sonnet-4-6' }, false],
+        [
+            'cron trigger missing the now-required prompt',
+            { triggers: [{ type: 'cron', config: { name: 'sweep', schedule: '0 9 * * *', timezone: 'UTC' } }] },
+            true,
+        ],
+        [
+            'cron trigger missing name',
+            { triggers: [{ type: 'cron', config: { schedule: '0 9 * * *', prompt: 'go' } }] },
+            true,
+        ],
+    ])('%s → null=%s', (_label, spec, expectNull) => {
+        const rev = safeRowToRev({ ...baseRow, spec })
+        if (expectNull) {
+            expect(rev).toBeNull()
+        } else {
+            expect(rev).not.toBeNull()
+            expect(rev!.id).toBe(baseRow.id)
+        }
     })
 
-    it('returns null (does not throw) for a drifted spec — cron trigger missing the now-required prompt', () => {
-        // The exact shape that poisoned the fleet: a cron trigger frozen before
-        // `prompt` was required, so the current schema rejects it.
-        const rev = safeRowToRev({
-            ...baseRow,
-            spec: { triggers: [{ type: 'cron', config: { name: 'sweep', schedule: '0 9 * * *', timezone: 'UTC' } }] },
-        })
-        expect(rev).toBeNull()
+    it('re-throws a non-schema error (real bug) instead of swallowing the row', () => {
+        // A genuine bug in rowToRev — not schema drift — must surface loudly, not
+        // be logged as spec_unparseable and dropped. A null created_at throws a
+        // TypeError on .toISOString(), which is not a ZodError.
+        expect(() => safeRowToRev({ ...baseRow, created_at: null as unknown as Date, spec: { model: 'x' } })).toThrow()
     })
 
     it('a mixed batch keeps the good rows and drops the bad ones', () => {
