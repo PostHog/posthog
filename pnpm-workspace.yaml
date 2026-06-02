@@ -63,6 +63,7 @@ catalog:
     husky: ^7.0.4
     lint-staged: ~15.4.3
     concurrently: ^5.3.0
+    yaml: ^2.8.2
 
 # posthog-js needs to be excluded because we only update our CDN
 # once a newer posthog-js version is merged onto this repo

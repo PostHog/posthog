@@ -456,6 +456,8 @@ export namespace Schemas {
       message: string;
       /** Name of the ExternalDataSchema responsible for syncing the table */
       schema_name: string;
+      /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+      source_id?: string | null;
       /** Source type, e.g. "Stripe", "Hubspot" */
       source_type: string;
       /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -8438,6 +8440,8 @@ export namespace Schemas {
 
     /**
      * * `S3` - S3
+    * `AwsS3` - Aws S3
+    * `S3Compatible` - S3 Compatible
     * `Snowflake` - Snowflake
     * `Postgres` - Postgres
     * `Redshift` - Redshift
@@ -8454,6 +8458,8 @@ export namespace Schemas {
 
     export const BatchExportDestinationTypeEnum = {
       S3: 'S3',
+      AwsS3: 'AwsS3',
+      S3Compatible: 'S3Compatible',
       Snowflake: 'Snowflake',
       Postgres: 'Postgres',
       Redshift: 'Redshift',
@@ -8533,6 +8539,8 @@ export namespace Schemas {
       /** A choice of supported BatchExportDestination types.
 
       * `S3` - S3
+      * `AwsS3` - Aws S3
+      * `S3Compatible` - S3 Compatible
       * `Snowflake` - Snowflake
       * `Postgres` - Postgres
       * `Redshift` - Redshift
@@ -12761,6 +12769,7 @@ export namespace Schemas {
     * `Plain` - Plain
     * `Resend` - Resend
     * `PgAnalyze` - PgAnalyze
+    * `WorkOS` - WorkOS
     * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -12912,6 +12921,7 @@ export namespace Schemas {
       Plain: 'Plain',
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
+      WorkOS: 'WorkOS',
       Custom: 'Custom',
     } as const;
 
@@ -13070,6 +13080,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -17351,6 +17362,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -18651,6 +18663,14 @@ export namespace Schemas {
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
     }
+
+    export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
+
+
+    export const HideViewedRecordings = {
+      CurrentUser: 'current-user',
+      AnyUser: 'any-user',
+    } as const;
 
     /**
      * Variable: {key, type: string|number|boolean, default}.
@@ -20140,6 +20160,8 @@ export namespace Schemas {
       events?: RecordingsQueryEvents;
       filter_test_accounts?: boolean | null;
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+      hide_viewed_recordings?: HideViewedRecordings | null;
       kind?: 'RecordingsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
