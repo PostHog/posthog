@@ -50,6 +50,7 @@ The new model adds conversion functions:
 This gives the codebase a bridge between the old AST metadata and a more precise SQL runtime model.
 The bridge matters because existing printers and transforms already expect `IntegerType`, `DateTimeType`, `ArrayType`, `TupleType`, and `UnknownType`.
 Changing that public shape all at once would be too risky.
+`MapType` now joins that compatibility layer for map key/value metadata while the structured runtime model keeps the dialect-specific details.
 
 ## Structured ClickHouse Type Parsing
 
@@ -217,6 +218,31 @@ For example, `arrayMap(x -> x + 0.5, [1, 2])` resolves `x` as `Integer` and the 
 `arrayFilter(x -> x > 1, [1, 2])` keeps the input array element type while typing the predicate body.
 Multi-array lambdas bind arguments positionally from each array argument.
 When the array comes from `JSONExtract(..., 'Array(String)')`, the parsed JSON return type flows into the lambda argument as well.
+
+## Map Typing
+
+Map expressions now preserve key/value information through the legacy compatibility layer.
+`parse_clickhouse_type("Map(String, Nullable(Float64))")` produces a structured runtime map type, and `constant_type_from_runtime_type(...)` can bridge that into `MapType(key_type=StringType, value_type=FloatType(nullable=True))`.
+
+Common map helpers now resolve without falling back to `UnknownType`:
+
+```sql
+SELECT map('a', 1, 'b', 2.0)
+```
+
+resolves to `MapType(StringType, FloatType)`.
+
+`mapFromArrays(...)` takes key and value types from the input array element types.
+`mapKeys(...)` and `mapValues(...)` return arrays of the corresponding key or value type.
+Map bracket access resolves to the value type:
+
+```sql
+SELECT map('a', 1)['a']
+```
+
+resolves to `IntegerType`.
+
+Higher-order map functions are still follow-up work because they need lambda argument binding for key/value pairs and lambda-return validation.
 
 ## Set Query Output Typing
 

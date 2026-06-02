@@ -361,6 +361,10 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.item_types:
             self.visit(expr)
 
+    def visit_map_type(self, node: ast.MapType):
+        self.visit(node.key_type)
+        self.visit(node.value_type)
+
     def visit_date_type(self, node: ast.DateType):
         pass
 

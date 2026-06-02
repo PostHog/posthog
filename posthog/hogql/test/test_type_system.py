@@ -55,6 +55,16 @@ class TestHogQLTypeSystem:
         assert parsed.item_type.item_types[1].precision == 3
         assert parsed.item_type.item_types[1].timezone == "UTC"
 
+        parsed_map = parse_clickhouse_type("Map(String, Nullable(Float64))")
+
+        assert parsed_map.family == "map"
+        assert parsed_map.nullable is False
+        assert parsed_map.key_type is not None
+        assert parsed_map.key_type.family == "string"
+        assert parsed_map.value_type is not None
+        assert parsed_map.value_type.family == "float"
+        assert parsed_map.value_type.nullable is True
+
     def test_database_field_runtime_type_preserves_float_array_dimension(self) -> None:
         field = FloatArrayDatabaseField(name="score_bins", nullable=False)
 
@@ -111,6 +121,33 @@ class TestHogQLTypeSystem:
         resolved = cast(ast.TupleAccess, resolve_types(node, self.context, dialect="clickhouse"))
         assert resolved.type == ast.StringType(nullable=False)
 
+    def test_resolver_infers_map_function_types(self) -> None:
+        self._assert_first_column_type(
+            "SELECT map('a', 1, 'b', 2.0)",
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.FloatType(nullable=False),
+            ),
+        )
+        self._assert_first_column_type("SELECT map('a', 1)['a']", ast.IntegerType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT mapFromArrays(['a'], [1, 2.0])",
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.FloatType(nullable=False),
+            ),
+        )
+        self._assert_first_column_type(
+            "SELECT mapKeys(map('a', 1))",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT mapValues(map('a', 1, 'b', 2.0))",
+            ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+        )
+
     def test_resolver_binds_higher_order_array_lambda_argument_types(self) -> None:
         node = cast(
             ast.SelectQuery,
@@ -159,6 +196,14 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type(
             "SELECT JSONExtract('[\"ReferenceError\"]', 'Array(String)')",
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT JSONExtract('{\"score\": 1}', 'Map(String, UInt64)')",
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.IntegerType(nullable=False),
+            ),
         )
         self._assert_first_column_type(
             "SELECT JSONExtract('{\"num\": 42}', 'not_a_type')",

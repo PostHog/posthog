@@ -289,6 +289,13 @@ def runtime_type_from_constant_type(constant_type: ast.ConstantType) -> RuntimeT
             nullable=nullable,
             item_types=tuple(runtime_type_from_constant_type(item) for item in constant_type.item_types),
         )
+    if isinstance(constant_type, ast.MapType):
+        return RuntimeType(
+            family="map",
+            nullable=nullable,
+            key_type=runtime_type_from_constant_type(constant_type.key_type),
+            value_type=runtime_type_from_constant_type(constant_type.value_type),
+        )
     return UNKNOWN_RUNTIME_TYPE.with_nullable(nullable)
 
 
@@ -321,6 +328,12 @@ def constant_type_from_runtime_type(runtime_type: RuntimeType) -> ast.ConstantTy
         return ast.TupleType(
             nullable=nullable,
             item_types=[constant_type_from_runtime_type(item) for item in runtime_type.item_types],
+        )
+    if runtime_type.family == "map":
+        return ast.MapType(
+            nullable=nullable,
+            key_type=constant_type_from_runtime_type(runtime_type.key_type or UNKNOWN_RUNTIME_TYPE),
+            value_type=constant_type_from_runtime_type(runtime_type.value_type or UNKNOWN_RUNTIME_TYPE),
         )
     return ast.UnknownType(nullable=nullable)
 
@@ -616,6 +629,16 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
         return RuntimeType(
             family="tuple", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect), item_types=item_types
         )
+    if families == {"map"}:
+        key_types = [type_.key_type or UNKNOWN_RUNTIME_TYPE for type_ in known_types]
+        value_types = [type_.value_type or UNKNOWN_RUNTIME_TYPE for type_ in known_types]
+        return RuntimeType(
+            family="map",
+            nullable=nullable,
+            dialect=cast(RuntimeTypeDialect, dialect),
+            key_type=least_common_runtime_type(key_types, dialect=dialect),
+            value_type=least_common_runtime_type(value_types, dialect=dialect),
+        )
     return UNKNOWN_RUNTIME_TYPE.with_nullable(nullable)
 
 
@@ -715,6 +738,10 @@ def infer_array_access_constant_type(array_type: ast.ConstantType) -> ast.Consta
         return dataclasses.replace(array_type.item_type, nullable=array_type.nullable or array_type.item_type.nullable)
     if isinstance(array_type, ast.StringArrayType):
         return ast.StringType(nullable=True)
+    if isinstance(array_type, ast.MapType):
+        return dataclasses.replace(
+            array_type.value_type, nullable=array_type.nullable or array_type.value_type.nullable
+        )
     return ast.UnknownType()
 
 
@@ -843,6 +870,15 @@ def _infer_generic_function_type(
 
     if normalized_name == "array":
         return infer_array_constant_type(arg_types, dialect=dialect)
+
+    if normalized_name == "map":
+        return _infer_map_type(arg_types, dialect=dialect)
+
+    if normalized_name == "mapfromarrays" and len(arg_types) >= 2:
+        return _infer_map_from_arrays_type(arg_types, dialect=dialect)
+
+    if normalized_name in {"mapkeys", "mapvalues"} and arg_types:
+        return _infer_map_items_type(arg_types[0], keys=normalized_name == "mapkeys")
 
     if normalized_name in {"arrayconcat", "arrayzip"}:
         return _infer_array_concat_type(arg_types, dialect=dialect)
@@ -983,6 +1019,35 @@ def _infer_array_concat_type(arg_types: list[ast.ConstantType], dialect: HogQLDi
         else:
             item_types.append(ast.UnknownType())
     return ast.ArrayType(nullable=nullable, item_type=least_common_supertype(item_types, dialect=dialect))
+
+
+def _infer_map_type(arg_types: list[ast.ConstantType], dialect: HogQLDialect) -> ast.ConstantType:
+    if not arg_types:
+        return ast.MapType(nullable=False)
+    if len(arg_types) % 2 != 0:
+        return ast.UnknownType()
+    return ast.MapType(
+        nullable=False,
+        key_type=least_common_supertype(arg_types[::2], dialect=dialect),
+        value_type=least_common_supertype(arg_types[1::2], dialect=dialect),
+    )
+
+
+def _infer_map_from_arrays_type(arg_types: list[ast.ConstantType], dialect: HogQLDialect) -> ast.MapType:
+    key_type = infer_array_access_constant_type(arg_types[0])
+    value_type = infer_array_access_constant_type(arg_types[1])
+    return ast.MapType(
+        nullable=arg_types[0].nullable or arg_types[1].nullable,
+        key_type=least_common_supertype([key_type], dialect=dialect),
+        value_type=least_common_supertype([value_type], dialect=dialect),
+    )
+
+
+def _infer_map_items_type(map_type: ast.ConstantType, keys: bool) -> ast.ArrayType:
+    if not isinstance(map_type, ast.MapType):
+        return ast.ArrayType(nullable=True, item_type=ast.UnknownType())
+    item_type = map_type.key_type if keys else map_type.value_type
+    return ast.ArrayType(nullable=map_type.nullable, item_type=dataclasses.replace(item_type))
 
 
 def _infer_higher_order_array_type(

@@ -614,6 +614,16 @@ class TupleType(ConstantType):
 
 
 @dataclass(kw_only=True, slots=True)
+class MapType(ConstantType):
+    data_type: ConstantDataType = field(default="map", init=False)
+    key_type: ConstantType = field(default_factory=UnknownType)
+    value_type: ConstantType = field(default_factory=UnknownType)
+
+    def print_type(self) -> str:
+        return "Map"
+
+
+@dataclass(kw_only=True, slots=True)
 class CallType(Type):
     name: str
     arg_types: list[ConstantType]

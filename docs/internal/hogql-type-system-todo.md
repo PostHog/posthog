@@ -29,6 +29,7 @@ Completed in this branch:
 - Kept existing legacy function signatures working as a fallback path.
 - Added resolver typing for `TypeCast`, `TryCast`, array literals, tuple literals, array access, array slices, tuple access, common aggregate calls, and set-query output columns.
 - Added unified output-column typing for `SelectSetQueryType`, while preserving the branch-type list for lineage consumers.
+- Added `MapType` compatibility metadata and generic inference for `map(...)`, `mapFromArrays(...)`, `mapKeys(...)`, `mapValues(...)`, map access, and parsed `Map(K, V)` return types.
 - Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper that distinguishes missing legacy signatures from missing type inference.
 - Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
 - Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
@@ -42,6 +43,7 @@ Still intentionally left as follow-up work:
 
 - Full ClickHouse parity for every function signature and aggregate combinator.
 - Full higher-order array parity beyond common lambda-first functions, especially `arrayReduce` aggregate-name binding and strict lambda arity/return validation.
+- Full higher-order map parity, including lambda argument binding for `mapFilter(...)` and lambda-return typing for `mapApply(...)`.
 - Property-definition planning metadata and materialized-property comparison rewrites.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Strict resolver mode.
@@ -107,7 +109,7 @@ The type hierarchy is split between:
 
 - Scope/table types, such as `TableType`, `LazyJoinType`, `LazyTableType`, `TableAliasType`, `SelectQueryType`, `SelectSetQueryType`, `CTETableType`, and `SelectQueryAliasType`.
 - Field and property types, such as `FieldType`, `PropertyType`, `ExpressionFieldType`, `FieldAliasType`, and `UnresolvedFieldType`.
-- Constant/runtime expression types, such as `IntegerType`, `FloatType`, `DecimalType`, `StringType`, `StringJSONType`, `StringArrayType`, `BooleanType`, `DateType`, `DateTimeType`, `IntervalType`, `UUIDType`, `ArrayType`, `TupleType`, `CallType`, and `UnknownType`.
+- Constant/runtime expression types, such as `IntegerType`, `FloatType`, `DecimalType`, `StringType`, `StringJSONType`, `StringArrayType`, `BooleanType`, `DateType`, `DateTimeType`, `IntervalType`, `UUIDType`, `ArrayType`, `TupleType`, `MapType`, `CallType`, and `UnknownType`.
 
 `ConstantType` has two important fields today:
 
@@ -115,7 +117,8 @@ The type hierarchy is split between:
 - `nullable`
 
 This is useful, but intentionally coarse.
-It does not represent ClickHouse precision, scale, timezone, signedness, low cardinality, enum values, maps, named tuple fields, aggregate states, nested nullability, or most parametric type details.
+It does not represent ClickHouse precision, scale, timezone, signedness, low cardinality, enum values, named tuple fields, aggregate states, nested nullability, or most parametric type details.
+Map key/value types now have a compatibility representation, but the legacy `ConstantType` model still omits most ClickHouse-specific map metadata.
 
 Database fields map to constant types through `DatabaseField.get_constant_type()`.
 The mapping is also coarse.
@@ -196,7 +199,7 @@ Some high-value function groups are partially typed:
 Many high-value groups are not deeply typed:
 
 - Logical functions in `mapping.py`, such as `equals`, `less`, `and`, `or`, `if`, and `multiIf`.
-- Most map, bitmap, tuple, and array functions.
+- Map constructors and simple accessors are typed, but higher-order map functions, bitmap helpers, and deeper tuple and array functions are still incomplete.
 - URL helper coverage exists for common string, string-array, and `port(...)` return types, but deeper function families are still incomplete.
 - Higher-order array functions, such as `arrayMap`, `arrayFilter`, `arrayFirst`, `arrayExists`, and `arrayReduce`.
 - Most aggregate functions, including `count`, `sum`, `avg`, `min`, `max`, `uniq`, `quantile`, state functions, and merge functions.
@@ -281,7 +284,7 @@ TODO:
   - [ ] nullable wrappers
   - [ ] arrays with element types and element nullability
   - [ ] tuples with positional and optional named fields
-  - [ ] maps with key and value types
+  - [x] maps with key and value types
   - [ ] JSON/object-ish values
   - [ ] aggregate states
   - [ ] unknown types with a reason/provenance
@@ -403,9 +406,10 @@ TODO:
   - [ ] `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`
   - [ ] `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - [ ] Cover tuple and map functions:
-  - [ ] tuple construction and access
+  - [x] tuple construction and access
   - [ ] named tuple access
-  - [ ] `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapContains`, `mapFilter`, `mapApply`
+  - [x] `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapContains`
+  - [ ] `mapFilter`, `mapApply`
 - [ ] Cover aggregate functions:
   - [ ] `count`, `countIf`, `countState`, `countMerge`
   - [ ] `sum`, `sumIf`, `sumState`, `sumMerge`
