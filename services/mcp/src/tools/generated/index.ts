@@ -33,6 +33,7 @@ import { GENERATED_TOOLS as replay_vision } from './replay_vision'
 import { GENERATED_TOOLS as sdk_doctor } from './sdk_doctor'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as surveys } from './surveys'
+import { GENERATED_TOOLS as tasks } from './tasks'
 import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as user_interviews } from './user_interviews'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
@@ -72,6 +73,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...sdk_doctor,
     ...signals,
     ...surveys,
+    ...tasks,
     ...tracing,
     ...user_interviews,
     ...visual_review,

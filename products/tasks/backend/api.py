@@ -27,7 +27,8 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -220,6 +221,28 @@ def _is_internal_debug_team(team_id: int | None) -> bool:
     return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
 
 
+class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
+    """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
+
+    def get_schema_operation_parameters(self, view):
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter.get("name") == self.limit_query_param:
+                parameter["schema"]["default"] = self.default_limit
+                if self.max_limit is not None:
+                    parameter["schema"]["maximum"] = self.max_limit
+                parameter["schema"]["minimum"] = 1
+            elif parameter.get("name") == self.offset_query_param:
+                parameter["schema"]["default"] = 0
+                parameter["schema"]["minimum"] = 0
+        return parameters
+
+
+class TasksPagination(_SchemaAwareLimitOffsetPagination):
+    default_limit = 50
+    max_limit = 100
+
+
 def task_visibility_q(user_id: int | None) -> Q:
     """Filter for tasks visible to the given user.
 
@@ -243,13 +266,6 @@ def task_run_visibility_q(user_id: int | None) -> Q:
         | Q(task__created_by__isnull=True)
         | Q(task__origin_product=Task.OriginProduct.SIGNAL_REPORT)
     )
-
-
-class TasksAccessPermission(BasePermission):
-    message = "You need a valid invite code to access this feature."
-
-    def has_permission(self, request, view) -> bool:
-        return has_tasks_access(request.user)
 
 
 def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
@@ -328,9 +344,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = Task.objects.all()
+    pagination_class = TasksPagination
 
     @validated_request(
         query_serializer=TaskListQuerySerializer,
@@ -1128,7 +1145,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TaskAutomationSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = TaskAutomation.objects.all()
     filter_rewrite_rules = {"team_id": "task__team_id"}
@@ -1164,7 +1181,7 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskAutomationSerializer(automation, context=self.get_serializer_context()).data)
 
 
-@extend_schema(tags=["task-runs"])
+@extend_schema(tags=["task-runs", "tasks"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1176,13 +1193,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = TaskRun.objects.select_related(
         "task", "task__created_by", "task__github_integration", "task__github_user_integration"
     ).all()
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
+    pagination_class = TasksPagination
 
     @validated_request(
         responses={
@@ -2837,7 +2855,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SandboxEnvironment.objects.all()
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]

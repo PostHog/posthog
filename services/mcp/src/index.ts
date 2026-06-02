@@ -5,6 +5,7 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from '@/lib/errors'
+import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { getPostHogClient } from '@/lib/posthog'
@@ -299,7 +300,7 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
+    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,

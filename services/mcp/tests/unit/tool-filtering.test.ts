@@ -260,6 +260,7 @@ const createMockContext = (scopes: string[]): Context => ({
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
+        POSTHOG_PUBLIC_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
@@ -496,6 +497,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_PUBLIC_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
@@ -522,6 +524,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_PUBLIC_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
@@ -716,9 +719,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'replay-vision',
+                'tasks',
             ])
         )
-        expect(flags).toHaveLength(9)
+        expect(flags).toHaveLength(10)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

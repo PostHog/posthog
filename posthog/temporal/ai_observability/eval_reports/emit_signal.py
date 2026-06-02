@@ -191,7 +191,7 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
 
     summary = await summarize_report_for_signal(inputs, content)
 
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     await emit_signal(
         team=team,

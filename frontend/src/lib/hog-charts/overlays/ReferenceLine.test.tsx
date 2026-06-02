@@ -80,6 +80,28 @@ describe('ReferenceLine', () => {
             expect(label.style.left).toBe('')
         })
 
+        it('centers the label on the line when there is room', () => {
+            const { getByText } = renderInChart(<ReferenceLine value={50} label="T" />)
+            const label = getByText('T') as HTMLDivElement
+            // y-scale(50) = 192, comfortably inside the plot, so the center sits on the line.
+            expect(label.style.top).toBe('192px')
+            expect(label.style.transform).toBe('translateY(-50%)')
+        })
+
+        it('clamps the label inside the plot when the line is at the top edge', () => {
+            const { getByText } = renderInChart(<ReferenceLine value={100} label="T" />)
+            const label = getByText('T') as HTMLDivElement
+            // y-scale(100) = 16 (plotTop); center clamped down to plotTop + LABEL_HEIGHT/2 = 26.
+            expect(label.style.top).toBe('26px')
+        })
+
+        it('clamps the label inside the plot when the line is at the bottom edge', () => {
+            const { getByText } = renderInChart(<ReferenceLine value={0} label="T" />)
+            const label = getByText('T') as HTMLDivElement
+            // y-scale(0) = 368 (plotBottom); center clamped up to plotBottom - LABEL_HEIGHT/2 = 358.
+            expect(label.style.top).toBe('358px')
+        })
+
         it('renders a fill rect above the line when fillSide="above"', () => {
             const { container } = renderInChart(<ReferenceLine value={50} fillSide="above" />)
             const divs = container.querySelectorAll<HTMLDivElement>('div')
