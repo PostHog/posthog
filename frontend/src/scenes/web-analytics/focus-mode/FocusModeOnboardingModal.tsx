@@ -19,7 +19,7 @@ export function FocusModeOnboardingModal(): JSX.Element {
             footer={
                 <div className="flex justify-end w-full gap-2">
                     <LemonButton type="secondary" onClick={dismissFocusModeOnboarding}>
-                        Maybe later
+                        Skip for now
                     </LemonButton>
                     <LemonButton
                         type="primary"
