@@ -20,7 +20,7 @@ from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
-LLM_MODEL = "claude-haiku-4-5"
+LLM_MODEL = "claude-sonnet-4-5"
 # Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
@@ -34,8 +34,10 @@ LLM_CALL_TIMEOUT_SECONDS = 120
 # Backoff between LLM retry attempts (delay = initial * coefficient ^ (attempt - 1))
 LLM_RETRY_INITIAL_DELAY_SECONDS = 5
 LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
-LLM_ACTIONABILITY_MAX_TOKENS = 256
-LLM_SUMMARY_MIN_TOKENS = 256
+# Anthropic's Messages API requires max_tokens, so this is a deliberately high safety ceiling
+# rather than a tuned budget. The risk we care about is a response being cut off mid-output, not
+# runaway generation — the actual outputs here are tiny (a short summary or a one-word verdict).
+LLM_MAX_OUTPUT_TOKENS = 8192
 
 
 def _signals_extra_headers(output: SignalEmitterOutput, stage: str) -> dict[str, str]:
@@ -138,7 +140,6 @@ async def _summarize_description(
         {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
     ]
     extra_headers = _signals_extra_headers(output, stage="summarization")
-    max_tokens = max(threshold // 4, LLM_SUMMARY_MIN_TOKENS)
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -148,7 +149,7 @@ async def _summarize_description(
                 client.messages.create(
                     model=LLM_MODEL,
                     messages=messages,  # type: ignore[arg-type]
-                    max_tokens=max_tokens,
+                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
                     metadata={"user_id": f"team-{team_id}"},
                     extra_headers=extra_headers,
                 ),
@@ -259,7 +260,7 @@ async def _check_actionability(
                 client.messages.create(
                     model=LLM_MODEL,
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=LLM_ACTIONABILITY_MAX_TOKENS,
+                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
                     metadata={"user_id": f"team-{team_id}"},
                     extra_headers=extra_headers,
                 ),
