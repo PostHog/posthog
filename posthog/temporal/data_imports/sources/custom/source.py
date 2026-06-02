@@ -205,6 +205,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
             label="Custom REST source",
+            releaseStatus="alpha",
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
