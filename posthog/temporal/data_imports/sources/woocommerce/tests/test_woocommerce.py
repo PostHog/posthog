@@ -298,9 +298,7 @@ class TestValidateCredentials:
                 "posthog.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
                 return_value=(False, "blocked"),
             ),
-            patch(
-                "posthog.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"
-            ) as MockSession,
+            patch("posthog.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session") as MockSession,
         ):
             assert validate_credentials("https://169.254.169.254", "ck", "cs", 123) is None
             MockSession.return_value.get.assert_not_called()
