@@ -9,6 +9,7 @@ import {
     buildWidgetConfigFromForm,
     parseWidgetConfig,
     parseWidgetConfigApiError,
+    type WidgetListFormInput,
     validateWidgetConfigInput as validateWidgetConfigInputShared,
 } from '../widgetConfigValidation'
 
@@ -21,7 +22,7 @@ export function parseErrorTrackingWidgetConfig(config: Record<string, unknown>):
 }
 
 export function buildErrorTrackingWidgetConfig(
-    formInput: z.infer<typeof errorTrackingWidgetFormSchema>,
+    formInput: WidgetListFormInput,
     baseConfig: ErrorTrackingWidgetConfig
 ): ErrorTrackingWidgetConfig {
     return buildWidgetConfigFromForm(errorTrackingWidgetConfigSchema, formInput, baseConfig)

@@ -13,7 +13,7 @@ import {
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
 import { sessionReplaySampleRecordings } from '../../components/WidgetCard/widgetOverviewStoryFixtures'
 import { WidgetRuntimeAvailabilityGuard } from '../../components/WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
-import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { SessionReplayWidget } from './SessionReplayWidget'
 
@@ -34,7 +34,7 @@ function SessionReplayWidgetTileStory({
     body,
     ...widgetProps
 }: SessionReplayWidgetTileStoryProps): JSX.Element {
-    const widgetTypeLabel = SESSION_REPLAY_CATALOG.groupLabel ?? 'Session replay'
+    const widgetTypeLabel = getDashboardWidgetGroupLabel(SESSION_REPLAY_CATALOG.groupId)
     const defaultTitle = SESSION_REPLAY_CATALOG.headerTitle ?? SESSION_REPLAY_CATALOG.label
 
     return (
@@ -100,6 +100,9 @@ export const Loading: Story = {
         config: DEFAULT_CONFIG,
         loading: true,
         result: null,
+    },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
     },
 }
 

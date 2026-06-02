@@ -1,5 +1,5 @@
 import type { DashboardWidgetCatalogKey } from '../../widget_types/catalog'
-import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
+import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -152,7 +152,7 @@ export const sessionReplaySampleRecordings = [
 
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */
 export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey): WidgetOverviewDemoState {
-    const catalogEntry = DASHBOARD_WIDGET_CATALOG[catalogKey]
+    const catalogEntry = getDashboardWidgetCatalogEntry(catalogKey)
     const defaultConfig = catalogEntry.defaultConfig as Record<string, unknown>
     const defaultTitle = catalogEntry.headerTitle ?? catalogEntry.label
 

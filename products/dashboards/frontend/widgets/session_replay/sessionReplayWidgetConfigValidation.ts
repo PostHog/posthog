@@ -9,6 +9,7 @@ import {
     buildWidgetConfigFromForm,
     parseWidgetConfig,
     parseWidgetConfigApiError,
+    type WidgetListFormInput,
     validateWidgetConfigInput as validateWidgetConfigInputShared,
 } from '../widgetConfigValidation'
 
@@ -21,7 +22,7 @@ export function parseSessionReplayWidgetConfig(config: Record<string, unknown>):
 }
 
 export function buildSessionReplayWidgetConfig(
-    formInput: z.infer<typeof sessionReplayWidgetFormSchema>,
+    formInput: WidgetListFormInput,
     baseConfig: SessionReplayWidgetConfig
 ): SessionReplayWidgetConfig {
     return buildWidgetConfigFromForm(sessionReplayWidgetConfigSchema, formInput, baseConfig)
