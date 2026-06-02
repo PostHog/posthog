@@ -7,7 +7,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
-export const SDK_DEFAULTS_DATE = '2026-01-30'
+export const SDK_DEFAULTS_DATE = '2026-05-30'
 
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
@@ -163,7 +163,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             person_profiles: 'always',
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
-            external_scripts_inject_target: 'head',
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,
