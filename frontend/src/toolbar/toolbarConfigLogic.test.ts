@@ -900,6 +900,44 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
+    describe('network/CORS failure handling', () => {
+        it('returns a synthesized 503 instead of throwing when fetch rejects', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(response.status).toBe(503)
+            const body = await response.json()
+            expect(body).toEqual({ results: [], detail: 'network_or_cors' })
+        })
+
+        it('does not retry on a network failure', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            // Only the initial request is attempted — no token refresh on a network-layer failure.
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect(logic.values.accessToken).toBe('access-token')
+        })
+    })
+
     describe('authorization code extraction and hash cleanup', () => {
         let replaceStateSpy: jest.SpyInstance
 

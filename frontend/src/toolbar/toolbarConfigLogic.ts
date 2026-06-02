@@ -860,20 +860,45 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
-        method,
-        headers: buildHeaders(accessToken),
-        ...(body !== undefined ? { body } : {}),
-    })
-
-    response = await withTokenRefresh(response, async (newAccessToken) => {
-        didRetry = true
-        return await fetch(fullUrl, {
+    let response: Response
+    try {
+        response = await fetch(fullUrl, {
             method,
-            headers: buildHeaders(newAccessToken),
+            headers: buildHeaders(accessToken),
             ...(body !== undefined ? { body } : {}),
         })
-    })
+
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            didRetry = true
+            return await fetch(fullUrl, {
+                method,
+                headers: buildHeaders(newAccessToken),
+                ...(body !== undefined ? { body } : {}),
+            })
+        })
+    } catch (err) {
+        // A network-layer failure (offline, ad blocker, CORS preflight rejection, DNS) makes
+        // fetch() reject with the browser's raw `TypeError: Failed to fetch`. Left uncaught it
+        // propagates out of every mount-time loader, minting a distinct error tracking issue per
+        // loader and per host bundle layout. Classify it into a single telemetry event keyed by
+        // route, then synthesize an error Response so callers fail gracefully — list loaders see
+        // `results: []` (matching the 401/400 stubs above) and save/upload callers see a non-ok
+        // status — instead of an unhandled exception.
+        const { pathname: failedPathname } = combineUrl(url)
+        toolbarPosthogJS.capture('toolbar api request', {
+            method,
+            pathname: failedPathname,
+            status: 'network_or_cors',
+            duration_ms: Math.round(performance.now() - startTime),
+            did_token_retry: didRetry,
+        })
+        captureToolbarException(err, 'toolbar_fetch_network', {
+            method,
+            pathname: failedPathname,
+            error_type: 'network_or_cors',
+        })
+        return new Response(JSON.stringify({ results: [], detail: 'network_or_cors' }), { status: 503 })
+    }
 
     const durationMs = Math.round(performance.now() - startTime)
     const { pathname } = combineUrl(url)
