@@ -64,7 +64,7 @@ describe('lookupMcpToolApproval', () => {
         expect(lookupMcpToolApproval('linear__list-issues', spec)).toBeNull()
     })
 
-    it('returns null when the matched entry is requires_approval=false (no gating in effect)', () => {
+    it('returns the entry verbatim when matched — requires_approval=false flows through to the driver', () => {
         const spec = buildSpec({
             mcps: [
                 {
@@ -143,6 +143,28 @@ describe('lookupMcpToolApproval', () => {
             ],
         })
         expect(lookupMcpToolApproval('service__parent__child', spec)).not.toBeNull()
+    })
+
+    it('walks every entry — does not bail on the first bare-string match', () => {
+        // Iteration order belt-and-braces (review #3 sibling). The bare
+        // string sits BEFORE an object entry under a DIFFERENT name; the
+        // helper has to keep walking past the bare string to find the
+        // object form. If a future refactor early-returned on first
+        // match-by-presence (instead of first match-by-name), this
+        // assertion catches it.
+        const spec = buildSpec({
+            mcps: [
+                {
+                    kind: 'external',
+                    id: 'linear',
+                    url: 'https://mcp.linear.app/sse',
+                    tools: ['list-issues', { name: 'create-issue', requires_approval: true }],
+                },
+            ],
+        })
+        const result = lookupMcpToolApproval('linear__create-issue', spec)
+        expect(result).not.toBeNull()
+        expect(result?.requires_approval).toBe(true)
     })
 
     it('only checks against ref.tools[]; ignores tools listed in spec.tools[]', () => {

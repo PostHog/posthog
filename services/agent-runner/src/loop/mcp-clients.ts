@@ -61,7 +61,7 @@ export interface OpenedMcp {
     /** Tool-name prefix at runtime: `<prefix>__<remoteToolName>`. */
     prefix: string
     /** The original spec ref this client was opened for. Handy for logging
-     *  and for the caller to inspect `allowlist` / `kind` per tool. */
+     *  and for the caller to inspect `kind` / `tools[]` per tool. */
     ref: McpRef
     listTools(): Promise<RemoteMcpTool[]>
     callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult>

@@ -19,6 +19,16 @@
  * `services/agent-ingress/src/enqueue/auth.ts:posthog_internal` and the
  * same env name the janitor uses. Plain bearer; no PKI / rotation in v0.
  *
+ * **Error-message contract.** The thrown errors below embed
+ * `team=<teamId> slug=<slug> rev=<revisionId>` so operators triaging via
+ * structured logs can pin the failing target. The runner's catch path
+ * (`worker.runOne` outer try/catch) routes these only to `sLog.error` —
+ * never to `session.conversation`, never to a model-visible
+ * `tool_result` — so no cross-tenant info leaks. If a future change
+ * starts surfacing these error messages to the session record or to a
+ * different principal on resume, the embedded ids become an exposure and
+ * the wrapper must redact them first.
+ *
  * See `docs/agent-platform/plans/runtime-mcps.md` "Resolved design" PR 7.
  */
 

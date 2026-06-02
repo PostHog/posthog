@@ -194,10 +194,14 @@ async function main(): Promise<void> {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
 
-    // Resolver for `kind: agent` MCP refs (PR 7). Skipped when either env
-    // is unset so dev / CI without a configured ingress base URL still
-    // boot — any spec that declares an `agent` ref then fails at session
-    // start with `agent_mcp_resolver_not_wired` (loudly, not silently).
+    // Resolver for `kind: agent` MCP refs (PR 7). Both envs unset is the
+    // dev / CI default — boot quietly, log a warn so the gap is visible,
+    // and any spec that declares an `agent` ref fails at session start
+    // with `agent_mcp_resolver_not_wired` (loudly, not silently). Partial
+    // config (one set, the other empty) is an operator misconfig — fail
+    // fast at boot rather than silently degrading every `kind: agent` ref
+    // at session-open, which looks identical to "the resolver was
+    // supposed to be off." See review #5.
     let agentMcpResolver: AgentMcpResolver | undefined
     if (config.agentIngressBaseUrl && config.internalSecret) {
         agentMcpResolver = makeAgentMcpResolver({
@@ -205,9 +209,17 @@ async function main(): Promise<void> {
             ingressBaseUrl: config.agentIngressBaseUrl,
             internalSecret: config.internalSecret,
         })
+    } else if (config.agentIngressBaseUrl || config.internalSecret) {
+        throw new Error(
+            'agent_mcp_resolver_partial_config: AGENT_INGRESS_BASE_URL and INTERNAL_SECRET must be set together (got base_url=' +
+                (config.agentIngressBaseUrl ? 'set' : 'unset') +
+                ', secret=' +
+                (config.internalSecret ? 'set' : 'unset') +
+                ')'
+        )
     } else {
         log.warn(
-            { hasBaseUrl: !!config.agentIngressBaseUrl, hasInternalSecret: !!config.internalSecret },
+            {},
             'agent_mcp_resolver_disabled — set AGENT_INGRESS_BASE_URL + INTERNAL_SECRET to enable kind: agent MCP refs'
         )
     }

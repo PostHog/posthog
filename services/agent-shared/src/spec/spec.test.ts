@@ -341,6 +341,24 @@ describe('AgentSpecSchema', () => {
                     tools: [{ name: '' }],
                 },
             },
+            {
+                label: 'duplicate bare-string entries',
+                mcp: {
+                    kind: 'external',
+                    id: 'linear',
+                    url: 'https://mcp.linear.app/sse',
+                    tools: ['create-issue', 'create-issue'],
+                },
+            },
+            {
+                label: 'a bare-string entry duplicating an object entry name',
+                mcp: {
+                    kind: 'external',
+                    id: 'linear',
+                    url: 'https://mcp.linear.app/sse',
+                    tools: ['create-issue', { name: 'create-issue', requires_approval: true }],
+                },
+            },
         ])('rejects an external entry with $label', ({ mcp }) => {
             expect(() => AgentSpecSchema.parse({ model: 'x', mcps: [mcp] })).toThrow()
         })

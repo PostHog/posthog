@@ -334,7 +334,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // either path. (PR 7 — runtime-mcps.md "Resolved design".)
                 const ref = rev.spec.tools.find((t) => t.id === id)
                 const nativeRef = ref && ref.kind !== 'client' && ref.requires_approval ? ref : null
-                const mcpGate = nativeRef ? null : lookupMcpToolApproval(id, rev.spec)
+                // Only fall through to MCP lookup when there's NO `spec.tools`
+                // entry at all. A `client` tool whose id collides with an
+                // MCP-exposed `<prefix>__<remote>` name is an author bug —
+                // refuse to gate it with the MCP's policy rather than
+                // surprising the client-tool dispatcher. The dispatch
+                // collision-skip in `build-agent-tools.ts` handles the
+                // surface side; this just keeps the wrap path consistent.
+                const mcpGate = ref ? null : lookupMcpToolApproval(id, rev.spec)
                 const policy: ApprovalPolicy | null = nativeRef
                     ? (nativeRef.approval_policy as ApprovalPolicy)
                     : mcpGate?.requires_approval

@@ -379,7 +379,8 @@ describe('driver runSession', () => {
             // `agent-applications-list` is in tools[] as a bare string —
             // included but no gating. The dispatcher's MCP lookup returns
             // null, the native lookup doesn't match either, so the tool
-            // dispatches directly.
+            // dispatches directly. Sibling case below pins iteration order
+            // so this isn't a false-positive on accidental short-circuit.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-list': { description: 'd', result: { results: [] } },
             })
@@ -394,6 +395,114 @@ describe('driver runSession', () => {
             // Remote was hit normally — no approval interception.
             expect(mcp.calls).toEqual([{ name: 'agent-applications-list', args: {} }])
             expect(await approvals.listBySession('sess1')).toHaveLength(0)
+        })
+
+        it('iterates past earlier bare-string entries to find a later gated object (no false-positive short-circuit)', async () => {
+            // Belt-and-braces for the bare-string case above: the lookup
+            // must walk the whole tools[] array, not bail on the first
+            // non-name-match. Here `agent-applications-list` is a bare
+            // string and `promote-create` is the gated object — the model
+            // calls `promote-create`, which sits SECOND in the array.
+            const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
+                'agent-applications-revisions-promote-create': {
+                    description: 'd',
+                    result: { promoted: true },
+                },
+            })
+            const approvals = new MemoryApprovalStore()
+            const session = makeSession({
+                principal: principalAlice,
+                // Drop the sender stamp so the per-asker fast-path can't fire
+                // and the only valid outcome is queue-on-the-gate.
+                conversation: [{ role: 'user', content: 'promote it', timestamp: Date.now() }],
+            })
+            const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
+                script: [
+                    toolUse([
+                        call('posthog__agent-applications-revisions-promote-create', {
+                            application_id: 'app',
+                        }),
+                    ]),
+                    stop('queued'),
+                ],
+                approvals,
+                mcpClients: [mcp],
+            })
+            expect(out.state).toBe('completed')
+            expect(mcp.calls).toEqual([])
+            const rows = await approvals.listBySession('sess1')
+            expect(rows).toHaveLength(1)
+        })
+
+        it('a client tool whose id collides with an MCP-shaped name is NOT gated by the MCP policy', async () => {
+            // Author bug: `spec.tools[]` declares a client tool whose id
+            // matches the model-visible `<prefix>__<remote>` shape AND
+            // `spec.mcps[]` declares a gated entry for the same name. The
+            // driver wrap must NOT pick up the MCP policy for the client
+            // tool — that would surprise the client-tool dispatcher and
+            // cross-couple two unrelated code paths. The mcpGate lookup
+            // is gated behind `!ref` so this case dispatches normally.
+            // (Review #7.)
+            const collisionRef = AgentSpecSchema.parse({
+                model: FAUX_MODEL_ID,
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'posthog',
+                        url: 'https://example.com/posthog',
+                        secrets: [],
+                        tools: [
+                            {
+                                name: 'pingback',
+                                requires_approval: true,
+                                approval_policy: { approvers: ['team_admins'] },
+                            },
+                        ],
+                    },
+                ],
+                tools: [
+                    {
+                        kind: 'client',
+                        id: 'posthog__pingback',
+                        description: 'Browser-side pingback handler.',
+                        args_schema: {},
+                    },
+                ],
+            }).mcps[0]
+            const mcp = makeFakeMcp('posthog', collisionRef, {
+                pingback: { description: 'd', result: { ok: true } },
+            })
+            const approvals = new MemoryApprovalStore()
+            const session = makeSession({ principal: principalAlice })
+            // The model calls the client-tool id (`posthog__pingback`). The
+            // build-agent-tools collision-skip means the MCP version is
+            // dropped from the surface; only the client tool remains under
+            // that name. The wrap path must leave it alone.
+            const out = await run(
+                makeRev({
+                    mcps: [collisionRef as never],
+                    tools: [
+                        {
+                            kind: 'client',
+                            id: 'posthog__pingback',
+                            description: 'Browser-side pingback handler.',
+                            args_schema: {},
+                        },
+                    ],
+                }),
+                session,
+                {
+                    script: [toolUse([call('posthog__pingback', { x: 1 })]), stop('done')],
+                    approvals,
+                    mcpClients: [mcp],
+                }
+            )
+            // No approval row queued — the wrap declined to apply the MCP policy.
+            expect(await approvals.listBySession('sess1')).toHaveLength(0)
+            // Session reaches a terminal state (the client tool's runtime
+            // dispatcher isn't wired in this faux harness, but the loop
+            // outcome doesn't matter — what matters is "we didn't queue").
+            expect(out.state).not.toBe('failed')
         })
 
         it('session_principal per-asker fast-path: dispatches directly when last sender matches session.principal', async () => {

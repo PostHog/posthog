@@ -259,8 +259,32 @@ export const McpRefSchema = z.discriminatedUnion('kind', [
          * `requires_approval` + `approval_policy`. Omitted / empty = expose
          * every tool the server lists. Replaces the earlier `allowlist[]`
          * field (PR 7 hard-break — no production specs used it).
+         *
+         * Names must be unique within the array. A duplicate would be a
+         * silent first-match-wins footgun — e.g. an author who appends a
+         * gated copy of an already-listed bare-string entry would see the
+         * gated version ignored. Better to reject at parse time.
          */
-        tools: z.array(McpToolEntrySchema).optional(),
+        tools: z
+            .array(McpToolEntrySchema)
+            .optional()
+            .refine(
+                (entries) => {
+                    if (!entries) {
+                        return true
+                    }
+                    const seen = new Set<string>()
+                    for (const e of entries) {
+                        const name = typeof e === 'string' ? e : e.name
+                        if (seen.has(name)) {
+                            return false
+                        }
+                        seen.add(name)
+                    }
+                    return true
+                },
+                { message: 'mcps[].tools[] entries must have unique names' }
+            ),
     }),
 ])
 

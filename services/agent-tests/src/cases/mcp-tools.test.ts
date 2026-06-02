@@ -20,6 +20,7 @@
  * `captured` array so we can assert on the args the remote actually saw.
  */
 
+import { fauxToolCall } from '@earendil-works/pi-ai'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
@@ -29,6 +30,7 @@ import { z } from 'zod'
 import type { McpTransportFactory } from '@posthog/agent-runner'
 
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { fauxToolUse } from '../harness/faux'
 
 interface ToolDef {
     description: string
@@ -327,6 +329,64 @@ describe('runtime MCPs: real e2e', () => {
         const parsed = JSON.parse(String(txt))
         expect(parsed.approval?.state).toBe('queued')
         expect(parsed.approval?.request_id).toBe(rows[0].id)
+    })
+
+    it('a duplicate gated MCP call with identical args dedupes via the unique args_hash index', async () => {
+        // Same shape as the gated-MCP case above, but the model emits TWO
+        // tool_use calls in the SAME turn with identical args. The
+        // platform's `UPSERT by (session_id, tool_name, args_hash) WHERE
+        // state='queued'` semantics in `PgApprovalStore.upsertQueued`
+        // should collapse them to ONE row. This is the MCP-side proof of
+        // the same dedupe property `approval-gated.test.ts` pins for
+        // native tools — without it, an agent that retries a gated call
+        // creates parallel approval requests.
+        const { factory } = buildFactory({
+            'promote-revision': {
+                description: 'Promote a draft to live.',
+                handler: () => ({ promoted: true }),
+            },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        c.setScript([
+            fauxToolUse([
+                fauxToolCall('posthog__promote-revision', { revision_id: 'rev-123' }),
+                // Same name, same args — must dedupe.
+                fauxToolCall('posthog__promote-revision', { revision_id: 'rev-123' }),
+            ]),
+            fauxText('queued'),
+        ])
+        const { application } = await c.deployAgent({
+            slug: 'mcp-gated-dedupe',
+            spec: {
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'posthog',
+                        url: 'https://example.com/posthog',
+                        tools: [
+                            {
+                                name: 'promote-revision',
+                                requires_approval: true,
+                                approval_policy: { approvers: ['team_admins'], ttl_ms: 900_000 },
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        const res = await request(c.ingress).post('/agents/mcp-gated-dedupe/run').send({ message: 'promote' })
+        expect(res.status).toBe(200)
+        await c.drain()
+
+        const approvalsRes = await request(c.janitor)
+            .get('/approvals')
+            .query({ application_id: application.id, state: 'queued' })
+        expect(approvalsRes.status).toBe(200)
+        const rows = (approvalsRes.body.results as Array<{ id: string; state: string; tool_name: string }>).filter(
+            (r) => r.tool_name === 'posthog__promote-revision'
+        )
+        // ONE row, not two — the unique index collapsed the duplicate.
+        expect(rows).toHaveLength(1)
     })
 
     it('fails fast when a kind: agent ref is declared but no resolver is wired', async () => {
