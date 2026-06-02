@@ -22,13 +22,28 @@ interface AxisLabelsProps {
 
 const LABEL_PADDING = 20
 
+interface XLabelCandidate {
+    index: number
+    /** Display text — truncated to `maxCategoryLabelWidth` when one is set. */
+    text: string
+    /** Full value, present only when `text` was truncated, so hover can reveal it. */
+    title?: string
+    x: number
+}
+
+/** Truncate a category label for display; carry the full value as `title` only when it was cut. */
+function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { text: string; title?: string } {
+    const text = truncateToWidth(fullText, maxCategoryLabelWidth)
+    return { text, title: text === fullText ? undefined : fullText }
+}
+
 export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
     formatter?: (value: string, index: number) => string | null,
     maxCategoryLabelWidth = 0
-): { index: number; text: string; fullText: string; x: number }[] {
-    const candidates: { index: number; text: string; fullText: string; x: number }[] = []
+): XLabelCandidate[] {
+    const candidates: XLabelCandidate[] = []
     for (let i = 0; i < labels.length; i++) {
         const x = xScale(labels[i])
         if (x == null) {
@@ -38,10 +53,9 @@ export function computeVisibleXLabels(
         if (fullText === null) {
             continue
         }
-        // When a max width is set, truncate for display and overlap measurement; the full value
-        // is revealed on hover. A non-positive width leaves the label untruncated.
-        const text = truncateToWidth(fullText, maxCategoryLabelWidth)
-        candidates.push({ index: i, text, fullText, x })
+        // The truncated text drives both display and overlap measurement below.
+        const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
+        candidates.push({ index: i, text, title, x })
     }
 
     if (candidates.length === 0) {
@@ -56,7 +70,7 @@ export function computeVisibleXLabels(
 
     const widths = candidates.map((c) => ctx.measureText(c.text).width)
 
-    const visible: { index: number; text: string; fullText: string; x: number }[] = []
+    const visible: XLabelCandidate[] = []
     let lastRightEdge = -Infinity
 
     for (let i = 0; i < candidates.length; i++) {
@@ -91,7 +105,9 @@ interface ChartBox {
 
 // When a label is truncated, `title` carries the full value so it can be revealed on hover.
 // Hovering needs pointer events, which the base style disables, so re-enable them just for titled labels.
-const titleStyle = (title?: string): React.CSSProperties => (title ? { pointerEvents: 'auto' } : {})
+const TITLE_POINTER_STYLE: React.CSSProperties = { pointerEvents: 'auto' }
+const NO_POINTER_STYLE: React.CSSProperties = {}
+const titleStyle = (title?: string): React.CSSProperties => (title ? TITLE_POINTER_STYLE : NO_POINTER_STYLE)
 
 function YTickLabel({
     y,
@@ -188,38 +204,50 @@ export function AxisLabels({
         [hideXAxis, labels, scales.x, xTickFormatter, orientation, maxCategoryLabelWidth]
     )
 
+    // Horizontal-orientation category labels live on the y-axis. Truncating each one runs a
+    // binary search of canvas measurements, and AxisLabels re-renders on every hover, so this is
+    // memoized to keep that work off the pointer-move path. In horizontal mode the label→y-pixel
+    // function lives on `scales.x` (or `labelToCoord` if explicitly overridden).
+    const visibleYCategoryLabels = useMemo(() => {
+        if (hideYAxis || orientation !== 'horizontal') {
+            return []
+        }
+        const labelToY = labelToCoord ?? scales.x
+        const out: { index: number; y: number; text: string; title?: string }[] = []
+        for (let i = 0; i < labels.length; i++) {
+            const fullText = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
+            if (fullText === null) {
+                continue
+            }
+            const y = labelToY(labels[i])
+            if (y == null || !isFinite(y)) {
+                continue
+            }
+            const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
+            out.push({ index: i, y, text, title })
+        }
+        return out
+    }, [hideYAxis, orientation, labels, labelToCoord, scales.x, xTickFormatter, maxCategoryLabelWidth])
+
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     if (orientation === 'horizontal') {
-        // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives
-        // on `scales.x` (or `labelToCoord` if explicitly overridden).
-        const labelToY = labelToCoord ?? scales.x
+        // `scales.y` holds value→x-pixel in horizontal mode, used for the x-axis value ticks below.
         return (
             <>
                 {!hideYAxis &&
-                    labels.map((labelText, i) => {
-                        const fullText = xTickFormatter ? xTickFormatter(labelText, i) : labelText
-                        if (fullText === null) {
-                            return null
-                        }
-                        const y = labelToY(labelText)
-                        if (y == null || !isFinite(y)) {
-                            return null
-                        }
-                        const text = truncateToWidth(fullText, maxCategoryLabelWidth)
-                        return (
-                            <YTickLabel
-                                key={`y-cat-${i}`}
-                                y={y}
-                                side="left"
-                                box={dimensions}
-                                text={text}
-                                title={text !== fullText ? fullText : undefined}
-                                color={axisColor}
-                                dataAttr="hog-chart-axis-tick-y"
-                            />
-                        )
-                    })}
+                    visibleYCategoryLabels.map(({ index, y, text, title }) => (
+                        <YTickLabel
+                            key={`y-cat-${index}`}
+                            y={y}
+                            side="left"
+                            box={dimensions}
+                            text={text}
+                            title={title}
+                            color={axisColor}
+                            dataAttr="hog-chart-axis-tick-y"
+                        />
+                    ))}
                 {!hideXAxis &&
                     yTicks.map((tick: number) => {
                         const x = scales.y(tick)
@@ -285,13 +313,13 @@ export function AxisLabels({
                     )
                 })}
 
-            {visibleXLabels.map(({ index, text, fullText, x }) => (
+            {visibleXLabels.map(({ index, text, title, x }) => (
                 <XTickLabel
                     key={`x-${index}`}
                     x={x}
                     box={dimensions}
                     text={text}
-                    title={text !== fullText ? fullText : undefined}
+                    title={title}
                     color={axisColor}
                     dataAttr="hog-chart-axis-tick-x"
                 />

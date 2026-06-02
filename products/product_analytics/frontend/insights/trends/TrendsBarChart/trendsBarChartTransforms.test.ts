@@ -2,6 +2,7 @@ import { hexToRGBA } from 'lib/utils'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 
+import { MAX_CHART_DATASETS } from '../shared/chartDatasetLimit'
 import {
     buildTrendsBarAggregatedSeries,
     buildTrendsBarTimeSeries,
@@ -167,6 +168,20 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(displayLabels).toEqual(expected)
         // Distinct display labels → distinct band keys after the series-id suffix.
         expect(new Set(labels).size).toBe(labels.length)
+    })
+
+    it('caps drawn series and labels at MAX_CHART_DATASETS', () => {
+        const results = Array.from({ length: MAX_CHART_DATASETS + 50 }, (_, i) =>
+            mkResult({ id: `r${i}`, label: `L${i}`, order: i, aggregated_value: i })
+        )
+        const { series, labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+
+        expect(series).toHaveLength(MAX_CHART_DATASETS)
+        expect(labels).toHaveLength(MAX_CHART_DATASETS)
+        expect(displayLabels).toHaveLength(MAX_CHART_DATASETS)
+        // The kept prefix is the first MAX_CHART_DATASETS results, in order.
+        expect(displayLabels[0]).toBe('L0')
+        expect(displayLabels[displayLabels.length - 1]).toBe(`L${MAX_CHART_DATASETS - 1}`)
     })
 
     it('drops hidden results so visible bars are densely packed', () => {
