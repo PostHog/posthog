@@ -241,7 +241,14 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorkerHogFlow) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, postgresV2Queue)
+                // Dedicated queue instance per consumer worker — sharing one
+                // CyclotronJobQueuePostgresV2 across two consumers (hogflow + email)
+                // collides on `this.worker`, `pendingJobs`, and the pg pool. In
+                // prod each capability runs in its own pod so they get fresh
+                // instances naturally; locally we'd silently double-process when
+                // both capabilities are enabled in the same process.
+                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service
             })
@@ -270,7 +277,9 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorkerEmail) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, postgresV2Queue)
+                // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
+                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service
             })

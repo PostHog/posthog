@@ -886,7 +886,6 @@ describe('Workflows E2E (email queue)', () => {
     let eventsConsumer: CdpEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
     let emailWorker: CdpCyclotronWorkerEmail
-    let hogflowQueue: JobQueue
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
@@ -963,22 +962,27 @@ describe('Workflows E2E (email queue)', () => {
 
         const deps = createCdpConsumerDeps(hub, kafkaProducer)
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
-        hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        // Each consumer gets a dedicated CyclotronJobQueuePostgresV2 — sharing one
+        // across two consumers collides on `this.worker` and the shared pg pool.
+        // Mirrors the prod deployment model where each capability runs in its own pod.
+        const eventsProducerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        const hogflowConsumerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        const emailConsumerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
         eventsConsumer = new CdpEventsConsumer(hub, deps, {
             hogQueue: kafkaQueue,
-            hogflowQueue,
+            hogflowQueue: eventsProducerQueue,
         })
-        await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
+        await Promise.all([kafkaQueue.startAsProducer(), eventsProducerQueue.startAsProducer()])
 
         // Hogflow worker polls jobs with queue_name='hogflow' and re-stamps email
         // jobs to queue_name='email' so the email worker picks them up
-        hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowConsumerQueue)
         await hogflowWorker.start()
 
         // Email worker polls jobs with queue_name='email', sends via EmailService,
         // and continues the workflow inline (until it hits a fetch or terminates)
-        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, hogflowQueue)
+        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, emailConsumerQueue)
         await emailWorker.start()
     })
 
@@ -1055,17 +1059,25 @@ describe('Workflows E2E (email queue)', () => {
         const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
         await backgroundTask
 
-        // Verify both metric stages fire:
-        //   email_queued — emitted by the hogflow worker when it routes to 'email'
-        //   email_sent   — emitted by the email worker after SES/maildev returns
-        // Asserting both proves the hand-off happened across two workers.
+        // Verify both metric stages fire EXACTLY ONCE — regression guard against
+        // a double-counting bug where each metric (incl. unrelated ones like the
+        // exit_node 'succeeded') was being pushed twice per invocation. The
+        // AppMetricsAggregator dedupes by key in-memory, so we sum `count` across
+        // all messages rather than counting messages: one push at count=1 looks
+        // identical to two pushes at count=1 unless we sum.
         await waitForExpect(() => {
-            const emailMetrics = mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.metric_kind === 'email')
-            const names = emailMetrics.map((m: any) => m.value.metric_name)
-            expect(names).toContain('email_queued')
-            expect(names).toContain('email_sent')
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(1)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
+            // The exit action's 'succeeded' metric has nothing to do with the email
+            // pipeline — including it locks down that the doubling isn't email-specific.
+            // (The instance_id matches the action key from FixtureHogFlowBuilder.)
+            expect(sumCounts((m) => m.value.metric_name === 'succeeded' && m.value.instance_id === 'exit')).toBe(1)
         }, 15000)
 
         // Workflow should reach a terminal state once the email worker has continued through exit
@@ -1171,14 +1183,17 @@ describe('Workflows E2E (email queue)', () => {
         }, 15000)
 
         // Two emails were queued and two were sent — one for each side of the fetch.
+        // Sum `count` across all messages: with aggregator in-memory dedup we'd
+        // miss a 2× per-send bug by only counting messages, not their counts.
         await waitForExpect(() => {
-            const emailMetrics = mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.metric_kind === 'email')
-            const queued = emailMetrics.filter((m: any) => m.value.metric_name === 'email_queued')
-            const sent = emailMetrics.filter((m: any) => m.value.metric_name === 'email_sent')
-            expect(queued.length).toBe(2)
-            expect(sent.length).toBe(2)
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(2)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(2)
         }, 15000)
 
         await waitForExpect(async () => {
