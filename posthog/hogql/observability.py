@@ -188,7 +188,7 @@ class HogQLTypeObservability:
 
 # Fraction of HogQL prepare+typecheck passes to instrument. The collectors walk the whole
 # prepared AST, so sampling bounds that cost; set to 0 to disable instrumentation entirely.
-TYPE_OBSERVABILITY_SAMPLE_RATE = 1.0
+TYPE_OBSERVABILITY_SAMPLE_RATE = 0.01
 
 
 def create_hogql_type_observability(
