@@ -842,13 +842,12 @@ class SignalReportViewSet(
 
         # Only `snooze_for` (on a snooze back to "potential") is caller-controllable. Every other
         # `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
-        # internal pipeline concern and must never be reachable from this public API surface.
-        transition_kwargs: dict[str, int] = {}
-        if target == "potential" and data.get("snooze_for") is not None:
-            transition_kwargs["snooze_for"] = data["snooze_for"]
+        # internal pipeline concern and must never be reachable from this public API surface, so it is
+        # passed explicitly rather than splatting caller-supplied kwargs.
+        snooze_for = data.get("snooze_for") if target == "potential" else None
 
         try:
-            updated_fields = report.transition_to(SignalReport.Status(target), **transition_kwargs)
+            updated_fields = report.transition_to(SignalReport.Status(target), snooze_for=snooze_for)
         except InvalidStatusTransition as e:
             logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
             return Response(
