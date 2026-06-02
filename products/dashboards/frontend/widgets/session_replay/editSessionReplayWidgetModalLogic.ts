@@ -3,19 +3,16 @@ import { actions, connect, defaults, kea, listeners, path, props, reducers, sele
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { isWidgetConfigValidationError } from '../../utils'
-import { resolveWidgetFilterTestAccounts, type SessionReplayWidgetConfig } from '../../widget_types/configSchemas'
 import {
-    widgetEditModalFieldErrorsActions,
-    widgetEditModalFieldErrorsReducers,
+    resolveWidgetFilterTestAccounts,
+    type SessionReplayWidgetConfig,
+    type WidgetDateFromValue,
+} from '../../widget_types/configSchemas'
+import {
     widgetEditModalFilterTestAccountsActions,
-    widgetEditModalFilterTestAccountsReducers,
     widgetEditModalListFieldActions,
-    widgetEditModalListFieldReducers,
     widgetEditModalPropSelectors,
-    widgetEditModalSavingReducers,
     widgetEditModalTileActions,
-    widgetEditModalTileReducers,
-    widgetEditModalValidationSelectors,
 } from '../editWidgetModalBuilders'
 import { getWidgetEditModalTileDefaults, saveWidgetTileMetadataAfterConfig } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
@@ -46,11 +43,12 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
     }),
 
     actions({
-        setOrderBy: (orderBy: SessionReplayWidgetConfig['orderBy']) => ({ orderBy }),
+        setOrderBy: (orderBy: string) => ({ orderBy }),
         ...widgetEditModalListFieldActions,
         ...widgetEditModalTileActions,
         ...widgetEditModalFilterTestAccountsActions,
-        ...widgetEditModalFieldErrorsActions,
+        setFieldErrors: (fieldErrors: SessionReplayWidgetFieldErrors) => ({ fieldErrors }),
+        clearFieldError: (field: keyof SessionReplayWidgetFieldErrors) => ({ field }),
         submit: true,
         submitSuccess: true,
         submitFailure: true,
@@ -62,15 +60,70 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
             {
                 setOrderBy: (
                     _: SessionReplayWidgetConfig['orderBy'],
-                    { orderBy }: { orderBy: SessionReplayWidgetConfig['orderBy'] }
-                ) => orderBy,
+                    { orderBy }: { orderBy: string }
+                ): SessionReplayWidgetConfig['orderBy'] => orderBy as SessionReplayWidgetConfig['orderBy'],
             },
         ],
-        ...widgetEditModalListFieldReducers,
-        ...widgetEditModalTileReducers,
-        ...widgetEditModalFilterTestAccountsReducers,
-        ...widgetEditModalFieldErrorsReducers,
-        ...widgetEditModalSavingReducers,
+        limit: [
+            10,
+            {
+                setLimit: (_: number, { limit }: { limit: number }) => limit,
+            },
+        ],
+        dateFrom: [
+            '-7d',
+            {
+                setDateFrom: (_: WidgetDateFromValue, { dateFrom }: { dateFrom: string }): WidgetDateFromValue =>
+                    dateFrom as WidgetDateFromValue,
+            },
+        ],
+        tileName: [
+            '',
+            {
+                setTileName: (_: string, { tileName }: { tileName: string }) => tileName,
+            },
+        ],
+        tileDescription: [
+            '',
+            {
+                setTileDescription: (_: string, { tileDescription }: { tileDescription: string }) => tileDescription,
+            },
+        ],
+        filterTestAccounts: [
+            false,
+            {
+                setFilterTestAccounts: (_: boolean, { filterTestAccounts }: { filterTestAccounts: boolean }) =>
+                    filterTestAccounts,
+            },
+        ],
+        fieldErrors: [
+            {} as SessionReplayWidgetFieldErrors,
+            {
+                setFieldErrors: (
+                    _: SessionReplayWidgetFieldErrors,
+                    { fieldErrors }: { fieldErrors: SessionReplayWidgetFieldErrors }
+                ) => fieldErrors,
+                clearFieldError: (
+                    state: SessionReplayWidgetFieldErrors,
+                    { field }: { field: keyof SessionReplayWidgetFieldErrors }
+                ) => {
+                    if (!state[field]) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[field]
+                    return next
+                },
+            },
+        ],
+        saving: [
+            false,
+            {
+                submit: (_state: boolean, _payload: { value: true }) => true,
+                submitSuccess: (_state: boolean, _payload: { value: true }) => false,
+                submitFailure: (_state: boolean, _payload: { value: true }) => false,
+            },
+        ],
     }),
 
     selectors({
@@ -90,17 +143,37 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
                     baseConfig: widgetConfig,
                 }),
         ],
-        ...widgetEditModalValidationSelectors,
+        activeFieldErrors: [
+            (s) => [s.validation, s.fieldErrors],
+            (validation, fieldErrors): SessionReplayWidgetFieldErrors => {
+                if (!validation.success) {
+                    return { ...validation.fieldErrors, ...fieldErrors }
+                }
+                return fieldErrors
+            },
+        ],
+        saveDisabledReason: [
+            (s) => [s.saving, s.validation],
+            (saving, validation): string | undefined => {
+                if (saving) {
+                    return 'Saving…'
+                }
+                if (!validation.success) {
+                    return 'Fix validation errors to save'
+                }
+                return undefined
+            },
+        ],
     }),
 
     defaults(({ props, values }) => {
         const baseConfig = parseSessionReplayWidgetConfig(props.config)
 
         return {
-            ...getWidgetEditModalTileDefaults(props),
             limit: baseConfig.limit,
             orderBy: baseConfig.orderBy,
             dateFrom: baseConfig.dateRange?.date_from ?? '-7d',
+            ...getWidgetEditModalTileDefaults(props),
             filterTestAccounts: resolveWidgetFilterTestAccounts(
                 baseConfig.filterTestAccounts,
                 values.filterTestAccountsDefault

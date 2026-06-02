@@ -74,13 +74,25 @@ export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
 
 export type ErrorTrackingWidgetConfig = z.infer<typeof errorTrackingWidgetConfigSchema>
 
+/** Shared form fields for list-style dashboard widget settings modals. */
+export function widgetListFormSchema<TOrderBy extends z.ZodType>(
+    orderBySchema: TOrderBy
+): z.ZodObject<{
+    limit: typeof widgetLimitFieldSchema
+    orderBy: TOrderBy
+    dateFrom: typeof widgetDateFromSchema
+    filterTestAccounts: z.ZodBoolean
+}> {
+    return z.object({
+        limit: widgetLimitFieldSchema,
+        orderBy: orderBySchema,
+        dateFrom: widgetDateFromSchema,
+        filterTestAccounts: z.boolean(),
+    })
+}
+
 /** Form fields edited in the error tracking widget settings modal. */
-export const errorTrackingWidgetFormSchema = z.object({
-    limit: widgetLimitFieldSchema,
-    orderBy: errorTrackingWidgetConfigSchema.shape.orderBy,
-    dateFrom: widgetDateFromSchema,
-    filterTestAccounts: z.boolean(),
-})
+export const errorTrackingWidgetFormSchema = widgetListFormSchema(errorTrackingWidgetConfigSchema.shape.orderBy)
 
 export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
     limit: widgetLimitFieldSchema.default(10),
@@ -94,9 +106,4 @@ export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
 export type SessionReplayWidgetConfig = z.infer<typeof sessionReplayWidgetConfigSchema>
 
 /** Form fields edited in the session replay widget settings modal. */
-export const sessionReplayWidgetFormSchema = z.object({
-    limit: widgetLimitFieldSchema,
-    orderBy: sessionReplayWidgetConfigSchema.shape.orderBy,
-    dateFrom: widgetDateFromSchema,
-    filterTestAccounts: z.boolean(),
-})
+export const sessionReplayWidgetFormSchema = widgetListFormSchema(sessionReplayWidgetConfigSchema.shape.orderBy)

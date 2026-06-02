@@ -10,11 +10,13 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widgets.config import (
     merge_base_widget_config_fields,
     resolve_filter_test_accounts,
-    validate_widget_date_range,
+    validate_widget_list_date_range_if_present,
+    validate_widget_list_limit,
+    validate_widget_list_order_by,
+    validate_widget_list_order_direction,
 )
 from products.error_tracking.backend.api.query import is_error_tracking_query_v3_enabled, query_v3_volume_resolution
 from products.error_tracking.backend.api.query_utils import (
@@ -34,23 +36,15 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
     if not isinstance(config, dict):
         raise DRFValidationError({"config": "Config must be an object."})
 
-    limit = config.get("limit", DEFAULT_WIDGET_LIST_LIMIT)
-    if not isinstance(limit, int) or limit < 1 or limit > MAX_WIDGET_RESULT_LIMIT:
-        raise DRFValidationError({"config": f"limit must be an integer between 1 and {MAX_WIDGET_RESULT_LIMIT}."})
-
-    order_by = config.get("orderBy", "occurrences")
-    if order_by not in ERROR_TRACKING_ORDER_BY:
-        raise DRFValidationError({"config": f"orderBy must be one of: {', '.join(sorted(ERROR_TRACKING_ORDER_BY))}."})
-
-    order_direction = config.get("orderDirection", "DESC")
-    if order_direction not in {"ASC", "DESC"}:
-        raise DRFValidationError({"config": "orderDirection must be ASC or DESC."})
+    limit = validate_widget_list_limit(config)
+    order_by = validate_widget_list_order_by(config, allowed=ERROR_TRACKING_ORDER_BY, default="occurrences")
+    order_direction = validate_widget_list_order_direction(config)
 
     status_value = config.get("status", "active")
     if status_value not in {"archived", "active", "resolved", "pending_release", "suppressed", "all"}:
         raise DRFValidationError({"config": "status is invalid for error tracking widget config."})
 
-    validated_date_range = validate_widget_date_range(config.get("dateRange")) if "dateRange" in config else None
+    validated_date_range = validate_widget_list_date_range_if_present(config)
 
     return {
         "limit": limit,

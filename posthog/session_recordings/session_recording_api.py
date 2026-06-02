@@ -709,6 +709,7 @@ def get_replay_listing_throttle_error(request, view) -> str | None:
         if wait:
             return f"Rate limit exceeded. Expected available in {wait} seconds."
         return "Rate limit exceeded. Try again later."
+    # None: both listing burst and sustained throttles allowed the request.
     return None
 
 

@@ -11,11 +11,13 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer, list_recordings_from_query
 
-from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widgets.config import (
     merge_base_widget_config_fields,
     resolve_filter_test_accounts,
-    validate_widget_date_range,
+    validate_widget_list_date_range_if_present,
+    validate_widget_list_limit,
+    validate_widget_list_order_by,
+    validate_widget_list_order_direction,
 )
 
 SESSION_REPLAY_ORDER_BY = frozenset(
@@ -50,19 +52,10 @@ def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any
     if not isinstance(config, dict):
         raise DRFValidationError({"config": "Config must be an object."})
 
-    limit = config.get("limit", DEFAULT_WIDGET_LIST_LIMIT)
-    if not isinstance(limit, int) or limit < 1 or limit > MAX_WIDGET_RESULT_LIMIT:
-        raise DRFValidationError({"config": f"limit must be an integer between 1 and {MAX_WIDGET_RESULT_LIMIT}."})
-
-    order_by = config.get("orderBy", "start_time")
-    if order_by not in SESSION_REPLAY_ORDER_BY:
-        raise DRFValidationError({"config": f"orderBy must be one of: {', '.join(sorted(SESSION_REPLAY_ORDER_BY))}."})
-
-    order_direction = config.get("orderDirection", "DESC")
-    if order_direction not in {"ASC", "DESC"}:
-        raise DRFValidationError({"config": "orderDirection must be ASC or DESC."})
-
-    validated_date_range = validate_widget_date_range(config.get("dateRange")) if "dateRange" in config else None
+    limit = validate_widget_list_limit(config)
+    order_by = validate_widget_list_order_by(config, allowed=SESSION_REPLAY_ORDER_BY, default="start_time")
+    order_direction = validate_widget_list_order_direction(config)
+    validated_date_range = validate_widget_list_date_range_if_present(config)
 
     return {
         "limit": limit,

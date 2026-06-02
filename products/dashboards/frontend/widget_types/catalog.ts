@@ -77,11 +77,6 @@ export const DASHBOARD_WIDGET_CATALOG = {
         }),
         defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
         productAccess: 'session_recording',
-        headerLayout: 'dashboard_tile' satisfies DashboardWidgetHeaderLayout,
-        headerMeta: {
-            showWidgetType: true,
-            showDateRange: true,
-        } satisfies DashboardWidgetHeaderMeta,
         titleHref: urls.replay(),
         availability: {
             requirement: 'session_replay_enabled',
