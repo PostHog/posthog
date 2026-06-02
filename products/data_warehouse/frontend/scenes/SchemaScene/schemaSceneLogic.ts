@@ -17,6 +17,7 @@ import {
     ExternalDataSchemaWithSource,
     ExternalDataSource,
     ExternalDataSourceSchema,
+    SchemaIncrementalFieldsResponse,
 } from '~/types'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
@@ -83,6 +84,22 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                             return null
                         }
                         throw error
+                    }
+                },
+            },
+        ],
+        // Sync-method options for the schema (live call to the remote source). Kept here so the
+        // sync-method section doesn't need syncMethodModalLogic, which would mount + poll the
+        // full sources list via sourceManagementLogic.
+        schemaIncrementalFields: [
+            null as SchemaIncrementalFieldsResponse | null,
+            {
+                loadSchemaIncrementalFields: async (schemaId: string) => {
+                    try {
+                        return await api.externalDataSchemas.incremental_fields(schemaId)
+                    } catch (e: any) {
+                        lemonToast.error(e?.data?.message ?? e?.message ?? e)
+                        throw e
                     }
                 },
             },

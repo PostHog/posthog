@@ -40,7 +40,6 @@ import {
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
 
-import { syncMethodModalLogic } from '../SourceScene/syncMethodModalLogic'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
@@ -296,13 +295,12 @@ function SyncMethodSection({
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
 }): JSX.Element {
-    // We use syncMethodModalLogic only for loading the schema's incremental fields — saving goes
-    // through a direct bulkUpdateSchemas call so the logic's reset-on-success listener (used by
-    // the modal flow in the new source wizard) doesn't blow the inline form back into a loading state.
-    const logic = syncMethodModalLogic({ schema })
+    // Incremental fields + saving both go through schemaSceneLogic — deliberately NOT
+    // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
+    // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
+    const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
-    const { loadSchemaIncrementalFields } = useActions(logic)
-    const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
+    const { loadSchemaIncrementalFields, loadSchema } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
@@ -312,8 +310,8 @@ function SyncMethodSection({
 
     // Load incremental fields only when the schema id changes. We intentionally exclude the kea
     // action refs from the deps — if they aren't stable, the effect would re-fire on every parent
-    // re-render (e.g. the 5s sourceSettingsLogic auto-refresh), reset `schemaIncrementalFields`
-    // to null, unmount the form, and blow away the user's in-progress radio/field selections.
+    // re-render, reset `schemaIncrementalFields` to null, unmount the form, and blow away the
+    // user's in-progress radio/field selections.
     useEffect(() => {
         loadSchemaIncrementalFields(schema.id)
         // eslint-disable-next-line react-hooks/exhaustive-deps
