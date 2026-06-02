@@ -31,7 +31,7 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
-from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_public_key
+from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
@@ -515,49 +515,53 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not self._is_id_jag_token(token):
                 return None
 
-            public_key = get_oidc_public_key()
-            if public_key is None:
+            verification_keys = get_oidc_verification_keys()
+            if not verification_keys:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
             site_url = (settings.SITE_URL or "").rstrip("/")
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
-            try:
-                claims = jwt.decode(
-                    token,
-                    public_key,
-                    algorithms=["RS256"],
-                    audience=site_url,
-                    issuer=site_url,
-                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
-                    options={
-                        "require": [
-                            "iss",
-                            "sub",
-                            "email",
-                            "aud",
-                            "exp",
-                            "iat",
-                            "client_id",
-                            "scope",
-                            "org_id",
-                        ],
-                        "verify_signature": True,
-                        "verify_exp": True,
-                        "verify_aud": True,
-                        "verify_iss": True,
-                    },
-                )
-            except jwt.ExpiredSignatureError:
-                raise AuthenticationFailed(detail="ID-JAG access token has expired.")
-            except jwt.InvalidAudienceError:
-                raise AuthenticationFailed(detail="ID-JAG access token audience does not match this resource server.")
-            except jwt.InvalidIssuerError:
-                raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
-            except jwt.MissingRequiredClaimError as e:
-                raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
-            except jwt.PyJWTError:
+            decode_options = {
+                "require": ["iss", "sub", "email", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                "verify_signature": True,
+                "verify_exp": True,
+                "verify_aud": True,
+                "verify_iss": True,
+            }
+            # Try the active signing key first, then any keys being rotated out. A wrong
+            # key fails the signature check, so we move on; a key that matches but fails
+            # claim validation (expiry, audience, …) raises the real error to report.
+            claims = None
+            for verification_key in verification_keys:
+                try:
+                    claims = jwt.decode(
+                        token,
+                        verification_key,
+                        algorithms=["RS256"],
+                        audience=site_url,
+                        issuer=site_url,
+                        leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                        options=decode_options,
+                    )
+                    break
+                except jwt.InvalidSignatureError:
+                    continue
+                except jwt.ExpiredSignatureError:
+                    raise AuthenticationFailed(detail="ID-JAG access token has expired.")
+                except jwt.InvalidAudienceError:
+                    raise AuthenticationFailed(
+                        detail="ID-JAG access token audience does not match this resource server."
+                    )
+                except jwt.InvalidIssuerError:
+                    raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
+                except jwt.MissingRequiredClaimError as e:
+                    raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
+                except jwt.PyJWTError:
+                    raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+            if claims is None:
                 raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
 
             sub_parts = self._parse_sub(str(claims.get("sub", "")))

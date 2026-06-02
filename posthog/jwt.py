@@ -55,3 +55,16 @@ def get_oidc_public_key() -> Any:
         return None
     private_key = serialization.load_pem_private_key(pem.encode(), password=None)
     return private_key.public_key()
+
+
+def get_oidc_verification_keys() -> list[Any]:
+    """Every public key that may have signed a still-valid OIDC/ID-JAG token: the
+    active signing key plus any keys mid-rotation (the inactive keys also published
+    in the JWKS). A token minted under a key being rotated out keeps verifying until
+    it expires, instead of breaking the moment the active key is swapped.
+    """
+    pems = [
+        getattr(settings, "OIDC_RSA_PRIVATE_KEY", None),
+        *(getattr(settings, "OIDC_RSA_PRIVATE_KEYS_INACTIVE", None) or []),
+    ]
+    return [serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems if pem]
