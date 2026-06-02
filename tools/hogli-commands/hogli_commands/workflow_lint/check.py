@@ -44,11 +44,16 @@ class WorkflowCheck(ABC):
     - ``id``: stable, machine-friendly identifier (used by ``--check`` filter).
     - ``label``: short human-readable name shown in CLI output and GH annotations.
     - ``description``: one-line summary; shown by ``--list``.
+    - ``blocking``: when False, issues are reported as warnings and do not fail
+      the command. Use for a rule mid-rollout (the violation set is known and
+      being migrated) so it guides new code without blocking every PR until the
+      backlog is cleared. Flip to True once the tree is clean.
     """
 
     id: str
     label: str
     description: str
+    blocking: bool = True
 
     @abstractmethod
     def run(self, workflows: list[Workflow]) -> CheckResult: ...
