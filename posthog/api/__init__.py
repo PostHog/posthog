@@ -502,6 +502,13 @@ register_legacy_dual_route_team_nested_viewset(
     r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
 )
 
+projects_router.register(
+    r"desktop_file_system",
+    file_system.DesktopFileSystemViewSet,
+    "project_desktop_file_system",
+    ["team_id"],
+)
+
 register_legacy_dual_route_team_nested_viewset(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
@@ -509,10 +516,24 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
+projects_router.register(
+    r"desktop_file_system_shortcut",
+    file_system_shortcut.DesktopFileSystemShortcutViewSet,
+    "project_desktop_file_system_shortcut",
+    ["team_id"],
+)
+
 register_legacy_dual_route_team_nested_viewset(
     r"persisted_folder",
     persisted_folder.PersistedFolderViewSet,
     "environment_persisted_folder",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"desktop_persisted_folder",
+    persisted_folder.DesktopPersistedFolderViewSet,
+    "project_desktop_persisted_folder",
     ["team_id"],
 )
 
