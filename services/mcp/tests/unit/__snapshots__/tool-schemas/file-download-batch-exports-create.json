@@ -11,12 +11,6 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
-        "exclude": {
-            "items": {
-                "type": "string"
-            },
-            "type": "array"
-        },
         "file": {
             "description": "Typed configuration for a FileDownload batch-export destination.",
             "properties": {
@@ -54,16 +48,54 @@
             },
             "type": "object"
         },
-        "include": {
-            "items": {
-                "type": "string"
-            },
-            "type": "array"
-        },
         "model": {
-            "description": "* `events` - events\n* `persons` - persons\n* `sessions` - sessions",
-            "enum": ["events", "persons", "sessions"],
-            "type": "string"
+            "anyOf": [
+                {
+                    "description": "Events model, with optional event-name filters.",
+                    "properties": {
+                        "exclude": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "include": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": {
+                            "enum": ["events"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
+                {
+                    "description": "Persons model.",
+                    "properties": {
+                        "type": {
+                            "enum": ["persons"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
+                {
+                    "description": "Sessions model.",
+                    "properties": {
+                        "type": {
+                            "enum": ["sessions"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                }
+            ]
         }
     },
     "required": ["file", "model", "data_interval_start", "data_interval_end"],

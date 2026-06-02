@@ -429,11 +429,25 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod
                     .describe('Split download into multiple files of at most this size in MB'),
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
-        model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('* `events` - events\n* `persons` - persons\n* `sessions` - sessions'),
-        include: zod.array(zod.string()).optional(),
-        exclude: zod.array(zod.string()).optional(),
+        model: zod.union([
+            zod
+                .object({
+                    type: zod.enum(['events']),
+                    include: zod.array(zod.string()).optional(),
+                    exclude: zod.array(zod.string()).optional(),
+                })
+                .describe('Events model, with optional event-name filters.'),
+            zod
+                .object({
+                    type: zod.enum(['persons']),
+                })
+                .describe('Persons model.'),
+            zod
+                .object({
+                    type: zod.enum(['sessions']),
+                })
+                .describe('Sessions model.'),
+        ]),
         data_interval_start: zod.iso.datetime({ offset: true }),
         data_interval_end: zod.iso.datetime({ offset: true }),
     })
