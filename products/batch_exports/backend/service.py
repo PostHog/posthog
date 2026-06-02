@@ -250,11 +250,28 @@ class BaseBatchExportInputs:
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
+    This is the canonical input dataclass consumed by the `s3-export` Temporal
+    workflow and is the superset of every S3-family destination's fields. The
+    legacy `type="S3"` batch exports dispatch with this dataclass directly; the
+    refined S3-family types (AwsS3, S3Compatible) dispatch with their own
+    narrower dataclass — Temporal's data converter serializes that to JSON,
+    and on the worker side deserializes into `S3BatchExportInputs`, with any
+    missing fields falling through to the defaults declared here.
+
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
+        aws_access_key_id: Access key id used to authenticate with S3.
+        aws_secret_access_key: Secret access key used to authenticate with S3.
+        compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
+        file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
+        encryption: Server-side encryption algorithm to apply (e.g. "AES256", "aws:kms"), or None. AWS-only.
+        kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
+        endpoint_url: Override endpoint for S3-compatible providers (e.g. MinIO, R2). None for AWS.
+        use_virtual_style_addressing: Whether to use virtual-hosted-style
+            addressing rather than path-style. None for AWS.
     """
 
     bucket_name: str
@@ -263,11 +280,48 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     aws_access_key_id: str
     aws_secret_access_key: str
     compression: str | None = None
+    file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
     endpoint_url: str | None = None
+    use_virtual_style_addressing: bool = False
+
+
+@dataclass(kw_only=True)
+class S3FamilyBaseInputs(BaseBatchExportInputs):
+    """Shared fields for every S3-family destination.
+
+    Per-destination dataclasses extend this with provider-specific fields.
+    """
+
+    bucket_name: str
+    region: str
+    prefix: str
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+
+
+@dataclass(kw_only=True)
+class AwsS3BatchExportInputs(S3FamilyBaseInputs):
+    """Inputs for an AWS S3 batch export."""
+
+    encryption: str | None = None
+    kms_key_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
+    """Inputs for a non-AWS S3-compatible batch export.
+
+    Covers providers like MinIO, DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH,
+    Backblaze, etc. `endpoint_url` is required.
+    """
+
+    endpoint_url: str
     use_virtual_style_addressing: bool = False
 
 
@@ -470,6 +524,7 @@ class NoOpInputs(BaseBatchExportInputs):
 
 
 DESTINATION_WORKFLOWS = {
+    "AwsS3": ("s3-export", AwsS3BatchExportInputs),
     "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
@@ -478,7 +533,10 @@ DESTINATION_WORKFLOWS = {
     "NoOp": ("no-op", NoOpInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
+    # "S3" is the legacy alias still accepted on input and persisted as-is.
+    # AwsS3 and S3Compatible are the refined types preferred for new rows
     "S3": ("s3-export", S3BatchExportInputs),
+    "S3Compatible": ("s3-export", S3CompatibleBatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }

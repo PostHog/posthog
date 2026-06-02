@@ -2424,7 +2424,7 @@
             "readOnlyHint": false
         }
     },
-    "feature-flags-bulk-keys-create": {
+    "feature-flags-bulk-keys-retrieve": {
         "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
         "category": "Feature flags",
         "feature": "flags",
@@ -4216,6 +4216,22 @@
             "readOnlyHint": true
         }
     },
+    "promoted-product-intent-get": {
+        "description": "Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured. Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean — for example, if their primary product is `session_replay`, treat a vague reference to \"watch a session\" as referring to a session recording rather than a survey response.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get the team's promoted product.",
+        "title": "Get the team's promoted product.",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "promoted-product",
+        "feature_flag_variant": "intent_plus"
+    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",
@@ -5908,15 +5924,15 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-approve-create": {
-        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "description": "Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does NOT update the baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`.",
         "category": "Visual review",
         "feature": "visual_review",
-        "summary": "Approve visual review snapshots",
-        "title": "Approve visual review snapshots",
+        "summary": "Mark visual review snapshots reviewed",
+        "title": "Mark visual review snapshots reviewed",
         "required_scopes": ["visual_review:write"],
         "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -5934,6 +5950,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-finalize-create": {
+        "description": "Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With `approve_all: true` every still-pending changed/new snapshot is approved first. When a baseline commit is pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation first — finalizing ships the visual change and rewrites the committed baseline.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Finalize a visual review run",
+        "title": "Finalize a visual review run",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },
