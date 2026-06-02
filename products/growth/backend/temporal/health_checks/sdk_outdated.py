@@ -7,17 +7,18 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
 from products.growth.backend.constants import (
-    SDK_CACHE_EXPIRY,
+    SDK_TYPES,
+    TEAM_SDK_CACHE_EXPIRY,
     SdkVersionEntry,
     github_sdk_versions_key,
     team_sdk_versions_key,
 )
-from products.growth.dags.github_sdk_versions import SDK_TYPES
+from products.growth.backend.sdk_health import _is_safe_for_interpolation
 
 logger = structlog.get_logger(__name__)
 
@@ -74,7 +75,7 @@ def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry
     pipe = redis_client.pipeline()
     for team_id, sdk_data in team_sdk_data.items():
         cache_key = team_sdk_versions_key(team_id)
-        pipe.setex(cache_key, SDK_CACHE_EXPIRY, json.dumps(sdk_data))
+        pipe.setex(cache_key, TEAM_SDK_CACHE_EXPIRY, json.dumps(sdk_data))
     pipe.execute()
 
 
@@ -85,6 +86,24 @@ class SdkOutdatedCheck(HealthCheck):
     policy = HealthExecutionPolicy(batch_size=10, max_concurrent=3)
     schedule = "0 8 * * *"
     active_since_days = 30
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        sdk_name = issue.payload.get("sdk_name", "an SDK")
+        latest = issue.payload.get("latest_version") or "the latest version"
+        usage = issue.payload.get("usage") or []
+        # `lib_version` originates from the $lib_version event property — attacker
+        # controllable via project token. Gate it through the same allowlist used
+        # by SDK Doctor before interpolating into a string we forward to alert
+        # destinations (Slack, email, webhooks).
+        raw_current = usage[0].get("lib_version") if usage else None
+        current = raw_current if raw_current and _is_safe_for_interpolation(raw_current) else None
+        summary = f"{sdk_name} is on {current}, latest is {latest}" if current else f"{sdk_name} is behind {latest}"
+        return AlertContent(
+            title=f"{sdk_name} SDK is outdated",
+            summary=summary,
+            link="/health/sdk-doctor",
+        )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         github_data = _load_github_sdk_data()

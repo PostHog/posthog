@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.async_migrations.definition import AsyncMigrationOperationSQL
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import (
@@ -23,7 +25,7 @@ DEFAULT_CH_OP = AsyncMigrationOperationSQL(sql="SELECT 1", rollback=None, timeou
 DEFAULT_POSTGRES_OP = AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1", rollback=None)
 
 
-class TestUtils(AsyncMigrationBaseTest):
+class TestExecuteOp(SimpleTestCase):
     @patch("posthog.clickhouse.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(DEFAULT_CH_OP, "some_id")
@@ -31,6 +33,8 @@ class TestUtils(AsyncMigrationBaseTest):
         # correctly routes to ch
         mock_sync_execute.assert_called_once_with("SELECT 1", None, settings={"max_execution_time": 10})
 
+
+class TestUtils(AsyncMigrationBaseTest):
     @patch("django.db.connection.cursor")
     def test_execute_op_postgres(self, mock_cursor):
         execute_op(DEFAULT_POSTGRES_OP, "some_id")

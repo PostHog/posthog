@@ -43,6 +43,42 @@ export interface PaginatedMessageCategoryListApi {
     results: MessageCategoryApi[]
 }
 
+export interface PatchedMessageCategoryApi {
+    readonly id?: string
+    /** @maxLength 64 */
+    key?: string
+    /** @maxLength 128 */
+    name?: string
+    description?: string
+    public_description?: string
+    category_type?: CategoryTypeEnumApi
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    deleted?: boolean
+}
+
+export interface AddOptOutRequestApi {
+    /**
+     * The recipient identifier to opt out (e.g. email address).
+     * @maxLength 512
+     */
+    identifier: string
+    /** Optional message category key. If omitted, the recipient is opted out of all marketing messages. */
+    category_key?: string
+}
+
+export interface MessagePreferencesApi {
+    readonly id: string
+    /** The recipient identifier (e.g. email address). */
+    identifier: string
+    /** When the preference was last updated. */
+    updated_at: string
+    /** Map of category ID to preference status. */
+    preferences: unknown
+}
+
 /**
  * * `hog` - hog
  * `liquid` - liquid
@@ -96,14 +132,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -123,7 +155,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface MessageTemplateApi {
@@ -149,6 +181,22 @@ export interface PaginatedMessageTemplateListApi {
     /** @nullable */
     previous?: string | null
     results: MessageTemplateApi[]
+}
+
+export interface PatchedMessageTemplateApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    content?: MessageTemplateContentApi
+    readonly created_by?: UserBasicApi
+    /** @maxLength 24 */
+    type?: string
+    /** @nullable */
+    message_category?: string | null
+    deleted?: boolean
 }
 
 export type MessagingCategoriesListParams = {

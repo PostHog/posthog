@@ -1,8 +1,23 @@
-import type { AxisFormat, ChartTheme } from 'lib/charts/types'
-export type { AxisFormat, ChartTheme }
+/** Visual theme colours consumed by chart rendering. */
+export interface ChartTheme {
+    colors: string[]
+    backgroundColor?: string
+    axisColor?: string
+    gridColor?: string
+    crosshairColor?: string
+    tooltipBackground?: string
+    tooltipColor?: string
+    tooltipZIndex?: number | string
+}
 
 /** Default axis id used when a series doesn't specify one. */
 export const DEFAULT_Y_AXIS_ID = 'left'
+
+/** Series shape after the chart has applied its color fallback from `theme.colors`.
+ *  This is the type seen by overlays, draw functions, and interaction code — by the time
+ *  those run, `color` is guaranteed to be set. Public consumers should write {@link Series}
+ *  with color either supplied or omitted (chart picks one) and let the chart resolve it. */
+export type ResolvedSeries<Meta = unknown> = Series<Meta> & { color: string }
 
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
@@ -11,51 +26,83 @@ export interface Series<Meta = unknown> {
     label: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
-    /** CSS color string (hex, rgb, etc.) for the line and associated fill/points. */
-    color: string
-    /** When true, fills the area between the line and the x-axis baseline. */
-    fillArea?: boolean
-    /** Opacity of the area fill. Range 0–1, defaults to 0.5. Ignored when `fillArea` is false. */
-    fillOpacity?: number
-    /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit or [] for solid. */
-    dashPattern?: number[]
-    /** Index from which the line becomes dashed (inclusive). Clamped to data bounds. */
-    dashedFromIndex?: number
-    /** Index up to which the line is dashed (inclusive). Clamped to data bounds. */
-    dashedToIndex?: number
-    /** Dash pattern for the `dashedFromIndex`/`dashedToIndex` portions. Defaults to [10, 10]. */
-    dashedPattern?: number[]
-    /** When true, the series is excluded from rendering, scales, and tooltips. */
-    hidden?: boolean
-    /** When true, the series still renders and participates in scales and hit-testing,
-     *  but is omitted from the tooltip's seriesData so it doesn't appear as a row. */
-    hideFromTooltip?: boolean
-    /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
-    pointRadius?: number
+    /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points.
+     *  When omitted (or empty), the chart picks a color from `theme.colors` by series index. */
+    color?: string
+    /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
+    yAxisId?: string
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
      *  so custom tooltip components can access domain-specific information (e.g. breakdown
      *  values, comparison labels, anomaly scores) without the library needing to know about them.
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
-    /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
-    yAxisId?: string
+    /** Point markers configuration. Omit for no dots. */
+    points?: {
+        /** Radius in CSS pixels. */
+        radius: number
+    }
+    /** Line stroke configuration. */
+    stroke?: {
+        /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
+        pattern?: number[]
+        /** A range of indices that should be drawn with a different (typically dashed) pattern. */
+        partial?: {
+            /** Index from which the partial pattern starts (inclusive). Clamped to [0, data.length-1]. */
+            fromIndex?: number
+            /** Index up to which the partial pattern applies (inclusive). Clamped to [0, data.length-1]. */
+            toIndex?: number
+            /** Dash pattern for the partial range. Defaults to [10, 10]. */
+            pattern?: number[]
+        }
+    }
+    /** Area fill configuration. Presence implies the area between the line and baseline is filled. */
+    fill?: {
+        /** Opacity of the area fill. Range 0–1. Defaults to 0.5. */
+        opacity?: number
+        /** Bottom-edge data for fill-between rendering (e.g. confidence interval lower bound).
+         *  When set, the area is drawn between `data` (top) and this (bottom) instead of
+         *  filling down to the x-axis baseline. */
+        lowerData?: number[]
+        /** Fade the fill vertically from the series color at the top of the plot to transparent
+         *  at the baseline. Ignored whenever the area has a bottom edge — stacking, `lowerData`,
+         *  or dashed `stroke.partial` (those branches need a solid fill / hatch). */
+        gradient?: boolean
+    }
+    /** Auxiliary overlay derived from primary data — trend lines and moving averages.
+     *  Excluded from stack computation and from the y-axis baseline calculation, so a
+     *  trendline projection won't drag the axis below 0 when the underlying data is
+     *  non-negative. (CI bands are not overlays — they represent real data uncertainty
+     *  whose range should still influence the axis.) */
+    overlay?: boolean
+    /** Per-location visibility flags — control where this series appears. */
+    visibility?: {
+        /** Fully exclude the series — no rendering, no scale contribution, no tooltip, no hit-testing. */
+        excluded?: boolean
+        /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
+        tooltip?: boolean
+        /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
+        valueLabel?: boolean
+    }
 }
 
 /** Data passed to the `onPointClick` callback when a user clicks a data point. */
 export interface PointClickData<Meta = unknown> {
-    /** Index of the clicked series within the original series array. */
+    /** Index of the primary series within the original series array. */
     seriesIndex: number
     /** Index along the x-axis (into the labels array) that was clicked. */
     dataIndex: number
-    /** The series that was clicked. */
+    /** Primary series at the clicked column. */
     series: Series<Meta>
-    /** The y-value at the clicked point. */
+    /** The y-value of the primary series at the clicked column. */
     value: number
     /** The x-axis label at the clicked point. */
     label: string
     /** Values from all visible series at this x-axis index, for cross-series comparisons. */
     crossSeriesData: { series: Series<Meta>; value: number }[]
+    /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
+     *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
+    cursor: { x: number; y: number } | null
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -64,10 +111,16 @@ export interface TooltipContext<Meta = unknown> {
     dataIndex: number
     /** The x-axis label at this index. */
     label: string
-    /** One entry per visible series with its value and color at this index. */
-    seriesData: { series: Series<Meta>; value: number; color: string }[]
-    /** Pixel position (relative to the chart container) for anchoring the tooltip. */
-    position: { x: number; y: number }
+    /** One entry per visible series with its value and color at this index. `fraction` is set
+     *  for radial charts (share of total) so renderers don't need to look the slice back up. */
+    seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
+    /** Pixel position (relative to the chart container) for anchoring the tooltip.
+     *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
+     *  populate it with the band width so {@link Tooltip} can anchor at the band edge
+     *  rather than the band center. Point-style charts (lines, scatter) leave it unset. */
+    position: { x: number; y: number; width?: number }
+    /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */
+    hoverPosition: { x: number; y: number } | null
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
     canvasBounds: DOMRect
     /** Whether the tooltip is pinned (clicked). When pinned, the tooltip stays visible
@@ -117,21 +170,103 @@ export interface ChartConfig {
     hideXAxis?: boolean
     /** Hide the y-axis labels and reduce left margin. */
     hideYAxis?: boolean
+    xAxisLabel?: string
+    yAxisLabel?: string
 
     // — Overlays —
 
     /** Show horizontal grid lines at y-axis tick positions. */
     showGrid?: boolean
-    /** Show a tooltip on hover. Defaults to true. Use the `tooltip` prop to customize content. */
-    showTooltip?: boolean
-    /** When true, clicking a data point with multiple series pins the tooltip in place. */
-    pinnableTooltip?: boolean
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
+    axisOrientation?: 'vertical' | 'horizontal'
+    /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
+     *  on layout context so overlays can default to a percent formatter. */
+    isPercent?: boolean
+    /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
+    animateHover?: boolean | number
+    /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
+     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+    margins?: Partial<ChartMargins>
+}
+
+export interface TooltipConfig {
+    /** Show a tooltip on hover. Defaults to true. Use the `tooltip` render prop on Chart to customize content. */
+    enabled?: boolean
+    /** When true, clicking a data point with multiple series pins the tooltip in place. */
+    pinnable?: boolean
+    /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
+     *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
+     *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
+     *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
+    placement?: 'follow-data' | 'top' | 'cursor'
+}
+
+/** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
+ *  bars). The two modes are mutually exclusive by construction — pick one. Omit the option
+ *  entirely for the default: a data-derived range with `d3.nice()`. */
+export type ValueDomain =
+    /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
+     *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
+     *  `barLayout: 'percent'` / `percentStackView`. */
+    | readonly [number, number]
+    /** Keep data-derived auto-scaling, but stretch the domain to always cover these values
+     *  (e.g. goal-line targets that sit outside the data). Folded into the range before
+     *  `d3.nice()`. */
+    | { include: readonly number[] }
+
+/** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
+ *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
+export interface BarsConfig {
+    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
+     *  segment. Defaults to 0 (square). */
+    cornerRadius?: number
+    /** Draw a faint hatched track behind each bar, spanning the full plot height — for
+     *  funnel-style charts where every bar is a share of a whole. Only honored when
+     *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
+     *  semantics don't apply when bars share a band). Defaults to `false`. */
+    track?: boolean
+    /** Drop shadow under each bar so it reads as layered over a `track`. */
+    shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
+     *  baseline (positives above). Default `false` clamps negatives to 0. */
+    divergingStack?: boolean
+    /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while gridlines
+     *  still span the full width — useful for few-category funnel-style charts. */
+    maxBandRange?: number
+    /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
+     *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+    bandPadding?: number
+    /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
+     *  an unreadable strip, the chart expands its container height so each row has at least this
+     *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
+    minBandSize?: number
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
+    /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
+     *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
+     *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
+     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
+     *  clamps the radius to the sliver's half-width. Defaults to `false`. */
+    roundStackEnds?: boolean
+}
+
+export interface BarChartConfig extends ChartConfig {
+    /** Defaults to `stacked`. */
+    barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
+    bars?: BarsConfig
 }
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
@@ -143,20 +278,35 @@ export interface ChartDrawArgs {
     /** Scale functions for mapping data to pixel coordinates. */
     scales: ChartScales
     /** Series with fallback colors already applied. */
-    series: Series[]
+    series: ResolvedSeries[]
     /** X-axis labels. */
     labels: string[]
     /** Index of the currently hovered data point, or -1. */
     hoverIndex: number
+    /** Cursor position in canvas pixels, or `null` for non-hover redraws (static layer / post-mouseleave). */
+    hoverPosition: { x: number; y: number } | null
     /** Chart theme colors. */
     theme: ChartTheme
+    /** Hover-fade progress (0..1). Apply as `ctx.globalAlpha` around highlight rendering. */
+    hoverProgress: number
+    /** Restart the hover-fade at progress 0; returns the new value to use this frame.
+     *  Call when the chart type detects a visible-state change at the same hoverIndex. */
+    resetHoverFade: () => number
 }
+
+/** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */
+export type DrawHoverResult = boolean
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
 
+export const defaultResolveValue: ResolveValueFn = (series, dataIndex) => {
+    const v = series.data[dataIndex]
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0
+}
+
 /** Factory function that chart types provide to create their scales from dimensions and data. */
-export type CreateScalesFn = (series: Series[], labels: string[], dimensions: ChartDimensions) => ChartScales
+export type CreateScalesFn = (series: ResolvedSeries[], labels: string[], dimensions: ChartDimensions) => ChartScales
 
 /** Per-axis scale: a mapping function and its tick values. */
 export interface YAxisScale {
@@ -170,8 +320,11 @@ export interface YAxisScale {
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
-    /** Maps a label to an x pixel coordinate. */
-    x: (label: string) => number | undefined
+    /** Maps a label to an x pixel coordinate. For chart types where data points
+     *  for the same label live at different x positions (e.g. grouped bar charts
+     *  in compare-against-previous mode), pass `seriesKey` to anchor on a specific
+     *  series. Falls back to the band/point center when omitted or unknown. */
+    x: (label: string, seriesKey?: string) => number | undefined
     /** Maps a y value to a pixel coordinate. Uses the default (left) axis. */
     y: (value: number) => number
     /** Returns tick values for the default (left) y-axis. */
@@ -179,4 +332,13 @@ export interface ChartScales {
     /** Per-axis y scales keyed by axis id. Present when dual axes are active.
      *  When absent, all series use `y` / `yTicks`. */
     yAxes?: Record<string, YAxisScale>
+    /** Optional horizontal data-extent at a label — bar charts populate this with the
+     *  band width so {@link TooltipContext.position.width} carries it through to the
+     *  tooltip overlay. Point-style charts (line, scatter) leave it unset. */
+    extent?: (label: string) => number | undefined
+    /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
+     *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
+     *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.
+     *  Typed as `unknown` so d3-style types don't leak through the public surface. */
+    _private?: unknown
 }

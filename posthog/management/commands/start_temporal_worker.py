@@ -6,6 +6,7 @@ import datetime as dt
 import functools
 import threading
 import faulthandler
+import collections.abc
 from collections import defaultdict
 
 import structlog
@@ -20,9 +21,15 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
-from posthog.temporal.ai.video_segment_clustering import (
-    VIDEO_SEGMENT_CLUSTERING_ACTIVITIES,
-    VIDEO_SEGMENT_CLUSTERING_WORKFLOWS,
+from posthog.temporal.ai_observability import (
+    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
+    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
+    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
+    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
+    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
@@ -42,6 +49,7 @@ from posthog.temporal.data_imports.settings import (
     EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
 )
+from posthog.temporal.data_imports.sources import load_all_sources
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
@@ -78,14 +86,6 @@ from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
 )
-from posthog.temporal.llm_analytics import (
-    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
-    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
-    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
-    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
-    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
-)
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
     WORKFLOWS as MESSAGING_WORKFLOWS,
@@ -107,34 +107,37 @@ from posthog.temporal.salesforce_enrichment import (
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
 from posthog.temporal.session_replay.count_playlist_items import (
-    ACTIVITIES as COUNT_PLAYLIST_ITEMS_ACTIVITIES,
-    WORKFLOWS as COUNT_PLAYLIST_ITEMS_WORKFLOWS,
+    COUNT_PLAYLIST_ITEMS_ACTIVITIES,
+    COUNT_PLAYLIST_ITEMS_WORKFLOWS,
 )
-from posthog.temporal.session_replay.delete_recordings import (
-    ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
-    WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
-)
+from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_ACTIVITIES, DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import (
-    ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
-    WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+    ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+    ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
-from posthog.temporal.session_replay.export_recording import (
-    ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
+from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_ACTIVITIES, EXPORT_RECORDING_WORKFLOWS
+from posthog.temporal.session_replay.gemini_cleanup_sweep import (
+    GEMINI_CLEANUP_SWEEP_ACTIVITIES,
+    GEMINI_CLEANUP_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.session_replay.import_recording import (
-    ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
-    WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
-)
+from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_ACTIVITIES, IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import (
-    ACTIVITIES as RASTERIZE_RECORDING_ACTIVITIES,
-    WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS,
+    RASTERIZE_RECORDING_ACTIVITIES,
+    RASTERIZE_RECORDING_WORKFLOWS,
 )
 from posthog.temporal.session_replay.replay_count_metrics import (
-    ACTIVITIES as REPLAY_COUNT_METRICS_ACTIVITIES,
-    WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS,
+    REPLAY_COUNT_METRICS_ACTIVITIES,
+    REPLAY_COUNT_METRICS_WORKFLOWS,
 )
 from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
+from posthog.temporal.session_replay.session_summary_group import (
+    SESSION_SUMMARY_GROUP_ACTIVITIES,
+    SESSION_SUMMARY_GROUP_WORKFLOWS,
+)
+from posthog.temporal.session_replay.summarization_sweep import (
+    SUMMARIZATION_SWEEP_ACTIVITIES,
+    SUMMARIZATION_SWEEP_WORKFLOWS,
+)
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
@@ -147,9 +150,13 @@ from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
 )
-from posthog.temporal.usage_reports import (
+from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
+)
+from posthog.temporal.warehouse_sources_queue_partition_management import (
+    ACTIVITIES as WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
+    WORKFLOWS as WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
 )
 from posthog.temporal.weekly_digest import (
     ACTIVITIES as WEEKLY_DIGEST_ACTIVITIES,
@@ -160,9 +167,17 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.deployments.backend.temporal import (
+    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
+    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
+)
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
+from products.replay_vision.backend.temporal import (
+    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
+    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
@@ -209,7 +224,6 @@ _task_queue_specs = [
         settings.GENERAL_PURPOSE_TASK_QUEUE,
         PROXY_SERVICE_WORKFLOWS
         + DELETE_PERSONS_WORKFLOWS
-        + USAGE_REPORTS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
@@ -217,10 +231,10 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
-        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
-        + USAGE_REPORTS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
@@ -229,7 +243,8 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
-        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -263,32 +278,43 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS,
-        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES,
+        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS,
+        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES + USAGE_REPORTS_ACTIVITIES,
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_SEGMENT_CLUSTERING_WORKFLOWS + SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        VIDEO_SEGMENT_CLUSTERING_ACTIVITIES + SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        COUNT_PLAYLIST_ITEMS_WORKFLOWS
-        + DELETE_RECORDING_WORKFLOWS
+        GEMINI_CLEANUP_SWEEP_WORKFLOWS
+        + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + EXPORT_RECORDING_WORKFLOWS
         + IMPORT_RECORDING_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
         + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SESSION_SUMMARY_WORKFLOWS,
-        COUNT_PLAYLIST_ITEMS_ACTIVITIES
-        + DELETE_RECORDING_ACTIVITIES
+        + SESSION_SUMMARY_WORKFLOWS
+        + SESSION_SUMMARY_GROUP_WORKFLOWS
+        + SUMMARIZATION_SWEEP_WORKFLOWS,
+        GEMINI_CLEANUP_SWEEP_ACTIVITIES
+        + COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + EXPORT_RECORDING_ACTIVITIES
         + IMPORT_RECORDING_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
         + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SESSION_SUMMARY_ACTIVITIES,
+        + SESSION_SUMMARY_ACTIVITIES
+        + SESSION_SUMMARY_GROUP_ACTIVITIES
+        + SUMMARIZATION_SWEEP_ACTIVITIES,
+    ),
+    (
+        settings.REPLAY_VISION_TASK_QUEUE,
+        REPLAY_VISION_WORKFLOWS,
+        REPLAY_VISION_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -302,8 +328,8 @@ _task_queue_specs = [
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
     ),
     (
         settings.LLMA_SENTIMENT_TASK_QUEUE,
@@ -325,6 +351,11 @@ _task_queue_specs = [
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
     ),
+    (
+        settings.DEPLOYMENTS_TASK_QUEUE,
+        DEPLOYMENTS_WORKFLOWS,
+        DEPLOYMENTS_ACTIVITIES,
+    ),
 ]
 
 # Note: When running locally, many task queues resolve to the same queue name.
@@ -340,6 +371,11 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
+
+
+def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
+    """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
+    return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
 if settings.DEBUG:
@@ -475,6 +511,16 @@ class Command(BaseCommand):
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
+        # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
+        # SDKs register protobuf descriptors into a process-global pool that rejects a second
+        # registration of the same symbol. They must be imported exactly once per process. Do it here
+        # — synchronously, at worker boot, on the main thread — for any queue that runs data syncs.
+        # Deferring to the first SourceRegistry.get_source() at runtime (the lazy path) let the
+        # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
+        # import the vendor SDKs, so they keep their fast startup.
+        if workflows_include_data_import_syncs(workflows):
+            load_all_sources()
+
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
 
@@ -490,7 +536,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        # Max AI traces span the Django request and the Temporal activity that runs the agent loop.
+        # Without the OTel plugin on the worker, every span emitted from an activity is a root span
+        # and the conversation trace splits across disconnected pieces. Force-enable for that queue
+        # so investigations don't depend on an operator flipping TEMPORAL_OTEL_PLUGIN_ENABLED.
+        enable_otel = (
+            settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True or task_queue == settings.MAX_AI_TASK_QUEUE
+        ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
             initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore
@@ -530,8 +582,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-
             configure_logger(loop=loop)
+
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,

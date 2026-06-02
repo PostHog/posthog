@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, LLM analytics, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
+The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, AI observability, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
 
 Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple "summarize signals" LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers. Reports that are immediately actionable can automatically start a Tasks coding run via the **autonomy** system.
 
@@ -21,6 +21,19 @@ Two additional Signals workflows also exist but are not part of the main report 
 
 - `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
 - `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
+
+### Activity decoration
+
+Every async Signals Temporal activity is decorated with `@scoped_temporal()` from `posthog/temporal/common/scoped.py` (not upstream `@posthoganalytics.scoped()`). It scopes `posthoganalytics.tag()` calls to the activity invocation and auto-captures uncaught exceptions into PostHog error tracking with the workflow's tags attached. The upstream decorator wraps `async def` in a sync wrapper, breaking Temporal's `iscoroutinefunction` dispatch — the worker returns the unawaited coroutine and crashes on JSON encoding. `scoped_temporal()` is the async-aware equivalent (sync helpers can keep using upstream `@posthoganalytics.scoped()`).
+
+```python
+from posthog.temporal.common.scoped import scoped_temporal
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def my_activity(input: ...) -> ...:
+    ...
+```
 
 ### Signal Ingestion Pipeline (v2)
 
@@ -171,6 +184,22 @@ Keeping repository selection in its own activity gives it independent retry / ti
 - **1 repo connected:** returns it directly
 - **N repos connected:** runs a sandbox repo-discovery agent using `PostHog/.github` as a lightweight dummy clone; the agent uses `gh` CLI to inspect candidate repositories and choose the best match
 - The activity runs in a sandbox environment restricted to GitHub-related domains
+
+##### Repository heavy cache
+
+`IntegrationRepositoryCacheEntry` (Postgres, defined in `posthog/models/integration_repository_cache.py`) stores per-repo README + recursive blob paths + descriptive metadata, populated lazily by `GitHubRepositoryFullCache.sync_full_cache_entry()`. It's exposed to the selection agent as the HogQL system table `system.integration_repository_cache` so the agent can grep paths server-side via `ARRAY JOIN splitByString('\n', tree_paths)` instead of hitting GitHub's `/search/code` endpoint (30 req/min hard ceiling). The lightweight (id, name, full_name) list stays on `Integration.repository_cache` (JSONField) so the IDE repo-dropdown read path is unchanged.
+
+`sync_full_cache_entry()` uses a two-tier freshness check, both keyed off `default_branch_sha` as the hydration sentinel (so repos legitimately without a README still hit the fast paths):
+
+1. **TTL gate** — fresh row → return immediately, zero API calls.
+2. **SHA gate** — past TTL, two cheap calls to compare the live default-branch SHA against the cached one. Match → refresh only mutable metadata, skip README and tree refetch.
+3. **Heavy refetch** — SHA changed → fetch README and the recursive file tree pinned to the same commit, then upsert.
+
+Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_backoff` (concurrency 10) over the JSONField list as source of truth — orphan rows are evicted, per-repo errors are returned in-place rather than raised. Secondary rate limits propagate with retry hints so the helper backs off cooperatively. The bulk sync is **single-flighted per integration** via a Redis lock: concurrent reports for the same team queue behind the leader (poll every 1s, hard cap 20m wait) and then read the warm cache; the leader heartbeats every 60s to extend its 15m lease, and a lost lease cancels the in-flight body to prevent duplicate syncs.
+
+**Eligibility filter:** Before invoking the agent, `select_repository_for_report` drops candidates that are archived or missing from the heavy cache (e.g., a row whose sync errored during a cold start). The prompt treats SQL hits as primary evidence, so a missing row would read as a false negative. If filtering leaves zero or one candidates, the activity short-circuits without running the agent.
+
+**Truncation caveat:** GitHub's recursive tree endpoint truncates at ~50k entries / 7MB. The `tree_truncated` flag marks affected rows; `tree_paths` is incomplete on those rows and will silently miss files in HogQL grep. Consumers must filter on `tree_truncated=False` and explicitly degrade for truncated repos. Affects <2% of repos; paginated subtree fetch is future work.
 
 #### Re-promotion
 
@@ -414,7 +443,7 @@ Per-team configuration for which signal sources are enabled.
 
 ## ClickHouse Storage
 
-Signals are stored in the **`posthog_document_embeddings`** table, which is shared across products (error tracking, session replay, LLM analytics, etc.).
+Signals are stored in the **`posthog_document_embeddings`** table, which is shared across products (error tracking, session replay, AI observability, etc.).
 
 ### Table Schema
 
@@ -574,23 +603,26 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 | GET    | `signals/reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
 | DELETE | `signals/reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
 | POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
-| POST   | `signals/reports/{id}/reingest/`       | **Staff-only.** Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Returns `403` for non-staff users.                                                                                                  |
+| POST   | `signals/reports/{id}/reingest/`       | Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Same team access as other report endpoints; personal API keys need `task:write`.                                                                    |
 | GET    | `signals/reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                       |
 | GET    | `signals/reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                             |
 | GET    | `signals/reports/available_reviewers/` | List available suggested reviewers for the team                                                                                                                                                                                                                                                                                     |
 
 **Ordering:** Configurable via `?ordering=` with comma-separated fields. Supported fields: `status`, `is_suggested_reviewer`, `signal_count`, `total_weight`, `priority`, `created_at`, `updated_at`, `id`.
 
-The `status` ordering uses semantic pipeline stage ranking:
+The `status` clause sorts by annotated `pipeline_status_rank` (not lexicographic `status` text). Ascending rank lists earlier pipeline stages first. Ranks:
 
-- `ready=0`
-- `pending_input=1`
-- `in_progress=2`
-- `candidate=3`
-- `potential=4`
-- `failed=5`
-- `suppressed=6`
-- `deleted=7`
+- `0` — `ready` and actionable (includes reports with no actionability judgment yet)
+- `1` — `ready` and latest actionability judgment is `not_actionable`
+- `2` — `pending_input`
+- `3` — `in_progress`
+- `4` — `candidate`
+- `5` — `potential`
+- `6` — `failed`
+- `7` — `suppressed`
+- `8` — `deleted` (deleted rows are not returned by the API; rank exists for queryset consistency)
+
+So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `ordering=-status`, **`failed` sorts before actionable `ready`**.
 
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
@@ -634,6 +666,7 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
   - `priority` comes from the latest `PRIORITY_JUDGMENT` artefact
   - `actionability` comes from the latest `ACTIONABILITY_JUDGMENT` artefact and supports both current (`actionability`) and legacy (`choice`) payloads
   - `already_addressed` also comes from the latest actionability artefact
+  - `is_suggested_reviewer`: list/detail annotate from the requesting user’s linked GitHub login against the `suggested_reviewers` artefact. Always **`false`** when there is nothing to review: `failed` reports, or `ready` with latest actionability `not_actionable` (even if the artefact names the user)
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
@@ -641,6 +674,26 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
 - **`SignalReportTaskSerializer`**
   - Exposes `id`, `relationship`, `task_id`, `task_title`, `task_status`, `created_at`
   - `task_status` is derived from the latest `TaskRun` via prefetch
+
+---
+
+## Analytics Events
+
+All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-signal events carry `source_product`, `source_type`, `source_id` — pivot on `source_id` to trace one signal.
+
+**Lifecycle (in order):**
+
+- `signal_data_source_entered` / `signal_data_source_summarized` / `signal_data_source_filtered` — data-source pipeline only (`pipeline.py`)
+- `signal_emission_started` — `emit_signal()` past validation
+- `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
+- `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
+- `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
+- `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
+- `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
+
+**Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
+
+Telemetry is best-effort; failures are logged, not raised.
 
 ---
 

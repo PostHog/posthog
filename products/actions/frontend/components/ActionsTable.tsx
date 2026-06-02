@@ -297,6 +297,7 @@ export function ActionsTable(): JSX.Element {
                 actionElementOverride={
                     <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS)} />
                 }
+                mcpSurfaceKey="actions.create"
             />
             {(shouldShowEmptyState && filterType === 'me') || !shouldShowEmptyState ? (
                 <div className="flex items-center justify-between gap-2 mb-4">

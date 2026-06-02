@@ -15,6 +15,7 @@ const pathsWithoutProjectId = [
     'oauth',
     'shared',
     'embedded',
+    'interview',
     'cli',
     'render_query',
 ]
@@ -49,6 +50,13 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
 export function removeProjectIdIfPresent(path: string): string {
     if (path.match(projectIdentifierInUrlRegex)) {
         return '/' + path.split('/').splice(3).join('/')
+    }
+    return path
+}
+
+export function stripTrailingSlash(path: string): string {
+    if (path.length > 1 && path.endsWith('/')) {
+        return path.replace(/\/+$/, '')
     }
     return path
 }

@@ -21,12 +21,14 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Insight, Team
+from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +36,7 @@ STALE_INSIGHTS_GAUGE = Gauge(
     "posthog_cache_warming_stale_insights_gauge",
     "Number of stale insights present",
     ["team_id"],
+    multiprocess_mode="max",
 )
 PRIORITY_INSIGHTS_COUNTER = Counter(
     "posthog_cache_warming_priority_insights",
@@ -133,6 +136,7 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
 
 
 @shared_task(ignore_result=True, expires=60 * 15)
+@skip_team_scope_audit
 def schedule_warming_for_teams_task():
     """
     Runs every hour and schedule warming for all insights (picked from insights_to_cache)

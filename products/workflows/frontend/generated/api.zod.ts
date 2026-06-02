@@ -32,21 +32,25 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.string()).optional(),
         scope: zod
             .enum(['team', 'organization', 'global'])
-            .describe('* `team` - Only team\n* `organization` - Organization\n* `global` - Global'),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
         trigger: zod.unknown().optional(),
         trigger_masking: zod
-            .object({
-                ttl: zod
-                    .number()
-                    .min(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMin)
-                    .max(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMax)
-                    .nullish(),
-                threshold: zod.number().nullish(),
-                hash: zod.string(),
-                bytecode: zod.unknown().nullish(),
-            })
-            .nullish(),
-        conversion: zod.unknown().nullish(),
+            .union([
+                zod.object({
+                    ttl: zod
+                        .number()
+                        .min(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMin)
+                        .max(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMax)
+                        .nullish()
+                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+                }),
+                zod.null(),
+            ])
+            .optional(),
+        conversion: zod.unknown().optional(),
         exit_condition: zod
             .enum([
                 'exit_on_conversion',
@@ -56,7 +60,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+                '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
         edges: zod.unknown().optional(),
         actions: zod.array(
@@ -70,41 +74,50 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['continue', 'abort', 'complete', 'branch'])
                                 .describe(
-                                    '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                    '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                                 ),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish(),
+                        .optional(),
                     created_at: zod.number().optional(),
                     updated_at: zod.number().optional(),
                     filters: zod
-                        .object({
-                            source: zod
-                                .enum(['events', 'person-updates', 'data-warehouse-table'])
-                                .describe(
-                                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                                )
-                                .default(hogFlowTemplatesCreateBodyActionsItemFiltersOneSourceDefault),
-                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            bytecode: zod.unknown().nullish(),
-                            transpiled: zod.unknown().optional(),
-                            filter_test_accounts: zod.boolean().optional(),
-                            bytecode_error: zod.string().optional(),
-                        })
-                        .nullish(),
+                        .union([
+                            zod.object({
+                                source: zod
+                                    .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                    .describe(
+                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                    )
+                                    .default(hogFlowTemplatesCreateBodyActionsItemFiltersOneSourceDefault),
+                                actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                bytecode: zod.unknown().optional(),
+                                transpiled: zod.unknown().optional(),
+                                filter_test_accounts: zod.boolean().optional(),
+                                bytecode_error: zod.string().optional(),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional(),
                     type: zod.string().max(hogFlowTemplatesCreateBodyActionsItemTypeMax),
                     config: zod.unknown(),
-                    output_variable: zod.unknown().nullish(),
+                    output_variable: zod.unknown().optional(),
                 })
                 .describe(
-                    'Custom action serializer for templates that skips input validation\n(since templates should have default/empty values).'
+                    'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                 )
         ),
         abort_action: zod.string().max(hogFlowTemplatesCreateBodyAbortActionMax).nullish(),
-        variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+        variables: zod
+            .array(
+                zod
+                    .record(zod.string(), zod.string())
+                    .describe('Variable: {key, type: string|number|boolean, default}.')
+            )
+            .optional(),
     })
     .describe(
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
@@ -133,21 +146,25 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.string()).optional(),
         scope: zod
             .enum(['team', 'organization', 'global'])
-            .describe('* `team` - Only team\n* `organization` - Organization\n* `global` - Global'),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
         trigger: zod.unknown().optional(),
         trigger_masking: zod
-            .object({
-                ttl: zod
-                    .number()
-                    .min(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMin)
-                    .max(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMax)
-                    .nullish(),
-                threshold: zod.number().nullish(),
-                hash: zod.string(),
-                bytecode: zod.unknown().nullish(),
-            })
-            .nullish(),
-        conversion: zod.unknown().nullish(),
+            .union([
+                zod.object({
+                    ttl: zod
+                        .number()
+                        .min(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMin)
+                        .max(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMax)
+                        .nullish()
+                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+                }),
+                zod.null(),
+            ])
+            .optional(),
+        conversion: zod.unknown().optional(),
         exit_condition: zod
             .enum([
                 'exit_on_conversion',
@@ -157,7 +174,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+                '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
         edges: zod.unknown().optional(),
         actions: zod.array(
@@ -171,41 +188,50 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['continue', 'abort', 'complete', 'branch'])
                                 .describe(
-                                    '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                    '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                                 ),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish(),
+                        .optional(),
                     created_at: zod.number().optional(),
                     updated_at: zod.number().optional(),
                     filters: zod
-                        .object({
-                            source: zod
-                                .enum(['events', 'person-updates', 'data-warehouse-table'])
-                                .describe(
-                                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                                )
-                                .default(hogFlowTemplatesUpdateBodyActionsItemFiltersOneSourceDefault),
-                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                            bytecode: zod.unknown().nullish(),
-                            transpiled: zod.unknown().optional(),
-                            filter_test_accounts: zod.boolean().optional(),
-                            bytecode_error: zod.string().optional(),
-                        })
-                        .nullish(),
+                        .union([
+                            zod.object({
+                                source: zod
+                                    .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                    .describe(
+                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                    )
+                                    .default(hogFlowTemplatesUpdateBodyActionsItemFiltersOneSourceDefault),
+                                actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                bytecode: zod.unknown().optional(),
+                                transpiled: zod.unknown().optional(),
+                                filter_test_accounts: zod.boolean().optional(),
+                                bytecode_error: zod.string().optional(),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional(),
                     type: zod.string().max(hogFlowTemplatesUpdateBodyActionsItemTypeMax),
                     config: zod.unknown(),
-                    output_variable: zod.unknown().nullish(),
+                    output_variable: zod.unknown().optional(),
                 })
                 .describe(
-                    'Custom action serializer for templates that skips input validation\n(since templates should have default/empty values).'
+                    'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                 )
         ),
         abort_action: zod.string().max(hogFlowTemplatesUpdateBodyAbortActionMax).nullish(),
-        variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+        variables: zod
+            .array(
+                zod
+                    .record(zod.string(), zod.string())
+                    .describe('Variable: {key, type: string|number|boolean, default}.')
+            )
+            .optional(),
     })
     .describe(
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
@@ -235,21 +261,25 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
         scope: zod
             .enum(['team', 'organization', 'global'])
             .optional()
-            .describe('* `team` - Only team\n* `organization` - Organization\n* `global` - Global'),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
         trigger: zod.unknown().optional(),
         trigger_masking: zod
-            .object({
-                ttl: zod
-                    .number()
-                    .min(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMin)
-                    .max(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMax)
-                    .nullish(),
-                threshold: zod.number().nullish(),
-                hash: zod.string(),
-                bytecode: zod.unknown().nullish(),
-            })
-            .nullish(),
-        conversion: zod.unknown().nullish(),
+            .union([
+                zod.object({
+                    ttl: zod
+                        .number()
+                        .min(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMin)
+                        .max(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMax)
+                        .nullish()
+                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+                }),
+                zod.null(),
+            ])
+            .optional(),
+        conversion: zod.unknown().optional(),
         exit_condition: zod
             .enum([
                 'exit_on_conversion',
@@ -259,7 +289,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+                '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
         edges: zod.unknown().optional(),
         actions: zod
@@ -276,42 +306,51 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                 zod
                                     .enum(['continue', 'abort', 'complete', 'branch'])
                                     .describe(
-                                        '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                        '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                                     ),
-                                zod.literal(null),
+                                zod.null(),
                             ])
-                            .nullish(),
+                            .optional(),
                         created_at: zod.number().optional(),
                         updated_at: zod.number().optional(),
                         filters: zod
-                            .object({
-                                source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table'])
-                                    .describe(
-                                        '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                                    )
-                                    .default(hogFlowTemplatesPartialUpdateBodyActionsItemFiltersOneSourceDefault),
-                                actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                bytecode: zod.unknown().nullish(),
-                                transpiled: zod.unknown().optional(),
-                                filter_test_accounts: zod.boolean().optional(),
-                                bytecode_error: zod.string().optional(),
-                            })
-                            .nullish(),
+                            .union([
+                                zod.object({
+                                    source: zod
+                                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                        .describe(
+                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        )
+                                        .default(hogFlowTemplatesPartialUpdateBodyActionsItemFiltersOneSourceDefault),
+                                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    bytecode: zod.unknown().optional(),
+                                    transpiled: zod.unknown().optional(),
+                                    filter_test_accounts: zod.boolean().optional(),
+                                    bytecode_error: zod.string().optional(),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional(),
                         type: zod.string().max(hogFlowTemplatesPartialUpdateBodyActionsItemTypeMax),
                         config: zod.unknown(),
-                        output_variable: zod.unknown().nullish(),
+                        output_variable: zod.unknown().optional(),
                     })
                     .describe(
-                        'Custom action serializer for templates that skips input validation\n(since templates should have default/empty values).'
+                        'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                     )
             )
             .optional(),
         abort_action: zod.string().max(hogFlowTemplatesPartialUpdateBodyAbortActionMax).nullish(),
-        variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+        variables: zod
+            .array(
+                zod
+                    .record(zod.string(), zod.string())
+                    .describe('Variable: {key, type: string|number|boolean, default}.')
+            )
+            .optional(),
     })
     .describe(
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
@@ -319,6 +358,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
 
 export const hogFlowsCreateBodyNameMax = 400
 
+export const hogFlowsCreateBodyDescriptionDefault = ``
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -329,26 +369,40 @@ export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsCreateBodyNameMax).nullish(),
-    description: zod.string().optional(),
+    name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
+        .describe(
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+        ),
     trigger_masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsCreateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsCreateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFlowsCreateBodyTriggerMaskingOneTtlMin)
+                    .max(hogFlowsCreateBodyTriggerMaskingOneTtlMax)
+                    .nullish()
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+        ),
+    conversion: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+        ),
     exit_condition: zod
         .enum([
             'exit_on_conversion',
@@ -356,56 +410,111 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
             'exit_on_trigger_not_matched_or_conversion',
             'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
-    edges: zod.unknown().optional(),
-    actions: zod.array(
-        zod.object({
-            id: zod.string(),
-            name: zod.string().max(hogFlowsCreateBodyActionsItemNameMax),
-            description: zod.string().default(hogFlowsCreateBodyActionsItemDescriptionDefault),
-            on_error: zod
-                .union([
-                    zod
-                        .enum(['continue', 'abort', 'complete', 'branch'])
-                        .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                        ),
-                    zod.literal(null),
-                ])
-                .nullish(),
-            created_at: zod.number().optional(),
-            updated_at: zod.number().optional(),
-            filters: zod
-                .object({
-                    source: zod
-                        .enum(['events', 'person-updates', 'data-warehouse-table'])
-                        .describe(
-                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                        )
-                        .default(hogFlowsCreateBodyActionsItemFiltersOneSourceDefault),
-                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
-                    transpiled: zod.unknown().optional(),
-                    filter_test_accounts: zod.boolean().optional(),
-                    bytecode_error: zod.string().optional(),
-                })
-                .nullish(),
-            type: zod.string().max(hogFlowsCreateBodyActionsItemTypeMax),
-            config: zod.unknown(),
-            output_variable: zod.unknown().nullish(),
-        })
-    ),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+    edges: zod
+        .array(
+            zod.object({
+                to: zod.string().describe('Target action id.'),
+                type: zod
+                    .enum(['continue', 'branch'])
+                    .describe('\* `continue` - continue\n\* `branch` - branch')
+                    .describe(
+                        "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe(
+                        "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                    ),
+                from: zod.string().describe('Source action id.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+        ),
+    actions: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsCreateBodyActionsItemNameMax).describe('Display name.'),
+                description: zod
+                    .string()
+                    .default(hogFlowsCreateBodyActionsItemDescriptionDefault)
+                    .describe('Optional description.'),
+                on_error: zod
+                    .union([
+                        zod
+                            .enum(['continue', 'abort', 'complete', 'branch'])
+                            .describe(
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
+                filters: zod
+                    .union([
+                        zod.object({
+                            source: zod
+                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                .describe(
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                )
+                                .default(hogFlowsCreateBodyActionsItemFiltersOneSourceDefault),
+                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            bytecode: zod.unknown().optional(),
+                            transpiled: zod.unknown().optional(),
+                            filter_test_accounts: zod.boolean().optional(),
+                            bytecode_error: zod.string().optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Property filters gating this action.'),
+                type: zod
+                    .string()
+                    .max(hogFlowsCreateBodyActionsItemTypeMax)
+                    .describe(
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                    ),
+                config: zod
+                    .unknown()
+                    .describe(
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    ),
+                output_variable: zod
+                    .unknown()
+                    .optional()
+                    .describe('Output variable definition for downstream actions.'),
+            })
+        )
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+    variables: zod
+        .array(
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
+        )
+        .optional()
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsUpdateBodyNameMax = 400
 
+export const hogFlowsUpdateBodyDescriptionDefault = ``
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -416,26 +525,40 @@ export const hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsUpdateBodyActionsItemTypeMax = 100
 
 export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsUpdateBodyNameMax).nullish(),
-    description: zod.string().optional(),
+    name: zod.string().max(hogFlowsUpdateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsUpdateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
+        .describe(
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+        ),
     trigger_masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsUpdateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsUpdateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFlowsUpdateBodyTriggerMaskingOneTtlMin)
+                    .max(hogFlowsUpdateBodyTriggerMaskingOneTtlMax)
+                    .nullish()
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+        ),
+    conversion: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+        ),
     exit_condition: zod
         .enum([
             'exit_on_conversion',
@@ -443,56 +566,111 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
             'exit_on_trigger_not_matched_or_conversion',
             'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
-    edges: zod.unknown().optional(),
-    actions: zod.array(
-        zod.object({
-            id: zod.string(),
-            name: zod.string().max(hogFlowsUpdateBodyActionsItemNameMax),
-            description: zod.string().default(hogFlowsUpdateBodyActionsItemDescriptionDefault),
-            on_error: zod
-                .union([
-                    zod
-                        .enum(['continue', 'abort', 'complete', 'branch'])
-                        .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                        ),
-                    zod.literal(null),
-                ])
-                .nullish(),
-            created_at: zod.number().optional(),
-            updated_at: zod.number().optional(),
-            filters: zod
-                .object({
-                    source: zod
-                        .enum(['events', 'person-updates', 'data-warehouse-table'])
-                        .describe(
-                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                        )
-                        .default(hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault),
-                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
-                    transpiled: zod.unknown().optional(),
-                    filter_test_accounts: zod.boolean().optional(),
-                    bytecode_error: zod.string().optional(),
-                })
-                .nullish(),
-            type: zod.string().max(hogFlowsUpdateBodyActionsItemTypeMax),
-            config: zod.unknown(),
-            output_variable: zod.unknown().nullish(),
-        })
-    ),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+    edges: zod
+        .array(
+            zod.object({
+                to: zod.string().describe('Target action id.'),
+                type: zod
+                    .enum(['continue', 'branch'])
+                    .describe('\* `continue` - continue\n\* `branch` - branch')
+                    .describe(
+                        "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe(
+                        "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                    ),
+                from: zod.string().describe('Source action id.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+        ),
+    actions: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsUpdateBodyActionsItemNameMax).describe('Display name.'),
+                description: zod
+                    .string()
+                    .default(hogFlowsUpdateBodyActionsItemDescriptionDefault)
+                    .describe('Optional description.'),
+                on_error: zod
+                    .union([
+                        zod
+                            .enum(['continue', 'abort', 'complete', 'branch'])
+                            .describe(
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
+                filters: zod
+                    .union([
+                        zod.object({
+                            source: zod
+                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                .describe(
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                )
+                                .default(hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault),
+                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            bytecode: zod.unknown().optional(),
+                            transpiled: zod.unknown().optional(),
+                            filter_test_accounts: zod.boolean().optional(),
+                            bytecode_error: zod.string().optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Property filters gating this action.'),
+                type: zod
+                    .string()
+                    .max(hogFlowsUpdateBodyActionsItemTypeMax)
+                    .describe(
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                    ),
+                config: zod
+                    .unknown()
+                    .describe(
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    ),
+                output_variable: zod
+                    .unknown()
+                    .optional()
+                    .describe('Output variable definition for downstream actions.'),
+            })
+        )
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+    variables: zod
+        .array(
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
+        )
+        .optional()
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsPartialUpdateBodyNameMax = 400
 
+export const hogFlowsPartialUpdateBodyDescriptionDefault = ``
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -503,26 +681,40 @@ export const hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault = `even
 export const hogFlowsPartialUpdateBodyActionsItemTypeMax = 100
 
 export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish(),
-    description: zod.string().optional(),
+    name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsPartialUpdateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
+        .describe(
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+        ),
     trigger_masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin)
+                    .max(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax)
+                    .nullish()
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+        ),
+    conversion: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+        ),
     exit_condition: zod
         .enum([
             'exit_on_conversion',
@@ -530,58 +722,112 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'exit_on_trigger_not_matched_or_conversion',
             'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
-    edges: zod.unknown().optional(),
+    edges: zod
+        .array(
+            zod.object({
+                to: zod.string().describe('Target action id.'),
+                type: zod
+                    .enum(['continue', 'branch'])
+                    .describe('\* `continue` - continue\n\* `branch` - branch')
+                    .describe(
+                        "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe(
+                        "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                    ),
+                from: zod.string().describe('Source action id.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+        ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string(),
-                name: zod.string().max(hogFlowsPartialUpdateBodyActionsItemNameMax),
-                description: zod.string().default(hogFlowsPartialUpdateBodyActionsItemDescriptionDefault),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
+                description: zod
+                    .string()
+                    .default(hogFlowsPartialUpdateBodyActionsItemDescriptionDefault)
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
                             .enum(['continue', 'abort', 'complete', 'branch'])
                             .describe(
-                                '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                             ),
-                        zod.literal(null),
+                        zod.null(),
                     ])
-                    .nullish(),
-                created_at: zod.number().optional(),
-                updated_at: zod.number().optional(),
+                    .optional()
+                    .describe(
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
-                    .object({
-                        source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
-                            .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                            )
-                            .default(hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault),
-                        actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        bytecode: zod.unknown().nullish(),
-                        transpiled: zod.unknown().optional(),
-                        filter_test_accounts: zod.boolean().optional(),
-                        bytecode_error: zod.string().optional(),
-                    })
-                    .nullish(),
-                type: zod.string().max(hogFlowsPartialUpdateBodyActionsItemTypeMax),
-                config: zod.unknown(),
-                output_variable: zod.unknown().nullish(),
+                    .union([
+                        zod.object({
+                            source: zod
+                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                .describe(
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                )
+                                .default(hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault),
+                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            bytecode: zod.unknown().optional(),
+                            transpiled: zod.unknown().optional(),
+                            filter_test_accounts: zod.boolean().optional(),
+                            bytecode_error: zod.string().optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Property filters gating this action.'),
+                type: zod
+                    .string()
+                    .max(hogFlowsPartialUpdateBodyActionsItemTypeMax)
+                    .describe(
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                    ),
+                config: zod
+                    .unknown()
+                    .describe(
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    ),
+                output_variable: zod
+                    .unknown()
+                    .optional()
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
-        .optional(),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+        .optional()
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+    variables: zod
+        .array(
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
+        )
+        .optional()
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsBatchJobsCreateBodyNameMax = 400
 
+export const hogFlowsBatchJobsCreateBodyDescriptionDefault = ``
 export const hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -592,26 +838,40 @@ export const hogFlowsBatchJobsCreateBodyActionsItemFiltersOneSourceDefault = `ev
 export const hogFlowsBatchJobsCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsBatchJobsCreateBodyNameMax).nullish(),
-    description: zod.string().optional(),
+    name: zod.string().max(hogFlowsBatchJobsCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsBatchJobsCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
+        .describe(
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+        ),
     trigger_masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMin)
+                    .max(hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMax)
+                    .nullish()
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+        ),
+    conversion: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+        ),
     exit_condition: zod
         .enum([
             'exit_on_conversion',
@@ -619,143 +879,354 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
             'exit_on_trigger_not_matched_or_conversion',
             'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
-    edges: zod.unknown().optional(),
-    actions: zod.array(
-        zod.object({
-            id: zod.string(),
-            name: zod.string().max(hogFlowsBatchJobsCreateBodyActionsItemNameMax),
-            description: zod.string().default(hogFlowsBatchJobsCreateBodyActionsItemDescriptionDefault),
-            on_error: zod
-                .union([
-                    zod
-                        .enum(['continue', 'abort', 'complete', 'branch'])
-                        .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                        ),
-                    zod.literal(null),
-                ])
-                .nullish(),
-            created_at: zod.number().optional(),
-            updated_at: zod.number().optional(),
-            filters: zod
-                .object({
-                    source: zod
-                        .enum(['events', 'person-updates', 'data-warehouse-table'])
-                        .describe(
-                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                        )
-                        .default(hogFlowsBatchJobsCreateBodyActionsItemFiltersOneSourceDefault),
-                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
-                    transpiled: zod.unknown().optional(),
-                    filter_test_accounts: zod.boolean().optional(),
-                    bytecode_error: zod.string().optional(),
-                })
-                .nullish(),
-            type: zod.string().max(hogFlowsBatchJobsCreateBodyActionsItemTypeMax),
-            config: zod.unknown(),
-            output_variable: zod.unknown().nullish(),
-        })
-    ),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+    edges: zod
+        .array(
+            zod.object({
+                to: zod.string().describe('Target action id.'),
+                type: zod
+                    .enum(['continue', 'branch'])
+                    .describe('\* `continue` - continue\n\* `branch` - branch')
+                    .describe(
+                        "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe(
+                        "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                    ),
+                from: zod.string().describe('Source action id.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+        ),
+    actions: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsBatchJobsCreateBodyActionsItemNameMax).describe('Display name.'),
+                description: zod
+                    .string()
+                    .default(hogFlowsBatchJobsCreateBodyActionsItemDescriptionDefault)
+                    .describe('Optional description.'),
+                on_error: zod
+                    .union([
+                        zod
+                            .enum(['continue', 'abort', 'complete', 'branch'])
+                            .describe(
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
+                filters: zod
+                    .union([
+                        zod.object({
+                            source: zod
+                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                .describe(
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                )
+                                .default(hogFlowsBatchJobsCreateBodyActionsItemFiltersOneSourceDefault),
+                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            bytecode: zod.unknown().optional(),
+                            transpiled: zod.unknown().optional(),
+                            filter_test_accounts: zod.boolean().optional(),
+                            bytecode_error: zod.string().optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Property filters gating this action.'),
+                type: zod
+                    .string()
+                    .max(hogFlowsBatchJobsCreateBodyActionsItemTypeMax)
+                    .describe(
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                    ),
+                config: zod
+                    .unknown()
+                    .describe(
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    ),
+                output_variable: zod
+                    .unknown()
+                    .optional()
+                    .describe('Output variable definition for downstream actions.'),
+            })
+        )
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+    variables: zod
+        .array(
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
+        )
+        .optional()
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
-export const hogFlowsInvocationsCreateBodyNameMax = 400
+export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
-export const hogFlowsInvocationsCreateBodyTriggerMaskingOneTtlMin = 60
-export const hogFlowsInvocationsCreateBodyTriggerMaskingOneTtlMax = 94608000
+export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
+export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
-export const hogFlowsInvocationsCreateBodyActionsItemNameMax = 400
+export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax = 150
 
-export const hogFlowsInvocationsCreateBodyActionsItemDescriptionDefault = ``
-export const hogFlowsInvocationsCreateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowsInvocationsCreateBodyActionsItemTypeMax = 100
+export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax = 150
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax = 254
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMin = 60
+export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax = 400
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemDescriptionDefault = ``
+export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemFiltersOneSourceDefault = `events`
+export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemTypeMax = 100
+
+export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 
 export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsInvocationsCreateBodyNameMax).nullish(),
-    description: zod.string().optional(),
-    status: zod
-        .enum(['draft', 'active', 'archived'])
-        .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
-    trigger_masking: zod
+    configuration: zod
         .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsInvocationsCreateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsInvocationsCreateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
-    exit_condition: zod
-        .enum([
-            'exit_on_conversion',
-            'exit_on_trigger_not_matched',
-            'exit_on_trigger_not_matched_or_conversion',
-            'exit_only_at_end',
-        ])
-        .optional()
-        .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
-        ),
-    edges: zod.unknown().optional(),
-    actions: zod.array(
-        zod.object({
-            id: zod.string(),
-            name: zod.string().max(hogFlowsInvocationsCreateBodyActionsItemNameMax),
-            description: zod.string().default(hogFlowsInvocationsCreateBodyActionsItemDescriptionDefault),
-            on_error: zod
+            id: zod.uuid(),
+            name: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneNameMax)
+                .nullish()
+                .describe('Workflow name.'),
+            description: zod
+                .string()
+                .default(hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault)
+                .describe('Optional description.'),
+            version: zod.number(),
+            status: zod
+                .enum(['draft', 'active', 'archived'])
+                .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
+                .optional()
+                .describe(
+                    'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                ),
+            created_at: zod.iso.datetime({ offset: true }),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod
+                    .string()
+                    .max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.email().max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.null(),
+                    ])
+                    .optional(),
+            }),
+            updated_at: zod.iso.datetime({ offset: true }),
+            trigger: zod.unknown(),
+            trigger_masking: zod
                 .union([
-                    zod
-                        .enum(['continue', 'abort', 'complete', 'branch'])
-                        .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                        ),
-                    zod.literal(null),
+                    zod.object({
+                        ttl: zod
+                            .number()
+                            .min(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMin)
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax)
+                            .nullish()
+                            .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                        threshold: zod
+                            .number()
+                            .nullish()
+                            .describe('Min matching events before triggering (k-anonymity).'),
+                        hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+                    }),
+                    zod.null(),
                 ])
-                .nullish(),
-            created_at: zod.number().optional(),
-            updated_at: zod.number().optional(),
-            filters: zod
-                .object({
-                    source: zod
-                        .enum(['events', 'person-updates', 'data-warehouse-table'])
-                        .describe(
-                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                        )
-                        .default(hogFlowsInvocationsCreateBodyActionsItemFiltersOneSourceDefault),
-                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
-                    transpiled: zod.unknown().optional(),
-                    filter_test_accounts: zod.boolean().optional(),
-                    bytecode_error: zod.string().optional(),
-                })
-                .nullish(),
-            type: zod.string().max(hogFlowsInvocationsCreateBodyActionsItemTypeMax),
-            config: zod.unknown(),
-            output_variable: zod.unknown().nullish(),
+                .optional()
+                .describe(
+                    'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+                ),
+            conversion: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                ),
+            exit_condition: zod
+                .enum([
+                    'exit_on_conversion',
+                    'exit_on_trigger_not_matched',
+                    'exit_on_trigger_not_matched_or_conversion',
+                    'exit_only_at_end',
+                ])
+                .describe(
+                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+                )
+                .optional()
+                .describe(
+                    "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                ),
+            edges: zod
+                .array(
+                    zod.object({
+                        to: zod.string().describe('Target action id.'),
+                        type: zod
+                            .enum(['continue', 'branch'])
+                            .describe('\* `continue` - continue\n\* `branch` - branch')
+                            .describe(
+                                "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                            ),
+                        index: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                            ),
+                        from: zod.string().describe('Source action id.'),
+                    })
+                )
+                .optional()
+                .describe(
+                    "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+                ),
+            actions: zod
+                .array(
+                    zod.object({
+                        id: zod.string().describe('Unique node ID within the workflow.'),
+                        name: zod
+                            .string()
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax)
+                            .describe('Display name.'),
+                        description: zod
+                            .string()
+                            .default(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemDescriptionDefault)
+                            .describe('Optional description.'),
+                        on_error: zod
+                            .union([
+                                zod
+                                    .enum(['continue', 'abort', 'complete', 'branch'])
+                                    .describe(
+                                        '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                            ),
+                        created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                        updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
+                        filters: zod
+                            .union([
+                                zod.object({
+                                    source: zod
+                                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                        .describe(
+                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        )
+                                        .default(
+                                            hogFlowsInvocationsCreateBodyConfigurationOneActionsItemFiltersOneSourceDefault
+                                        ),
+                                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    bytecode: zod.unknown().optional(),
+                                    transpiled: zod.unknown().optional(),
+                                    filter_test_accounts: zod.boolean().optional(),
+                                    bytecode_error: zod.string().optional(),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Property filters gating this action.'),
+                        type: zod
+                            .string()
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemTypeMax)
+                            .describe(
+                                'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                            ),
+                        config: zod
+                            .unknown()
+                            .describe(
+                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                            ),
+                        output_variable: zod
+                            .unknown()
+                            .optional()
+                            .describe('Output variable definition for downstream actions.'),
+                    })
+                )
+                .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+            abort_action: zod.string().nullable(),
+            variables: zod
+                .array(
+                    zod
+                        .record(zod.string(), zod.string())
+                        .describe('Variable: {key, type: string|number|boolean, default}.')
+                )
+                .optional()
+                .describe('Workflow vars (key, type, default). Total <5KB.'),
+            billable_action_types: zod.unknown(),
         })
-    ),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+        .optional()
+        .describe('Optional override; omit to use saved definition.'),
+    globals: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Test trigger payload, typically {event, person, groups}.'),
+    mock_async_functions: zod
+        .boolean()
+        .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
+        .describe('True (default) mocks HTTP\/email\/SMS. False fires real side effects.'),
+    current_action_id: zod.string().optional().describe('Start from this action ID instead of the trigger.'),
 })
 
 export const hogFlowsSchedulesCreateBodyNameMax = 400
 
+export const hogFlowsSchedulesCreateBodyDescriptionDefault = ``
 export const hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -766,26 +1237,40 @@ export const hogFlowsSchedulesCreateBodyActionsItemFiltersOneSourceDefault = `ev
 export const hogFlowsSchedulesCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsSchedulesCreateBodyNameMax).nullish(),
-    description: zod.string().optional(),
+    name: zod.string().max(hogFlowsSchedulesCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsSchedulesCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
+        .describe(
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+        ),
     trigger_masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMin)
+                    .max(hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMax)
+                    .nullish()
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+        ),
+    conversion: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+        ),
     exit_condition: zod
         .enum([
             'exit_on_conversion',
@@ -793,56 +1278,111 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
             'exit_on_trigger_not_matched_or_conversion',
             'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
-    edges: zod.unknown().optional(),
-    actions: zod.array(
-        zod.object({
-            id: zod.string(),
-            name: zod.string().max(hogFlowsSchedulesCreateBodyActionsItemNameMax),
-            description: zod.string().default(hogFlowsSchedulesCreateBodyActionsItemDescriptionDefault),
-            on_error: zod
-                .union([
-                    zod
-                        .enum(['continue', 'abort', 'complete', 'branch'])
-                        .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                        ),
-                    zod.literal(null),
-                ])
-                .nullish(),
-            created_at: zod.number().optional(),
-            updated_at: zod.number().optional(),
-            filters: zod
-                .object({
-                    source: zod
-                        .enum(['events', 'person-updates', 'data-warehouse-table'])
-                        .describe(
-                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                        )
-                        .default(hogFlowsSchedulesCreateBodyActionsItemFiltersOneSourceDefault),
-                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
-                    transpiled: zod.unknown().optional(),
-                    filter_test_accounts: zod.boolean().optional(),
-                    bytecode_error: zod.string().optional(),
-                })
-                .nullish(),
-            type: zod.string().max(hogFlowsSchedulesCreateBodyActionsItemTypeMax),
-            config: zod.unknown(),
-            output_variable: zod.unknown().nullish(),
-        })
-    ),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+    edges: zod
+        .array(
+            zod.object({
+                to: zod.string().describe('Target action id.'),
+                type: zod
+                    .enum(['continue', 'branch'])
+                    .describe('\* `continue` - continue\n\* `branch` - branch')
+                    .describe(
+                        "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe(
+                        "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                    ),
+                from: zod.string().describe('Source action id.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+        ),
+    actions: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsSchedulesCreateBodyActionsItemNameMax).describe('Display name.'),
+                description: zod
+                    .string()
+                    .default(hogFlowsSchedulesCreateBodyActionsItemDescriptionDefault)
+                    .describe('Optional description.'),
+                on_error: zod
+                    .union([
+                        zod
+                            .enum(['continue', 'abort', 'complete', 'branch'])
+                            .describe(
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
+                filters: zod
+                    .union([
+                        zod.object({
+                            source: zod
+                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                .describe(
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                )
+                                .default(hogFlowsSchedulesCreateBodyActionsItemFiltersOneSourceDefault),
+                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            bytecode: zod.unknown().optional(),
+                            transpiled: zod.unknown().optional(),
+                            filter_test_accounts: zod.boolean().optional(),
+                            bytecode_error: zod.string().optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Property filters gating this action.'),
+                type: zod
+                    .string()
+                    .max(hogFlowsSchedulesCreateBodyActionsItemTypeMax)
+                    .describe(
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                    ),
+                config: zod
+                    .unknown()
+                    .describe(
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    ),
+                output_variable: zod
+                    .unknown()
+                    .optional()
+                    .describe('Output variable definition for downstream actions.'),
+            })
+        )
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+    variables: zod
+        .array(
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
+        )
+        .optional()
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsSchedulesPartialUpdateBodyNameMax = 400
 
+export const hogFlowsSchedulesPartialUpdateBodyDescriptionDefault = ``
 export const hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -853,26 +1393,43 @@ export const hogFlowsSchedulesPartialUpdateBodyActionsItemFiltersOneSourceDefaul
 export const hogFlowsSchedulesPartialUpdateBodyActionsItemTypeMax = 100
 
 export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsSchedulesPartialUpdateBodyNameMax).nullish(),
-    description: zod.string().optional(),
+    name: zod.string().max(hogFlowsSchedulesPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod
+        .string()
+        .default(hogFlowsSchedulesPartialUpdateBodyDescriptionDefault)
+        .describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
+        .describe(
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+        ),
     trigger_masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMin)
+                    .max(hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMax)
+                    .nullish()
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+        ),
+    conversion: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+        ),
     exit_condition: zod
         .enum([
             'exit_on_conversion',
@@ -880,58 +1437,112 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
             'exit_on_trigger_not_matched_or_conversion',
             'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
-    edges: zod.unknown().optional(),
+    edges: zod
+        .array(
+            zod.object({
+                to: zod.string().describe('Target action id.'),
+                type: zod
+                    .enum(['continue', 'branch'])
+                    .describe('\* `continue` - continue\n\* `branch` - branch')
+                    .describe(
+                        "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe(
+                        "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                    ),
+                from: zod.string().describe('Source action id.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+        ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string(),
-                name: zod.string().max(hogFlowsSchedulesPartialUpdateBodyActionsItemNameMax),
-                description: zod.string().default(hogFlowsSchedulesPartialUpdateBodyActionsItemDescriptionDefault),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsSchedulesPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
+                description: zod
+                    .string()
+                    .default(hogFlowsSchedulesPartialUpdateBodyActionsItemDescriptionDefault)
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
                             .enum(['continue', 'abort', 'complete', 'branch'])
                             .describe(
-                                '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                             ),
-                        zod.literal(null),
+                        zod.null(),
                     ])
-                    .nullish(),
-                created_at: zod.number().optional(),
-                updated_at: zod.number().optional(),
+                    .optional()
+                    .describe(
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
-                    .object({
-                        source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
-                            .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                            )
-                            .default(hogFlowsSchedulesPartialUpdateBodyActionsItemFiltersOneSourceDefault),
-                        actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                        bytecode: zod.unknown().nullish(),
-                        transpiled: zod.unknown().optional(),
-                        filter_test_accounts: zod.boolean().optional(),
-                        bytecode_error: zod.string().optional(),
-                    })
-                    .nullish(),
-                type: zod.string().max(hogFlowsSchedulesPartialUpdateBodyActionsItemTypeMax),
-                config: zod.unknown(),
-                output_variable: zod.unknown().nullish(),
+                    .union([
+                        zod.object({
+                            source: zod
+                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                .describe(
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                )
+                                .default(hogFlowsSchedulesPartialUpdateBodyActionsItemFiltersOneSourceDefault),
+                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            bytecode: zod.unknown().optional(),
+                            transpiled: zod.unknown().optional(),
+                            filter_test_accounts: zod.boolean().optional(),
+                            bytecode_error: zod.string().optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Property filters gating this action.'),
+                type: zod
+                    .string()
+                    .max(hogFlowsSchedulesPartialUpdateBodyActionsItemTypeMax)
+                    .describe(
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                    ),
+                config: zod
+                    .unknown()
+                    .describe(
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    ),
+                output_variable: zod
+                    .unknown()
+                    .optional()
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
-        .optional(),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+        .optional()
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+    variables: zod
+        .array(
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
+        )
+        .optional()
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
+export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -942,26 +1553,40 @@ export const hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault = `e
 export const hogFlowsBulkDeleteCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsBulkDeleteCreateBodyNameMax).nullish(),
-    description: zod.string().optional(),
+    name: zod.string().max(hogFlowsBulkDeleteCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsBulkDeleteCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    trigger: zod.unknown().optional(),
+        .describe(
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+        ),
     trigger_masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin)
-                .max(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax)
-                .nullish(),
-            threshold: zod.number().nullish(),
-            hash: zod.string(),
-            bytecode: zod.unknown().nullish(),
-        })
-        .nullish(),
-    conversion: zod.unknown().nullish(),
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin)
+                    .max(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax)
+                    .nullish()
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+        ),
+    conversion: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+        ),
     exit_condition: zod
         .enum([
             'exit_on_conversion',
@@ -969,52 +1594,106 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
             'exit_on_trigger_not_matched_or_conversion',
             'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
-    edges: zod.unknown().optional(),
-    actions: zod.array(
-        zod.object({
-            id: zod.string(),
-            name: zod.string().max(hogFlowsBulkDeleteCreateBodyActionsItemNameMax),
-            description: zod.string().default(hogFlowsBulkDeleteCreateBodyActionsItemDescriptionDefault),
-            on_error: zod
-                .union([
-                    zod
-                        .enum(['continue', 'abort', 'complete', 'branch'])
-                        .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                        ),
-                    zod.literal(null),
-                ])
-                .nullish(),
-            created_at: zod.number().optional(),
-            updated_at: zod.number().optional(),
-            filters: zod
-                .object({
-                    source: zod
-                        .enum(['events', 'person-updates', 'data-warehouse-table'])
-                        .describe(
-                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
-                        )
-                        .default(hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault),
-                    actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
-                    transpiled: zod.unknown().optional(),
-                    filter_test_accounts: zod.boolean().optional(),
-                    bytecode_error: zod.string().optional(),
-                })
-                .nullish(),
-            type: zod.string().max(hogFlowsBulkDeleteCreateBodyActionsItemTypeMax),
-            config: zod.unknown(),
-            output_variable: zod.unknown().nullish(),
-        })
-    ),
-    variables: zod.array(zod.record(zod.string(), zod.string())).optional(),
+    edges: zod
+        .array(
+            zod.object({
+                to: zod.string().describe('Target action id.'),
+                type: zod
+                    .enum(['continue', 'branch'])
+                    .describe('\* `continue` - continue\n\* `branch` - branch')
+                    .describe(
+                        "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe(
+                        "Required for type='branch'. Index into config.conditions on conditional_branch \/ wait_until_condition."
+                    ),
+                from: zod.string().describe('Source action id.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
+        ),
+    actions: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsBulkDeleteCreateBodyActionsItemNameMax).describe('Display name.'),
+                description: zod
+                    .string()
+                    .default(hogFlowsBulkDeleteCreateBodyActionsItemDescriptionDefault)
+                    .describe('Optional description.'),
+                on_error: zod
+                    .union([
+                        zod
+                            .enum(['continue', 'abort', 'complete', 'branch'])
+                            .describe(
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
+                filters: zod
+                    .union([
+                        zod.object({
+                            source: zod
+                                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                .describe(
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                )
+                                .default(hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault),
+                            actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            bytecode: zod.unknown().optional(),
+                            transpiled: zod.unknown().optional(),
+                            filter_test_accounts: zod.boolean().optional(),
+                            bytecode_error: zod.string().optional(),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Property filters gating this action.'),
+                type: zod
+                    .string()
+                    .max(hogFlowsBulkDeleteCreateBodyActionsItemTypeMax)
+                    .describe(
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                    ),
+                config: zod
+                    .unknown()
+                    .describe(
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    ),
+                output_variable: zod
+                    .unknown()
+                    .optional()
+                    .describe('Output variable definition for downstream actions.'),
+            })
+        )
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
+    variables: zod
+        .array(
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
+        )
+        .optional()
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({

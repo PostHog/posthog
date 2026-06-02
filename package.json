@@ -57,13 +57,14 @@
         "fuse.js": "catalog:",
         "husky": "catalog:",
         "lint-staged": "catalog:",
-        "uuid": "^10.0.0",
+        "uuid": "^11.1.1",
         "zod": "^4.3.6"
     },
     "devDependencies": {
         "@parcel/packager-ts": "catalog:",
         "@parcel/transformer-typescript-types": "catalog:",
-        "@types/uuid": "^10.0.0",
+        "@types/uuid": "^11.0.0",
+        "@typescript/native-preview": "7.0.0-dev.20260421.2",
         "markdownlint-cli2": "^0.18.1",
         "oxfmt": "catalog:",
         "oxlint": "^1.8.0",
@@ -72,8 +73,8 @@
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
-        "syncpack": "^13.0.4",
-        "turbo": "^2.4.2"
+        "syncpack": "^15.3.1",
+        "turbo": "^2.9.14"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
@@ -91,8 +92,8 @@
             "bin/hogli lint:feature-flags:fix",
             "bin/hogli format:js"
         ],
-        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
+        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
+        "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
@@ -127,12 +128,12 @@
             "d3-selection": ">=3.0.0",
             "d3-zoom": ">=3.0.0",
             "form-data": ">=4.0.4",
-            "node-forge": "1.3.2",
+            "node-forge": ">=1.4.0",
             "pbkdf2": ">=3.1.3",
             "react": "18.3.1",
             "react-dom": "18.3.1",
             "sha.js": ">=2.4.12",
-            "typescript": "5.9.3",
+            "typescript": "6.0.3",
             "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
             "fast-xml-parser@^4": ">=4.5.4",
             "fast-xml-parser@^5": ">=5.3.5"
@@ -145,6 +146,7 @@
         "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
         "onlyBuiltDependencies": [
             "@modelcontextprotocol/ext-apps",
+            "@mongodb-js/zstd",
             "@parcel/watcher",
             "chartjs-plugin-stacked100",
             "@swc/core",

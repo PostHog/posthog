@@ -77,7 +77,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Action, Insight, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
@@ -197,15 +197,20 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
+from products.product_analytics.backend.models.insight import Insight
 
-# Make sure freezegun ignores our utils class that times functions
-cast(Any, freezegun).configure(extend_ignore_list=["posthog.test.assert_faster_than"])
+# Make sure freezegun ignores our utils class that times functions, and heavy optional
+# deps (e.g. transformers) that can break when freezegun walks sys.modules.
+cast(Any, freezegun).configure(
+    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
+)
 
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
@@ -272,7 +277,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     )
 
     # remove version suffix from funnel UDFs
-    query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
+    query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
@@ -780,6 +785,20 @@ class PostHogTestCase(SimpleTestCase):
                 func(*args, **kwargs)
 
 
+def no_memory_leak_check(method):
+    """Skip the `MemoryLeakTestMixin` re-run-and-measure loop for this test.
+
+    Use on tests whose body is intrinsically noisy from the mixin's
+    point of view — typically tests that assert a parser raises with a
+    verbose error string (the cpp backend's ANTLR error messages
+    accumulate per-call and trip the per-parse byte limit even though
+    nothing leaks). The decorated test method still runs, just once,
+    and skips the priming / measurement loop entirely.
+    """
+    method._no_memory_leak_check = True
+    return method
+
+
 class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
     """Parsing more than once can never increase memory by this much (on average)"""
@@ -790,14 +809,28 @@ class MemoryLeakTestMixin:
     MEMORY_LEAK_CHECK_RUNS_N: int
     """How many times to run every test method to check for memory leaks"""
 
+    # Re-run index for the current test, exposed so a test body can do work that must happen
+    # exactly once (e.g. a snapshot/oracle comparison whose own machinery allocates and would
+    # otherwise trip the leak check on every rerun) only when this is 0, while still exercising
+    # the code under test on every rerun. Outside the priming/measure loop it stays 0.
+    _memory_leak_run_index: int = 0
+
     def _callTestMethod(self, method):
+        # Tests marked `@no_memory_leak_check` run once, no priming/measure loop.
+        if getattr(method, "_no_memory_leak_check", False):
+            self._memory_leak_run_index = 0
+            method()
+            return
         test_case = cast(unittest.TestCase, self)
+        self._memory_leak_run_index = 0
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
+            self._memory_leak_run_index += 1
         mem_primed_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_LEAK_CHECK_RUNS_N):  # Memory leak check runs
             method()
+            self._memory_leak_run_index += 1
         mem_tested_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         avg_memory_priming_increase_b = (mem_primed_b - mem_original_b) / self.MEMORY_PRIMING_RUNS_N
         avg_memory_test_increase_b = (mem_tested_b - mem_primed_b) / self.MEMORY_LEAK_CHECK_RUNS_N
@@ -980,6 +1013,7 @@ def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
             get_bloom_filter_index_name,
+            get_bloom_filter_lower_index_name,
             get_materialized_columns,
             get_minmax_index_name,
             get_ngram_lower_index_name,
@@ -1008,6 +1042,8 @@ def cleanup_materialized_columns():
                 indexes_to_drop.append(get_bloom_filter_index_name(column.name))
             if column.has_ngram_lower_index:
                 indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+            if column.has_bloom_filter_lower_index:
+                indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
             for index_name in indexes_to_drop:
                 sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
 
@@ -1101,6 +1137,29 @@ def get_indexes_from_explain(query: str, values: dict | None = None) -> list[dic
     return read_node.get("Indexes", [])
 
 
+def get_inner_person_subquery_clickhouse_sql(clickhouse_sql: str) -> str:
+    """Extract the pushed-down person-filter subquery from a compiled persons query.
+
+    Filtering `persons` by a property pushes the filter into a `where_optimization` IN-subquery that
+    ClickHouse evaluates eagerly, so EXPLAIN of the full query never shows the subquery's index analysis.
+    Pass a `HogQLQueryResponse.clickhouse` string; test-only, fails loudly if the subquery is not found.
+    """
+    match = re.search(r"\(\s*SELECT\s+where_optimization", clickhouse_sql)
+    assert match is not None, (
+        f"No `where_optimization` person subquery found - is this a persons query with a property filter?"
+        f"\n{clickhouse_sql}"
+    )
+    depth = 0
+    for i in range(match.start(), len(clickhouse_sql)):
+        if clickhouse_sql[i] == "(":
+            depth += 1
+        elif clickhouse_sql[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return clickhouse_sql[match.start() + 1 : i]
+    raise AssertionError(f"Unbalanced parentheses extracting the person subquery:\n{clickhouse_sql}")
+
+
 @contextmanager
 def materialized(
     table,
@@ -1109,11 +1168,13 @@ def materialized(
     is_nullable: bool = False,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
+    create_bloom_filter_lower_index: bool = False,
 ) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
         from ee.clickhouse.materialized_columns.columns import (
             get_bloom_filter_index_name,
+            get_bloom_filter_lower_index_name,
             get_minmax_index_name,
             get_ngram_lower_index_name,
             materialize,
@@ -1130,6 +1191,7 @@ def materialized(
             is_nullable=is_nullable,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
+            create_bloom_filter_lower_index=create_bloom_filter_lower_index,
         )
         yield column
     finally:
@@ -1142,6 +1204,8 @@ def materialized(
                 indexes_to_drop.append(get_bloom_filter_index_name(column.name))
             if create_ngram_lower_index:
                 indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+            if create_bloom_filter_lower_index:
+                indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
             for index_name in indexes_to_drop:
                 sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
         cleanup_materialized_columns()
@@ -1860,7 +1924,7 @@ def snapshot_hogql_queries(fn_or_class):
 
         # Add patches for modules that import execute_hogql_query directly
         try:
-            from posthog.hogql_queries.web_analytics import web_overview
+            from products.web_analytics.backend.hogql_queries import web_overview
 
             if hasattr(web_overview, "execute_hogql_query"):
                 patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
@@ -1868,7 +1932,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         try:
-            from posthog.hogql_queries.web_analytics import stats_table
+            from products.web_analytics.backend.hogql_queries import stats_table
 
             if hasattr(stats_table, "execute_hogql_query"):
                 patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))

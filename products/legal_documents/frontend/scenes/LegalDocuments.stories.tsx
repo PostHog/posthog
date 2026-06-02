@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { userEvent, waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -90,6 +91,72 @@ export const NewBAA: Story = {
                         },
                     ],
                     has_active_subscription: true,
+                },
+            },
+        }),
+    ],
+}
+
+/**
+ * New-document page for a BAA when the org is on an active addon trial. The
+ * billing payload includes a top-level `trial` block targeting `boost`, so the
+ * paywall banner swaps to the trial-specific copy that instructs the user to
+ * cancel the trial and subscribe before generating the BAA.
+ */
+export const NewBAATrial: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('BAA'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/billing/': {
+                    products: [
+                        {
+                            type: 'platform_and_support',
+                            addons: [{ type: 'boost', subscribed: false }],
+                        },
+                    ],
+                    trial: {
+                        type: 'standard',
+                        status: 'active',
+                        target: 'boost',
+                        expires_at: '2026-06-15T00:00:00Z',
+                    },
+                    has_active_subscription: false,
+                },
+            },
+        }),
+    ],
+}
+
+/**
+ * New-document page for a BAA when the org is on a sales-managed Enterprise
+ * trial. The billing page hides the cancel-trial button for these, so the
+ * banner directs users to contact billing support instead of cancelling on
+ * billing.
+ */
+export const NewBAAEnterpriseTrial: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('BAA'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/billing/': {
+                    products: [
+                        {
+                            type: 'platform_and_support',
+                            addons: [{ type: 'enterprise', subscribed: false }],
+                        },
+                    ],
+                    trial: {
+                        type: 'standard',
+                        status: 'active',
+                        target: 'enterprise',
+                        expires_at: '2026-06-15T00:00:00Z',
+                    },
+                    has_active_subscription: false,
                 },
             },
         }),

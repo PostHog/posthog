@@ -7,11 +7,11 @@ Use `logs-attributes-list` and `logs-attribute-values-list` to discover availabl
 1. **Discover services first.** Call `logs-attribute-values-list` with `key: "service.name"` and `attribute_type: "resource"` to see available services.
 2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: "resource"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: "resource"` for relevant attributes to validate what data exists.
 3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.
-4. **Check volume with a sparkline.** Call `logs-sparkline-query` with the discovered `serviceNames` and filters to see log volume over time. This confirms there is data and shows patterns before you pull individual entries.
-5. **Size with a count when the sparkline volume looks high or ambiguous.** Call `logs-count` with the same filters to get an exact scalar. If it exceeds `query-logs`'s max `limit` of 1000, narrow the filters or shorten the `dateRange` before pulling rows. Skip this step if the sparkline already shows a small, well-bounded result.
-6. **Only then query logs.** Once you have confirmed the service name, volume looks right, and the count (if checked) is in range, call `query-logs` with `serviceNames` and any additional filters.
+4. **Size the total volume with `logs-count`.** Call `logs-count` with the discovered `serviceNames` and filters. If it exceeds `query-logs`'s max `limit` of 1000 — or if the user's question is about _when_ something happened — continue to step 5.
+5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).
+6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.
 
-10 attribute/value queries and 1 sparkline query are cheaper than 1 log query. Prefer thorough exploration over speculative log searches.
+Many cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 
@@ -45,6 +45,30 @@ Supported operators:
 - Existence (no value needed): `is_set`, `is_not_set`
 
 The `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.
+
+## Filtering logs by a PostHog person
+
+When the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via a `log_attribute` filter. The attribute key is configurable per project (it defaults to `distinct_id`); read `logs_distinct_id_attribute_key` from the team config (returned on `projects-retrieve` / `environments-retrieve`, or via the `/api/projects/:id/logs_config/` endpoint) and use that as the filter `key`.
+
+If the team has not configured a custom key, use `distinct_id`. If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them).
+
+```json
+{
+  "query": {
+    "serviceNames": ["<service>"],
+    "filterGroup": [
+      {
+        "key": "distinct_id",
+        "operator": "exact",
+        "type": "log_attribute",
+        "value": ["<distinct_id_1>", "<distinct_id_2>"]
+      }
+    ]
+  }
+}
+```
+
+Do not invent a different attribute key based on what looks plausible — use the configured key. If the configured key returns zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.
 
 ## Time period
 

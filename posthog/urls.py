@@ -7,6 +7,7 @@ from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.generic.base import RedirectView
 
 import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -21,7 +22,6 @@ from posthog.api import (
     hog_flow_template,
     hog_function_template,
     playwright_setup,
-    remote_config,
     report,
     router,
     sharing,
@@ -32,6 +32,8 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_callback.personal_finish import github_link_complete
+from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
@@ -47,16 +49,25 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
+from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
-from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
-from products.surveys.backend.api.survey import public_survey_page, surveys
-from products.tasks.backend.webhooks import github_pr_webhook
+from products.slack_app.backend.api import (
+    posthog_code_event_handler,
+    posthog_code_interactivity_handler,
+    slack_workspace_claims_view,
+)
+from products.surveys.backend.api.survey import public_survey_page
+from products.user_interviews.backend.presentation.webhooks import (
+    start_call as user_interviews_start_call,
+    vapi_webhook,
+)
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -85,6 +96,48 @@ except ImportError:
     pass
 else:
     extend_api_router()
+
+
+@csrf_exempt
+def github_webhook(request: HttpRequest) -> HttpResponse:
+    """Unified GitHub App webhook dispatcher.
+
+    Verifies the HMAC-SHA256 signature once, parses JSON once, then routes
+    by ``X-GitHub-Event`` to the appropriate product handler.
+    """
+    import json
+
+    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    secret = get_github_webhook_secret()
+    if not secret:
+        return HttpResponse("Webhook not configured", status=500)
+
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not verify_github_signature(request.body, signature, secret):
+        return HttpResponse("Invalid signature", status=403)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponse("Invalid JSON", status=400)
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+
+    if event_type in ("issues", "issue_comment"):
+        from products.conversations.backend.api.github_events import dispatch_github_event
+
+        return dispatch_github_event(request, event_type, payload)
+
+    if event_type == "pull_request":
+        from products.tasks.backend.webhooks import handle_pull_request_event
+
+        return handle_pull_request_event(payload)
+
+    return HttpResponse(status=200)
 
 
 @requires_csrf_token
@@ -210,11 +263,25 @@ urlpatterns = [
         name="user_signal_autonomy",
     ),
     path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
+    path(
+        "api/user_interviews/vapi_webhook/",
+        csrf_exempt(vapi_webhook),
+        name="user_interviews_vapi_webhook",
+    ),
+    path(
+        "api/user_interviews/share/<str:access_token>/start_call/",
+        csrf_exempt(user_interviews_start_call),
+        name="user_interviews_start_call",
+    ),
     path("api/sdk_doctor/", sdk_doctor),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
+    ),
+    path(
+        "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
+        include("products.access_control.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
@@ -231,10 +298,10 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
-    opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
+    opt_slash_path("api/signup/resend-invite", signup.SignupResendInviteViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -275,6 +342,15 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
+    # Deployments internal endpoints — Temporal build worker posts here.
+    path(
+        "api/internal/deployments/<uuid:deployment_id>/transitions/",
+        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "transitions"})),
+    ),
+    path(
+        "api/internal/deployments/<uuid:deployment_id>/events/",
+        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "events"})),
+    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     opt_slash_path(
@@ -304,6 +380,10 @@ urlpatterns = [
         "embedded/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
+    path(
+        "interview/<str:access_token>",
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+    ),
     path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path(
@@ -311,31 +391,48 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
-    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
-    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
+    opt_slash_path("id-jag/token", IdJagViewSet.as_view(), name="id_jag_token"),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
-    path("logout", authentication.logout, name="login"),
+    opt_slash_path("logout", authentication.logout, name="logout"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
+    # GitHub account linking (identity-only, separate from the login pipeline).
+    # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
+    path("complete/github-link/", github_link_complete, name="github_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
-    # GitHub webhooks for task lifecycle events
-    opt_slash_path("webhooks/github/pr", github_pr_webhook),
+    opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
+    # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
+    opt_slash_path("webhooks/github/pr", github_webhook),
+    opt_slash_path("webhooks/github", github_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
+
+# Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
+# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
+# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
+# the catch-all matches first and the redirect is unreachable.
+if settings.CLOUD_DEPLOYMENT == "EU":
+    urlpatterns.insert(
+        0,
+        path(
+            "api/llm_analytics/@me/spend/",
+            personal_spend_eu_redirect,
+            name="personal_spend_eu_redirect",
+        ),
+    )
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
@@ -382,6 +479,13 @@ if settings.TEST:
         urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
+# Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
+# app./us./eu. subdomains because only the path changes; the host is preserved by the
+# relative redirect.
+urlpatterns.append(
+    opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
+)
+
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = [
     "preflight",
@@ -393,6 +497,7 @@ frontend_unauthenticated_routes = [
     "login",
     "unsubscribe",
     "verify_email",
+    r"agentic/account-mismatch",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

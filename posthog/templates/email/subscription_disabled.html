@@ -1,0 +1,15 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block section %}
+    <p>
+        Your subscription <strong>{{ subscription_title }}</strong> has been
+        <strong>automatically disabled</strong> because:
+    </p>
+    <p><i>{{ reason }}</i></p>
+    <p>
+        To resume delivery, fix the issue above and re-enable the subscription.
+    </p>
+    {% if subscription_url %}
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri subscription_url %}">Manage subscription</a>
+    </div>
+    {% endif %}
+{% endblock %}

@@ -18,7 +18,7 @@ it's simpler and doesn't need a sandbox.
 | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
 | Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)        |
 | Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)        |
-| LLM analytics summarizing a funnel, generating a natural-language insight title                 | LLM gateway via `get_llm_client()` |
+| AI observability summarizing a funnel, generating a natural-language insight title              | LLM gateway via `get_llm_client()` |
 | Not sure                                                                                        | Ask in `#team-posthog-ai`          |
 
 **Rule of thumb**: if the LLM needs to _do things_ (query data, read files, create branches, open PRs), use a sandboxed agent.
@@ -233,8 +233,23 @@ They can:
 - Read, write, and execute files in the cloned repository
 - Install dependencies (npm, pip, etc.)
 - Run tests, linters, and build tools
-- Create git branches, commits, and pull requests
+- Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
+
+### Git commit signing
+
+Direct `git commit` and `git push` commands are blocked in the sandbox to ensure all commits are properly signed by GitHub. A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) intercepts these subcommands while passing all other git operations through to the real binary.
+
+If an agent attempts to run `git commit` or `git push`, it will see:
+
+```text
+git commit is disabled in PostHog Code: commits must be signed.
+Stage changes with 'git add', then call the git_signed_commit tool.
+```
+
+Agents should stage changes with `git add`, then use the `git_signed_commit` tool to create signed commits.
+
+**Debugging escape hatch**: Set `POSTHOG_ALLOW_UNSIGNED_GIT=1` in the sandbox environment to bypass this restriction. This is intended for debugging only and should not be used in production.
 
 ### Sandbox isolation
 
@@ -304,7 +319,9 @@ The setup command is idempotent and handles:
 - Enabling the `tasks` feature flag for all teams
 - Building the agent skills bundle
 
-For advanced setup options (Modal sandboxes, local agent packages), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
+For advanced setup options (Modal sandboxes, local agent packages, MCP), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
+
+**Tip:** Set `SANDBOX_REPO_MOUNT_MAP` to bind-mount local repositories into the Docker container and skip cloning from GitHub. Format: `SANDBOX_REPO_MOUNT_MAP=org/repo:/local/path` (e.g., `SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog`). This can significantly reduce sandbox startup time for large repos.
 
 ## Questions?
 

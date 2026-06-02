@@ -105,10 +105,13 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         Some(config.internal_api_secret.clone())
     };
+    let worker_urls = config.worker_urls();
     let transport = Arc::new(HttpTransport::new(
         Duration::from_millis(config.http_timeout_ms),
         config.max_retries,
         api_secret,
+        &worker_urls,
+        config.ingestion_worker_concurrent_batches,
     ));
 
     let consumer = IngestionConsumer::new(&config, transport, consumer_handle)

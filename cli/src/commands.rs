@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing::error;
 
@@ -28,6 +31,10 @@ pub struct Cli {
     /// Set the number of requests per minute for the Posthog API Client.
     #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
     rate_limit: Option<usize>,
+
+    /// Load PostHog credentials from this dotenv-style file when not present in the process environment.
+    #[arg(long, value_name = "PATH")]
+    env_file: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -173,6 +180,7 @@ impl Cli {
                 self.host.clone(),
                 self.skip_ssl_verification,
                 self.rate_limit,
+                self.env_file.clone(),
             )?;
         }
 
@@ -183,15 +191,22 @@ impl Cli {
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
-                    crate::sourcemaps::plain::inject::inject(&input_args)?;
+                    crate::sourcemaps::plain::inject::inject(&input_args, None)?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
-                    crate::sourcemaps::plain::upload::upload(&upload_args)?;
+                    crate::sourcemaps::plain::upload::upload(&upload_args, None)?;
                 }
                 SourcemapCommand::Process(args) => {
-                    let (inject, upload) = args.resolve_stdin()?.into();
-                    crate::sourcemaps::plain::inject::inject(&inject)?;
-                    crate::sourcemaps::plain::upload::upload(&upload)?;
+                    let (inject_args, upload_args) = args.resolve_stdin()?.into();
+                    let cwd =
+                        std::env::current_dir().context("Failed to determine current directory")?;
+                    let release = crate::sourcemaps::inject::get_release_for_maps(
+                        &cwd,
+                        inject_args.release.clone(),
+                        std::iter::empty(),
+                    )?;
+                    crate::sourcemaps::plain::inject::inject(&inject_args, release.as_ref())?;
+                    crate::sourcemaps::plain::upload::upload(&upload_args, release.as_ref())?;
                 }
             },
             Commands::Dsym { cmd } => match cmd {

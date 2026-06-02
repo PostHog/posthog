@@ -7,6 +7,180 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface HeatmapResponseItemApi {
+    count: number
+    pointer_y: number
+    pointer_relative_x: number
+    pointer_target_fixed: boolean
+}
+
+export interface HeatmapsResponseApi {
+    results: HeatmapResponseItemApi[]
+}
+
+export interface PaginatedHeatmapsResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HeatmapsResponseApi[]
+}
+
+/**
+ * * `screenshot` - Screenshot
+ * `iframe` - Iframe
+ * `recording` - Recording
+ */
+export type HeatmapScreenshotResponseTypeEnumApi =
+    (typeof HeatmapScreenshotResponseTypeEnumApi)[keyof typeof HeatmapScreenshotResponseTypeEnumApi]
+
+export const HeatmapScreenshotResponseTypeEnumApi = {
+    Screenshot: 'screenshot',
+    Iframe: 'iframe',
+    Recording: 'recording',
+} as const
+
+/**
+ * * `processing` - Processing
+ * `completed` - Completed
+ * `failed` - Failed
+ */
+export type HeatmapScreenshotResponseStatusEnumApi =
+    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+
+export const HeatmapScreenshotResponseStatusEnumApi = {
+    Processing: 'processing',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export type HeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
+
+export interface HeatmapScreenshotResponseApi {
+    readonly id: string
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 2000 */
+    url: string
+    /**
+     * URL for fetching heatmap data
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    target_widths?: unknown
+    type?: HeatmapScreenshotResponseTypeEnumApi
+    readonly status: HeatmapScreenshotResponseStatusEnumApi
+    readonly has_content: boolean
+    readonly snapshots: readonly HeatmapScreenshotResponseApiSnapshotsItem[]
+    deleted?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedHeatmapScreenshotResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HeatmapScreenshotResponseApi[]
+}
+
+export type PatchedHeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
+
+export interface PatchedHeatmapScreenshotResponseApi {
+    readonly id?: string
+    readonly short_id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 2000 */
+    url?: string
+    /**
+     * URL for fetching heatmap data
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    target_widths?: unknown
+    type?: HeatmapScreenshotResponseTypeEnumApi
+    readonly status?: HeatmapScreenshotResponseStatusEnumApi
+    readonly has_content?: boolean
+    readonly snapshots?: readonly PatchedHeatmapScreenshotResponseApiSnapshotsItem[]
+    deleted?: boolean
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly exception?: string | null
+}
+
 /**
  * * `Up` - Up
  * `Down` - Down
@@ -23,8 +197,8 @@ export interface WoWChangeApi {
     percent: number
     /** Direction of the change relative to the prior period.
 
-* `Up` - Up
-* `Down` - Down */
+  * `Up` - Up
+  * `Down` - Down */
     direction: DirectionEnumApi
     /** Hex color indicating whether the change is a positive or negative signal. */
     color: string
@@ -108,6 +282,67 @@ export interface WeeklyDigestResponseApi {
     dashboard_url: string
 }
 
+export interface WebAnalyticsFilterPresetApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at: string
+    readonly last_modified_by: UserBasicApi
+}
+
+export interface PaginatedWebAnalyticsFilterPresetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WebAnalyticsFilterPresetApi[]
+}
+
+export interface PatchedWebAnalyticsFilterPresetApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at?: string
+    readonly last_modified_by?: UserBasicApi
+}
+
+export type HeatmapsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SavedListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type WebAnalyticsWeeklyDigestParams = {
     /**
      * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
@@ -117,4 +352,17 @@ export type WebAnalyticsWeeklyDigestParams = {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number
+}
+
+export type WebAnalyticsFilterPresetsListParams = {
+    created_by?: number
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
 }

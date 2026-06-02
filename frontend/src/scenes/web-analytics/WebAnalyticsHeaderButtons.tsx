@@ -8,7 +8,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -80,14 +79,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                     onClickOutside={() => setShowPopover(false)}
                     overlay={
                         <div className="p-4 max-w-160">
-                            <div className="flex items-center gap-2 mb-2">
-                                <h3 className="font-semibold flex items-center gap-2">
-                                    About the New Query Engine
-                                    <LemonTag type="warning" className="uppercase">
-                                        Beta
-                                    </LemonTag>
-                                </h3>
-                            </div>
+                            <h3 className="font-semibold mb-2">About the new query engine</h3>
                             <p className="mb-3">
                                 Our new Web Analytics Query Engine powers faster queries using pre-aggregated data,
                                 giving you quicker access to insights and it's much better at handling large datasets.

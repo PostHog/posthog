@@ -54,6 +54,7 @@ Make sure to grant the following read permissions:
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="plainApiKey_...",
+                        secret=True,
                     ),
                 ],
             ),
@@ -66,7 +67,12 @@ Make sure to grant the following read permissions:
         }
 
     def get_schemas(
-        self, config: PlainSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: PlainSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

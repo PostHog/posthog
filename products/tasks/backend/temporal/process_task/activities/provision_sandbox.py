@@ -8,14 +8,19 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.connection_token import (
+    SANDBOX_JWT_STATE_KID_KEY,
+    get_primary_sandbox_jwt_kid,
+    get_sandbox_jwt_public_key,
+)
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
     get_sandbox_api_url,
@@ -37,6 +42,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "GH_TOKEN",
     "LLM_GATEWAY_URL",
     "POSTHOG_RESUME_RUN_ID",
+    "BASH_ENV",
 }
 
 
@@ -103,7 +109,9 @@ class InjectFreshTokensOnResumeInput:
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        return Task.objects.select_related("created_by").get(id=ctx.task_id)
+        return Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
+            id=ctx.task_id
+        )
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
@@ -146,7 +154,7 @@ def _build_environment_variables(
 
     sandbox_environment = None
     if ctx.sandbox_environment_id:
-        sandbox_environment = SandboxEnvironment.objects.filter(id=ctx.sandbox_environment_id, team=task.team).first()
+        sandbox_environment = ctx.get_sandbox_environment()
         if sandbox_environment and sandbox_environment.environment_variables:
             skipped_keys: list[str] = []
             added_keys = 0
@@ -172,6 +180,11 @@ def _build_environment_variables(
     if github_token:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
+
+    # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
+    # agent-server launch (see `_build_agent_server_command`) so backend maintenance execs
+    # don't source a script that a resume snapshot could control. It stays in
+    # RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS so a user-supplied env var can't add it here.
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
@@ -228,13 +241,19 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         github_token = ""
-        if has_repo and ctx.github_integration_id is not None:
+        should_inject_github_token = ctx.has_github_credentials and (
+            has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
+        )
+        if should_inject_github_token:
             try:
                 github_token = (
                     get_sandbox_github_token(
                         ctx.github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
+                        task=task,
+                        github_user_integration_id=ctx.github_user_integration_id,
+                        repository=repository,
                     )
                     or ""
                 )
@@ -257,9 +276,36 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
         run_state = parse_run_state(ctx.state)
-        resume_snapshot_external_id = run_state.snapshot_external_id
+        # When Modal resume snapshots are disabled, ignore any snapshot_external_id
+        # baked into TaskRun state — resume falls back to the agent server's
+        # git-checkpoint flow (POSTHOG_RESUME_RUN_ID continues to be set above).
+        resume_snapshot_external_id = (
+            run_state.snapshot_external_id if settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS else None
+        )
         if resume_snapshot_external_id:
             used_snapshot = True
+
+        activity.logger.info(
+            "resume_decision",
+            extra={
+                "run_id": ctx.run_id,
+                "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+                "state_snapshot_external_id": run_state.snapshot_external_id,
+                "effective_snapshot_external_id": resume_snapshot_external_id,
+                "handoff_resumed": run_state.handoff_resumed,
+                "resume_from_run_id": run_state.resume_from_run_id,
+                "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
+                "used_snapshot": used_snapshot,
+            },
+        )
+        if run_state.handoff_resumed or run_state.resume_from_run_id:
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Resume mode: handoff_resumed={run_state.handoff_resumed}, "
+                f"resume_from_run_id={run_state.resume_from_run_id}, "
+                f"using_modal_snapshot={resume_snapshot_external_id is not None}",
+            )
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source, image_source_label = _get_image_source_label(
@@ -321,6 +367,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             sandbox_state = {
                 "sandbox_id": sandbox.id,
                 "sandbox_url": credentials.url,
+                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
             }
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token
@@ -433,13 +480,16 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         task = _load_task(ctx)
 
         github_token = ""
-        if ctx.github_integration_id is not None:
+        if ctx.has_github_credentials:
             try:
                 github_token = (
                     get_sandbox_github_token(
                         ctx.github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
+                        task=task,
+                        github_user_integration_id=ctx.github_user_integration_id,
+                        repository=input.repository,
                     )
                     or ""
                 )
@@ -465,34 +515,14 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
-        if input.repository and github_token:
-            org, repo = input.repository.lower().split("/")
-            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-            # Guard on .git existing so we don't fail when the snapshot was
-            # taken before the repository was cloned (or was repo-less).
-            update_remote = (
-                f"if [ -d {shlex.quote(repo_path + '/.git')} ]; then "
-                f"cd {shlex.quote(repo_path)} && "
-                f"git remote set-url origin "
-                f"https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(input.repository)}.git; "
-                f"fi"
-            )
-            remote_result = sandbox.execute(update_remote, timeout_seconds=30)
-            if remote_result.exit_code != 0:
-                logger.warning(
-                    "Failed to refresh git remote URL on resume",
-                    extra={
-                        "sandbox_id": input.sandbox_id,
-                        "repository": input.repository,
-                        "stderr": remote_result.stderr,
-                    },
-                )
+        if github_token and input.repository:
+            set_git_remote_token(sandbox, input.repository, github_token)
 
-        # start_agent_server rewrites ENV_FILE from the live process env before
-        # launching the agent. Pre-seeding it here means any agentsh-wrapped
-        # command that runs between sandbox resume and start_agent_server
-        # (diagnostics, branch checkout) sees the fresh tokens instead of the
-        # stale snapshot values.
+        # Pre-seed the agentsh env file so any wrapped command that runs between
+        # resume and start_agent_server (diagnostics, branch checkout) sees the
+        # fresh tokens instead of the stale snapshot values. start_agent_server
+        # re-dumps the full process env over this, so a partial overwrite is fine
+        # here (unlike the mid-run refresh, which must preserve the live env).
         fresh_env_vars: dict[str, str] = {}
         if github_token:
             fresh_env_vars["GITHUB_TOKEN"] = github_token

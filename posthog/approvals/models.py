@@ -44,7 +44,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     validation_status = models.CharField(
         max_length=16,
-        choices=ValidationStatus.choices,
+        choices=ValidationStatus,
         default=ValidationStatus.VALID,
     )
     validation_errors = models.JSONField(null=True, blank=True)
@@ -52,7 +52,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     state = models.CharField(
         max_length=16,
-        choices=ChangeRequestState.choices,
+        choices=ChangeRequestState,
         default=ChangeRequestState.PENDING,
     )
 
@@ -121,7 +121,7 @@ class Approval(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     decision = models.CharField(
         max_length=16,
-        choices=ApprovalDecision.choices,
+        choices=ApprovalDecision,
     )
     reason = models.TextField(blank=True)
 

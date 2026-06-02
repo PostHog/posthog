@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import time
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
 
@@ -13,13 +15,13 @@ if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 from posthog.temporal.common.client import async_connect
 
-from products.tasks.backend.services.custom_prompt_executor import extract_json_from_text
-from products.tasks.backend.services.custom_prompt_runner import (
+from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
-    _create_task_and_trigger,
-    _poll_for_turn,
+    create_task_and_trigger,
+    extract_json_from_text,
+    poll_for_turn,
 )
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
@@ -53,17 +55,27 @@ class MultiTurnSession:
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
-        origin_product: str | None = None,
+        origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        internal: bool = False,
+        on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
-        """Start a multi-turn sandbox session and wait for the first response."""
-        task, task_run = await _create_task_and_trigger(
+        """Start a multi-turn sandbox session and wait for the first response.
+
+        `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
+        BEFORE the agent's first turn runs. Callers that need a row linked to the
+        TaskRun to be queryable during that first turn use this — e.g. the Signals
+        scout creates its `SignalScoutRun` bridge here so first-turn finding emits
+        can resolve the run by id instead of 404ing on a not-yet-created row.
+        """
+        task, task_run = await create_task_and_trigger(
             prompt,
             context,
             branch,
             step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            internal=internal,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns
@@ -77,16 +89,37 @@ class MultiTurnSession:
             output_fn=output_fn,
             _workflow_handle=workflow_handle,
         )
+        if on_task_run_created is not None:
+            try:
+                await on_task_run_created(task_run)
+            except (Exception, asyncio.CancelledError) as e:
+                # The TaskRun + sandbox workflow are already spawned. If the hook fails
+                # (e.g. the caller's bridge-row insert hits a transient DB error), tear the
+                # session down so we don't leak a running workflow/sandbox, then propagate.
+                # CancelledError (BaseException, e.g. Temporal activity timeout) is caught too,
+                # else the run stays IN_PROGRESS forever. Shield so the failure signal still
+                # lands if the cancel re-fires mid-cleanup.
+                await asyncio.shield(session.end(status="failed", error=str(e)))
+                raise
         started_at = time.monotonic()
-        last_message, _, session.log_lines_seen, session.printed_lines = await _poll_for_turn(
-            task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
-        )
-        logger.info(
-            "multi_turn: initial turn completed run=%s duration=%.2fs",
-            task_run.id,
-            time.monotonic() - started_at,
-        )
-        parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+        try:
+            last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
+                task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
+            )
+            logger.info(
+                "multi_turn: initial turn completed run=%s duration=%.2fs",
+                task_run.id,
+                time.monotonic() - started_at,
+            )
+            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+        except (Exception, asyncio.CancelledError) as e:
+            # The session + sandbox workflow are already spawned, but `start()` is about to
+            # raise so the caller never receives the session to run its own teardown. End it
+            # here so a first-turn poll/parse failure (or a Temporal timeout, which raises
+            # CancelledError — a BaseException) doesn't leave the run wedged in IN_PROGRESS.
+            # Shield so the failure signal still lands if the cancel re-fires mid-cleanup.
+            await asyncio.shield(session.end(status="failed", error=str(e)))
+            raise
         return session, parsed
 
     async def send_followup(
@@ -132,7 +165,7 @@ class MultiTurnSession:
             attempt,
         )
         try:
-            last_message, _, self.log_lines_seen, self.printed_lines = await _poll_for_turn(
+            last_message, _, self.log_lines_seen, self.printed_lines = await poll_for_turn(
                 self.task_run,
                 skip_lines=self.log_lines_seen,
                 printed_lines=self.printed_lines,
@@ -164,12 +197,17 @@ class MultiTurnSession:
         json_data = extract_json_from_text(text=text, label=label)
         return model.model_validate(json_data)
 
-    async def end(self) -> None:
-        """Signal the workflow to shut down cleanly."""
+    async def end(self, *, status: str = "completed", error: str | None = None) -> None:
+        """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.
+
+        Pass `status="failed"` (with an `error` message) when ending because of an error, so
+        the underlying `TaskRun` isn't recorded as `completed` — otherwise failed runs corrupt
+        run-status metrics and mislead operational triage.
+        """
         if not self._workflow_handle:
             raise RuntimeError("Workflow handle is not available in this session.")
         try:
-            await self._workflow_handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
-            logger.info("multi_turn: ended session run=%s", self.task_run.id)
+            await self._workflow_handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error])
+            logger.info("multi_turn: ended session run=%s status=%s", self.task_run.id, status)
         except Exception:
             logger.warning("multi_turn: failed to signal completion run=%s", self.task_run.id, exc_info=True)

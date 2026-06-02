@@ -9,6 +9,51 @@ feature: web_analytics
 url_prefix: /web
 ui_apps: {}
 tools:
+    heatmap-screenshots-content-retrieve:
+        operation: heatmap_screenshots_content_retrieve
+        enabled: false
+    heatmaps-events-retrieve:
+        operation: heatmaps_events_retrieve
+        enabled: false
+    heatmaps-list:
+        operation: heatmaps_list
+        enabled: false
+    saved-create:
+        operation: saved_create
+        enabled: false
+    saved-destroy:
+        operation: saved_destroy
+        enabled: false
+    saved-list:
+        operation: saved_list
+        enabled: false
+    saved-partial-update:
+        operation: saved_partial_update
+        enabled: false
+    saved-regenerate-create:
+        operation: saved_regenerate_create
+        enabled: false
+    saved-retrieve:
+        operation: saved_retrieve
+        enabled: false
+    web-analytics-filter-presets-create:
+        operation: web_analytics_filter_presets_create
+        enabled: false
+    web-analytics-filter-presets-destroy:
+        operation: web_analytics_filter_presets_destroy
+        enabled: false
+    web-analytics-filter-presets-list:
+        operation: web_analytics_filter_presets_list
+        enabled: false
+    web-analytics-filter-presets-partial-update:
+        operation: web_analytics_filter_presets_partial_update
+        enabled: false
+    web-analytics-filter-presets-retrieve:
+        operation: web_analytics_filter_presets_retrieve
+        enabled: false
+    web-analytics-filter-presets-update:
+        operation: web_analytics_filter_presets_update
+        enabled: false
     web-analytics-weekly-digest:
         operation: web_analytics_weekly_digest
         enabled: true
@@ -20,11 +65,9 @@ tools:
             idempotent: true
         title: Summarize web analytics
         description: >
-            Summarizes a project's web analytics over a lookback window (default 7 days):
-            unique visitors, pageviews, sessions, bounce rate, and average session duration
-            with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources,
-            and goal conversions. Accepts optional `days` (1–90, default 7) and `compare`
-            (bool, default true) query params — pass `days=30` to summarize the last month, or
-            `compare=false` to skip the period-over-period comparison for a faster response.
-            Use this to answer questions like "how are my web analytics?", "how did the site
-            do last week?", or "what's my traffic looking like this month?".
+            Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews,
+            sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5
+            pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare`
+            (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip
+            the period-over-period comparison for a faster response. Use this to answer questions like "how are my web
+            analytics?", "how did the site do last week?", or "what's my traffic looking like this month?".

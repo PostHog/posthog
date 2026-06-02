@@ -10,10 +10,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
+import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
@@ -37,6 +39,30 @@ export const OAuthAuthorizeSuccess = ({ appName }: { appName: string }): JSX.Ele
             <div className="text-sm text-muted text-center">
                 <p>{appName} has been authorized.</p>
                 <p className="mt-2">You can close this window.</p>
+            </div>
+        </div>
+    )
+}
+
+export const OAuthAuthorizeRedirecting = ({
+    appName,
+    redirectUrl,
+}: {
+    appName: string
+    redirectUrl: string
+}): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center justify-center h-full gap-4 py-12 px-4">
+            <Spinner className="text-3xl" />
+            <div className="text-xl font-semibold">Redirecting to {appName}…</div>
+            <div className="text-sm text-muted text-center max-w-md">
+                <p>This usually only takes a moment.</p>
+                <p className="mt-2">
+                    Not redirected automatically? <Link to={redirectUrl}>Click here</Link>.
+                </p>
+                <p className="mt-2">
+                    If {appName} has already finished authorizing on your end, you can safely close this window.
+                </p>
             </div>
         </div>
     )
@@ -108,6 +134,8 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectDomain,
         requiredAccessLevel,
         authorizationComplete,
+        isRedirecting,
+        redirectUrl,
         scopesWereDefaulted,
         isMcpResource,
         resourceScopesLoading,
@@ -125,6 +153,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         setOauthAuthorizationValue,
     } = useActions(oauthAuthorizeLogic)
 
+    const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
@@ -193,6 +222,10 @@ export const OAuthAuthorize = (): JSX.Element => {
         return <OAuthAuthorizeSuccess appName={oauthApplication.name} />
     }
 
+    if (isRedirecting) {
+        return <OAuthAuthorizeRedirecting appName={oauthApplication.name} redirectUrl={redirectUrl} />
+    }
+
     return (
         <div className="min-h-full overflow-y-auto">
             <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
@@ -222,6 +255,17 @@ export const OAuthAuthorize = (): JSX.Element => {
                         {oauthApplication.name} is requesting access to your data.
                     </p>
                 </div>
+
+                {isImpersonated && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-danger-highlight border border-danger rounded text-sm">
+                        <IconWarning className="text-warning shrink-0" />
+                        <span>
+                            <strong>You are impersonating someone.</strong> Any OAuth tokens authorized in this session
+                            are short-lived and will be revoked when impersonation ends
+                            {isImpersonationReadOnly ? ', and write scopes will be downgraded to read-only' : ''}.
+                        </span>
+                    </div>
+                )}
 
                 {!oauthApplication.is_verified && (
                     <div className="flex items-center gap-2 p-3 mb-4 bg-warning-highlight border border-warning rounded text-sm">

@@ -209,7 +209,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('nextSessionRecording', () => {
-            it('returns next older recording when autoplay direction is null (autoplay off)', async () => {
+            it('returns undefined when autoplay direction is null (autoplay off)', async () => {
                 playerSettingsLogic.mount()
                 playerSettingsLogic.actions.setAutoplayDirection(null)
 
@@ -217,7 +217,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         activeSessionRecording: listOfSessionRecordings[0],
-                        nextSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: undefined,
                     })
             })
 
@@ -691,12 +691,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({ otherRecordings: [aRecording, bRecording] })
 
-                // mark abc as viewed so it becomes "hidden" when hideViewedRecordings is on
+                // turning on hide-viewed refetches from the server, so mark abc viewed afterwards
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                // mark abc as viewed so it becomes "hidden" — selecting then deselecting leaves it viewed
                 logic.actions.setSelectedRecordingId('abc')
                 await expectLogic(logic).toFinishAllListeners()
                 // deselect so selectedRecordingId exclusion doesn't interfere
                 logic.actions.setSelectedRecordingId(null)
-                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
 
                 // abc is now hidden (viewed but not selected)
                 await expectLogic(logic).toMatchValues({
@@ -709,6 +712,30 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toMatchValues({
                     hiddenRecordings: [],
                 })
+            })
+
+            it('sends hide_viewed_recordings to the backend when the player setting is set', async () => {
+                playerSettingsLogic.mount()
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+
+                expect(listSpy).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ hide_viewed_recordings: 'current-user' })
+                )
+            })
+
+            it('omits hide_viewed_recordings when the player setting is off', async () => {
+                playerSettingsLogic.mount()
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                logic.actions.loadSessionRecordings()
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ hide_viewed_recordings: undefined }))
             })
 
             it('bulk delete only marks successfully deleted recordings', async () => {

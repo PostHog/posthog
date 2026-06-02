@@ -328,6 +328,29 @@ class TestAssistantContextManager(BaseTest):
         self.assertIsNone(result)
         mock_capture_exception.assert_called()
 
+    def test_voice_mode_prompt_on_emits_speech_formatting_rules(self):
+        prompt = self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=True))
+        assert prompt is not None
+        assert "<voice_mode>" in prompt
+        assert "spelled out" in prompt.lower() or "spell out" in prompt.lower()
+
+    def test_voice_mode_prompt_off_emits_explicit_override(self):
+        # Explicit False must emit a counter-instruction so a typed turn after a spoken
+        # turn isn't still steered by the earlier <voice_mode> prompt sitting in history.
+        prompt = self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=False))
+        assert prompt is not None
+        assert "<voice_mode>" in prompt
+        assert "no longer" in prompt.lower() or "ignore" in prompt.lower()
+
+    @parameterized.expand(
+        [
+            ("voice_mode field absent", MaxUIContext(insights=None)),
+            ("ui_context absent", None),
+        ]
+    )
+    def test_voice_mode_prompt_absent_when_field_not_set(self, _name: str, ui_context: MaxUIContext | None):
+        assert self.context_manager._get_voice_mode_prompt(ui_context) is None
+
     def test_deduplicate_context_messages(self):
         """Test that context messages are deduplicated based on existing context message content"""
         # Create state with existing context messages

@@ -94,7 +94,7 @@ class CostThrottle(Throttle):
         )
         if current >= limit:
             retry_after = await limiter.get_ttl(key)
-            logger.warning(
+            logger.error(
                 "cost_throttle_exceeded",
                 scope=self.scope,
                 key=key,
@@ -106,6 +106,8 @@ class CostThrottle(Throttle):
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
                 retry_after=retry_after,
+                used_usd=current,
+                limit_usd=limit,
             )
         return ThrottleResult.allow()
 
@@ -181,6 +183,40 @@ class ProductCostThrottle(CostThrottle):
         team_mult = self._get_team_multiplier(context)
         return base_limit * team_mult, window
 
+    async def get_status_for_product(self, product: str) -> CostStatus | None:
+        """Return CostStatus for a product using the shared (team multiplier = 1) pool.
+
+        Intended for monitoring/gauges, not throttling decisions — throttling needs
+        a full ThrottleContext to apply team multipliers. Returns None when the
+        product has no configured cost limit.
+        """
+        settings = get_settings()
+        config = settings.product_cost_limits.get(product)
+        if config is None:
+            return None
+
+        limit = config.limit_usd
+        window = config.window_seconds
+        limiter_key = f"{self.scope}:{limit}:{window}"
+        if limiter_key not in self._limiters:
+            self._limiters[limiter_key] = CostRateLimiter(
+                redis=self._redis,
+                limit=limit,
+                window_seconds=window,
+            )
+        limiter = self._limiters[limiter_key]
+        key = f"cost:product:{product}"
+
+        current = await limiter.get_current(key)
+        ttl = await limiter.get_ttl(key)
+        return CostStatus(
+            used_usd=current,
+            limit_usd=limit,
+            remaining_usd=max(0.0, limit - current),
+            resets_in_seconds=ttl,
+            exceeded=current >= limit,
+        )
+
 
 class _UserCostThrottleBase(CostThrottle):
     """Base for per-product user cost throttles (burst/sustained pattern).
@@ -196,9 +232,8 @@ class _UserCostThrottleBase(CostThrottle):
     def _get_cache_key(self, context: ThrottleContext) -> str:
         if not context.end_user_id:
             return ""
-        team_id = context.user.team_id or 0
         team_mult = self._get_team_multiplier(context)
-        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}:t{team_id}"
+        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}"
         if team_mult == 1:
             return base
         return f"{base}:tm{team_mult}"

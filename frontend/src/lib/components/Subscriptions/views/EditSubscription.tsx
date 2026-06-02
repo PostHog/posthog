@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,14 +22,19 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { DashboardType, InsightShortId } from '~/types'
+import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'
+import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
@@ -52,7 +58,67 @@ interface EditSubscriptionProps {
     onDelete: () => void
 }
 
-export function EditSubscription({
+// A null count (loading or fetch failed) fails open — the backend POST check is the hard limit.
+export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
+    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
+}
+
+export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    const isCreating = props.id === 'new'
+    const hasSubscriptionsFeature = hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)
+
+    // Editing existing subscriptions, and any paid org, are never gated and never fetch the count.
+    if (!isCreating || hasSubscriptionsFeature) {
+        return <EditSubscriptionForm {...props} />
+    }
+    return <FreeTierCreateGate {...props} />
+}
+
+function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
+    const { subscriptionCount, subscriptionCountLoading } = useValues(subscriptionCountLogic)
+
+    // Wait for the count before deciding form-vs-paywall, otherwise the form flashes during the
+    // in-flight fetch and is yanked away once the count arrives. On fetch failure the loader settles
+    // with a null count and loading=false, so we fall through and fail open to the form.
+    if (subscriptionCount === null && subscriptionCountLoading) {
+        return (
+            <div className="py-8 flex-1 min-h-0 flex items-center justify-center">
+                <Spinner className="text-2xl" />
+            </div>
+        )
+    }
+
+    if (isFreeTierCreateAtLimit(subscriptionCount)) {
+        return (
+            <div className="flex flex-1 flex-col min-h-0">
+                <LemonModal.Header>
+                    <div className="flex items-center gap-2">
+                        <LemonButton icon={<IconChevronLeft />} onClick={props.onCancel} size="xsmall" />
+                        <h3>New Subscription</h3>
+                    </div>
+                </LemonModal.Header>
+                <UsageLimitPaywall
+                    title="Subscription limit reached"
+                    description={
+                        <>
+                            <Link to={urls.subscriptions()}>Delete an existing subscription</Link> or upgrade your plan
+                            to add more.
+                        </>
+                    }
+                    limit={SubscriptionFreeTierLimit.COUNT}
+                    currentUsage={subscriptionCount ?? undefined}
+                    unit="subscriptions allowed on your plan"
+                    background={false}
+                    className="py-8 flex-1 min-h-0 justify-center"
+                />
+            </div>
+        )
+    }
+    return <EditSubscriptionForm {...props} />
+}
+
+function EditSubscriptionForm({
     id,
     insightShortId,
     dashboard,
@@ -72,7 +138,8 @@ export function EditSubscription({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
+        useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
@@ -81,6 +148,8 @@ export function EditSubscription({
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     const emailDisabled = !preflight?.email_service_available
+
+    const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
 
     // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
     // For editing, wait until subscription data has loaded from API (target_type exists)
@@ -172,9 +241,21 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <LemonField name="title" label="Name">
-                            <LemonInput placeholder="e.g. Weekly team report" />
-                        </LemonField>
+                        <div className="flex gap-4 items-end">
+                            <LemonField className="flex-auto" name="title" label="Name">
+                                <LemonInput placeholder="e.g. Weekly team report" />
+                            </LemonField>
+                            <LemonField name="enabled" className="pb-2">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={value !== false}
+                                        onChange={onChange}
+                                        data-attr="subscription-enabled"
+                                        label="Enabled"
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
 
                         {dashboard?.tiles && selectionReady && (
                             <LemonField name="dashboard_export_insights" label="Insights to include">
@@ -332,13 +413,7 @@ export function EditSubscription({
                                     <LemonSelect options={intervalOptions} />
                                 </LemonField>
                                 <LemonField name="frequency">
-                                    <LemonSelect
-                                        options={
-                                            subscription.interval === 1
-                                                ? frequencyOptionsSingular
-                                                : frequencyOptionsPlural
-                                        }
-                                    />
+                                    <LemonSelect options={availableFrequencyOptions} />
                                 </LemonField>
 
                                 {subscription.frequency === 'weekly' && (
@@ -441,20 +516,38 @@ export function EditSubscription({
                                             disabledReason={
                                                 !dataProcessingAccepted && !value
                                                     ? 'Your organization needs to approve AI data processing before enabling AI summaries'
-                                                    : undefined
+                                                    : summaryQuota?.at_limit && !value
+                                                      ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
+                                                      : undefined
                                             }
                                         />
                                     </AIConsentPopoverWrapper>
                                 )}
                             </LemonField>
 
+                            {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null && (
+                                <UsageLimitPaywall
+                                    title="AI summary limit reached"
+                                    description="Disable an existing AI summary or upgrade your plan to add more."
+                                    limit={summaryQuota.limit}
+                                    currentUsage={summaryQuota.active_count}
+                                    unit="active AI summaries on your plan"
+                                />
+                            )}
+
                             {subscription.summary_enabled && (
-                                <LemonField name="summary_prompt_guide" label="Context for the AI summary" showOptional>
-                                    <LemonTextArea
-                                        placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
-                                        maxLength={500}
-                                    />
-                                </LemonField>
+                                <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
+                                    <LemonField
+                                        name="summary_prompt_guide"
+                                        label="Context for the AI summary"
+                                        showOptional
+                                    >
+                                        <LemonTextArea
+                                            placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                            maxLength={500}
+                                        />
+                                    </LemonField>
+                                </FlaggedFeature>
                             )}
                         </FlaggedFeature>
 

@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -12,7 +13,14 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    S3Table,
+)
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    build_opaque_function_call_table,
+    is_dangerous_table_function,
+)
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -28,6 +36,7 @@ from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.functions.traffic_type import (
     get_bot_name,
+    get_bot_operator,
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
@@ -35,7 +44,12 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
+from posthog.hogql.resolver_utils import (
+    expand_hogqlx_query,
+    lookup_field_by_name,
+    lookup_table_by_name,
+    suggest_field_names,
+)
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -45,6 +59,8 @@ from posthog.models.utils import UUIDT
 
 # To quickly disable global joins, switch this to False
 USE_GLOBAL_JOINS = False
+
+_SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 EMPTY_SCOPE = ast.SelectQueryType()
 
@@ -57,6 +73,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtime": ast.DateTimeType,
     "localtimestamp": ast.DateTimeType,
 }
+
+# Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
+assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
+    "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
+)
 
 # Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
@@ -111,13 +132,24 @@ def resolve_types_from_table(
     return resolve_types(expr, context, dialect, [select_node_with_types.type])
 
 
+ResolverFactory = Callable[
+    [HogQLContext, HogQLDialect, Optional[list["ast.SelectQueryType"]]],
+    "Resolver",
+]
+
+
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
     dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST:
-    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+    if resolver_factory is None:
+        resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    else:
+        resolver = resolver_factory(context, dialect, scopes)
+    return resolver.visit(node)
 
 
 class AliasCollector(TraversingVisitor):
@@ -1030,7 +1062,17 @@ class Resolver(CloningVisitor):
 
                 return node
 
-            database_table = cast(Database, self.database).get_table(table_name_chain)
+            try:
+                database_table = cast(Database, self.database).get_table(table_name_chain)
+            except QueryError:
+                # Direct Postgres/DuckDB sources expose introspected table-valued functions
+                # (range, generate_series, unnest, …) via connection metadata. If the lookup
+                # failed but the name matches one of those, synthesize an opaque single-column
+                # table so the call resolves and the printer emits it as a passthrough.
+                opaque_table = self._build_opaque_table_function(table_name_chain, node)
+                if opaque_table is None:
+                    raise
+                database_table = opaque_table
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -1055,6 +1097,9 @@ class Resolver(CloningVisitor):
             else:
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
+
+            if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
+                self._record_warehouse_sync_warnings(database_table.table_id)
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
@@ -1161,7 +1206,7 @@ class Resolver(CloningVisitor):
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
 
-            node.table = cast(ast.SelectQuery, super().visit(node.table))
+            node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:
@@ -1179,13 +1224,14 @@ class Resolver(CloningVisitor):
                         f"Subquery has {num_cols} column(s) but {len(node.column_aliases)} column name(s) were provided"
                     )
 
-                # Remap the SelectQueryType columns dict
-                select_query_type = cast(ast.SelectQueryType, node.table.type)
+                # Remap the SelectQueryType columns dict.
                 if isinstance(node.table.type, ast.SelectSetQueryType):
                     first_type = node.table.type.types[0]
                     while isinstance(first_type, ast.SelectSetQueryType):
                         first_type = first_type.types[0]
                     select_query_type = cast(ast.SelectQueryType, first_type)
+                else:
+                    select_query_type = cast(ast.SelectQueryType, node.table.type)
 
                 # Build new columns from the select list's types, keyed by the alias column names
                 select_list = cast(ast.SelectQuery, inner_select).select
@@ -1447,6 +1493,8 @@ class Resolver(CloningVisitor):
                 return self.visit(get_bot_type(node=node, args=node.args))
             if node.name == "__preview_getBotName":
                 return self.visit(get_bot_name(node=node, args=node.args))
+            if node.name == "__preview_getBotOperator":
+                return self.visit(get_bot_operator(node=node, args=node.args))
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -1671,6 +1719,8 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
+            suggestions = suggest_field_names(scope, name, self.context)
+            suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -1680,13 +1730,13 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}")
+                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
                     end=node.end,
-                    message=f"Unable to resolve field: {name}",
+                    message=f"Unable to resolve field: {name}{suggestion_suffix}",
                 )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
@@ -2027,6 +2077,48 @@ class Resolver(CloningVisitor):
             return isinstance(table.table, S3Table)
 
         return False
+
+    def _record_warehouse_sync_warnings(self, table_id: str) -> None:
+        if self.database is None:
+            return
+        warnings = getattr(self.database, "_data_warehouse_sync_warnings", {}).get(table_id)
+        if not warnings:
+            return
+        for warning in warnings:
+            self.context.add_data_warehouse_sync_warning(table_id, warning)
+
+    def _build_opaque_table_function(
+        self, table_name_chain: list[str], node: ast.JoinExpr
+    ) -> Optional[FunctionCallTable]:
+        # Only meaningful when the FROM looks like a function call (`FROM foo(args)`),
+        # not a plain table reference. `table_args` is always set on a function call,
+        # even if empty.
+        if node.table_args is None:
+            return None
+
+        # Multi-segment names (`schema.func`) aren't supported by the opaque path.
+        if len(table_name_chain) != 1:
+            return None
+
+        metadata = self.context.direct_postgres_connection_metadata
+        if not isinstance(metadata, dict):
+            return None
+
+        available_table_functions = metadata.get("available_table_functions")
+        if not isinstance(available_table_functions, list):
+            return None
+
+        function_name = table_name_chain[0].lower()
+        if function_name not in {entry.lower() for entry in available_table_functions if isinstance(entry, str)}:
+            return None
+
+        if not _SAFE_TABLE_FUNCTION_NAME_RE.match(function_name):
+            return None
+
+        if is_dangerous_table_function(function_name):
+            return None
+
+        return build_opaque_function_call_table(function_name)
 
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:

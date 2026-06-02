@@ -295,9 +295,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                     }
                                   : sceneSource === 'llm-analytics'
                                     ? {
-                                          key: 'LLMAnalytics',
-                                          name: 'LLM analytics',
-                                          path: urls.llmAnalyticsDashboard(),
+                                          key: 'AIObservability',
+                                          name: 'AI observability',
+                                          path: urls.aiObservabilityDashboard(),
                                           iconType: 'llm_analytics' as FileSystemIconType,
                                       }
                                     : sceneSource === 'endpoints'
@@ -344,9 +344,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
-                          settings_section: 'project-product-analytics',
                       }
-                    : { settings_section: 'project-product-analytics' }
+                    : null
             },
         ],
         maxContext: [
@@ -394,6 +393,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: values.tabId,
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -470,6 +470,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
+            // `/insights/quick-start` is handled by Scene.InsightQuickStart, not the Insight scene.
+            // The :shortId pattern greedily matches it, so bail out before triggering a loadInsight
+            // for a non-existent short_id.
+            if (shortId === 'quick-start') {
+                return
+            }
             const insightMode =
                 mode === 'subscriptions'
                     ? ItemMode.Subscriptions

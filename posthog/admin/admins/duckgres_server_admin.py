@@ -1,10 +1,14 @@
 from django.contrib import admin
 
+from posthog.models import DuckgresServer
 
+
+@admin.register(DuckgresServer)
 class DuckgresServerAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "team_id",
+        "organization_id",
         "host",
         "port",
         "flight_port",
@@ -12,15 +16,15 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    search_fields = ("=team__id", "host")
+    search_fields = ("=team__id", "=organization__id", "host")
     readonly_fields = ("id", "created_at", "updated_at")
-    raw_id_fields = ("team",)
+    raw_id_fields = ("team", "organization")
 
     fieldsets = (
         (
             None,
             {
-                "fields": ("id", "team"),
+                "fields": ("id", "team", "organization"),
             },
         ),
         (

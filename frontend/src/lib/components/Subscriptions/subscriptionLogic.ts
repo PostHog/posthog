@@ -5,6 +5,7 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
@@ -35,6 +36,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     bysetpos: 1,
     dashboard_export_insights: [],
     integration_id: null,
+    enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
 }
@@ -92,11 +94,17 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 return { ...NEW_SUBSCRIPTION }
             },
         },
+        summaryQuota: {
+            __default: null as { active_count: number; limit: number | null; at_limit: boolean } | null,
+            loadSummaryQuota: async () => {
+                return await api.subscriptions.summaryQuota()
+            },
+        },
     })),
 
     forms(({ props, actions }) => ({
         subscription: {
-            defaults: {} as unknown as SubscriptionType,
+            defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: ({
                 frequency,
                 interval,
@@ -161,6 +169,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // this change is propagated to `subscriptions` there
                 subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
+                actions.loadSummaryQuota()
                 lemonToast.success(`Subscription saved.`)
 
                 return updatedSub
@@ -169,6 +178,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        submitSubscriptionSuccess: ({ subscription }) => {
+            if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
+                recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
+            }
+        },
         submitSubscriptionFailure: ({ error }) => {
             // Kea-forms emits this when client validation fails; fields already show errors.
             if (error instanceof Error && error.message === 'Validation Failed') {
@@ -269,7 +283,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    events(({ values }) => ({
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            // Load the org-wide AI summary quota once per logic mount so
+            // the paywall conditional in EditSubscription has data to react
+            // to without depending on URL navigation. urlToAction kept its
+            // own loader call in case the user navigates between :id and
+            // /new without unmounting; afterMount covers initial mount and
+            // Storybook (which doesn't navigate the route).
+            actions.loadSummaryQuota()
+        },
         beforeUnmount: () => {
             if (values.previewImageUrl) {
                 URL.revokeObjectURL(values.previewImageUrl)

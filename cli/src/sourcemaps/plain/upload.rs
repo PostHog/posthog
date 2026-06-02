@@ -5,10 +5,13 @@ use serde_json::json;
 use tracing::{info, warn};
 
 use crate::{
-    api::symbol_sets::{self, SymbolSetUpload},
+    api::{
+        releases::Release,
+        symbol_sets::{self, SymbolSetUpload},
+    },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs},
+        args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
@@ -38,6 +41,9 @@ pub struct Args {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
+
     /// DEPRECATED - use top-level `--skip-ssl-verification` instead
     #[arg(long, default_value = "false")]
     pub skip_ssl_verification: bool,
@@ -46,10 +52,10 @@ pub struct Args {
 pub fn upload_cmd(args: &Args) -> Result<()> {
     args.file_selection.validate()?;
     context().capture_command_invoked("sourcemap_upload");
-    upload(args)
+    upload(args, None)
 }
 
-pub fn upload(args: &Args) -> Result<()> {
+pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     let selection = FileSelection::try_from(args.file_selection.clone())?;
 
     let mut pairs = read_pairs(
@@ -63,14 +69,18 @@ pub fn upload(args: &Args) -> Result<()> {
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
-    // Get or create a release if project/version are provided or if any pair is missing a release_id
-    let cwd = std::env::current_dir()?;
-    let created_release_id = get_release_for_maps(
-        &cwd,
-        args.release.clone(),
-        pairs.iter().map(|p| &p.sourcemap),
-    )?
-    .map(|r| r.id.to_string());
+    // Reuse the pre-resolved release if available, otherwise fetch or create one
+    let created_release_id = if let Some(r) = existing_release {
+        Some(r.id.to_string())
+    } else {
+        let cwd = std::env::current_dir()?;
+        get_release_for_maps(
+            &cwd,
+            args.release.clone(),
+            pairs.iter().map(|p| &p.sourcemap),
+        )?
+        .map(|r| r.id.to_string())
+    };
 
     // Override release_id if we created/fetched one
     if let Some(ref release_id) = created_release_id {
@@ -113,7 +123,8 @@ pub fn upload(args: &Args) -> Result<()> {
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
-        false,
+        args.conflict.force,
+        args.conflict.skip_on_conflict,
     );
     let duration_ms = started_at.elapsed().as_millis();
 

@@ -13,17 +13,23 @@ import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consume
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
+import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
+import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
+import { CdpProducerName } from './cdp/outputs/producers'
 import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
+import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
+import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
+import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
-import { KafkaProducerWrapper } from './kafka/producer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -33,7 +39,6 @@ import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
@@ -41,15 +46,14 @@ import { PostgresPersonRepository } from './worker/ingestion/persons/repositorie
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
- * Ingestion is handled by IngestionGeneralServer, recordings by IngestionSessionReplayServer — see index.ts.
+ * Ingestion is handled by IngestionGeneralServer, recordings by IngestionSessionRerunServer — see index.ts.
  */
 export class PluginServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: PluginsServerConfig
 
     // Infrastructure resources (tracked for shutdown cleanup)
-    private kafkaProducer?: KafkaProducerWrapper
-    private monitoringProducer?: KafkaProducerWrapper
+    private cdpProducerRegistry?: KafkaProducerRegistry<CdpProducerName>
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -85,9 +89,11 @@ export class PluginServer implements NodeServer {
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
+            capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
-            capabilities.cdpBatchHogFlow
+            capabilities.cdpBatchHogFlow ||
+            capabilities.cdpRerunWorker
         )
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
@@ -95,10 +101,7 @@ export class PluginServer implements NodeServer {
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
         if (needsCdp) {
-            this.monitoringProducer = await KafkaProducerWrapper.create(
-                this.config.KAFKA_CLIENT_RACK,
-                'MONITORING_PRODUCER'
-            )
+            this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
             cdpServices = await this.createCdpSharedServices()
         }
 
@@ -116,8 +119,7 @@ export class PluginServer implements NodeServer {
                   encryptedFields: cdpServices!.encryptedFields,
                   teamManager,
                   integrationManager: cdpServices!.integrationManager,
-                  kafkaProducer: this.kafkaProducer!,
-                  monitoringProducer: this.monitoringProducer!,
+                  cdpProducerRegistry: this.cdpProducerRegistry!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
@@ -137,9 +139,20 @@ export class PluginServer implements NodeServer {
             )
         }
 
+        // Create shared job queue backends — each consumer gets the one(s) it needs
+        const kafkaQueue = new CyclotronJobQueueKafka(
+            this.config.KAFKA_CLIENT_RACK,
+            this.config,
+            this.config.CONSUMER_BATCH_SIZE
+        )
+        const postgresV2Queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+
         if (capabilities.cdpProcessedEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpEventsConsumer(this.config, cdpDeps!)
+                const consumer = new CdpEventsConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })
@@ -147,7 +160,7 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpDataWarehouseEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!)
+                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!, kafkaQueue)
                 await consumer.start()
                 return consumer.service
             })
@@ -155,7 +168,7 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpInternalEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!)
+                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!, kafkaQueue)
                 await consumer.start()
                 return consumer.service
             })
@@ -163,19 +176,15 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpPersonUpdates) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpPersonUpdatesConsumer(this.config, cdpDeps!)
+                const consumer = new CdpPersonUpdatesConsumer(this.config, cdpDeps!, kafkaQueue)
                 await consumer.start()
                 return consumer.service
             })
         }
 
         if (capabilities.cdpLegacyOnEvent) {
-            const legacyDeps: CdpLegacyEventsConsumerDeps = {
-                ...cdpDeps!,
-                groupTypeManager: new GroupTypeManager(cdpServices!.groupRepository, teamManager),
-            }
             serviceLoaders.push(async () => {
-                const consumer = new CdpLegacyEventsConsumer(this.config, legacyDeps)
+                const consumer = new CdpLegacyEventsConsumer(this.config, cdpDeps!)
                 await consumer.start()
                 return consumer.service
             })
@@ -183,7 +192,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpApi) {
             serviceLoaders.push(async () => {
-                const api = new CdpApi(this.config, cdpDeps!)
+                const api = new CdpApi(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 this.lifecycle.expressApp.use('/', api.router())
                 await api.start()
                 return api.service
@@ -192,7 +204,7 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorker) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorker(this.config, cdpDeps!)
+                const worker = new CdpCyclotronWorker(this.config, cdpDeps!, kafkaQueue)
                 await worker.start()
                 return worker.service
             })
@@ -222,7 +234,28 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorkerHogFlow) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!)
+                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, postgresV2Queue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpRerunWorker) {
+            serviceLoaders.push(async () => {
+                const worker = new CdpRerunWorkerConsumer(this.config, cdpDeps!, {
+                    hog_function: kafkaQueue,
+                    hog_flow: postgresV2Queue,
+                })
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        // Legacy postgres v1 drain for hogflow jobs — delete once cdp-cyclotron-worker-hogflows-pg-legacy is shut down
+        if (capabilities.cdpCyclotronWorkerHogFlowLegacyPg) {
+            serviceLoaders.push(async () => {
+                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, legacyQueue)
                 await worker.start()
                 return worker.service
             })
@@ -243,6 +276,14 @@ export class PluginServer implements NodeServer {
             return Promise.resolve(serverCommands.service)
         })
 
+        if (capabilities.cdpBatchHogFlow) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!, postgresV2Queue)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
         if (capabilities.cdpPrecalculatedFilters) {
             serviceLoaders.push(async () => {
                 const worker = new CdpPrecalculatedFiltersConsumer(this.config, cdpDeps!)
@@ -261,7 +302,7 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpBatchHogFlow) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
+                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!, postgresV2Queue)
                 await consumer.start()
                 return consumer.service
             })
@@ -273,10 +314,13 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.monitoringProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
+            additionalCleanup: async () => {
+                await this.cdpProducerRegistry?.disconnectAll()
+            },
         }
     }
 
@@ -289,10 +333,6 @@ export class PluginServer implements NodeServer {
 
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
-
-        logger.info('🤔', 'Connecting to Kafka...')
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
         this.redisPool = createRedisPoolFromConfig({

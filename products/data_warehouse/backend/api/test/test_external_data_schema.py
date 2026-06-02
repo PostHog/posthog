@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -28,10 +29,10 @@ from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from products.data_warehouse.backend.api.test.utils import create_external_data_source_ok
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [
     pytest.mark.django_db,
@@ -104,7 +105,7 @@ class TestExternalDataSchema(APIBaseTest):
             "append_available": True,
             "cdc_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": False,
+            "supports_webhooks": True,
             "available_columns": [],
             "detected_primary_keys": None,
         }
@@ -198,7 +199,15 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert payload == {
             "incremental_fields": [
-                {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                {
+                    "label": "id",
+                    "type": "integer",
+                    "field": "id",
+                    "field_type": "integer",
+                    "nullable": True,
+                    # Table has no index on `id`, so the warning UI will fire for this field.
+                    "is_indexed": False,
+                }
             ],
             "incremental_available": True,
             "append_available": True,
@@ -210,6 +219,71 @@ class TestExternalDataSchema(APIBaseTest):
             ],
             "detected_primary_keys": ["id"],
         }
+
+    @parameterized.expand(
+        [
+            # (test name, source_cdc_enabled, team_ff_enabled, expected_cdc_available)
+            ("source_enabled_team_enabled", True, True, True),
+            ("source_enabled_team_disabled", True, False, None),
+            ("source_disabled_team_enabled", False, True, None),
+            ("source_disabled_team_disabled", False, False, None),
+        ]
+    )
+    def test_incremental_fields_cdc_available_gating(
+        self, _name: str, source_cdc_enabled: bool, team_ff_enabled: bool, expected_cdc_available
+    ):
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        job_inputs = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "schema": "public",
+            "ssh_tunnel_enabled": False,
+        }
+        if source_cdc_enabled:
+            job_inputs["cdc_enabled"] = True
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Postgres",
+            job_inputs=job_inputs,
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="some_table",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        fake_schema = SourceSchema(
+            name="some_table",
+            supports_incremental=False,
+            supports_append=False,
+            supports_cdc=True,
+            incremental_fields=[],
+            columns=[("id", "integer", False)],
+            detected_primary_keys=["id"],
+        )
+
+        with (
+            mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=team_ff_enabled,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["cdc_available"] is expected_cdc_available
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
@@ -248,6 +322,152 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     @parameterized.expand(
+        [
+            # Stored PK from earlier discovery — reuse it; no caller override needed.
+            (
+                "reuses_stored_primary_key",
+                {"primary_key_columns": ["id"], "schema_metadata": {}},
+                None,
+                status.HTTP_200_OK,
+                ExternalDataSchema.SyncType.CDC,
+                ["id"],
+            ),
+            # Caller explicitly provides PK — takes precedence over (and persists alongside)
+            # whatever was stored.
+            (
+                "caller_override_wins",
+                {"primary_key_columns": ["old"], "schema_metadata": {}},
+                ["new_pk"],
+                status.HTTP_200_OK,
+                ExternalDataSchema.SyncType.CDC,
+                ["new_pk"],
+            ),
+            # No stored PK, no override → refuse the switch.
+            (
+                "rejects_when_no_primary_key_available",
+                {"schema_metadata": {}},
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+            ),
+        ]
+    )
+    def test_update_schema_to_cdc(
+        self,
+        _name: str,
+        initial_sync_type_config: dict,
+        payload_pk: list[str] | None,
+        expected_status: int,
+        expected_sync_type: str,
+        expected_pk_columns: list[str] | None,
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="quotes",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config=initial_sync_type_config,
+        )
+
+        request_body: dict[str, Any] = {"sync_type": "cdc"}
+        if payload_pk is not None:
+            request_body["primary_key_columns"] = payload_pk
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=request_body,
+            )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "primary key" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_type == expected_sync_type
+        if expected_pk_columns is not None:
+            assert schema.sync_type_config["primary_key_columns"] == expected_pk_columns
+            assert schema.sync_type_config["cdc_mode"] == "snapshot"
+
+    def test_update_cdc_schema_rejects_primary_key_change_with_existing_data(self):
+        # CDC uses the PK as the UPDATE/DELETE merge key, so — same as incremental — it can't be
+        # changed once data has synced (the schema has a materialized table).
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming", "primary_key_columns": ["id"]},
+            table=table,
+        )
+
+        with mock.patch(
+            "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+            return_value=True,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "primary_key_columns": ["order_key"]},
+            )
+
+        assert response.status_code == 400
+        assert "primary key cannot be changed" in str(response.json()).lower()
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+
+    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
+        # Schemas already in CDC mode with an empty primary_key_columns (created before the
+        # API gate landed) must not be re-enabled until a PK is added on the source side.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="tracking_link",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "snapshot", "primary_key_columns": []},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"should_sync": True},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "primary key" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+    @parameterized.expand(
         [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
     )
     def test_update_schema_to_webhook_does_not_reset_pipeline(self, from_sync_type):
@@ -272,6 +492,12 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock.MagicMock(),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+
         with (
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
@@ -279,6 +505,10 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
                 return_value=True,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
             ),
         ):
             response = self.client.patch(
@@ -1020,12 +1250,13 @@ class TestUpdateExternalDataSchema:
             should_sync=False,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
             sync_type_config={
+                "primary_key_columns": ["id"],
                 "schema_metadata": {
                     "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
                     "foreign_keys": [],
                     "source_schema": "analytics",
                     "source_table_name": "events",
-                }
+                },
             },
         )
 
@@ -1035,8 +1266,8 @@ class TestUpdateExternalDataSchema:
                 return_value=True,
             ),
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.ExternalDataSchemaSerializer._alter_cdc_publication"
-            ) as mock_alter_cdc_publication,
+                "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+            ) as mock_add_table,
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -1062,13 +1293,10 @@ class TestUpdateExternalDataSchema:
             )
 
         assert response.status_code == 200
-        mock_alter_cdc_publication.assert_called_once()
-        assert mock_alter_cdc_publication.call_args.args == (
-            source,
-            "test_pub",
-            "analytics",
-            "events",
-        )
+        # The adapter reads the publication name from config itself, so the call is
+        # (source, schema, table).
+        mock_add_table.assert_called_once()
+        assert mock_add_table.call_args.args == (source, "analytics", "events")
 
     def test_delete_data_hides_direct_postgres_table(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
@@ -1336,7 +1564,7 @@ class TestCancelExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.RUNNING,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
         job = ExternalDataJob.objects.create(
             team=self.team,
@@ -1481,3 +1709,96 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert response.status_code == 200
         self.schema.refresh_from_db()
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
+
+class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
+    """`available_columns` is source-type-agnostic — it reads `schema_metadata.columns`.
+    Parameterized across every SQL source to lock in that the serializer doesn't regress
+    to Postgres-only behavior."""
+
+    @parameterized.expand(
+        [
+            (ExternalDataSourceType.POSTGRES,),
+            (ExternalDataSourceType.MYSQL,),
+            (ExternalDataSourceType.MSSQL,),
+            (ExternalDataSourceType.BIGQUERY,),
+            (ExternalDataSourceType.SNOWFLAKE,),
+            (ExternalDataSourceType.REDSHIFT,),
+        ]
+    )
+    def test_available_columns_populated_from_schema_metadata(self, source_type: ExternalDataSourceType):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=source_type)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                    ],
+                    "foreign_keys": [],
+                },
+            },
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+        )
+        assert response.status_code == 200, response.json()
+        payload = response.json()
+        assert payload["available_columns"] == [
+            {"name": "id", "data_type": "integer", "is_nullable": False},
+            {"name": "email", "data_type": "text", "is_nullable": True},
+        ]
+
+    @parameterized.expand(
+        [
+            (ExternalDataSourceType.POSTGRES,),
+            (ExternalDataSourceType.MYSQL,),
+            (ExternalDataSourceType.MSSQL,),
+            (ExternalDataSourceType.BIGQUERY,),
+            (ExternalDataSourceType.SNOWFLAKE,),
+            (ExternalDataSourceType.REDSHIFT,),
+        ]
+    )
+    def test_available_columns_empty_when_schema_metadata_missing(self, source_type: ExternalDataSourceType):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=source_type)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["available_columns"] == []
+
+    @parameterized.expand(
+        [
+            # source_type, supports_column_selection_expected
+            (ExternalDataSourceType.POSTGRES, True),
+            (ExternalDataSourceType.MYSQL, True),
+            (ExternalDataSourceType.MSSQL, True),
+            (ExternalDataSourceType.BIGQUERY, True),
+            (ExternalDataSourceType.SNOWFLAKE, True),
+            (ExternalDataSourceType.REDSHIFT, True),
+            # Non-SQL sources stay False
+            (ExternalDataSourceType.STRIPE, False),
+        ]
+    )
+    def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=source_type)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["supports_column_selection"] is expected

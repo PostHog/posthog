@@ -1,7 +1,7 @@
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
-import * as queryModule from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { AI_EVENT_NAMES, hasRecentAIEvents } from './aiEventsUtils'
@@ -37,12 +37,12 @@ describe('aiEventsUtils', () => {
                 },
             })
 
-            const hogqlQuerySpy = jest.spyOn(queryModule, 'hogqlQuery')
+            const queryApiSpy = jest.spyOn(api, 'query')
 
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(true)
-            expect(hogqlQuerySpy).not.toHaveBeenCalled()
+            expect(queryApiSpy).not.toHaveBeenCalled()
         })
 
         it('returns true for $ai_trace event type', async () => {
@@ -86,14 +86,14 @@ describe('aiEventsUtils', () => {
                 },
             })
 
-            const hogqlQuerySpy = jest.spyOn(queryModule, 'hogqlQuery').mockResolvedValue({
+            const queryApiSpy = jest.spyOn(api, 'query').mockResolvedValue({
                 results: [[1]],
             } as any)
 
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(true)
-            expect(hogqlQuerySpy).toHaveBeenCalled()
+            expect(queryApiSpy).toHaveBeenCalled()
         })
 
         it('falls back to ClickHouse when no EventDefinition exists', async () => {
@@ -106,14 +106,14 @@ describe('aiEventsUtils', () => {
                 },
             })
 
-            const hogqlQuerySpy = jest.spyOn(queryModule, 'hogqlQuery').mockResolvedValue({
+            const queryApiSpy = jest.spyOn(api, 'query').mockResolvedValue({
                 results: [[1]],
             } as any)
 
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(true)
-            expect(hogqlQuerySpy).toHaveBeenCalled()
+            expect(queryApiSpy).toHaveBeenCalled()
         })
 
         it('returns false when neither Postgres nor ClickHouse has AI events', async () => {
@@ -126,7 +126,7 @@ describe('aiEventsUtils', () => {
                 },
             })
 
-            jest.spyOn(queryModule, 'hogqlQuery').mockResolvedValue({
+            jest.spyOn(api, 'query').mockResolvedValue({
                 results: [],
             } as any)
 
@@ -153,14 +153,14 @@ describe('aiEventsUtils', () => {
                 },
             })
 
-            const hogqlQuerySpy = jest.spyOn(queryModule, 'hogqlQuery').mockResolvedValue({
+            const queryApiSpy = jest.spyOn(api, 'query').mockResolvedValue({
                 results: [],
             } as any)
 
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(false)
-            expect(hogqlQuerySpy).toHaveBeenCalled()
+            expect(queryApiSpy).toHaveBeenCalled()
         })
 
         it('handles null results from ClickHouse gracefully', async () => {
@@ -173,7 +173,7 @@ describe('aiEventsUtils', () => {
                 },
             })
 
-            jest.spyOn(queryModule, 'hogqlQuery').mockResolvedValue({
+            jest.spyOn(api, 'query').mockResolvedValue({
                 results: null,
             } as any)
 
@@ -192,7 +192,7 @@ describe('aiEventsUtils', () => {
                 },
             })
 
-            jest.spyOn(queryModule, 'hogqlQuery').mockResolvedValue({} as any)
+            jest.spyOn(api, 'query').mockResolvedValue({} as any)
 
             const result = await hasRecentAIEvents()
 

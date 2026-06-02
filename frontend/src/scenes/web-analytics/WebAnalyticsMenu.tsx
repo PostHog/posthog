@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch } from '@posthog/icons'
+import { IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { urls } from 'scenes/urls'
@@ -30,10 +31,23 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { hiddenTiles, productTab } = useValues(webAnalyticsLogic)
+    const {
+        hasSavedFocusMode,
+        hiddenTiles,
+        isFocusModeActive,
+        productTab,
+        showFocusMode,
+        useWebAnalyticsPrecompute,
+    } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setTileVisibility } = useActions(webAnalyticsLogic)
+    const {
+        enterFocusMode,
+        exitFocusMode,
+        openFocusModeModal,
+        setUseWebAnalyticsPrecompute,
+        setTileVisibility,
+    } = useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
@@ -44,7 +58,43 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                 <Link to={urls.sessionAttributionExplorer()} buttonProps={{ menuItem: true }}>
                     <IconSearch /> Session Attribution Explorer
                 </Link>
+                {showFocusMode && (
+                    <ButtonPrimitive menuItem onClick={openFocusModeModal}>
+                        <IconGear />
+                        Focus mode settings...
+                    </ButtonPrimitive>
+                )}
+                {showFocusMode &&
+                    (isFocusModeActive ? (
+                        <ButtonPrimitive menuItem onClick={exitFocusMode}>
+                            <IconX />
+                            Exit focus mode
+                        </ButtonPrimitive>
+                    ) : hasSavedFocusMode ? (
+                        <ButtonPrimitive menuItem onClick={enterFocusMode}>
+                            <IconTarget />
+                            Enter focus mode
+                        </ButtonPrimitive>
+                    ) : null)}
             </ScenePanelActionsSection>
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
+                <>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
+                        <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
+                                }}
+                            >
+                                <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
+                                Allow precompute
+                            </ButtonPrimitive>
+                        </Tooltip>
+                    </ScenePanelActionsSection>
+                </>
+            )}
             {showTileToggles && availableTiles.length > 0 && (
                 <>
                     <ScenePanelDivider />

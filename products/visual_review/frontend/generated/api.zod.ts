@@ -33,9 +33,46 @@ export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
 export const visualReviewReposQuarantineCreateBodyReasonMax = 255
 
 export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object({
-    identifier: zod.string().max(visualReviewReposQuarantineCreateBodyIdentifierMax),
-    reason: zod.string().max(visualReviewReposQuarantineCreateBodyReasonMax),
-    expires_at: zod.iso.datetime({}).nullish(),
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    source_run_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
+})
+
+/**
+ * Expire all active quarantine entries for an identifier.
+ */
+export const visualReviewReposQuarantineExpireCreateBodyIdentifierMax = 512
+
+export const visualReviewReposQuarantineExpireCreateBodyReasonMax = 255
+
+export const VisualReviewReposQuarantineExpireCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    source_run_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
@@ -80,63 +117,61 @@ export const VisualReviewRunsAddSnapshotsCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Approve visual changes for snapshots in this run.
+ * Mark snapshots reviewed (DB only).
 
-With approve_all=true, approves all changed+new snapshots and returns
-signed baseline YAML. With specific snapshots, approves only those.
+Records the per-snapshot "Accept change" decision. Does not commit the baseline
+or change the GitHub gate — call finalize to ship the run.
  */
 export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
     snapshots: zod
         .array(
             zod.object({
-                identifier: zod.string(),
-                new_hash: zod.string(),
+                identifier: zod
+                    .string()
+                    .describe('The snapshot identifier to approve (e.g. Storybook story id plus theme).'),
+                new_hash: zod
+                    .string()
+                    .describe('The content hash of the new baseline image to record for this identifier.'),
             })
         )
-        .optional(),
-    approve_all: zod.boolean().optional(),
-    commit_to_github: zod.boolean().optional(),
+        .describe(
+            'Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint.'
+        ),
 })
 
 /**
- * Complete a run: detect removals, verify uploads, trigger diff processing.
+ * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+
+Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
+and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
+any still-pending changed/new snapshot is approved first. With commit_to_github=false
+the server returns the signed baseline YAML instead of committing it.
  */
-export const VisualReviewRunsCompleteCreateBody = /* @__PURE__ */ zod.object({
-    approved_by: zod
-        .object({
-            id: zod.number(),
-            first_name: zod.string(),
-            email: zod.string(),
-        })
-        .nullish(),
-    id: zod.uuid(),
-    repo_id: zod.uuid(),
-    status: zod.string(),
-    run_type: zod.string(),
-    commit_sha: zod.string(),
-    branch: zod.string(),
-    pr_number: zod.number().nullable(),
-    approved: zod.boolean(),
-    approved_at: zod.iso.datetime({}).nullable(),
-    summary: zod.object({
-        total: zod.number(),
-        changed: zod.number(),
-        new: zod.number(),
-        removed: zod.number(),
-        unchanged: zod.number(),
-        tolerated_matched: zod.number().optional(),
-    }),
-    error_message: zod.string().nullable(),
-    created_at: zod.iso.datetime({}),
-    completed_at: zod.iso.datetime({}).nullable(),
-    is_stale: zod.boolean().optional(),
-    superseded_by_id: zod.uuid().nullish(),
-    metadata: zod.record(zod.string(), zod.unknown()).optional(),
+export const visualReviewRunsFinalizeCreateBodyApproveAllDefault = false
+export const visualReviewRunsFinalizeCreateBodyCommitToGithubDefault = true
+
+export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
+    approve_all: zod
+        .boolean()
+        .default(visualReviewRunsFinalizeCreateBodyApproveAllDefault)
+        .describe(
+            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed\/new snapshot is still unreviewed."
+        ),
+    commit_to_github: zod
+        .boolean()
+        .default(visualReviewRunsFinalizeCreateBodyCommitToGithubDefault)
+        .describe(
+            'Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent.'
+        ),
 })
 
 /**
  * Mark a changed snapshot as a known tolerated alternate.
  */
 export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
-    snapshot_id: zod.uuid(),
+    snapshot_id: zod
+        .uuid()
+        .describe(
+            'UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes.'
+        ),
 })

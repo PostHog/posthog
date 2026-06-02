@@ -12,7 +12,6 @@ from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
 from rest_framework import status
-from temporalio.client import ScheduleActionStartWorkflow
 
 from posthog.api.test.batch_exports.conftest import (
     assert_is_daily_schedule,
@@ -24,13 +23,16 @@ from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExport
-from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
     pytest.mark.django_db,
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
+
+
+# This file holds generic / cross-destination create tests. Per-destination
+# tests live alongside in `test_create_<destination>.py`.
 
 
 def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal, organization, team, user):
@@ -45,13 +47,14 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal
     interval = "hour"
 
     destination_data = {
-        "type": "S3",
+        "type": "S3Compatible",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
+            "endpoint_url": "https://localhost:9000",
             "use_virtual_style_addressing": True,
         },
         "integration": None,
@@ -65,29 +68,11 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal
 
     client.force_login(user)
 
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ) as feature_enabled:
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-
-    if interval == "every 5 minutes":
-        feature_enabled.assert_any_call(
-            "high-frequency-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -568,391 +553,6 @@ def test_create_batch_export_fails_with_invalid_query(
 
 
 @pytest.mark.parametrize(
-    "auth_type,credentials,expected_status",
-    [
-        # Password auth type tests
-        (
-            "password",
-            {"password": "abc123"},
-            status.HTTP_201_CREATED,
-        ),
-        (
-            "password",
-            {},
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Key pair auth type tests
-        (
-            "keypair",
-            {"private_key": "SECRET_KEY"},
-            status.HTTP_201_CREATED,
-        ),
-        (
-            "keypair",
-            {},
-            status.HTTP_400_BAD_REQUEST,
-        ),
-    ],
-)
-def test_create_snowflake_batch_export_validates_credentials(
-    client: HttpClient, auth_type, credentials, expected_status, temporal, organization, team, user
-):
-    """Test creating a BatchExport with Snowflake destination validates credentials based on auth type."""
-
-    destination_data = {
-        "type": "Snowflake",
-        "config": {
-            "account": "my-account",
-            "user": "user",
-            "database": "my-db",
-            "warehouse": "COMPUTE_WH",
-            "schema": "public",
-            "table_name": "my_events",
-            "authentication_type": auth_type,
-            **credentials,
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-snowflake-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == expected_status
-
-    if expected_status == status.HTTP_400_BAD_REQUEST:
-        if auth_type == "password":
-            assert "Password is required if authentication type is password" in response.json()["detail"]
-        else:
-            assert "Private key is required if authentication type is key pair" in response.json()["detail"]
-
-
-@pytest.mark.parametrize(
-    "mode,copy_inputs,expected_status",
-    [
-        (
-            "INSERT",
-            {},
-            status.HTTP_201_CREATED,
-        ),
-        (
-            "INSERT",
-            None,
-            status.HTTP_201_CREATED,
-        ),
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": "default",
-            },
-            status.HTTP_201_CREATED,
-        ),
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-            },
-            status.HTTP_201_CREATED,
-        ),
-        # Missing required 's3_bucket'
-        (
-            "COPY",
-            {
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": "default",
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Missing required 'region_name'
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": "default",
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Missing required 'aws_secret_access_key' in 'bucket_credentials
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123"},
-                "authorization": "default",
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Empty 'bucket_credentials'
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {},
-                "authorization": "default",
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Empty 'authorization'
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": {},
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Empty 'authorization' as IAMRole
-        (
-            "COPY",
-            {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": "",
-            },
-            status.HTTP_400_BAD_REQUEST,
-        ),
-    ],
-)
-def test_create_redshift_batch_export_validates_copy_inputs(
-    client: HttpClient, mode, copy_inputs, expected_status, temporal, organization, team, user
-):
-    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
-
-    destination_data = {
-        "type": "Redshift",
-        "config": {
-            "user": "user",
-            "password": "my-password",
-            "database": "my-db",
-            "host": "localhost",
-            "schema": "public",
-            "table_name": "my_events",
-            "mode": mode,
-            "copy_inputs": copy_inputs,
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-redshiftn-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == expected_status, response.json()
-
-    if expected_status == status.HTTP_400_BAD_REQUEST:
-        assert "Missing required" in response.json()["detail"]
-
-
-@pytest.mark.parametrize(
-    "file_format,compression,expected_error_message",
-    [
-        (
-            "JSONLines",
-            None,
-            None,
-        ),
-        (
-            "JSONLines",
-            "gzip",
-            None,
-        ),
-        (
-            "JSONLines",
-            "zstd",
-            "Compression zstd is not supported for file format JSONLines. Supported compressions are ['gzip', 'brotli']",
-        ),
-        (
-            "Parquet",
-            None,
-            None,
-        ),
-        (
-            "Parquet",
-            "gzip",
-            None,
-        ),
-        (
-            "Parquet",
-            "brotli",
-            None,
-        ),
-        (
-            "Parquet",
-            "zstd",
-            None,
-        ),
-        (
-            "Parquet",
-            "unknown",
-            "Compression unknown is not supported for file format Parquet. Supported compressions are ['zstd', 'lz4', 'snappy', 'gzip', 'brotli']",
-        ),
-        (
-            "unknown",
-            "gzip",
-            "File format unknown is not supported. Supported file formats are ['Parquet', 'JSONLines']",
-        ),
-    ],
-)
-def test_create_s3_batch_export_validates_file_format_and_compression(
-    client: HttpClient, file_format, compression, expected_error_message, temporal, organization, team, user
-):
-    """Test creating a BatchExport with S3 destination validates file format and compression."""
-
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": "my-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-            "file_format": file_format,
-            "compression": compression,
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-s3-bucket",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    if expected_error_message is None:
-        assert response.status_code == status.HTTP_201_CREATED
-    else:
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == expected_error_message
-
-
-def test_create_s3_batch_export_validates_empty_inputs(client: HttpClient, temporal, organization, team, user):
-    """Test creating a BatchExport with S3 destination validates that expected inputs are not empty."""
-
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": "my-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "events/",
-            "aws_access_key_id": "",
-            "aws_secret_access_key": "",
-            "file_format": "JSONLines",
-            "compression": "gzip",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-s3-bucket",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
-
-
-def test_create_s3_batch_export_validates_missing_inputs(client: HttpClient, temporal, organization, team, user):
-    """Test creating a BatchExport with S3 destination validates that expected inputs are not missing."""
-
-    config = {
-        "bucket_name": "my-s3-bucket",
-        "region": "us-east-1",
-        "prefix": "events/",
-        "aws_access_key_id": "something",
-        "aws_secret_access_key": "something",
-        "file_format": "JSONLines",
-        "compression": "gzip",
-    }
-
-    client.force_login(user)
-
-    for key in ("aws_access_key_id", "aws_secret_access_key"):
-        # Check that we validate each key missing invidually first
-        destination_data = {"type": "S3", "config": {k: v for k, v in config.items() if k != key}}
-
-        data = {
-            "name": "my-s3-bucket",
-            "destination": destination_data,
-            "interval": "hour",
-        }
-
-        response = create_batch_export(
-            client,
-            team.pk,
-            data,
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, key
-        assert response.json()["detail"] == f"Configuration missing required field: '{key}'"
-
-    response_missing_both = create_batch_export(
-        client,
-        team.pk,
-        {
-            "name": "my-s3-bucket",
-            "destination": {k: v for k, v in destination_data.items() if k != "aws_secret_access_key"},
-            "interval": "hour",
-        },
-    )
-
-    assert response_missing_both.status_code == status.HTTP_400_BAD_REQUEST
-
-
-@pytest.mark.parametrize(
     "type,config,expected_error_message",
     [
         (
@@ -1036,398 +636,23 @@ def test_create_batch_export_with_invalid_config(
     assert expected_error_message in response.json()["detail"]
 
 
-@pytest.fixture
-def databricks_integration(team, user):
-    """Create a Databricks integration."""
-    return Integration.objects.create(
-        team=team,
-        kind=Integration.IntegrationKind.DATABRICKS,
-        integration_id="my-server-hostname",
-        config={"server_hostname": "my-server-hostname"},
-        sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
-        created_by=user,
-    )
-
-
-def test_creating_databricks_batch_export_using_integration(
-    client: HttpClient, temporal, organization, team, user, databricks_integration
-):
-    """Test that we can create a Databricks batch export using an integration.
-
-    Using integrations is the preferred way to handle credentials for batch exports going forward.
-    """
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-        "integration": databricks_integration.id,
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    data = response.json()
-    assert data["destination"] == destination_data
-
-    schedule = describe_schedule(temporal, data["id"])
-    intervals = schedule.schedule.spec.intervals
-
-    assert len(intervals) == 1
-    assert schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
-    assert isinstance(schedule.schedule.action, ScheduleActionStartWorkflow)
-    assert schedule.schedule.action.workflow == "databricks-export"
-
-
-def test_creating_databricks_batch_export_fails_if_integration_is_missing(
-    client: HttpClient, temporal, organization, team, user
-):
-    """Test that creating a Databricks batch export fails if the integration is missing.
-
-    Using integrations is the preferred way to handle credentials for batch exports going forward.
-    """
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-
-    assert response.json() == {
-        "type": "validation_error",
-        "code": "invalid_input",
-        "detail": "Integration is required for Databricks batch exports",
-        "attr": "destination",
-    }
-
-
-def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
-    client: HttpClient, temporal, organization, team, user
-):
-    """Test that creating a Databricks batch export fails if the integration is invalid.
-
-    Using integrations is the preferred way to handle credentials for batch exports going forward.
-
-    In this case, the integration is missing the client_secret. In theory, this shouldn't happen, as we validate the
-    integration when creating it via the API.
-    """
-
-    integration = Integration.objects.create(
-        team=team,
-        kind=Integration.IntegrationKind.DATABRICKS,
-        integration_id="my-server-hostname",
-        config={"server_hostname": "my-server-hostname"},
-        sensitive_config={"client_id": "my-client-id"},
-        created_by=user,
-    )
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-        "integration": integration.pk,
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == "Databricks integration is not valid: 'client_secret' missing"
-
-
-def test_creating_databricks_batch_export_fails_if_integration_does_not_exist(
-    client: HttpClient,
-    temporal,
-    organization,
-    team,
-    user,
-):
-    """Test that creating a Databricks batch export fails if the integration does not exist in the database.
-
-    Using integrations is the preferred way to handle credentials for batch exports going forward.
-    """
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-        "integration": 999,
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-
-    assert response.json() == {
-        "type": "validation_error",
-        "code": "does_not_exist",
-        "detail": 'Invalid pk "999" - object does not exist.',
-        "attr": "destination__integration",
-    }
-
-
-def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correct_type(
-    client: HttpClient, temporal, organization, team, user
-):
-    """Test that creating a Databricks batch export fails if the integration is not the correct type.
-
-    Using integrations is the preferred way to handle credentials for batch exports going forward.
-
-    In this case, the integration is not a Databricks integration.
-    """
-
-    integration = Integration.objects.create(
-        team=team,
-        kind=Integration.IntegrationKind.SLACK,
-        integration_id="my-server-hostname",
-        config={"server_hostname": "my-server-hostname"},
-        sensitive_config={"client_id": "my-client-id"},
-        created_by=user,
-    )
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-        "integration": integration.pk,
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == "Integration is not a Databricks integration."
-
-
-@pytest.fixture
-def azure_blob_integration(team, user):
-    """Create an Azure Blob integration."""
-    return Integration.objects.create(
-        team=team,
-        kind=Integration.IntegrationKind.AZURE_BLOB,
-        integration_id="my-storage-account",
-        config={},
-        sensitive_config={
-            "connection_string": "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.windows.net"
-        },
-        created_by=user,
-    )
-
-
-def test_creating_azure_blob_batch_export_using_integration(
-    client: HttpClient, temporal, organization, team, user, azure_blob_integration
-):
-    """Test that we can create an Azure Blob batch export using an integration."""
-    destination_data = {
-        "type": "AzureBlob",
-        "config": {
-            "container_name": "test-container",
-            "prefix": "test-prefix/",
-        },
-        "integration": azure_blob_integration.id,
-    }
-
-    batch_export_data = {
-        "name": "my-azure-blob-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    data = response.json()
-    assert data["destination"]["type"] == "AzureBlob"
-    assert data["destination"]["config"]["container_name"] == "test-container"
-    assert data["destination"]["config"]["prefix"] == "test-prefix/"
-    assert data["interval"] == "hour"
-
-    temporal_schedule = describe_schedule(temporal, data["id"])
-    assert temporal_schedule is not None
-    assert temporal_schedule.schedule is not None
-    assert isinstance(temporal_schedule.schedule.action, ScheduleActionStartWorkflow)
-    assert temporal_schedule.schedule.action.workflow == "azure-blob-export"
+_S3_FILTER_TEST_CONFIG = {
+    "bucket_name": "my-s3-bucket",
+    "region": "us-east-1",
+    "prefix": "posthog-events/",
+    "aws_access_key_id": "abc123",
+    "aws_secret_access_key": "secret",
+}
 
 
 @pytest.mark.parametrize(
-    "model,expected_status,expected_error",
+    "filters,expected_status,expected_error",
     [
-        ("events", status.HTTP_201_CREATED, None),
+        ({"filters": {"filter_something": 123}}, status.HTTP_400_BAD_REQUEST, "should be an array"),
         (None, status.HTTP_201_CREATED, None),
-        ("persons", status.HTTP_400_BAD_REQUEST, "HTTP batch exports only support the events model"),
-    ],
-)
-def test_creating_http_batch_export_only_allows_events_model(
-    client: HttpClient, temporal, organization, team, user, model, expected_status, expected_error
-):
-    """HTTP batch exports are used for migrations, and therefore only support the events model."""
-
-    destination_data = {
-        "type": "HTTP",
-        "config": {
-            "url": "https://us.i.posthog.com/batch/",
-            "token": "secret-token",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-http-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    if model is not None:
-        batch_export_data["model"] = model
-
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == expected_status, response.json()
-
-    if expected_error:
-        assert response.json()["detail"] == expected_error
-
-
-@pytest.mark.parametrize(
-    "type,filters,config,expected_status,expected_error",
-    [
+        ([], status.HTTP_201_CREATED, None),
         (
-            "BigQuery",
-            {"filters": {"filter_something": 123}},
-            {
-                "project_id": "test",
-                "dataset_id": "test",
-                "private_key": "pkey",
-                "private_key_id": "pkey_id",
-                "token_uri": "token",
-                "client_email": "email",
-            },
-            status.HTTP_400_BAD_REQUEST,
-            "should be an array",
-        ),
-        (
-            "BigQuery",
-            None,
-            {
-                "project_id": "test",
-                "dataset_id": "test",
-                "private_key": "pkey",
-                "private_key_id": "pkey_id",
-                "token_uri": "token",
-                "client_email": "email",
-            },
-            status.HTTP_201_CREATED,
-            None,
-        ),
-        (
-            "BigQuery",
-            [],
-            {
-                "project_id": "test",
-                "dataset_id": "test",
-                "private_key": "pkey",
-                "private_key_id": "pkey_id",
-                "token_uri": "token",
-                "client_email": "email",
-            },
-            status.HTTP_201_CREATED,
-            None,
-        ),
-        (
-            "S3",
             [{"data_interval_start": "2025-01-01"}],
-            {
-                "bucket_name": "my-s3-bucket",
-                "region": "us-east-1",
-                "prefix": "posthog-events/",
-                "aws_access_key_id": "abc123",
-                "aws_secret_access_key": "secret",
-            },
             status.HTTP_400_BAD_REQUEST,
             "not 'filters'. Trigger a backfill",
         ),
@@ -1439,17 +664,15 @@ def test_creating_batch_export_with_filters(
     organization,
     team,
     user,
-    type,
     filters,
-    config,
     expected_status,
     expected_error,
 ):
     """Test validation of the filters field when creating a batch export."""
 
     destination_data = {
-        "type": type,
-        "config": config,
+        "type": "S3",
+        "config": _S3_FILTER_TEST_CONFIG,
     }
 
     batch_export_data = {
@@ -1471,146 +694,6 @@ def test_creating_batch_export_with_filters(
 
     if expected_error:
         assert expected_error in response.json()["detail"]
-
-
-@pytest.fixture
-def enable_backfilling_workflows(team):
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
-    ) as feature_enabled:
-        yield
-
-        feature_enabled.assert_any_call(
-            "backfill-workflows-destination",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-
-def test_creating_workflows_batch_export(
-    client: HttpClient, temporal, organization, team, user, enable_backfilling_workflows
-):
-    """Test that we can create a Workflows batch export if the feature flag is enabled."""
-
-    destination_data = {
-        "type": "Workflows",
-        "config": {
-            "hog_function_id": "aaaa-bbbb-cccc",
-        },
-        "integration": None,
-    }
-
-    batch_export_data = {
-        "name": "my-workflows-destination",
-        "destination": destination_data,
-        "interval": "day",
-    }
-
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    data = response.json()
-    assert data["destination"] == destination_data
-
-    schedule = describe_schedule(temporal, data["id"])
-    assert_is_daily_schedule(schedule, 0)
-
-
-def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
-    client: HttpClient, temporal, organization, team, user
-):
-    """Test that creating a Workflows batch export fails if the feature flag is not enabled."""
-
-    destination_data = {
-        "type": "Workflows",
-        "config": {
-            "hog_function_id": "aaaa-bbbb-cccc",
-        },
-        "integration": None,
-    }
-
-    batch_export_data = {
-        "name": "my-workflows-destination",
-        "destination": destination_data,
-        "interval": "day",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    assert "Backfilling Workflows is not enabled for this team." in response.json()["detail"]
-
-
-@pytest.mark.parametrize(
-    "endpoint_url",
-    [
-        "https://192.168.1.1",
-        "http://127.0.0.1",
-        "http://[::1]/",
-        "http://10.0.0.1:9000/",
-        "http://169.254.0.0:8080/data",
-        "http://localhost",
-    ],
-)
-def test_creating_S3_batch_export_fails_if_using_invalid_endpoint_url(
-    client: HttpClient, temporal, organization, team, user, endpoint_url
-):
-    """Test that creating an S3 batch export fails if passing an internal IP as endpoint URL.
-
-    Last time I checked, we are not S3.
-    """
-
-    interval = "hour"
-
-    destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-            "use_virtual_style_addressing": True,
-            "endpoint_url": endpoint_url,
-        },
-        "integration": None,
-    }
-
-    batch_export_data: dict[str, t.Any] = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": interval,
-    }
-    client.force_login(user)
-
-    with override_settings(TEST=0, DEBUG=0):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
 
 
 @pytest.mark.parametrize(

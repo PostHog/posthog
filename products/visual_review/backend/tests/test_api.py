@@ -15,6 +15,7 @@ from products.visual_review.backend.facade.contracts import (
     UpdateRepoInput,
 )
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
+from products.visual_review.backend.models import Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -104,6 +105,34 @@ class TestRunAPI:
             assert upload.url == "https://s3.example.com/upload"
             assert upload.fields == {"key": "value"}
 
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_create_run_strips_reserved_metadata_keys(self, mock_presigned, repo):
+        # Clients must not be able to seed server-owned metadata keys —
+        # otherwise they could target arbitrary GitHub comments for PATCH
+        # or spoof baseline commit SHAs in the audit trail.
+        mock_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {}}
+
+        result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+                metadata={
+                    "pr_title": "kept",
+                    "github_comment_id": 99999,
+                    "baseline_commit_sha": "deadbeef",
+                    "baseline_healed_from_merge_base": 1,
+                    "github_check_run_id": "72855643533",
+                },
+            ),
+            team_id=repo.team_id,
+        )
+
+        run = Run.objects.get(id=result.run_id)
+        assert run.metadata == {"pr_title": "kept"}
+
     def test_get_run_returns_dto(self, repo):
         create_result = api.create_run(
             CreateRunInput(
@@ -144,6 +173,47 @@ class TestRunAPI:
         identifiers = {s.identifier for s in snapshots}
         assert identifiers == {"Button", "Card"}
 
+    @pytest.mark.parametrize(
+        ("filters", "expected_commits"),
+        [
+            ({"pr_number": 42}, {"sha-a"}),
+            ({"commit_sha": "sha-b"}, {"sha-b"}),
+            ({"branch": "feature/x"}, {"sha-a", "sha-c"}),
+            ({"branch": "feature/x", "pr_number": 42}, {"sha-a"}),
+            ({"pr_number": 9999}, set()),
+            ({}, {"sha-a", "sha-b", "sha-c"}),
+        ],
+    )
+    def test_list_runs_applies_filters(self, filters, expected_commits, repo):
+        Run.objects.create(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            commit_sha="sha-a",
+            branch="feature/x",
+            pr_number=42,
+            run_type=RunType.STORYBOOK,
+        )
+        Run.objects.create(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            commit_sha="sha-b",
+            branch="main",
+            pr_number=99,
+            run_type=RunType.STORYBOOK,
+        )
+        Run.objects.create(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            commit_sha="sha-c",
+            branch="feature/x",
+            pr_number=None,
+            run_type=RunType.PLAYWRIGHT,
+        )
+
+        runs = api.list_runs(repo.team_id, **filters)
+
+        assert {r.commit_sha for r in runs} == expected_commits
+
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes_skips_task(self, mock_delay, repo):
         """Runs with no changes complete immediately without triggering diff task."""
@@ -183,7 +253,7 @@ class TestRunAPI:
         result = api.complete_run(create_result.run_id)
 
         assert result.status == "processing"
-        mock_delay.assert_called_once_with(str(create_result.run_id))
+        mock_delay.assert_called_once_with(repo.team_id, str(create_result.run_id))
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -222,10 +292,10 @@ class TestApproveRunAPI:
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
             logic.complete_run(create_result.run_id)
-        logic.finalize_run(create_result.run_id)
+        logic.finish_processing(create_result.run_id)
 
         # Per-snapshot approval is DB only — no run-level finalization
-        result = api.approve_run(
+        result = api.approve_snapshots(
             ApproveRunInput(
                 run_id=create_result.run_id,
                 user_id=user.id,

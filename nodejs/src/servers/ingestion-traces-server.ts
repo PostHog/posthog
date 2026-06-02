@@ -13,11 +13,9 @@ import {
 } from '../logs-ingestion/config'
 import { createProducerRegistry } from '../logs-ingestion/outputs/producer-registry'
 import {
-    KafkaMskProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
-    getDefaultKafkaMskProducerEnvConfig,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
@@ -38,7 +36,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * - LogsIngestionConsumerConfig: base consumer config (traces reuses the logs consumer)
  * - TracesIngestionConsumerConfig: traces-specific Kafka topics, Redis, rate limiter settings
  * - LogsIngestionOutputsConfig: per-output topic + producer routing
- * - Producer env configs: typed env vars for the DEFAULT + MSK producers
+ * - Producer env configs: typed env vars for the Warpstream logs + ingestion producers
  * - Infrastructure configs: Kafka broker, Postgres, Redis
  * - Remaining CommonConfig picks: server mode, observability
  */
@@ -47,7 +45,6 @@ export type IngestionTracesServerConfig = BaseServerConfig &
     TracesIngestionConsumerConfig &
     LogsIngestionOutputsConfig &
     KafkaWarpstreamLogsProducerEnvConfig &
-    KafkaMskProducerEnvConfig &
     KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
@@ -66,7 +63,6 @@ export class IngestionTracesServer implements NodeServer {
         this.config = {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaMskProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
             ...config,

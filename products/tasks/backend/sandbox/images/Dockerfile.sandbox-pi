@@ -1,6 +1,9 @@
 ARG BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:master
 FROM ${BASE_IMAGE}
 
+ARG IPTABLES_VERSION=1.8.10-3ubuntu2
+RUN apt-get update && apt-get install -y --no-install-recommends "iptables=${IPTABLES_VERSION}" && rm -rf /var/lib/apt/lists/*
+
 ARG PI_CODING_AGENT_VERSION=0.68.1
 RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
 

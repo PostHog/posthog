@@ -4,7 +4,7 @@ import React from 'react'
 import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { incidentStatusLogic } from 'lib/components/HealthMenu/incidentStatusLogic'
+import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -78,14 +78,29 @@ const StatusPageAlert = (): JSX.Element | null => {
 // In order to set these turn on the `support-message-override` feature flag.
 
 //Support offsite messaging
-//const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
-//const SUPPORT_MESSAGE_OVERRIDE_BODY =
-//    "Many of our support engineers are attending an offsite (from 3rd to 7th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 10th!"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+const SUPPORT_MESSAGE_OVERRIDE_BODY =
+    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
 
 //Support Christmas messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
-const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
+
+const SupportMessageOverride = (): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE]) {
+        return null
+    }
+
+    return (
+        <div className="border bg-surface-primary p-2 rounded gap-2 mb-3">
+            <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
+            <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
+        </div>
+    )
+}
 
 // Table shown to free users on Help panel, instead of email button
 // Support response times are pulled dynamically from billing plans (product.features) where available
@@ -102,8 +117,8 @@ const SupportResponseTimesTable = ({
     const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
     const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(user?.organization?.id || '')
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
     const hasExpiredTrial = billing?.trial?.status === 'expired'
@@ -184,7 +199,7 @@ const SupportResponseTimesTable = ({
     ]
 
     return (
-        <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
+        <div className="grid grid-cols-2 border rounded *:px-2 *:py-0.5 bg-surface-primary mb-2">
             {plansToDisplay.map((plan, index) => {
                 const isBold = plan.current_plan
 
@@ -249,12 +264,12 @@ const SupportResponseTimesTable = ({
 function SupportFormBlock({
     onCancel,
     billing,
+    isSubmitting,
 }: {
     onCancel: () => void
     billing: BillingType | null | undefined
+    isSubmitting: boolean
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <Section title="Email an engineer">
             <SupportForm />
@@ -266,6 +281,7 @@ function SupportFormBlock({
                 fullWidth
                 center
                 className="mt-4"
+                loading={isSubmitting}
             >
                 Submit
             </LemonButton>
@@ -282,19 +298,10 @@ function SupportFormBlock({
 
             <br />
 
-            {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
-                <div className="border bg-surface-primary p-2 rounded gap-2">
-                    <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
-                    <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
-                </div>
-            ) : (
-                <>
-                    <div className="mb-2">
-                        <strong>Support is open Monday - Friday</strong>
-                    </div>
-                    <SupportResponseTimesTable billing={billing} isCompact={true} />
-                </>
-            )}
+            <div className="mb-2">
+                <strong>Support is open Monday - Friday</strong>
+            </div>
+            <SupportResponseTimesTable billing={billing} isCompact={true} />
         </Section>
     )
 }
@@ -303,7 +310,12 @@ export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
+    const {
+        isEmailFormOpen,
+        title: supportPanelTitle,
+        targetArea,
+        isSendSupportRequestSubmitting,
+    } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
@@ -311,8 +323,8 @@ export function SidePanelSupport(): JSX.Element {
 
     const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
     const hasActiveTrial = hasBoostTrial || hasScaleTrial || hasEnterpriseTrial
 
@@ -340,6 +352,7 @@ export function SidePanelSupport(): JSX.Element {
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             billing={billing}
+                            isSubmitting={isSendSupportRequestSubmitting}
                             onCancel={() => {
                                 closeEmailForm()
                                 closeSupportForm()
@@ -375,6 +388,7 @@ export function SidePanelSupport(): JSX.Element {
                             {showEmailSupport && isBillingLoaded && useProductSupportSidePanel && (
                                 <Section title="Contact us">
                                     <StatusPageAlert />
+                                    <SupportMessageOverride />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <SidePanelTickets />
                                 </Section>
@@ -383,6 +397,7 @@ export function SidePanelSupport(): JSX.Element {
                             {showEmailSupport && isBillingLoaded && !useProductSupportSidePanel && (
                                 <Section title="Contact us">
                                     <StatusPageAlert />
+                                    <SupportMessageOverride />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"
