@@ -138,8 +138,6 @@
     .quill-menubar {
         height: 2.25rem;
         padding: 0.25rem;
-        background-color: var(--background);
-        border: 1px solid var(--border);
         border-radius: var(--radius-lg);
     }
 
@@ -152,9 +150,12 @@
         border-radius: calc(var(--radius-sm) - 2px);
     }
 
-    .quill-menubar__trigger:hover,
+    .quill-menubar__trigger:hover {
+        background-color: var(--fill-hover);
+    }
+
     .quill-menubar__trigger[aria-expanded='true'] {
-        background-color: var(--muted);
+        background-color: var(--fill-selected);
     }
 
     @media (prefers-reduced-motion: reduce) {

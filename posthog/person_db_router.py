@@ -43,7 +43,10 @@ class PersonDBRouter:
     A router to control all database operations on models in the persons database.
     """
 
-    PERSONS_APP_LABEL = "posthog"  # Assuming all models are in the 'posthog' app
+    # Apps whose models can live in the persons DB. FeatureFlagHashKeyOverride
+    # was historically in the `posthog` app; it moved to `feature_flags` when the
+    # FF models were extracted, but the physical table still lives in persons_db.
+    PERSONS_APP_LABELS = {"posthog", "feature_flags"}
 
     def db_for_read(self, model, **hints):
         """
@@ -70,10 +73,10 @@ class PersonDBRouter:
         by default, as Django doesn't support cross-database relations natively.
         You might need to adjust this based on specific foreign keys (e.g., Person -> Team).
         """
-        obj1_in_persons_db = obj1._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+        obj1_in_persons_db = obj1._meta.app_label in self.PERSONS_APP_LABELS and self.is_persons_model(
             obj1._meta.app_label, obj1._meta.model_name
         )
-        obj2_in_persons_db = obj2._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+        obj2_in_persons_db = obj2._meta.app_label in self.PERSONS_APP_LABELS and self.is_persons_model(
             obj2._meta.app_label, obj2._meta.model_name
         )
 
@@ -133,5 +136,6 @@ class PersonDBRouter:
 
     def is_persons_model(self, app_label, model_name):
         # only route posthog app models, not auth.Group (there is a name clash between posthog_group
-        # and Django's auth_group
-        return app_label == "posthog" and model_name in PERSONS_DB_MODELS
+        # and Django's auth_group. featureflaghashkeyoverride moved to the feature_flags app but the
+        # physical table still lives in persons_db.
+        return app_label in self.PERSONS_APP_LABELS and model_name in PERSONS_DB_MODELS

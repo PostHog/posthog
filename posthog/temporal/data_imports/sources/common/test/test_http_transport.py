@@ -83,6 +83,24 @@ def test_make_tracked_adapter_with_none_retry_uses_default():
     assert adapter.max_retries.total == DEFAULT_RETRY.total
 
 
+def test_send_forwards_redact_values_to_record(mock_record, fake_http_send):
+    session = make_tracked_session(redact_values=("sk_live_secret",))
+
+    with fake_http_send(_fake_response(status_code=200, body=b"ok")):
+        session.get("https://api.example.com/v1/ok")
+
+    assert mock_record.call_args.kwargs["redact_values"] == ("sk_live_secret",)
+
+
+def test_send_defaults_redact_values_to_empty(mock_record, fake_http_send):
+    session = make_tracked_session()
+
+    with fake_http_send(_fake_response(status_code=200, body=b"ok")):
+        session.get("https://api.example.com/v1/ok")
+
+    assert mock_record.call_args.kwargs["redact_values"] == ()
+
+
 def test_send_records_request_for_2xx(mock_record, fake_http_send):
     session = make_tracked_session()
 

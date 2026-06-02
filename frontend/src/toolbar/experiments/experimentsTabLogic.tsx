@@ -10,6 +10,12 @@ import { urls } from 'scenes/urls'
 import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
+import {
+    sanitizeExperimentHTML,
+    sanitizeExperimentStyle,
+    setSanitizedHTML,
+    setSanitizedStyle,
+} from '~/toolbar/experiments/sanitize'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -342,10 +348,14 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     if (previousSelector) {
                         const originalHtmlState = values.experimentForm.original_html_state?.[previousSelector]
                         if (originalHtmlState) {
-                            const previousElement = document.querySelector(previousSelector) as HTMLElement
-                            previousElement.innerHTML = originalHtmlState.html
-                            if (originalHtmlState.css) {
-                                previousElement.setAttribute('style', originalHtmlState.css)
+                            const previousElement = document.querySelector(previousSelector) as HTMLElement | null
+                            // Captured from the live DOM, so script/event-handler content the customer
+                            // page legitimately included is not restored — that's the sanitization trade-off.
+                            if (previousElement) {
+                                setSanitizedHTML(previousElement, originalHtmlState.html)
+                                if (originalHtmlState.css) {
+                                    setSanitizedStyle(previousElement, originalHtmlState.css)
+                                }
                             }
                         }
                     }
@@ -391,33 +401,44 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             if (values.experimentForm && values.experimentForm.variants) {
                 const selectedVariant = values.experimentForm.variants[newVariantKey]
                 if (selectedVariant) {
-                    // Restore original HTML state
+                    // Restore original HTML state — sanitize once per selector, reuse across matches.
                     Object.entries(values.experimentForm.original_html_state || {}).forEach(
                         ([selector, originalState]) => {
+                            const sanitizedHtml = sanitizeExperimentHTML(originalState.html)
+                            const sanitizedCss = sanitizeExperimentStyle(originalState.css)
                             const elements = document.querySelectorAll(selector)
                             elements.forEach((element) => {
                                 const htmlElement = element as HTMLElement
                                 if (htmlElement) {
-                                    htmlElement.innerHTML = originalState.html
-                                    htmlElement.setAttribute('style', originalState.css)
+                                    htmlElement.innerHTML = sanitizedHtml
+                                    if (sanitizedCss) {
+                                        htmlElement.setAttribute('style', sanitizedCss)
+                                    } else {
+                                        htmlElement.removeAttribute('style')
+                                    }
                                 }
                             })
                         }
                     )
 
-                    // Apply variant transforms
+                    // Apply variant transforms — sanitize once per transform, reuse across matches.
                     selectedVariant.transforms?.forEach((transform) => {
                         if (transform.selector) {
+                            const sanitizedHtml = transform.html ? sanitizeExperimentHTML(transform.html) : null
+                            const sanitizedCss = transform.css ? sanitizeExperimentStyle(transform.css) : null
                             const elements = document.querySelectorAll(transform.selector)
                             elements.forEach((element) => {
                                 const htmlElement = element as HTMLElement
                                 if (htmlElement) {
-                                    if (transform.html) {
-                                        htmlElement.innerHTML = transform.html
+                                    if (sanitizedHtml !== null) {
+                                        htmlElement.innerHTML = sanitizedHtml
                                     }
-
-                                    if (transform.css) {
-                                        htmlElement.setAttribute('style', transform.css)
+                                    if (sanitizedCss !== null) {
+                                        if (sanitizedCss) {
+                                            htmlElement.setAttribute('style', sanitizedCss)
+                                        } else {
+                                            htmlElement.removeAttribute('style')
+                                        }
                                     }
                                 }
                             })

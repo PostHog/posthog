@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,14 +14,14 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.models.subscription import SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER, Subscription, SubscriptionDelivery
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
@@ -72,14 +73,11 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.addCleanup(self._sync_connect_patcher.stop)
 
     @pytest.mark.skip_on_multitenancy
-    def test_cannot_list_subscriptions_without_proper_license(self):
+    def test_free_org_can_list_subscriptions_without_license(self):
         self.organization.available_product_features = []
         self.organization.save()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-        assert response.json() == self.license_required_response(
-            "Subscriptions is part of the premium PostHog offering. Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options."
-        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
@@ -105,6 +103,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "created_at": data["created_at"],
             "created_by": data["created_by"],
             "deleted": False,
+            "enabled": True,
             "title": "My Subscription",
             "next_delivery_date": data["next_delivery_date"],
             "integration_id": None,
@@ -121,6 +120,27 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
+
+    def test_cannot_create_subscription_without_insight_or_dashboard(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "No content source",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert "Either dashboard or insight is required" in str(response.json())
+
+    def test_can_update_subscription_without_resending_relation(self):
+        sub_id = self._create_subscription().json()["id"]
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Updated title"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["title"], "Updated title")
 
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)
@@ -420,6 +440,57 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
+        """Re-enabling a disabled Slack subscription whose integration is gone must be
+        rejected up front — otherwise the next delivery would auto-disable it again
+        and the user would receive a confusing email seconds after hitting "Enable".
+        """
+        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        create_response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        subscription_id = create_response.json()["id"]
+
+        # Auto-disable: clear integration and disable the subscription
+        Subscription.objects.filter(pk=subscription_id).update(enabled=False, integration=None)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        assert "Reconnect Slack" in response.json()["detail"]
+
+    def test_patch_enabled_true_rejected_for_webhook_subscription(self):
+        """Webhook delivery is not supported, so a webhook subscription auto-disables on
+        first delivery. Re-enabling without changing target_type would just trigger the
+        auto-disable path again — surface the precondition failure up front.
+        """
+        # Webhook subs can be created (target_type is in the model enum) but are
+        # auto-disabled by the activity since `webhook` isn't in SUPPORTED_TARGET_TYPES.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="webhook",
+            target_value="https://example.com/hook",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="webhook sub",
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        assert "this delivery channel is not currently supported" in response.json()["detail"]
+
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
@@ -622,6 +693,64 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["title"] == "renamed while over the cap"
+        assert response.json()["summary_enabled"] is True
+
+    @parameterized.expand(
+        [
+            # The credit gate fires only when a summary is being switched on: an over-budget
+            # org is blocked when summary_enabled=True but can still create plain subscriptions.
+            ("summary_on_over_budget", True, True, status.HTTP_402_PAYMENT_REQUIRED),
+            ("summary_on_under_budget", True, False, status.HTTP_201_CREATED),
+            ("summary_off_over_budget", False, True, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_summary_enabled_respects_ai_credit_budget(
+        self,
+        _name: str,
+        summary_enabled: bool,
+        is_limited: bool,
+        expected_status: int,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.is_team_limited", return_value=is_limited):
+            response = self._create_subscription(summary_enabled=summary_enabled)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_402_PAYMENT_REQUIRED:
+            assert "AI credit usage limit" in response.json()["detail"]
+
+    def test_patch_transition_to_summary_enabled_blocked_when_over_credit_budget(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription(summary_enabled=False)
+        sub_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"summary_enabled": True},
+            )
+
+        assert patch_response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert "AI credit usage limit" in patch_response.json()["detail"]
+
+    def test_patch_unrelated_field_on_already_enabled_summary_when_over_credit_budget(self) -> None:
+        # Going over budget mid-month must not trap an org out of editing existing
+        # summaries — only transitions *into* an active summary are gated.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        existing = self._seed_active_summary_subscriptions(1)
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
+                {"title": "renamed while over budget"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "renamed while over budget"
         assert response.json()["summary_enabled"] is True
 
     @parameterized.expand(
@@ -859,6 +988,19 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deliver_disabled_subscription_returns_409(self):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = mock_client
+
+        response = self._create_subscription(invite_message=None)
+        sub_id = response.json()["id"]
+        Subscription.objects.filter(id=sub_id).update(enabled=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "Re-enable" in response.json()["detail"]
 
     def test_deliver_temporal_error_returns_500(self):
         mock_client = MagicMock()
@@ -1170,6 +1312,396 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert results[0]["id"] == sub_id
         assert results[0]["target_type"] == target_type
 
+    def test_patch_enabled_field(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": False},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        assert response.json()["enabled"] is False
+        subscription.refresh_from_db()
+        assert subscription.enabled is False
+
+    def test_re_enable_resets_stale_next_delivery_date(self):
+        # Without this reset the scheduler's `next_delivery_date__lte=now` filter
+        # picks the sub up on its next tick and fires a second delivery right
+        # after the immediate TARGET_CHANGE confirmation.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+        stale_date = timezone.now() - timedelta(days=3)
+        Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=stale_date)
+
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                {"enabled": True},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        subscription.refresh_from_db()
+        assert subscription.enabled is True
+        assert subscription.next_delivery_date is not None
+        assert subscription.next_delivery_date > timezone.now()
+        # Re-enable also fires the immediate TARGET_CHANGE confirmation delivery —
+        # the date reset prevents the *scheduler* from firing a second one moments later.
+        temporal_mock.return_value.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # `until_date` already in the past → no future occurrence.
+            ("until_date_in_past", {"until_date": -1}),
+            # `count=2` deliveries already consumed at start_date and start_date+1d.
+            ("count_exhausted", {"count": 2}),
+        ]
+    )
+    def test_re_enable_rejects_when_rrule_exhausted(self, _label, schedule_kwargs):
+        # Both exhaustion modes land `next_delivery_date=None` via
+        # `set_next_delivery_date()`, the scheduler `__lte=now` filter excludes
+        # nulls, and the sub would silently never schedule again.
+        kwargs = dict(schedule_kwargs)
+        if "until_date" in kwargs:
+            kwargs["until_date"] = timezone.now() + timedelta(days=kwargs["until_date"])
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+            **kwargs,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+        subscription.refresh_from_db()
+        assert subscription.enabled is False  # rejected pre-write
+
+    def test_patch_rrule_into_exhausted_state_is_rejected(self):
+        # Path 2 of the silent-fail family: editing an active sub's schedule into
+        # an exhausted state. `Subscription.save()` would call
+        # `set_next_delivery_date()` and land `next_delivery_date=None`.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            insight=self.insight,
+            title="t",
+            enabled=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"until_date": (timezone.now() - timedelta(days=1)).isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+        subscription.refresh_from_db()
+        assert subscription.next_delivery_date is not None  # unchanged
+
+    def test_create_rejects_when_rrule_already_exhausted(self):
+        # Symmetric hole at create-time: a brand-new sub with `until_date` in the
+        # past would land `next_delivery_date=None` and silently never schedule.
+        response = self._create_subscription(
+            start_date="2020-01-01T00:00:00",
+            until_date="2020-01-02T00:00:00",
+        )
+        assert response.status_code == 400, response.content
+        assert "reached its end date" in str(response.json())
+
+    def test_re_enable_with_extended_until_date_is_allowed(self):
+        # User extending their schedule in the same PATCH that re-enables — the
+        # candidate-rrule check honors the new `until_date` and lets it through.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now() - timedelta(days=10),
+            until_date=timezone.now() - timedelta(days=1),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True, "until_date": (timezone.now() + timedelta(days=30)).isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        subscription.refresh_from_db()
+        assert subscription.enabled is True
+        # Scheduler-visible invariant: `next_delivery_date` must be a future timestamp,
+        # not None — that's what the candidate-rrule validation defends.
+        assert subscription.next_delivery_date is not None
+        assert subscription.next_delivery_date > timezone.now()
+
+    def test_get_returns_enabled_field(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/")
+        assert response.status_code == 200, response.content
+        assert response.json()["enabled"] is True
+
+    @parameterized.expand(
+        [
+            # Locks the workflow-trigger matrix across all four (initial, final) enabled states.
+            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, True),
+            ("redundant_enable", True, {"enabled": True}, True),
+            ("disable_enabled", True, {"enabled": False}, False),
+            ("redundant_disable", False, {"enabled": False}, False),
+            ("enable_disabled", False, {"enabled": True}, True),
+        ]
+    )
+    def test_patch_workflow_trigger_for_enabled_field(
+        self, _label, initial_enabled, patch_payload, expect_workflow_called
+    ):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=initial_enabled,
+        )
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                patch_payload,
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            if expect_workflow_called:
+                temporal_mock.return_value.start_workflow.assert_called_once()
+            else:
+                temporal_mock.return_value.start_workflow.assert_not_called()
+
+
+class TestSubscriptionFreeTierLimit(APILicensedTest):
+    # creation is blocked for free orgs at/over their limit;
+    # edits and deletes are always allowed; paid orgs are never blocked.
+    insight: Insight = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.insight = Insight.objects.create(
+            filters={"events": [{"id": "$pageview"}]},
+            team=cls.team,
+            created_by=cls.user,
+        )
+
+    def setUp(self):
+        super().setUp()
+        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self.mock_sync = self._sync_connect_patcher.start()
+        self.mock_temporal_client = MagicMock()
+        self.mock_temporal_client.start_workflow = AsyncMock()
+        self.mock_sync.return_value = self.mock_temporal_client
+        self.addCleanup(self._sync_connect_patcher.stop)
+
+    def _minimal_payload(self, **overrides):
+        base = {
+            "insight": self.insight.id,
+            "target_type": "email",
+            "target_value": "a@b.com",
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00",
+        }
+        base.update(overrides)
+        return base
+
+    def _seed_subscriptions(self, count: int) -> list[Subscription]:
+        return [
+            Subscription.objects.create(
+                team=self.team,
+                insight=self.insight,
+                target_type="email",
+                target_value=f"seed-{i}@b.com",
+                frequency="daily",
+                interval=1,
+                start_date=datetime(2022, 1, 1, tzinfo=UTC),
+                title=f"seeded {i}",
+                created_by=self.user,
+            )
+            for i in range(count)
+        ]
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_can_create_up_to_limit_then_6th_is_blocked(self):
+        # each of the first 5 returns 201; 6th returns 400.
+
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        for i in range(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/",
+                self._minimal_payload(target_value=f"user{i}@b.com"),
+            )
+            assert response.status_code == status.HTTP_201_CREATED, (
+                f"subscription {i + 1} should be created, got {response.status_code}: {response.content}"
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            self._minimal_payload(target_value="sixth@b.com"),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        data = response.json()
+        assert data.get("attr") == "subscription", data
+        assert str(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER) in data.get("detail", ""), (
+            f"Expected limit number in error message, got: {data}"
+        )
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_at_limit_patch_is_not_blocked(self):
+        # edits must always be allowed, even at/over the limit.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
+        subscription_id = existing[0].id
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}/",
+            {"title": "updated title"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["title"] == "updated title"
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_soft_delete_recovers_slot(self):
+        # deleting one frees a slot, so a subsequent POST succeeds.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
+        subscription_to_delete = existing[0].id
+
+        # Soft-delete one subscription
+        self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_to_delete}/",
+            {"deleted": True},
+        )
+
+        # Now only 4 active remain — a new POST should succeed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            self._minimal_payload(target_value="recovered@b.com"),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_restore_blocked_when_at_limit(self):
+        # restoring a soft-deleted subscription re-occupies a slot, so it must
+        # respect the cap — otherwise soft-delete + create + restore bypasses it.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
+        to_restore = existing[0]
+
+        # Soft-delete one (4 active), then refill to the cap with a fresh POST.
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": True},
+        )
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.content
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            self._minimal_payload(target_value="refill@b.com"),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+        # Now at the cap again — restoring the deleted one would push to 6.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": False},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json().get("attr") == "subscription", response.json()
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_restore_allowed_when_under_limit(self):
+        # with a free slot available, restoring a soft-deleted subscription succeeds.
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        existing = self._seed_subscriptions(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER)
+        to_restore = existing[0]
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": True},
+        )
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.content
+
+        # 4 active remain — restoring brings it back to 5, within the cap.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{to_restore.id}/",
+            {"deleted": False},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["deleted"] is False
+
+    def test_paid_org_can_create_beyond_free_tier_limit(self):
+        # licensed org (enterprise, no numeric cap) can create 7+ subscriptions.
+        # APILicensedTest provides an enterprise license with AvailableFeature.SUBSCRIPTIONS,
+        # no numeric limit — so check_subscription_limit returns None.
+        for i in range(7):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/",
+                self._minimal_payload(target_value=f"paid{i}@b.com"),
+            )
+            assert response.status_code == status.HTTP_201_CREATED, (
+                f"subscription {i + 1} failed for paid org: {response.status_code} {response.content}"
+            )
+
 
 class TestSubscriptionDeliveryAPI(APILicensedTest):
     subscription: Subscription = None  # type: ignore
@@ -1316,11 +1848,11 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @pytest.mark.skip_on_multitenancy
-    def test_deliveries_require_premium_feature(self):
+    def test_free_org_can_access_deliveries_without_premium_feature(self):
         self.organization.available_product_features = []
         self.organization.save()
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert response.status_code == status.HTTP_200_OK
 
     def test_deliveries_not_available_on_legacy_project_path(self):
         self._create_delivery(idempotency_key="legacy-test")
@@ -1383,3 +1915,56 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert first_ids | second_ids == {
             str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
         }
+
+
+class TestSubscriptionFreeTierAccess(APILicensedTest):
+    # free-tier orgs can retrieve subscriptions and read deliveries without a premium gate.
+    insight: Insight = None  # type: ignore
+    subscription: Subscription = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.insight = Insight.objects.create(
+            filters={"events": [{"id": "$pageview"}]},
+            team=cls.team,
+            created_by=cls.user,
+        )
+        cls.subscription = Subscription.objects.create(
+            team=cls.team,
+            insight=cls.insight,
+            created_by=cls.user,
+            target_type="email",
+            target_value="free@example.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Free Tier Sub",
+        )
+
+    def _make_free_org(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_can_retrieve_subscription(self):
+        self._make_free_org()
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{self.subscription.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == self.subscription.id
+
+    @pytest.mark.skip_on_multitenancy
+    def test_free_org_can_list_deliveries(self):
+        self._make_free_org()
+        SubscriptionDelivery.objects.create(
+            subscription=self.subscription,
+            team=self.team,
+            temporal_workflow_id="wf-free-access-test",
+            idempotency_key="free-access-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="free@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+        )
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_200_OK

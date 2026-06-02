@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from blake3 import blake3
 
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
@@ -57,6 +58,10 @@ class Command(BaseCommand):
             self.stderr.write(f"Team {team_id} not found")
             return
 
+        with team_scope(team_id):
+            self._seed(team, num_runs, snapshots_per_run, repo_name)
+
+    def _seed(self, team, num_runs, snapshots_per_run, repo_name):
         # Get or create repo
         repo, created = Repo.objects.get_or_create(
             team_id=team.id,

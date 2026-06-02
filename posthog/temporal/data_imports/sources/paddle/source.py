@@ -78,7 +78,12 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
             return False, str(e)
 
     def get_schemas(
-        self, config: PaddleSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: PaddleSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

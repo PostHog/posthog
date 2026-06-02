@@ -37,7 +37,7 @@ class TestCreateSnapshotActivity:
             team_id=github_integration.team_id,
         )
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_create_snapshot_success(self, activity_environment, github_integration):
         config = SandboxConfig(
             name="test-create-snapshot",
@@ -74,7 +74,7 @@ class TestCreateSnapshotActivity:
             if created_snapshot_external_id:
                 Sandbox.delete_snapshot(created_snapshot_external_id)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_create_snapshot_contains_only_current_repo(self, activity_environment, github_integration):
         """Verify that snapshots only contain the current repository, not accumulated repos from base."""
         base_snapshot = SandboxSnapshot.objects.create(
@@ -115,7 +115,7 @@ class TestCreateSnapshotActivity:
             if created_snapshot_external_id:
                 Sandbox.delete_snapshot(created_snapshot_external_id)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_create_snapshot_sandbox_not_found(self, activity_environment, github_integration):
         context = self._create_context(github_integration, "test-owner/test-repo")
         input_data = CreateSnapshotInput(context=context, sandbox_id="non-existent-sandbox-id")

@@ -3,6 +3,9 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    InsightsActivityRetrieveParams,
+    InsightsActivityRetrieveQueryParams,
+    InsightsAllActivityRetrieveQueryParams,
     InsightsCreateBody,
     InsightsDestroyParams,
     InsightsListQueryParams,
@@ -10,7 +13,9 @@ import {
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
     InsightsRetrieveQueryParams,
+    InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -37,15 +42,45 @@ const AssistantDataVisualizationYAxisSettings = z.object({
 })
 
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
+    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+    displayType: z
+        .enum(['auto', 'line', 'bar', 'area'])
+        .describe(
+            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
+        )
+        .optional(),
+    label: z
+        .string()
+        .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
+        .optional(),
+    trendLine: z.coerce
+        .boolean()
+        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+        .optional(),
     yAxisPosition: z
         .enum(['left', 'right'])
         .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
         .optional(),
 })
 
+const AssistantDataVisualizationAxisFormatting = z.object({
+    decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
+    prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
+    style: z
+        .enum(['none', 'number', 'short', 'percent'])
+        .describe(
+            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.'
+        )
+        .optional(),
+    suffix: z.string().describe('Text appended to each value (e.g. `%` or ` ms`).').optional(),
+})
+
 const AssistantDataVisualizationAxisSettings = z.object({
     display: AssistantDataVisualizationAxisDisplaySettings.describe(
         'Display settings for a plotted Y series.'
+    ).optional(),
+    formatting: AssistantDataVisualizationAxisFormatting.describe(
+        'Number-formatting settings for the values on this axis or series.'
     ).optional(),
 })
 
@@ -74,6 +109,10 @@ const AssistantDataVisualizationChartSettings = z.object({
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
     showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
+    showValuesOnSeries: z.coerce
+        .boolean()
+        .describe("Render each data point's value as a label directly on the series.")
+        .optional(),
     stackBars100: z.coerce
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
@@ -291,7 +330,78 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
     },
 })
 
-const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true })
+const InsightsActivityRetrieveSchema = InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
+    InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
+)
+
+const insightsActivityRetrieve = (): ToolBase<
+    typeof InsightsActivityRetrieveSchema,
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
+> => ({
+    name: 'insights-activity-retrieve',
+    schema: InsightsActivityRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsActivityRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
+    },
+})
+
+const InsightsAllActivityRetrieveSchema = InsightsAllActivityRetrieveQueryParams.omit({ format: true })
+
+const insightsAllActivityRetrieve = (): ToolBase<
+    typeof InsightsAllActivityRetrieveSchema,
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
+> => ({
+    name: 'insights-all-activity-retrieve',
+    schema: InsightsAllActivityRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsAllActivityRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
+    },
+})
+
+const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true }).extend({
+    limit: z.preprocess(castStringToInt, InsightsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, InsightsListQueryParams.shape['offset']).optional(),
+})
 
 const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Schemas.PaginatedInsightList>> => ({
     name: 'insights-list',
@@ -355,10 +465,67 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
     },
 })
 
+const InsightsTrendingRetrieveSchema = InsightsTrendingRetrieveQueryParams.omit({ format: true })
+
+const insightsTrendingRetrieve = (): ToolBase<
+    typeof InsightsTrendingRetrieveSchema,
+    WithPostHogUrl<Schemas.PaginatedTrendingInsightList>
+> => ({
+    name: 'insights-trending-retrieve',
+    schema: InsightsTrendingRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsTrendingRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTrendingInsightList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/trending/`,
+            query: {
+                days: params.days,
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'short_id',
+                    'name',
+                    'derived_name',
+                    'description',
+                    'tags',
+                    'favorited',
+                    'dashboards',
+                    'created_at',
+                    'created_by',
+                    'last_modified_at',
+                    'last_modified_by',
+                    'last_viewed_at',
+                    'view_count',
+                    'viewers',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                ),
+            },
+            '/insights'
+        )
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
     'insight-update': insightUpdate,
+    'insights-activity-retrieve': insightsActivityRetrieve,
+    'insights-all-activity-retrieve': insightsAllActivityRetrieve,
     'insights-list': insightsList,
+    'insights-trending-retrieve': insightsTrendingRetrieve,
 }

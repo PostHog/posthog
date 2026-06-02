@@ -70,13 +70,18 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
         self.exposure_criteria = self.query.exposure_criteria
 
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
-        self.variants = [variant.get("key") for variant in multivariate_data.get("variants", [])]
-
-        if self.query.holdout:
-            self.variants.append(f"holdout-{self.query.holdout.id}")
-
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+
+        # Holdout is intentionally not appended: holdout users were never exposed to
+        # the experiment, so they don't belong in the exposure chart. self.query.holdout
+        # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
+        self.excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        self.variants = [
+            variant.get("key")
+            for variant in multivariate_data.get("variants", [])
+            if variant.get("key") not in self.excluded_variants
+        ]
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
@@ -190,9 +195,13 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             if key:
                 rollout_percentages[key] = pct
 
-        # Holdout takes its percentage from the total, other variants share the remainder
+        # Holdout reduces the share available to the exposed variants. Rescale
+        # the variant rollouts to reflect what's expected AMONG EXPOSED users
+        # (which is what total_exposures measures). The holdout itself is dropped:
+        # it never appears in total_exposures (the exposure query excludes it from
+        # the WHERE IN clause), so including it in the chi-square would compare
+        # observed=0 to expected>0 and falsely trigger SRM.
         if self.query.holdout:
-            holdout_key = f"holdout-{self.query.holdout.id}"
             holdout_filters = self.query.holdout.filters
             holdout_pct = (
                 holdout_filters[0].rollout_percentage
@@ -201,11 +210,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             )
 
             if holdout_pct > 0:
-                rollout_percentages[holdout_key] = holdout_pct
-                remaining = 100 - holdout_pct
-                for key in list(rollout_percentages.keys()):
-                    if key != holdout_key:
-                        rollout_percentages[key] = rollout_percentages[key] * (remaining / 100)
+                scale = (100 - holdout_pct) / 100
+                rollout_percentages = {k: v * scale for k, v in rollout_percentages.items()}
+
+        # excluded_variants are not in the exposure chart, so they must not enter
+        # the chi-square. Drop them from rollout_percentages.
+        rollout_percentages = {k: v for k, v in rollout_percentages.items() if k not in self.excluded_variants}
 
         # Get all variant keys with non-zero rollout percentage
         # We must iterate over these (not total_exposures) to ensure sum(observed) == sum(expected)
@@ -217,6 +227,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             total_exposures.get(key, 0) for key in variants_with_rollout if key != MULTIPLE_VARIANT_KEY
         )
         if total_observed < SRM_MINIMUM_SAMPLE_SIZE:
+            return None
+
+        # After dropping holdout/excluded variants the remaining percentages may not sum to 100.
+        # Normalise so chi-square expected counts sum to total_observed.
+        total_rollout = sum(rollout_percentages[k] for k in variants_with_rollout if k != MULTIPLE_VARIANT_KEY)
+        if total_rollout <= 0:
             return None
 
         observed: list[float] = []
@@ -231,7 +247,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
             obs_count = total_exposures.get(variant_key, 0)
             rollout_pct = rollout_percentages[variant_key]
-            exp_count = (rollout_pct / 100) * total_observed
+            exp_count = (rollout_pct / total_rollout) * total_observed
 
             observed.append(float(obs_count))
             expected.append(exp_count)
@@ -248,6 +264,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
+        # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
+        # uneven-split check on data collected under the original split. The warning is
+        # also unactionable post-stop — both CTAs only help while running.
+        if self.query.end_date is not None:
+            return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
         _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
@@ -276,9 +297,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             query_type="ExperimentExposuresQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=600, enable_analyzer=True),
+            settings=HogQLGlobalSettings(max_execution_time=600),
         )
 
         response.results = self._fill_date_gaps(response.results)
@@ -338,8 +360,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
     def _fill_date_gaps(self, results):
         """
-        Ensures the exposure data includes all dates within the experiment's date range.
-        For initial dates with no data, adds entries with zero exposures for each variant.
+        Ensures the exposure data includes all dates within the experiment's date range
+        and an entry for every configured variant — even variants that had zero
+        exposures across the whole window. This lets the response carry an empty
+        timeseries for those variants (days filled with the date range, counts all 0)
+        instead of omitting them entirely.
         """
         date_range = self._get_date_range()
 
@@ -351,7 +376,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         end_date = datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date()
 
         result_dict = {}
-        variants = set()
+        variants = set(self.variants)
         for date, variant, count in results:
             result_dict[(date, variant)] = count
             variants.add(variant)

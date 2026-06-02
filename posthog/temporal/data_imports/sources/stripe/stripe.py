@@ -1,7 +1,8 @@
 import os
+import re
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional, Union, get_args, get_type_hints
+from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
 import stripe as stripe_lib
@@ -45,7 +46,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS
 
-from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
@@ -55,6 +56,29 @@ def _tracked_stripe_http_client() -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
     Stripe SDK call participates in our HTTP logging, metrics, and sample capture."""
     return RequestsClient(session=make_tracked_session())
+
+
+def _clean_stripe_error_message(msg: str) -> str:
+    """Collapse the long redacted middle of a restricted API key ('rk_live_********...****gbeftZ')
+    so the error message stays short enough to render in a frontend toast. The prefix and
+    suffix Stripe leaves visible are enough to identify the key in support escalations."""
+    # Stripe redacts ~80 chars with `*`. Anything 5+ in a row is the redaction, never legitimate.
+    return re.sub(r"\*{5,}", "***", msg)
+
+
+def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Invoke a Stripe SDK list method and rewrite any StripeError it raises with a cleaned
+    message — primarily collapsing the long asterisk run from redacted restricted keys.
+
+    Re-raises the same exception class (so framework-level non-retryable error matching on
+    `"PermissionError"` etc. continues to work) but with a shorter, frontend-friendly message
+    that still preserves the actionable detail Stripe surfaces (which scope is missing).
+    """
+    try:
+        return method(*args, **kwargs)
+    except stripe_lib.StripeError as e:
+        cleaned = _clean_stripe_error_message(str(e))
+        raise type(e)(message=cleaned) from e
 
 
 def _stripe_base_addresses() -> BaseAddresses:
@@ -76,12 +100,62 @@ class StripeNestedResource:
     nested_parent_param: str
     parent_id: str
     parent: StripeResource
+    parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
 class StripeResumeConfig:
     starting_after: str
+
+
+def _build_resources(
+    client: StripeClient, logger: Optional[FilteringBoundLogger] = None
+) -> dict[str, Union[StripeResource, StripeNestedResource]]:
+    """Single source of truth for the resources we sync from Stripe and how they relate.
+
+    Used by both get_rows (for the actual sync) and validate_credentials (for permission
+    checks). Nested resources carry their parent on `.parent`, so callers can derive the
+    nested→parent linkage without restating it elsewhere.
+
+    `logger` is only consumed by InvoiceListWithAllLines; pass None when the caller doesn't
+    need the wrapped invoice expansion (e.g. validation, which just probes the list endpoint).
+    """
+    return {
+        ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
+        BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
+        CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
+        CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
+        DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
+        INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
+        INVOICE_RESOURCE_NAME: StripeResource(
+            method=(
+                (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
+                if logger is not None
+                else client.invoices.list
+            )
+        ),
+        PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
+        PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
+        PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
+        REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
+        SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=client.customers.balance_transactions.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
+            method=client.customers.payment_methods.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+    }
 
 
 def get_rows(
@@ -103,35 +177,7 @@ def get_rows(
         http_client=_tracked_stripe_http_client(),
     )
     default_params = {"limit": DEFAULT_LIMIT}
-    resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
-        ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
-        BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
-        CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
-        CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
-        DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
-        INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
-        INVOICE_RESOURCE_NAME: StripeResource(
-            method=lambda params: InvoiceListWithAllLines(client, params, logger)  # type: ignore
-        ),
-        PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
-        PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
-        PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
-        REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
-        SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
-        CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
-            method=client.customers.balance_transactions.list,
-            nested_parent_param="customer",
-            parent_id="id",
-            parent=StripeResource(method=client.customers.list),
-        ),
-        CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
-            method=client.customers.payment_methods.list,
-            nested_parent_param="customer",
-            parent_id="id",
-            parent=StripeResource(method=client.customers.list),
-        ),
-    }
+    resources = _build_resources(client, logger=logger)
 
     batcher = Batcher(logger=logger)
 
@@ -159,11 +205,13 @@ def get_rows(
             logger.debug(f"Stripe: resuming from object id: {resume_config.starting_after}")
 
         if isinstance(resource, StripeNestedResource):
-            stripe_parent_objects = resource.parent.method(
-                params={**default_params, **resource.parent.params, **resume_params}
+            stripe_parent_objects = _call_stripe(
+                resource.parent.method,
+                params={**default_params, **resource.parent.params, **resume_params},
             )
             for obj in stripe_parent_objects.auto_paging_iter():
-                stripe_nested_objects = resource.method(
+                stripe_nested_objects = _call_stripe(
+                    resource.method,
                     **{resource.nested_parent_param: obj[resource.parent_id]},
                     params={**default_params, **resource.params},
                 )
@@ -182,7 +230,9 @@ def get_rows(
                         last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
                         resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
         else:
-            stripe_objects = resource.method(params={**default_params, **resource.params, **resume_params})
+            stripe_objects = _call_stripe(
+                resource.method, params={**default_params, **resource.params, **resume_params}
+            )
             for obj in stripe_objects.auto_paging_iter():
                 batcher.batch(obj)
 
@@ -212,12 +262,13 @@ def get_rows(
             f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
         )
 
-        stripe_objects = resource.method(
+        stripe_objects = _call_stripe(
+            resource.method,
             params={
                 **default_params,
                 **resource.params,
                 f"created[lt]": db_incremental_field_earliest_value,
-            }
+            },
         )
         yield from stripe_objects.auto_paging_iter()
 
@@ -225,12 +276,13 @@ def get_rows(
     if db_incremental_field_last_value is not None:
         logger.debug(f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}")
 
-        stripe_objects = resource.method(
+        stripe_objects = _call_stripe(
+            resource.method,
             params={
                 **default_params,
                 **resource.params,
                 f"created[gt]": db_incremental_field_last_value,
-            }
+            },
         )
         for obj in stripe_objects.auto_paging_iter():
             if obj[incremental_field_name] <= db_incremental_field_last_value:
@@ -346,70 +398,116 @@ class StripeValidationError(Exception):
         super().__init__(message)
 
 
-def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
+def _resolve_to_flat(
+    name: str, all_resources: dict[str, Union[StripeResource, StripeNestedResource]]
+) -> tuple[str, StripeResource]:
+    """Nested resources display as `<nested> (<parent>)` and probe the parent endpoint."""
+    entry = all_resources[name]
+    if isinstance(entry, StripeNestedResource):
+        # Parent_name registration enforced by test_validate_credentials_nested_resources_have_registered_parents.
+        parent_entry = cast(StripeResource, all_resources[entry.parent_name])
+        return f"{name} ({entry.parent_name})", parent_entry
+    return name, entry
+
+
+def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
+    """Cheap limit=1 probe. Returns ``(permission_msg, error_msg)``. 401 raises ``StripeAuthenticationError``.
+
+    Exactly one tuple slot is set on failure; both ``None`` means success.
     """
-    Validates Stripe API credentials and checks permissions for all required resources.
-    Returns True if the API key is valid and has all required permissions.
-    Raises StripeAuthenticationError if the key is invalid/expired (401) — short-circuits the per-resource loop
-    so the user does not see a misleading "lacks permissions for ALL resources" message.
-    Raises StripePermissionError if the key is valid but lacks permissions for specific resources (403).
+    try:
+        resource.method(params={"limit": 1})
+        return None, None
+    except stripe_lib.AuthenticationError as e:
+        raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
+    except stripe_lib.PermissionError as e:
+        raw = getattr(e, "user_message", None) or str(e)
+        return _clean_stripe_error_message(raw), None
+    except Exception as e:
+        return None, _clean_stripe_error_message(str(e))
+
+
+# customers.list is in default RAK scopes + OAuth-reachable — cheap auth probe.
+_BASIC_AUTH_PROBE_ENDPOINT = CUSTOMER_RESOURCE_NAME
+
+
+def validate_credentials(
+    api_key: str,
+    endpoints: Optional[list[str]] = None,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> bool:
+    """Validate Stripe credentials.
+
+    - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
+    - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    all_resources = _build_resources(client, logger=None)
 
-    # Test access to all resources we're pulling
-    resources_to_check = [
-        {"name": ACCOUNT_RESOURCE_NAME, "method": client.accounts.list, "params": {"limit": 1}},
-        {"name": BALANCE_TRANSACTION_RESOURCE_NAME, "method": client.balance_transactions.list, "params": {"limit": 1}},
-        {"name": CHARGE_RESOURCE_NAME, "method": client.charges.list, "params": {"limit": 1}},
-        {"name": CUSTOMER_RESOURCE_NAME, "method": client.customers.list, "params": {"limit": 1}},
-        {"name": DISPUTE_RESOURCE_NAME, "method": client.disputes.list, "params": {"limit": 1}},
-        {"name": INVOICE_ITEM_RESOURCE_NAME, "method": client.invoice_items.list, "params": {"limit": 1}},
-        {"name": INVOICE_RESOURCE_NAME, "method": client.invoices.list, "params": {"limit": 1}},
-        {"name": PAYOUT_RESOURCE_NAME, "method": client.payouts.list, "params": {"limit": 1}},
-        {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
-        {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
-        {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
-        {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
-        {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
-    ]
+    if endpoints is None:
+        probe_name, probe_resource = _resolve_to_flat(_BASIC_AUTH_PROBE_ENDPOINT, all_resources)
+        # 403 = auth valid, scope missing — not a failure for the basic check.
+        _, error_msg = _probe_endpoint(probe_resource)
+        if error_msg is not None:
+            raise StripeValidationError({probe_name: error_msg})
+        return True
 
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}
+    resources_to_check: list[tuple[str, StripeResource]] = []
 
-    if table_name:
-        resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
+    for name in endpoints:
+        # OAuth tokens can't call accounts.list (needs Connect platform access). Silent-skip here
+        # because this is a pass/fail validation; check_endpoint_permissions renders an explicit
+        # "not available for OAuth" reason instead since it feeds the UI.
+        if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
+            continue
+        if name not in all_resources:
+            raise StripePermissionError({name: f"{name} does not exist"})
+        resources_to_check.append(_resolve_to_flat(name, all_resources))
 
-    if table_name and len(resources_to_check) == 0:
-        raise StripePermissionError({table_name: f"{table_name} does not exist"})
+    for display_name, resource in resources_to_check:
+        permission_msg, error_msg = _probe_endpoint(resource)
+        if permission_msg is not None:
+            missing_permissions[display_name] = permission_msg
+        elif error_msg is not None:
+            errors[display_name] = error_msg
 
-    for resource in resources_to_check:
-        resource_name = str(resource["name"])
-        try:
-            resource["method"](params=resource["params"])  # type: ignore
-        except stripe_lib.AuthenticationError as e:
-            # 401 — key itself is bad; no point checking other resources, every call will 401 the same way.
-            raise StripeAuthenticationError(str(e)) from e
-        except stripe_lib.PermissionError as e:
-            # 403 — this specific resource is not authorized for the key. The user_message is the
-            # concise Stripe explanation; str(e) on a stripe error includes request id, status code,
-            # and headers — way too noisy when the cause ("missing X read scope") is already obvious
-            # from the resource name.
-            missing_permissions[resource_name] = getattr(e, "user_message", None) or str(e)
-        except Exception as e:
-            # Anything else (network, schema, rate limit, unexpected Stripe API change) is not a
-            # permission problem — track separately so callers can render the verbose underlying
-            # message instead of pretending it's a missing scope.
-            errors[resource_name] = str(e)
-
-    # Errors take precedence over permission gaps because they indicate something went genuinely
-    # wrong rather than a configuration issue the customer can self-serve. We still pass any
-    # collected 403s along so the caller can report both in one message.
+    # Non-403 errors win but carry 403s along so the caller can report both.
     if errors:
         raise StripeValidationError(errors, missing_permissions=missing_permissions)
     if missing_permissions:
         raise StripePermissionError(missing_permissions)
 
     return True
+
+
+def check_endpoint_permissions(
+    api_key: str,
+    endpoints: list[str],
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> dict[str, str | None]:
+    """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
+
+    Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
+    """
+    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    all_resources = _build_resources(client, logger=None)
+
+    results: dict[str, str | None] = {}
+    for name in endpoints:
+        if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
+            results[name] = "Account is not available for OAuth-connected Stripe sources"
+            continue
+        if name not in all_resources:
+            results[name] = f"{name} is not a known Stripe resource"
+            continue
+
+        _, probe_resource = _resolve_to_flat(name, all_resources)
+        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        results[name] = permission_msg or error_msg
+
+    return results
 
 
 def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:

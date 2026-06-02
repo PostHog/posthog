@@ -8,6 +8,7 @@ from time import monotonic
 from typing import Optional
 from urllib.parse import quote
 
+from django.conf import settings
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
@@ -28,6 +29,10 @@ from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
+
+# Deterministic project token for the locally seeded demo team, so SDKs/tools can target it without
+# looking up the random token. Only used for the freshly created demo account (not existing projects).
+DEMO_PROJECT_API_TOKEN = "phc_localposthogprojecttoken"
 
 
 class Command(BaseCommand):
@@ -170,6 +175,10 @@ class Command(BaseCommand):
                             raise ValueError(f"Project {existing_team_id} has no organization members")
                         matrix_manager.run_on_team(team, user)
                 else:
+                    # Hand the demo team a deterministic token in local dev only. In tests (e.g. Playwright
+                    # setup, which seeds many workspaces) and shared/cloud environments, keep random tokens
+                    # so runs don't fight over the unique token or mutate unrelated projects.
+                    demo_api_token = DEMO_PROJECT_API_TOKEN if (settings.DEBUG and not settings.TEST) else None
                     _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
@@ -177,6 +186,7 @@ class Command(BaseCommand):
                         is_staff=bool(options.get("staff")),
                         password=password,
                         email_collision_handling="disambiguate",
+                        api_token=demo_api_token,
                     )
 
                     # Optionally generate demo issues for issue tracker if extension is available
@@ -233,6 +243,7 @@ class Command(BaseCommand):
                     "Pre-fill the login form with this link:\n"
                     f"http://localhost:8010/login?email={quote(user.email if user is not None else '')}\n"
                     f"The password is:\n{password}\n\n"
+                    f"The project API token is:\n{team.api_token if team is not None else 'unknown'}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
                     f"http://localhost:8010/signup?email={quote(user.email if user is not None else '')}\n"
                 )

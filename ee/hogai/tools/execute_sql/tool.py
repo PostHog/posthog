@@ -9,12 +9,11 @@ from posthog.schema import (
     ArtifactSource,
     AssistantDataVisualizationChartSettings,
     AssistantDataVisualizationDisplayType,
-    AssistantHogQLQuery,
     AssistantToolCallMessage,
     ChartDisplayType,
     ChartSettings,
     DataVisualizationNode,
-    HogQLQuery,
+    HogQLFilters,
     VisualizationArtifactContent,
 )
 
@@ -45,6 +44,15 @@ from .prompts import (
 
 class ExecuteSQLToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    filters: HogQLFilters | None = Field(
+        default=None,
+        description=(
+            "Optional filters applied through `{filters}` placeholders in the query. "
+            "Use this when editing a SQL editor query that already uses `{filters}` and the user asks to change "
+            "dateRange, property filters, or test-account filtering. Set this to an empty object to clear existing "
+            "SQL editor filters while preserving the `{filters}` placeholder."
+        ),
+    )
     viz_title: str = Field(
         description="Short, concise name of the SQL query (2-5 words) that will be displayed as a header in the visualization."
     )
@@ -90,6 +98,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         query: str,
         viz_title: str,
         viz_description: str,
+        filters: HogQLFilters | None = None,
         display: AssistantDataVisualizationDisplayType | None = None,
         chart_settings: AssistantDataVisualizationChartSettings | dict[str, object] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
@@ -101,7 +110,12 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except PydanticOutputParserException as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
-        artifact_query: AssistantHogQLQuery | DataVisualizationNode = parsed_query.query
+        source_query = (
+            parsed_query.query.source.model_copy(update={"filters": filters})
+            if filters is not None
+            else parsed_query.query.source
+        )
+        artifact_query = parsed_query.query.model_copy(update={"source": source_query})
         if display or chart_settings:
             if isinstance(chart_settings, AssistantDataVisualizationChartSettings):
                 chart_settings_data = chart_settings.model_dump(mode="json", exclude_none=True)
@@ -113,7 +127,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                 chart_settings_data = None
 
             artifact_query = DataVisualizationNode(
-                source=HogQLQuery(**parsed_query.query.model_dump(mode="json", exclude_none=True)),
+                source=source_query,
                 display=ChartDisplayType(display) if display else None,
                 chartSettings=ChartSettings.model_validate(chart_settings_data) if chart_settings_data else None,
             )
@@ -131,7 +145,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         insight_context = InsightContext(
             team=self._team,
-            query=parsed_query.query,
+            query=artifact_query,
             name=viz_title,
             description=viz_description,
             insight_id=artifact_message.artifact_id,
@@ -145,6 +159,12 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
+        tool_payload: str | dict[str, object]
+        if filters is not None:
+            tool_payload = source_query.model_dump(mode="json", exclude_none=True)
+        else:
+            tool_payload = artifact_query.source.query
+
         return "", ToolMessagesArtifact(
             messages=[
                 artifact_message,
@@ -152,7 +172,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                     content=result,
                     id=str(uuid4()),
                     tool_call_id=self.tool_call_id,
-                    ui_payload={self.get_name(): parsed_query.query.query},
+                    ui_payload={self.get_name(): tool_payload},
                 ),
             ]
         )

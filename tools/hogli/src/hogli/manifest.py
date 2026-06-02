@@ -136,26 +136,23 @@ class Manifest:
     def commands_dir(self) -> Path | None:
         """Get custom commands directory path.
 
-        Resolution order:
-        1. config.commands_dir in hogli.yaml (relative to repo root)
-        2. Default: hogli/ next to hogli.yaml
-
-        Returns None if no commands directory exists.
+        ``config.commands_dir`` is optional. When present, it is resolved
+        relative to the repo root and its parent directory is added to
+        ``sys.path`` before resolving lazy command imports.
         """
+        if "commands_dir" not in self.config:
+            return None
+
         configured = self.config.get("commands_dir")
-        if configured:
-            path = (REPO_ROOT / configured).resolve()
-            try:
-                path.relative_to(REPO_ROOT.resolve())
-            except ValueError:
-                raise ValueError(f"config.commands_dir '{configured}' resolves outside the repo root")
-            if path.exists():
-                return path
-        # Default: hogli/ next to manifest
-        default_path = MANIFEST_FILE.parent / "hogli"
-        if default_path.exists():
-            return default_path
-        return None
+        if not isinstance(configured, str) or not configured:
+            raise ValueError("config.commands_dir must be a non-empty relative path")
+
+        path = self._resolve_repo_relative_path("config.commands_dir", configured)
+        if not path.exists():
+            raise ValueError(f"config.commands_dir '{configured}' does not exist")
+        if not path.is_dir():
+            raise ValueError(f"config.commands_dir '{configured}' must resolve to a directory")
+        return path
 
     @property
     def scripts_dir(self) -> Path:
@@ -168,14 +165,85 @@ class Manifest:
         Always returns a path (may not exist).
         """
         configured = self.config.get("scripts_dir")
-        if configured:
-            path = (REPO_ROOT / configured).resolve()
-            try:
-                path.relative_to(REPO_ROOT.resolve())
-            except ValueError:
-                raise ValueError(f"config.scripts_dir '{configured}' resolves outside the repo root")
-            return path
-        return REPO_ROOT / "bin"
+        if not configured:
+            return REPO_ROOT / "bin"
+        return self._resolve_repo_relative_path("config.scripts_dir", configured)
+
+    @property
+    def env_files(self) -> list[Path]:
+        """Resolved env files to load before every command (`config.env.files`).
+
+        Files are NOT checked for existence here — the loader treats missing
+        files as silent no-ops (matches just/mise/task convention).
+
+        Precedence between files: hogli loads in the order returned here; the
+        loader uses only-if-unset so earlier entries win for duplicate keys.
+        """
+        env_config = self.config.get("env") or {}
+        raw_files = env_config.get("files") or []
+        if not isinstance(raw_files, list):
+            raise ValueError("config.env.files must be a list of repo-relative paths")
+        resolved: list[Path] = []
+        for entry in raw_files:
+            if not isinstance(entry, str) or not entry:
+                raise ValueError("config.env.files entries must be non-empty strings")
+            resolved.append(self._resolve_repo_relative_path("config.env.files", entry))
+        return resolved
+
+    @property
+    def secrets_config(self) -> dict[str, Any] | None:
+        """Parsed `config.env.secrets` block, or None if unset.
+
+        Returned dict has:
+        - ``file``: absolute Path to the secrets file (caller checks existence)
+        - ``marker``: required, non-empty substring that triggers the wrap.
+          Required (rather than optional) to keep behavior unambiguous: an
+          "always wrap" mode would force a process exec on every invocation
+          even when no secrets need resolving, which we never want.
+        - ``wrap``: list[str], with ``{file}`` placeholder substituted to the
+          absolute path of ``file`` at call time by the loader (not here, so
+          the manifest stays declarative).
+        """
+        env_config = self.config.get("env") or {}
+        secrets = env_config.get("secrets")
+        if secrets is None:
+            return None
+        if not isinstance(secrets, dict):
+            raise ValueError("config.env.secrets must be a mapping")
+
+        file_str = secrets.get("file")
+        if not isinstance(file_str, str) or not file_str:
+            raise ValueError("config.env.secrets.file is required and must be a non-empty string")
+        file_path = self._resolve_repo_relative_path("config.env.secrets.file", file_str)
+
+        marker = secrets.get("marker")
+        if not isinstance(marker, str) or not marker:
+            raise ValueError("config.env.secrets.marker is required and must be a non-empty string")
+
+        wrap = secrets.get("wrap")
+        if wrap is not None:
+            if not isinstance(wrap, list) or not all(isinstance(p, str) for p in wrap):
+                raise ValueError("config.env.secrets.wrap must be a list of strings when set")
+            if not wrap:
+                raise ValueError("config.env.secrets.wrap must not be empty when set")
+
+        return {"file": file_path, "marker": marker, "wrap": wrap}
+
+    def _resolve_repo_relative_path(self, key: str, raw: str) -> Path:
+        """Resolve a repo-relative path used in config.*, with sandbox checks.
+
+        Shared by commands_dir, scripts_dir, env_files, and secrets.file —
+        every config path must be relative and stay inside the repo root.
+        """
+        candidate = Path(raw)
+        if candidate.is_absolute():
+            raise ValueError(f"{key} '{raw}' must be relative to the repo root")
+        resolved = (REPO_ROOT / candidate).resolve()
+        try:
+            resolved.relative_to(REPO_ROOT.resolve())
+        except ValueError:
+            raise ValueError(f"{key} '{raw}' resolves outside the repo root")
+        return resolved
 
     def get_category_for_command(self, command_name: str) -> str:
         """Get category for a command based on which section it's placed in.
@@ -253,6 +321,14 @@ class Manifest:
             if command_name in category and isinstance(category[command_name], dict):
                 return category[command_name]
         return None
+
+    def is_command_hidden(self, command_name: str) -> bool:
+        """Whether a command should be hidden from help. Manifest is the only source of truth.
+
+        Set ``hidden: true`` on the manifest entry; do not use ``@click.command(hidden=True)``.
+        """
+        config = self.get_command_config(command_name) or {}
+        return bool(config.get("hidden", False))
 
     def get_children_for_command(self, command_name: str) -> list[str]:
         """Get child commands that extend this command."""

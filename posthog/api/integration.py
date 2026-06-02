@@ -1,22 +1,16 @@
 import os
 import re
 import json
-from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
-from django.utils.crypto import get_random_string
 
-import stripe
-import requests
 import structlog
-from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
@@ -25,6 +19,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.github_callback.team_services import (
+    build_team_oauth_authorize_url,
+    create_team_github_integration_from_oauth_code,
+    link_existing_team_github_integration,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -48,8 +47,8 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     FirebaseIntegration,
-    GitHubInstallationAccess,
     GitHubIntegration,
+    GitHubIntegrationError,
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
@@ -64,7 +63,6 @@ from posthog.models.integration import (
     TwilioIntegration,
     defer_repository_cache_fields,
 )
-from posthog.models.user_integration import UserIntegration, user_github_integration_from_installation
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -74,24 +72,10 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
 
-GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
-GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
-
-GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION = "github_link_existing_orphan_installation"
-GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED = "github_link_existing_personal_github_required"
-PERSONAL_GITHUB_REQUIRED_MESSAGE = (
-    "You must connect your personal GitHub account (via Linked Accounts) before linking an existing "
-    "installation, to confirm you have access to the GitHub App installation."
-)
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-
-def github_oauth_redirect_uri() -> str:
-    return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -119,6 +103,9 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     """
     if not install_signature or not settings.STRIPE_SIGNING_SECRET:
         return False
+
+    import stripe  # noqa: PLC0415
+
     payload = json.dumps(
         {"state": state, "user_id": user_id, "account_id": account_id},
         separators=(",", ":"),
@@ -129,13 +116,6 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return True
     except stripe.SignatureVerificationError:
         return False
-
-
-def _installation_token_expires_at(integration: Integration) -> str:
-    """Compute an ISO 8601 timestamp for when the integration's installation token expires."""
-    refreshed_at = integration.config.get("refreshed_at", 0)
-    expires_in = integration.config.get("expires_in", 3600)
-    return datetime.fromtimestamp(refreshed_at + expires_in, tz=UTC).isoformat()
 
 
 def _ensure_oauth_token_valid(instance: Integration) -> None:
@@ -207,6 +187,41 @@ class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
 
 
+class GitHubTeamSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="GitHub team numeric identifier.")
+    slug = serializers.CharField(help_text="GitHub team slug.")
+    name = serializers.CharField(help_text="GitHub team display name.")
+
+
+class GitHubTeamsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive team name or slug search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of teams to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of teams to skip before returning results.",
+    )
+
+
+class GitHubTeamsResponseSerializer(serializers.Serializer):
+    teams = GitHubTeamSerializer(
+        many=True, help_text="List of GitHub teams available to the installation organization."
+    )
+    has_more = serializers.BooleanField(help_text="Whether more teams are available beyond this page.")
+
+
 class GitHubBranchesQuerySerializer(serializers.Serializer):
     repo = serializers.CharField(help_text="Repository in owner/repo format")
     search = serializers.CharField(
@@ -242,12 +257,38 @@ class SlackChannelSerializer(serializers.Serializer):
     )
 
 
+class SlackChannelsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive channel name or ID search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=200,
+        help_text="Maximum number of channels to return per request (max 200).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of channels to skip before returning results.",
+    )
+
+
 class SlackChannelsResponseSerializer(serializers.Serializer):
     channels = SlackChannelSerializer(many=True, help_text="Slack channels visible to the PostHog Slack app.")
     lastRefreshedAt = serializers.CharField(
         required=False,
         allow_null=True,
         help_text="ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).",
+    )
+    has_more = serializers.BooleanField(
+        required=False,
+        help_text="Whether more channels match the current search beyond this page.",
     )
 
 
@@ -305,85 +346,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
-            installation_id = config.get("installation_id")
-            state = config.get("state")
-            code = config.get("code")
-
-            if not installation_id:
-                raise ValidationError("An installation_id must be provided")
-
-            if not state:
-                raise ValidationError("A state token must be provided")
-
-            if not code:
-                raise ValidationError("An OAuth code must be provided")
-
-            cache_key = f"github_state:{request.user.id}"
-            expected_state = cache.get(cache_key)
-            if not expected_state or expected_state != state:
-                raise ValidationError("Invalid or expired state token")
-            cache.delete(cache_key)
-
-            # Exchange the OAuth code for the user's access token and identity.
-            # This requires GITHUB_APP_CLIENT_SECRET to be configured.
-            authorization = GitHubIntegration.github_user_from_code(code)
-            if authorization is None:
-                raise ValidationError(
-                    "Failed to exchange the OAuth code — ensure GITHUB_APP_CLIENT_SECRET is configured"
-                )
-
-            # Verify the connecting user actually has access to this installation.
-            # Without this, an attacker could supply another tenant's installation_id
-            # with their own OAuth code and obtain an installation token scoped to
-            # the other tenant's repos.
-            if not re.fullmatch(r"\d{1,20}", str(installation_id)):
-                raise ValidationError("Invalid installation_id")
-            try:
-                has_access = GitHubIntegration.verify_user_installation_access(
-                    installation_id, authorization.access_token
-                )
-            except requests.RequestException:
-                logger.warning(
-                    "github_integration_create: installation ownership check failed",
-                    installation_id=installation_id,
-                    user_id=request.user.id,
-                    exc_info=True,
-                )
-                raise ValidationError("Failed to verify installation access")
-            if not has_access:
-                logger.warning(
-                    "github_integration_create: user does not have access to installation",
-                    installation_id=installation_id,
-                    user_id=request.user.id,
-                )
-                raise ValidationError("You do not have access to this GitHub installation")
-
-            instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
-
-            # Store the connecting user's GitHub login on the team integration
-            # (shown on the integration card) and auto-create a UserIntegration
-            # so the user immediately has personal GitHub credentials for
-            # PR authorship and identity attribution
-            instance.config["connecting_user_github_login"] = authorization.gh_login
-            instance.save(update_fields=["config"])
-            # Auto-create a UserIntegration so the user immediately has personal
-            # GitHub credentials. create_only=True uses get_or_create atomically —
-            # an existing personal integration (e.g. set up via Linked Accounts) is
-            # left untouched even under concurrent requests.
-            user_github_integration_from_installation(
-                request.user,
-                GitHubInstallationAccess(
-                    installation_id=installation_id,
-                    installation_info=instance.config,
-                    access_token=instance.sensitive_config.get("access_token", ""),
-                    token_expires_at=_installation_token_expires_at(instance),
-                    repository_selection=instance.config.get("repository_selection", "selected"),
-                ),
-                authorization,
-                create_only=True,
+            return create_team_github_integration_from_oauth_code(
+                user=request.user,
+                team_id=team_id,
+                installation_id=config.get("installation_id"),
+                state_token=config.get("state"),
+                code=config.get("code"),
             )
-
-            return instance
 
         elif validated_data["kind"] == "gitlab":
             config = validated_data.get("config", {})
@@ -595,7 +564,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -611,6 +580,7 @@ class IntegrationViewSet(
         "channels",
         "github_repos",
         "github_branches",
+        "github_teams",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -689,7 +659,29 @@ class IntegrationViewSet(
 
         raise ValidationError("Kind not supported")
 
-    @extend_schema(responses={200: SlackChannelsResponseSerializer})
+    @staticmethod
+    def _serialize_slack_channel(channel: dict) -> dict:
+        return {
+            "id": channel["id"],
+            "name": channel["name"],
+            "is_private": channel["is_private"],
+            "is_member": channel.get("is_member", True),
+            "is_ext_shared": channel["is_ext_shared"],
+            "is_private_without_access": channel.get("is_private_without_access", False),
+        }
+
+    @staticmethod
+    def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
+        visible = [channel for channel in channels if not channel.get("is_private_without_access")]
+        query = search.strip().lower()
+        if not query:
+            return visible
+        return [channel for channel in visible if query in channel["name"].lower() or query in channel["id"].lower()]
+
+    @extend_schema(
+        parameters=[SlackChannelsQuerySerializer],
+        responses={200: SlackChannelsResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="channels")
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -705,53 +697,52 @@ class IntegrationViewSet(
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
-        channel_id = request.query_params.get("channel_id")
-        if channel_id:
-            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
-            if channel:
-                return Response(
-                    {
-                        "channels": [
-                            {
-                                "id": channel["id"],
-                                "name": channel["name"],
-                                "is_private": channel["is_private"],
-                                "is_member": channel.get("is_member", True),
-                                "is_ext_shared": channel["is_ext_shared"],
-                                "is_private_without_access": channel["is_private_without_access"],
-                            }
-                        ]
-                    }
-                )
-            else:
-                return Response({"channels": []})
-
         # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
         # integration_id (the Slack workspace id, shared across teams). Two teams that
         # install the same workspace must not share cached private-channel lists.
         key = f"slack/{instance.id}/{should_include_private_channels}/channels"
+
+        channel_id = request.query_params.get("channel_id")
+        if channel_id:
+            data = cache.get(key)
+            if data is not None:
+                for channel in data["channels"]:
+                    if channel["id"] == channel_id:
+                        return Response({"channels": [channel]})
+            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
+            if channel:
+                return Response({"channels": [self._serialize_slack_channel(channel)]})
+            return Response({"channels": []})
+
+        query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
         data = cache.get(key)
 
-        if data is not None and not force_refresh:
-            return Response(data)
+        if data is None or force_refresh:
+            data = {
+                "channels": [
+                    self._serialize_slack_channel(channel)
+                    for channel in slack.list_channels(should_include_private_channels, authed_user)
+                ],
+                "lastRefreshedAt": timezone.now().isoformat(),
+            }
+            cache.set(key, data, 60 * 60)  # one hour
 
-        response = {
-            "channels": [
-                {
-                    "id": channel["id"],
-                    "name": channel["name"],
-                    "is_private": channel["is_private"],
-                    "is_member": channel.get("is_member", True),
-                    "is_ext_shared": channel["is_ext_shared"],
-                    "is_private_without_access": channel.get("is_private_without_access", False),
-                }
-                for channel in slack.list_channels(should_include_private_channels, authed_user)
-            ],
-            "lastRefreshedAt": timezone.now().isoformat(),
-        }
+        filtered_channels = self._filter_slack_channels_for_search(data["channels"], search)
+        page = filtered_channels[offset : offset + limit]
+        has_more = offset + limit < len(filtered_channels)
 
-        cache.set(key, response, 60 * 60)  # one hour
-        return Response(response)
+        return Response(
+            {
+                "channels": page,
+                "lastRefreshedAt": data.get("lastRefreshedAt"),
+                "has_more": has_more,
+            }
+        )
 
     @action(methods=["GET"], detail=True, url_path="twilio_phone_numbers")
     def twilio_phone_numbers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -943,6 +934,13 @@ class IntegrationViewSet(
         return self._anthropic_managed_list_response(request, resource="vaults")
 
     def _anthropic_managed_list_response(self, request: Request, *, resource: str) -> Response:
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
+
         instance = self._get_anthropic_integration_or_400()
 
         try:
@@ -1055,153 +1053,27 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=False, url_path="github/link_existing")
     def github_link_existing(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Reuse a GitHub installation already linked to a sibling team in the same organization."""
-        source_team_id = request.data.get("source_team_id")
-        installation_id_param = request.data.get("installation_id")
-
-        if installation_id_param and not re.fullmatch(r"\d{1,20}", str(installation_id_param)):
-            raise ValidationError("Invalid installation_id")
-
-        # installation_id is stored in JSONB and historically written as either a
-        # string or a number, so match both representations.
-        installation_id_match = (
-            Q(config__installation_id=str(installation_id_param))
-            | Q(config__installation_id=int(installation_id_param))
-            if installation_id_param
-            else None
+        instance = link_existing_team_github_integration(
+            user=cast(User, request.user),
+            organization=self.organization,
+            team_id=self.team_id,
+            source_team_id=request.data.get("source_team_id"),
+            installation_id_param=request.data.get("installation_id"),
         )
-
-        if source_team_id:
-            try:
-                source_team_id_int = int(source_team_id)
-            except (TypeError, ValueError):
-                raise ValidationError("source_team_id must be an integer")
-
-            if not self.organization.teams.filter(id=source_team_id_int).exists():
-                raise ValidationError("Source team not found in your organization")
-
-            qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
-            # When the source team has multiple GitHub installations linked, the
-            # caller must pass installation_id to disambiguate.
-            if installation_id_match is not None:
-                qs = qs.filter(installation_id_match)
-
-            source = qs.order_by("id").first()
-            if source is None:
-                raise ValidationError("Source team does not have a GitHub integration")
-        elif installation_id_param:
-            existing = (
-                Integration.objects.filter(
-                    team__organization_id=self.organization_id,
-                    kind="github",
-                )
-                .filter(installation_id_match)
-                .order_by("id")
-                .first()
-            )
-            if existing is None:
-                raise ValidationError(
-                    "No team in your organization has this GitHub installation linked",
-                    code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
-                )
-            source = existing
-        else:
-            raise ValidationError("source_team_id or installation_id is required")
-
-        installation_id = (source.config or {}).get("installation_id")
-        if not installation_id:
-            raise ValidationError("Source integration is missing installation_id")
-
-        # Confirms the requesting user has access to the installation on GitHub itself,
-        # so cross-team admin access alone can't mint tokens for repos they can't see.
-        user_github_integration = (
-            UserIntegration.objects.filter(user=cast(User, request.user), kind="github").order_by("-created_at").first()
-        )
-        user_access_token = (
-            user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-        )
-        if not user_access_token:
-            raise ValidationError(
-                PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-            )
-        try:
-            has_access = GitHubIntegration.verify_user_installation_access(str(installation_id), user_access_token)
-        except requests.RequestException:
-            logger.warning(
-                "github_link_existing: installation ownership check failed",
-                installation_id=installation_id,
-                user_id=request.user.id,
-                exc_info=True,
-            )
-            raise ValidationError("Failed to verify installation access")
-        if not has_access:
-            logger.warning(
-                "github_link_existing: user does not have access to installation",
-                installation_id=installation_id,
-                user_id=request.user.id,
-            )
-            raise ValidationError(
-                PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-            )
-
-        instance = GitHubIntegration.integration_from_installation_id(
-            str(installation_id), self.team_id, cast(User, request.user)
-        )
-
-        source_login = (source.config or {}).get("connecting_user_github_login")
-        if source_login and not (instance.config or {}).get("connecting_user_github_login"):
-            instance.config["connecting_user_github_login"] = source_login
-            instance.save(update_fields=["config"])
-
         return Response(self.get_serializer(instance).data)
 
     @action(methods=["POST"], detail=False, url_path="github/oauth_authorize")
     def github_oauth_authorize(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one."""
-        installation_id = request.data.get("installation_id")
-        next_url = str(request.data.get("next") or "")
-        connect_from = request.data.get("connect_from") if request.data.get("connect_from") == "posthog_code" else None
-
-        if not installation_id:
-            raise ValidationError("installation_id is required")
-
-        if not re.fullmatch(r"\d{1,20}", str(installation_id)):
-            raise ValidationError("Invalid installation_id")
-
-        # Open-redirect guard for the success-redirect to `next`.
-        if next_url and not is_relative_url(next_url):
-            raise ValidationError("next must be a relative path starting with /")
-
-        client_id = settings.GITHUB_APP_CLIENT_ID
-        if not client_id:
-            raise ValidationError("GitHub App client ID is not configured")
-
-        token = get_random_string(48)
-        state_payload: dict[str, Any] = {
-            "user_id": request.user.id,
-            "team_id": self.team_id,
-            "installation_id": str(installation_id),
-            "flow": "team_oauth_authorize",
-            "next": next_url,
-        }
-        if connect_from:
-            state_payload["connect_from"] = connect_from
-
-        cache.set(
-            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-            state_payload,
-            timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        oauth_url = build_team_oauth_authorize_url(
+            user_id=cast(User, request.user).id,
+            team_id=self.team_id,
+            installation_id=request.data.get("installation_id"),
+            next_url=str(request.data.get("next") or ""),
+            connect_from=request.data.get("connect_from")
+            if request.data.get("connect_from") == "posthog_code"
+            else None,
         )
-
-        oauth_url = "https://github.com/login/oauth/authorize?" + urlencode(
-            {
-                "client_id": client_id,
-                "redirect_uri": github_oauth_redirect_uri(),
-                "state": urlencode({"token": token}),
-            }
-        )
-
         return Response({"oauth_url": oauth_url})
 
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
@@ -1216,6 +1088,29 @@ class IntegrationViewSet(
         )
 
         return Response({"repositories": repositories})
+
+    @extend_schema(
+        parameters=[GitHubTeamsQuerySerializer],
+        responses={200: GitHubTeamsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_teams")
+    def github_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubTeamsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
+        github = GitHubIntegration(self.get_object())
+        try:
+            teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
+        except GitHubIntegrationError as err:
+            capture_exception(err)
+            raise ValidationError(
+                "Unable to fetch GitHub teams. Please check integration settings and try again."
+            ) from err
+
+        return Response({"teams": teams, "has_more": has_more})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],

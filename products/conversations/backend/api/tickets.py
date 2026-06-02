@@ -34,9 +34,14 @@ from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ComposeTicketBurstThrottle,
+    ComposeTicketSustainedThrottle,
+)
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.ai.suggest import NoMessagesError, suggest_reply
@@ -51,8 +56,9 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.models import Ticket, TicketAssignment
+from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.person_lookup import _get_persons_by_email
 
 from ee.models.rbac.role import Role
 
@@ -66,6 +72,49 @@ class SuggestReplyResponseSerializer(serializers.Serializer):
 class SuggestReplyErrorSerializer(serializers.Serializer):
     detail = serializers.CharField()
     error_type = serializers.CharField(required=False)
+
+
+class ComposeTicketSerializer(serializers.Serializer):
+    recipient_email = serializers.EmailField(
+        help_text="Recipient email address.",
+    )
+    recipient_distinct_id = serializers.CharField(
+        required=False,
+        max_length=400,
+        help_text="PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.",
+    )
+    email_subject = serializers.CharField(
+        required=False,
+        max_length=500,
+        help_text="Email subject line.",
+    )
+    email_config_id = serializers.UUIDField(
+        help_text="ID of the EmailChannel to send from.",
+    )
+    message = serializers.CharField(
+        max_length=5000,
+        help_text="Message content in markdown.",
+    )
+    rich_content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="TipTap rich content JSON for formatted messages.",
+    )
+
+    def validate_message(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Message content is required.")
+        return value.strip()
+
+    def validate_rich_content(self, value: object) -> object:
+        if value is not None and len(json.dumps(value)) > 100_000:
+            raise serializers.ValidationError("Rich content too large (max 100KB).")
+        return value
+
+
+class ComposeTicketResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Created ticket UUID.")
+    ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
@@ -373,6 +422,23 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         for ticket in tickets:
             if ticket.distinct_id:
                 ticket.person = distinct_id_to_person.get(ticket.distinct_id)
+
+        # Fallback: for email-channel tickets with no person match,
+        # try matching on properties.email (handles cases where the
+        # person's distinct_id differs from their email address)
+        unmatched = [
+            t
+            for t in tickets
+            if t.distinct_id and not getattr(t, "person", None) and t.channel_source == Channel.EMAIL and t.email_from
+        ]
+        if unmatched:
+            emails = [t.email_from for t in unmatched if t.email_from]
+            email_to_person = _get_persons_by_email(self.team, emails)
+            for ticket in unmatched:
+                if ticket.email_from:
+                    found = email_to_person.get(ticket.email_from.lower())
+                    if found is not None:
+                        ticket.person = found
 
     @extend_schema(
         parameters=[
@@ -759,6 +825,109 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         set_cached_unread_count(team_id, count)
 
         return Response({"count": count})
+
+    @extend_schema(
+        request=ComposeTicketSerializer,
+        responses={
+            201: OpenApiResponse(response=ComposeTicketResponseSerializer),
+            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        pagination_class=None,
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def compose(self, request, *args, **kwargs):
+        """Create a new outbound ticket and send the first message to the customer."""
+        serializer = ComposeTicketSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        team = self.team
+
+        if not team.conversations_enabled:
+            return Response(
+                {"detail": "Conversations is not enabled."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        settings = team.conversations_settings or {}
+
+        if not settings.get("email_enabled"):
+            return Response(
+                {"detail": "Email channel is not enabled."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        email_config = EmailChannel.objects.filter(
+            id=data["email_config_id"],
+            team=team,
+            domain_verified=True,
+        ).first()
+        if not email_config:
+            return Response(
+                {"detail": "Email configuration not found or domain not verified."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        recipient_email = data["recipient_email"]
+        distinct_id = data.get("recipient_distinct_id", "") or recipient_email
+
+        person: Person | None = None
+        if distinct_id != recipient_email:
+            person = get_person_by_distinct_id(team.id, distinct_id)
+
+        if person is None:
+            person = _get_persons_by_email(team, [recipient_email]).get(recipient_email.lower())
+            if person is not None and person.distinct_ids:
+                distinct_id = person.distinct_ids[0]
+
+        if data.get("recipient_distinct_id") and person is not None:
+            person_email = (person.properties or {}).get("email", "")
+            if person_email and person_email.lower() != recipient_email.lower():
+                return Response(
+                    {"detail": "Recipient email does not match the person's email on file."},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+
+        with transaction.atomic():
+            ticket = Ticket.objects.create_with_number(
+                team=team,
+                channel_source=Channel.EMAIL,
+                distinct_id=distinct_id,
+                status=Status.OPEN,
+                widget_session_id=str(uuid.uuid4()),
+                email_config=email_config,
+                email_from=data["recipient_email"],
+                email_subject=data.get("email_subject", ""),
+            )
+
+            Comment.objects.create(
+                team=team,
+                created_by=request.user,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=data["message"],
+                rich_content=data.get("rich_content"),
+                item_context={"author_type": "human", "is_private": False},
+            )
+
+        try:
+            report_user_action(
+                request.user,
+                "support ticket composed",
+                {"channel_source": Channel.EMAIL},
+                team=team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        return Response(
+            {"id": str(ticket.id), "ticket_number": ticket.ticket_number},
+            status=drf_status.HTTP_201_CREATED,
+        )
 
 
 def validate_assignee(assignee) -> None:

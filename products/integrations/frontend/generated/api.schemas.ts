@@ -46,14 +46,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -73,7 +69,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -274,6 +270,8 @@ export interface SlackChannelsResponseApi {
      * @nullable
      */
     lastRefreshedAt?: string | null
+    /** Whether more channels match the current search beyond this page. */
+    has_more?: boolean
 }
 
 /**
@@ -318,68 +316,20 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
-export interface UserGitHubAccountApi {
-    /**
-     * GitHub account type for the installation (e.g. User or Organization).
-     * @nullable
-     */
-    type?: string | null
-    /**
-     * GitHub login or organization name tied to the installation.
-     * @nullable
-     */
-    name?: string | null
+export interface GitHubTeamApi {
+    /** GitHub team numeric identifier. */
+    id: number
+    /** GitHub team slug. */
+    slug: string
+    /** GitHub team display name. */
+    name: string
 }
 
-export interface UserGitHubIntegrationItemApi {
-    /** PostHog UserIntegration row id. */
-    id: string
-    /** Integration kind; always `github` for this API. */
-    kind: string
-    /** GitHub App installation id. */
-    installation_id: string
-    /**
-     * Repository selection mode from GitHub (e.g. selected or all).
-     * @nullable
-     */
-    repository_selection?: string | null
-    /** Installation account metadata from GitHub. */
-    account?: UserGitHubAccountApi | null
-    /** True when this installation id matches a team-level GitHub integration on the active project. */
-    uses_shared_installation: boolean
-    /** When this integration row was created. */
-    created_at: string
-}
-
-export interface UserGitHubIntegrationListResponseApi {
-    /** GitHub personal integrations for the authenticated user. */
-    results: UserGitHubIntegrationItemApi[]
-}
-
-export interface PaginatedUserGitHubIntegrationListResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: UserGitHubIntegrationListResponseApi[]
-}
-
-export interface UserGitHubLinkStartRequestApi {
-    /**
-     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
-     * @nullable
-     */
-    team_id?: number | null
-    /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
-    connect_from?: string
-}
-
-export interface UserGitHubLinkStartResponseApi {
-    /** URL to open in the browser to install or authorize the GitHub App for this user. */
-    install_url: string
-    /** OAuth or install flow used for this GitHub connection. */
-    connect_flow: string
+export interface GitHubTeamsResponseApi {
+    /** List of GitHub teams available to the installation organization. */
+    teams: GitHubTeamApi[]
+    /** Whether more teams are available beyond this page. */
+    has_more: boolean
 }
 
 export type RoleExternalReferencesListParams = {
@@ -505,6 +455,24 @@ export const IntegrationsListKind = {
     Vercel: 'vercel',
 } as const
 
+export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string
+}
+
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -546,54 +514,20 @@ export type IntegrationsGithubReposRetrieveParams = {
     search?: string
 }
 
-export type UsersIntegrationsListParams = {
+export type IntegrationsGithubTeamsRetrieveParams = {
     /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type UsersIntegrationsGithubBranchesRetrieveParams = {
-    /**
-     * Maximum number of branches to return
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number
-    /**
-     * Number of branches to skip
-     * @minimum 0
-     */
-    offset?: number
-    /**
-     * Repository in owner/repo format
-     * @minLength 1
-     */
-    repo: string
-    /**
-     * Optional case-insensitive branch name search query.
-     */
-    search?: string
-}
-
-export type UsersIntegrationsGithubReposRetrieveParams = {
-    /**
-     * Maximum number of repositories to return per request (max 500).
+     * Maximum number of teams to return per request (max 500).
      * @minimum 1
      * @maximum 500
      */
     limit?: number
     /**
-     * Number of repositories to skip before returning results.
+     * Number of teams to skip before returning results.
      * @minimum 0
      */
     offset?: number
     /**
-     * Optional case-insensitive repository name search query.
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string
 }

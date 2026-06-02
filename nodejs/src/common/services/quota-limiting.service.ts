@@ -11,6 +11,8 @@ export type QuotaResource =
     | 'workflow_emails'
     | 'workflow_destinations_dispatched'
     | 'logs_mb_ingested'
+    | 'metrics_mb_ingested'
+    | 'traces_mb_ingested'
 
 export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 

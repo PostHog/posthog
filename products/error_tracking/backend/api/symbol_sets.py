@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -13,8 +12,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -150,6 +147,19 @@ class ErrorTrackingSymbolSetBulkStartUploadSerializer(serializers.Serializer):
         default=False,
         help_text="Whether to overwrite uploaded symbol sets whose content hash changed.",
     )
+    skip_on_conflict = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to skip uploaded symbol sets whose content hash changed instead of failing.",
+    )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        if attrs.get("force") and attrs.get("skip_on_conflict"):
+            raise ValidationError(
+                code="invalid_conflict_handling",
+                detail="Use either force or skip_on_conflict, not both.",
+            )
+        return attrs
 
 
 class ErrorTrackingSymbolSetBulkFinishUploadSerializer(serializers.Serializer):
@@ -187,7 +197,6 @@ class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()
@@ -238,6 +247,17 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set = self.get_object()
         symbol_set.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # ModelViewSet provides update/partial_update by default, but the serializer is entirely
+    # read-only — there's nothing a client could set via PUT/PATCH. Hide them from the spec
+    # so generated typed clients don't surface unusable methods.
+    @extend_schema(exclude=True)
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @extend_schema(exclude=True)
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
 
     @extend_schema(request=ErrorTrackingSymbolSetBulkDeleteSerializer)
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
@@ -291,7 +311,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    # DEPRECATED: newer versions of the CLI use bulk uploads
+    @extend_schema(exclude=True)  # deprecated; serializer has no settable fields, hidden from typed clients
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
@@ -321,8 +341,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
-    @action(methods=["POST"], detail=False)
     # DEPRECATED: we should eventually remove this once everyone is using a new enough version of the CLI
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False)
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)
@@ -392,7 +413,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         if not symbol_set.content_hash:
             symbol_set.content_hash = content_hash
-            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
@@ -402,31 +422,34 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def bulk_start_upload(self, request, **kwargs):
         if request.user.pk:
             posthoganalytics.identify_context(request.user.pk)
-        # Earlier ones send a list of chunk IDs, all associated with one release
-        # Extract a list of chunk IDs from the request json
-        chunk_ids: list[str] = request.data.get("chunk_ids") or []
-        # Grab the release ID from the request json
-        release_id: str | None = request.data.get("release_id", None)
+
+        upload_serializer = ErrorTrackingSymbolSetBulkStartUploadSerializer(data=request.data)
+        _ = upload_serializer.is_valid(raise_exception=True)
+        upload_data = upload_serializer.validated_data
+
+        # Earlier clients send chunk_ids, all associated with one release.
+        chunk_ids: list[str] = upload_data.get("chunk_ids") or []
+        release_id: str | None = upload_data.get("release_id", None)
+
+        # force=True allows overwriting an existing symbol set whose content has changed.
+        # skip_on_conflict=True leaves the existing symbol set unchanged and continues.
+        force: bool = upload_data["force"]
+        skip_on_conflict: bool = upload_data["skip_on_conflict"]
 
         _ = posthoganalytics.capture(
             "error_tracking_symbol_set_upload_started",
-            properties={"team_id": self.team.id, "endpoint": "bulk_start_upload"},
+            properties={
+                "team_id": self.team.id,
+                "endpoint": "bulk_start_upload",
+                "force": force,
+                "skip_on_conflict": skip_on_conflict,
+            },
             groups=groups(self.team.organization, self.team),
         )
 
-        # Validate symbol_sets using the serializer
-        symbol_sets: list[SymbolSetUpload] = []
-        if "symbol_sets" in request.data:
-            chunk_serializer = ErrorTrackingSymbolSetUploadSerializer(data=request.data["symbol_sets"], many=True)
-            _ = chunk_serializer.is_valid(raise_exception=True)
-            symbol_sets = [SymbolSetUpload(**data) for data in chunk_serializer.validated_data]
+        symbol_sets = [SymbolSetUpload(**data) for data in upload_data.get("symbol_sets", [])]
 
         symbol_sets.extend([SymbolSetUpload(x, release_id, None) for x in chunk_ids])
-
-        # force=True allows overwriting an existing symbol set whose content has changed.
-        # Without it, changed-content re-uploads are silently skipped to prevent
-        # accidental overwrites of production symbol sets from a local dev machine.
-        force: bool = bool(request.data.get("force", False))
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -435,7 +458,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         chunk_id_url_map = bulk_create_symbol_sets(
-            symbol_sets, self.team, force=force, distinct_id=str(request.user.pk) if request.user.pk else None
+            symbol_sets,
+            self.team,
+            force=force,
+            skip_on_conflict=skip_on_conflict,
+            distinct_id=str(request.user.pk) if request.user.pk else None,
         )
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
@@ -492,8 +519,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 content_hash = content_hashes[str(symbol_set.id)]
                 symbol_set.content_hash = content_hash
-                symbol_set.last_used = timezone.now()
-            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash", "last_used"])
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
         except Exception as e:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
@@ -548,7 +574,6 @@ def create_symbol_set(
                 raise ValidationError(f"Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
-            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         except ErrorTrackingSymbolSet.DoesNotExist:
@@ -558,7 +583,6 @@ def create_symbol_set(
                 release=release,
                 storage_ptr=storage_ptr,
                 content_hash=content_hash,
-                last_used=timezone.now(),
             )
 
         # Delete any existing frames associated with this symbol set
@@ -572,6 +596,7 @@ def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
     force: bool = False,
+    skip_on_conflict: bool = False,
     distinct_id: str | None = None,
 ) -> dict[str, dict[str, str]]:
     accelerate = bool(
@@ -625,7 +650,6 @@ def bulk_create_symbol_sets(
                 ref=chunk_id,
                 storage_ptr=storage_ptr,
                 release_id=new_symbol_set_map[chunk_id].release_id,
-                last_used=timezone.now(),
             )
             symbol_sets_to_be_created.append(to_create)
 
@@ -687,16 +711,7 @@ def bulk_create_symbol_sets(
                 # Content is identical — no upload needed.
                 # (We may still update the release below if it changed.)
                 pass
-            elif not force:
-                # Content has changed but the caller did not pass force=True.
-                # Silently skip to prevent accidental overwrites of production
-                # symbol sets from a local development machine.
-                logger.warning(
-                    "symbol_set_content_changed_skipped",
-                    ref=existing.ref,
-                    team_id=team.id,
-                )
-            else:
+            elif force:
                 # force=True: content has changed and the caller explicitly
                 # requested an overwrite. Issue a new presigned URL and clear
                 # the old content hash so bulk_finish_upload stores the new one.
@@ -709,6 +724,19 @@ def bulk_create_symbol_sets(
                 existing.storage_ptr = storage_ptr
                 existing.content_hash = None  # will be set by bulk_finish_upload
                 dirty = True
+            elif skip_on_conflict:
+                # Content has changed, but the caller explicitly asked to keep
+                # the already-uploaded symbol set.
+                logger.warning(
+                    "symbol_set_content_changed_skipped",
+                    ref=existing.ref,
+                    team_id=team.id,
+                )
+            else:
+                raise ValidationError(
+                    code="content_hash_mismatch",
+                    detail=f"Symbol set {existing.ref} already exists with different content.",
+                )
 
             if dirty:
                 to_update.append(existing)

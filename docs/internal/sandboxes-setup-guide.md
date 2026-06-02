@@ -11,6 +11,10 @@ The setup command is idempotent — re-run it anytime. It writes the dev JWT key
 to your `.env`, creates the Array OAuth application, enables the `tasks` feature
 flag for every team, and builds the agent skills bundle.
 
+> To trigger runs from Slack (`@PostHog <task>`) instead of the UI, set up a dev Slack
+> workspace and app once this guide is working — see
+> [slack-local-setup-guide.md](./slack-local-setup-guide.md).
+
 ## GitHub App
 
 Each engineer needs their own GitHub App. The setup command will print these
@@ -35,12 +39,13 @@ Steps:
    localhost is fine; the value just has to be a valid URL since it's
    required when creating the App.
 4. Set the permissions above
-5. Generate a **client secret** under "Client secrets" on the App page —
+5. Under "Identifying and authorizing users", check **Request user authorization (OAuth) during installation** — required for the personal user-link flow
+6. Generate a **client secret** under "Client secrets" on the App page —
    this is required (added a couple of releases back). If your local setup
    stopped working recently, this is most likely what's missing.
-6. Generate a private key
-7. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
-8. Add to your `.env`:
+7. Generate a private key
+8. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
+9. Add to your `.env`:
 
 ```bash
 # The OAuth Client ID (starts with Iv1 or Iv23) — NOT the numeric App ID.
@@ -86,14 +91,14 @@ The activities live in
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
-is happening with a background cloud run.
+is happening with a background cloud run and for debugging. You can also use PostHog Code to do this rather than the debug UI.
 
-1. Navigate to Tasks in PostHog (requires the `tasks` feature flag)
+1. Navigate to Tasks in PostHog (requires the `tasks` feature flag) by visiting `/tasks` (it will not show up in the sidebar)
 2. Create a task with a title, description, and repository (format: `owner/repo`)
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## Testing with local agent packages
+## Testing with local agent packages (you only need to do this if you are making changes to the agent package, otherwise ignore this)
 
 To test changes to `@posthog/agent` before publishing:
 
@@ -109,7 +114,7 @@ MODAL_TOKEN_SECRET=<token_secret>
 
 ### Tunnel gateway, API, and MCP
 
-Since Modal sandboxes run in the cloud and can't reach `localhost` directly,
+If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,
 you'll need to expose the Django API, LLM gateway, and MCP server via a tunnel (e.g. ngrok or Cloudflare Tunnel).
 
 With ngrok, add tunnels to your ngrok config, `~/.config/ngrok/ngrok.yml` (Linux) or `~/Library/Application Support/ngrok/ngrok.yml` (MacOS):
@@ -195,7 +200,23 @@ cd /path/to/posthog-code/packages/agent && pnpm build
 | ----------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                       |
 | `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, the local agent packages are overlaid onto the image. |
-| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed.                                                                                                                                                                                                         |
+| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed. This is the recommended option for local development.                                                                                                                                                   |
+
+### Optional: local repository mounts (Docker only)
+
+If you already have a repository checked out locally, you can skip cloning by
+bind-mounting it into the Docker sandbox:
+
+```bash
+# Format: org/repo:/local/path,org2/repo2:~/other/path
+SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog
+```
+
+When configured, matching repositories are mounted read-write from your host
+into the container, and `clone_repository` becomes a no-op for those
+repositories.
+
+> **Note:** This only works with `SANDBOX_PROVIDER=docker`.
 
 ### How `MODAL_DOCKER` works
 
@@ -217,17 +238,18 @@ cd /path/to/posthog-code/packages/agent && pnpm build
 
 ## Troubleshooting
 
-| Problem                            | Solution                                                                                                                                                                                   |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Docker not running                 | Start Docker Desktop or the Docker daemon                                                                                                                                                  |
-| Temporal not reachable             | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                                                     |
-| Feature flag not enabled           | Re-run `python manage.py setup_background_agents` to (re-)create the `tasks` flag at 100% rollout                                                                                          |
-| Array OAuth app missing            | Re-run `python manage.py setup_background_agents`                                                                                                                                          |
-| GitHub token expired               | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                                            |
-| "Task workflow execution blocked"  | The `tasks` feature flag is not enabled for this user/org                                                                                                                                  |
-| Sandbox image build fails          | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                                                           |
-| Agent server health check fails    | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                                                 |
-| `SANDBOX_JWT_PRIVATE_KEY` missing  | Re-run `python manage.py setup_background_agents` — it will auto-fill from `.env.example`                                                                                                  |
-| Port conflict on sandbox host port | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker |
-| Sandbox can't reach PostHog API    | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                             |
-| `DEBUG` not set                    | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Re-run `python manage.py setup_background_agents` to write it                                                                                |
+| Problem                                  | Solution                                                                                                                                                                                                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker not running                       | Start Docker Desktop or the Docker daemon                                                                                                                                                                                                                                  |
+| Temporal not reachable                   | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                                                                                                                                     |
+| Feature flag not enabled                 | Re-run `python manage.py setup_background_agents` to (re-)create the `tasks` flag at 100% rollout                                                                                                                                                                          |
+| Array OAuth app missing                  | Re-run `python manage.py setup_background_agents`                                                                                                                                                                                                                          |
+| GitHub token expired                     | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                                                                                                                            |
+| "Task workflow execution blocked"        | The `tasks` feature flag is not enabled for this user/org                                                                                                                                                                                                                  |
+| Sandbox image build fails                | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                                                                                                                                           |
+| Agent server health check fails          | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                                                                                                                                 |
+| `SANDBOX_JWT_PRIVATE_KEY` missing        | Re-run `python manage.py setup_background_agents` — it will auto-fill from `.env.example`                                                                                                                                                                                  |
+| Port conflict on sandbox host port       | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker                                                                                 |
+| Sandbox can't reach PostHog API          | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                                                                                                             |
+| `DEBUG` not set                          | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Re-run `python manage.py setup_background_agents` to write it                                                                                                                                                                |
+| `git commit is disabled in PostHog Code` | A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) blocks `git commit` and `git push` so unsigned commits can't leave the sandbox. Stage changes with `git add`, then use the `git_signed_commit` tool. To bypass during debugging, set `POSTHOG_ALLOW_UNSIGNED_GIT=1` |

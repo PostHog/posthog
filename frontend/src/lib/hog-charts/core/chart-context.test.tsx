@@ -13,10 +13,9 @@ const LAYOUT: ChartLayoutContextValue = {
     series: [],
     scales: { x: () => 0, y: () => 0, yTicks: () => [] },
     theme: THEME,
-    resolveValue: (s, i) => s.data[i] ?? 0,
+    resolvePositionValue: (s, i) => s.data[i] ?? 0,
     canvasBounds: () => null,
-    axisOrientation: 'vertical',
-    isPercent: false,
+    axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
 }
 
 describe('chart-context split', () => {

@@ -9,65 +9,12 @@
  */
 import * as zod from 'zod'
 
-/**
- * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
- */
-export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
-
-export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
-    uuid: zod.string().describe('UUID of the log entry to explain'),
-    timestamp: zod.iso.datetime({}).describe('Timestamp of the log entry (used for efficient lookup)'),
-    force_refresh: zod
-        .boolean()
-        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
-        .describe('Force regenerate explanation, bypassing cache'),
-})
-
-export const logsViewsCreateBodyNameMax = 400
-
-export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsCreateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsUpdateBodyNameMax = 400
-
-export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsUpdateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsPartialUpdateBodyNameMax = 400
-
-export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
+
 export const logsAlertsCreateBodyThresholdCountDefault = 100
+export const logsAlertsCreateBodyThresholdCountMin = 0
 
 export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
 export const logsAlertsCreateBodyWindowMinutesDefault = 5
@@ -91,24 +38,49 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsCreateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
-        .unknown()
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsCreateBodyThresholdCountMin)
         .default(logsAlertsCreateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
-        .describe('* `above` - Above\n* `below` - Below')
+        .describe('\* `above` - Above\n\* `below` - Below')
         .default(logsAlertsCreateBodyThresholdOperatorDefault)
         .describe(
-            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
         ),
     window_minutes: zod
         .number()
@@ -132,7 +104,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
         .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
     snooze_until: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
@@ -140,7 +112,9 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsUpdateBodyNameMax = 255
 
 export const logsAlertsUpdateBodyEnabledDefault = true
+
 export const logsAlertsUpdateBodyThresholdCountDefault = 100
+export const logsAlertsUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsUpdateBodyWindowMinutesDefault = 5
@@ -164,24 +138,49 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsUpdateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
-        .unknown()
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsUpdateBodyThresholdCountMin)
         .default(logsAlertsUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
-        .describe('* `above` - Above\n* `below` - Below')
+        .describe('\* `above` - Above\n\* `below` - Below')
         .default(logsAlertsUpdateBodyThresholdOperatorDefault)
         .describe(
-            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
         ),
     window_minutes: zod
         .number()
@@ -205,7 +204,7 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsUpdateBodyCooldownMinutesDefault)
         .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
     snooze_until: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
@@ -213,7 +212,9 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsPartialUpdateBodyNameMax = 255
 
 export const logsAlertsPartialUpdateBodyEnabledDefault = true
+
 export const logsAlertsPartialUpdateBodyThresholdCountDefault = 100
+export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsPartialUpdateBodyWindowMinutesDefault = 5
@@ -237,24 +238,49 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsPartialUpdateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
-        .unknown()
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsPartialUpdateBodyThresholdCountMin)
         .default(logsAlertsPartialUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
-        .describe('* `above` - Above\n* `below` - Below')
+        .describe('\* `above` - Above\n\* `below` - Below')
         .default(logsAlertsPartialUpdateBodyThresholdOperatorDefault)
         .describe(
-            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
         ),
     window_minutes: zod
         .number()
@@ -278,7 +304,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsPartialUpdateBodyCooldownMinutesDefault)
         .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
     snooze_until: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
@@ -289,8 +315,8 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
         .enum(['slack', 'webhook'])
-        .describe('* `slack` - slack\n* `webhook` - webhook')
-        .describe('Destination type — slack or webhook.\n\n* `slack` - slack\n* `webhook` - webhook'),
+        .describe('\* `slack` - slack\n\* `webhook` - webhook')
+        .describe('Destination type — slack or webhook.\n\n\* `slack` - slack\n\* `webhook` - webhook'),
     slack_workspace_id: zod
         .number()
         .optional()
@@ -315,6 +341,8 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
 
+export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
+
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
 
@@ -328,13 +356,43 @@ export const logsAlertsSimulateCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsSimulateCreateBodyCooldownMinutesMin = 0
 
 export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
-    threshold_count: zod.number().min(1).describe('Threshold count to evaluate against.'),
+    filters: zod
+        .object({
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .nullish()
+                .default(null),
+            serviceNames: zod
+                .union([zod.array(zod.string()), zod.null()])
+                .nullish()
+                .default(null),
+            severityLevels: zod
+                .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
+                .nullish()
+                .default(null),
+        })
+        .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
+    threshold_count: zod
+        .number()
+        .min(logsAlertsSimulateCreateBodyThresholdCountMin)
+        .describe('Threshold count to evaluate against.'),
     threshold_operator: zod
         .enum(['above', 'below'])
-        .describe('* `above` - Above\n* `below` - Below')
+        .describe('\* `above` - Above\n\* `below` - Below')
         .describe(
-            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
         ),
     window_minutes: zod.number().describe('Window size in minutes — determines bucket interval.'),
     check_interval_minutes: zod
@@ -386,7 +444,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
                         .describe(
-                            '* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal'
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
                         )
                 )
                 .optional()
@@ -399,15 +457,15 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
                             .describe(
-                                '* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             )
                             .describe(
-                                '\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             ),
                         operator: zod
                             .enum([
@@ -426,16 +484,16 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
                             ),
                     })
                 )
@@ -466,7 +524,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .optional()
                 .describe(
-                    "Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range."
+                    "Window to bucket. Defaults to last hour. Use a bucket's date_from\/date_to from a prior response to recursively narrow into a sub-range."
                 ),
             targetBuckets: zod
                 .number()
@@ -474,14 +532,14 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                 .max(logsCountRangesCreateBodyQueryOneTargetBucketsMax)
                 .default(logsCountRangesCreateBodyQueryOneTargetBucketsDefault)
                 .describe(
-                    'Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.'
+                    'Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1\/5\/10s, 1\/2\/5\/10\/15\/30\/60\/120\/240\/360\/720\/1440m) to land near this target. Defaults to 10, capped at 100.'
                 ),
             severityLevels: zod
                 .array(
                     zod
                         .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
                         .describe(
-                            '* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal'
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
                         )
                 )
                 .optional()
@@ -500,15 +558,15 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
                             .describe(
-                                '* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             )
                             .describe(
-                                '\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             ),
                         operator: zod
                             .enum([
@@ -527,16 +585,16 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
                             ),
                     })
                 )
@@ -544,6 +602,22 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters applied before bucketing. Same shape as `query-logs`.'),
         })
         .describe('The bucketed-count query to execute.'),
+})
+
+/**
+ * Explain a log entry using AI.
+
+POST /api/environments/:id/logs/explainLogWithAI/
+ */
+export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
+
+export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
+    uuid: zod.string().describe('UUID of the log entry to explain'),
+    timestamp: zod.iso.datetime({ offset: true }).describe('Timestamp of the log entry (used for efficient lookup)'),
+    force_refresh: zod
+        .boolean()
+        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
+        .describe('Force regenerate explanation, bypassing cache'),
 })
 
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
@@ -574,7 +648,7 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
                         .describe(
-                            '* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal'
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
                         )
                 )
                 .default(logsQueryCreateBodyQueryOneSeverityLevelsDefault)
@@ -585,9 +659,9 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Filter by service names.'),
             orderBy: zod
                 .enum(['latest', 'earliest'])
-                .describe('* `latest` - latest\n* `earliest` - earliest')
+                .describe('\* `latest` - latest\n\* `earliest` - earliest')
                 .optional()
-                .describe('Order results by timestamp.\n\n* `latest` - latest\n* `earliest` - earliest'),
+                .describe('Order results by timestamp.\n\n\* `latest` - latest\n\* `earliest` - earliest'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
             filterGroup: zod
                 .array(
@@ -595,15 +669,15 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
                             .describe(
-                                '* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             )
                             .describe(
-                                '\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             ),
                         operator: zod
                             .enum([
@@ -622,16 +696,16 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
                             ),
                     })
                 )
@@ -668,16 +742,16 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
         .describe(
-            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         )
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
         .max(logsSamplingRulesCreateBodyScopeServiceMax)
         .nullish()
-        .describe('If set, the rule applies only to this service name; null means all services.'),
+        .describe('Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.'),
     scope_path_pattern: zod
         .string()
         .max(logsSamplingRulesCreateBodyScopePathPatternMax)
@@ -687,12 +761,12 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
-            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
+            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"\/api\"}].'
         ),
     config: zod
         .unknown()
         .describe(
-            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+            'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
 })
 
@@ -721,16 +795,16 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
         .describe(
-            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         )
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
         .max(logsSamplingRulesUpdateBodyScopeServiceMax)
         .nullish()
-        .describe('If set, the rule applies only to this service name; null means all services.'),
+        .describe('Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.'),
     scope_path_pattern: zod
         .string()
         .max(logsSamplingRulesUpdateBodyScopePathPatternMax)
@@ -740,12 +814,12 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
-            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
+            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"\/api\"}].'
         ),
     config: zod
         .unknown()
         .describe(
-            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+            'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
 })
 
@@ -778,17 +852,17 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
         .describe(
-            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+            '\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         )
         .optional()
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).\n\n\* `severity_sampling` - Severity-based reduction\n\* `path_drop` - Path exclusion\n\* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
         .max(logsSamplingRulesPartialUpdateBodyScopeServiceMax)
         .nullish()
-        .describe('If set, the rule applies only to this service name; null means all services.'),
+        .describe('Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.'),
     scope_path_pattern: zod
         .string()
         .max(logsSamplingRulesPartialUpdateBodyScopePathPatternMax)
@@ -798,13 +872,13 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
-            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
+            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"\/api\"}].'
         ),
     config: zod
         .unknown()
         .optional()
         .describe(
-            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+            'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
 })
 
@@ -814,7 +888,9 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
     ordered_ids: zod
         .array(zod.uuid())
-        .describe('Rule IDs in the desired evaluation order (first element is highest priority / lowest order index).'),
+        .describe(
+            'Rule IDs in the desired evaluation order (first element is highest priority \/ lowest order index).'
+        ),
 })
 
 export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
@@ -840,7 +916,7 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
                         .describe(
-                            '* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal'
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
                         )
                 )
                 .optional()
@@ -856,15 +932,15 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
                             .describe(
-                                '* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             )
                             .describe(
-                                '\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             ),
                         operator: zod
                             .enum([
@@ -883,16 +959,16 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
                             ),
                     })
                 )
@@ -929,7 +1005,7 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
                         .describe(
-                            '* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal'
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
                         )
                 )
                 .default(logsSparklineCreateBodyQueryOneSeverityLevelsDefault)
@@ -945,15 +1021,15 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
                             .describe(
-                                '* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             )
                             .describe(
-                                '\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
                             ),
                         operator: zod
                             .enum([
@@ -972,16 +1048,16 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
                             ),
                     })
                 )
@@ -989,11 +1065,50 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters for the query.'),
             sparklineBreakdownBy: zod
                 .enum(['severity', 'service'])
-                .describe('* `severity` - severity\n* `service` - service')
+                .describe('\* `severity` - severity\n\* `service` - service')
                 .optional()
                 .describe(
-                    'Break down sparkline by \"severity\" (default) or \"service\".\n\n* `severity` - severity\n* `service` - service'
+                    'Break down sparkline by \"severity\" (default) or \"service\".\n\n\* `severity` - severity\n\* `service` - service'
                 ),
         })
         .describe('The sparkline query to execute.'),
+})
+
+export const logsViewsCreateBodyNameMax = 400
+
+export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsCreateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsUpdateBodyNameMax = 400
+
+export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsUpdateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsPartialUpdateBodyNameMax = 400
+
+export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
 })

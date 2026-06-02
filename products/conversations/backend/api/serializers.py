@@ -9,6 +9,7 @@ from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
+from posthog.security.url_validation import has_authority_bypass_chars
 
 from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
@@ -217,6 +218,9 @@ def validate_url_domain(url: str, team: Team) -> bool:
     if not domains:
         return False
 
+    if has_authority_bypass_chars(url):
+        return False
+
     parsed = urlparse(url)
     url_host = (parsed.hostname or parsed.netloc).lower()
     if not url_host:
@@ -255,6 +259,10 @@ def validate_url_matches_request_origin(request, url: str) -> bool:
     """
 
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
+
+    if has_authority_bypass_chars(url):
+        return False
+
     parsed_url = urlparse(url)
 
     # Restrict request_url scheme — exotic schemes (javascript:, data:, file:) have

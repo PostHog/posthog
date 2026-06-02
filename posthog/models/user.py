@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailNormalizer
+from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -50,6 +50,9 @@ class Notifications(TypedDict, total=False):
     realtime_notifications_disabled: dict[
         str, dict[str, bool]
     ]  # Maps notification_type (str) to {team_id (str) -> disabled (True = muted)}. Absence = enabled (opt-out default).
+    pipeline_notifications_disabled: dict[
+        str, bool
+    ]  # Maps pipeline ID (e.g. "hog_function:<uuid>", "plugin_config:<id>", "batch_export:<uuid>") to disabled status (True = do not email for this pipeline)
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -65,6 +68,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
+    "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -89,6 +93,14 @@ class UserManager(BaseUserManager):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
     use_in_migrations = True
+
+    def get_by_natural_key(self, username: str | None) -> "User":  # type: ignore[override]
+        # Case-insensitive lookup, ModelBackend.authenticate calls this method,
+        # is_active filtering happens later in ModelBackend.user_can_authenticate, so we don't filter on it here.
+        user = EmailLookupHandler.get_user_by_email(username, is_active=None) if username else None
+        if user is None:
+            raise User.DoesNotExist("User with that email does not exist.")
+        return user
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
@@ -192,6 +204,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
+    credentials_reviewed_at = models.DateTimeField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
     requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
@@ -220,6 +233,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=True,
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
+    hide_mcp_hints = models.BooleanField(
+        default=False,
+        db_default=False,
+        null=False,
+        blank=False,
+        help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -294,7 +314,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         )
         if org_available_product_features and len(org_available_product_features) > 0:
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
+            if AvailableFeature.ACCESS_CONTROL in org_available_product_feature_keys:
                 try:
                     from ee.models.rbac.access_control import AccessControl
                 except ImportError:
@@ -319,20 +339,28 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                         ).values_list("team_id", flat=True)
                     )
 
-                    # Get teams where user has role-based access
-                    try:
-                        from ee.models.rbac.role import RoleMembership
+                    # Get teams where user has role-based access. Only honored when the
+                    # org has ROLE_BASED_ACCESS — same gate as the UI's "Roles" block on
+                    # the project access settings page (and as resource-level role overrides).
+                    role_based_access_supported = (
+                        AvailableFeature.ROLE_BASED_ACCESS in org_available_product_feature_keys
+                    )
+                    if role_based_access_supported:
+                        try:
+                            from ee.models.rbac.role import RoleMembership
 
-                        user_roles = RoleMembership.objects.filter(
-                            user=self, organization_member__in=[membership.id for membership in org_memberships]
-                        ).values_list("role_id", flat=True)
+                            user_roles = RoleMembership.objects.filter(
+                                user=self, organization_member__in=[membership.id for membership in org_memberships]
+                            ).values_list("role_id", flat=True)
 
-                        role_accessible_team_ids = set(
-                            AccessControl.objects.filter(
-                                resource="project", access_level__in=["member", "admin"], role__in=user_roles
-                            ).values_list("team_id", flat=True)
-                        )
-                    except ImportError:
+                            role_accessible_team_ids = set(
+                                AccessControl.objects.filter(
+                                    resource="project", access_level__in=["member", "admin"], role__in=user_roles
+                                ).values_list("team_id", flat=True)
+                            )
+                        except ImportError:
+                            role_accessible_team_ids = set()
+                    else:
                         role_accessible_team_ids = set()
 
                     # Get organizations where user is admin or owner (have implicit access to all teams)
@@ -455,7 +483,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
 
             self.current_organization = organization
-            if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("id").first()
             else:

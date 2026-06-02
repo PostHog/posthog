@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '~/queries/query'
 import {
     DataTableNode,
@@ -680,6 +681,50 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
         })
 
+        it('enables Update insight as soon as sourceQuery diverges from the saved insight, even when dataVisualizationLogic mirror lags behind', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }),
+                })
+
+            // Mount dataVisualizationLogic with the saved query, mirroring what BindLogic
+            // does in production. This is the state right after the insight finishes loading.
+            const dataLogicKey = logic.values.dataLogicKey
+            const visualizationLogic = dataVisualizationLogic({
+                key: dataLogicKey,
+                query: MOCK_INSIGHT_QUERY,
+                dataNodeCollectionId: dataLogicKey,
+            })
+            visualizationLogic.mount()
+
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
+
+            // Simulate runQuery firing setSourceQuery with a different SQL string.
+            // dataVisualizationLogic.values.query still mirrors the OLD query at this point —
+            // in production it only catches up after React re-renders and propsChanged fires.
+            // The selector must reflect the change immediately so the user can save.
+            logic.actions.setSourceQuery({
+                ...MOCK_INSIGHT_QUERY,
+                source: { ...MOCK_INSIGHT_QUERY.source, query: 'SELECT count() FROM events WHERE event = $pageview' },
+            })
+
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(true)
+
+            visualizationLogic.unmount()
+        })
+
         it('does not dispatch syncUrlWithQuery before the API responds', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -695,6 +740,90 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
+        })
+    })
+
+    describe('inline insight metadata editing', () => {
+        async function loadInsight(): Promise<void> {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
+
+            // Mirror what BindLogic does in production so updateInsightButtonEnabled has the saved query
+            const visualizationLogic = dataVisualizationLogic({
+                key: logic.values.dataLogicKey,
+                query: MOCK_INSIGHT_QUERY,
+                dataNodeCollectionId: logic.values.dataLogicKey,
+            })
+            visualizationLogic.mount()
+        }
+
+        it('seeds the active tab with the insight name and description on load', async () => {
+            await loadInsight()
+
+            expect(logic.values.activeTab?.name).toEqual(MOCK_INSIGHT.name)
+            expect(logic.values.activeTab?.description).toEqual(MOCK_INSIGHT.description)
+            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(false)
+        })
+
+        it('preserves an empty insight name instead of falling back to NEW_QUERY', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            const insightWithEmptyName = { ...MOCK_INSIGHT, name: '' } as QueryBasedInsightModel
+            logic.actions.createTab(MOCK_INSIGHT_QUERY.source.query, undefined, insightWithEmptyName)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(logic.values.activeTab?.name).toEqual('')
+        })
+
+        it.each([
+            ['name', 'setEditingInsightName' as const, 'Renamed Insight'],
+            ['description', 'setEditingInsightDescription' as const, 'A new description'],
+        ])(
+            'treats an inline %s edit as a pending change that enables Update insight',
+            async (field, action, newValue) => {
+                await loadInsight()
+
+                logic.actions[action](newValue)
+
+                expect(logic.values.activeTab?.[field as 'name' | 'description']).toEqual(newValue)
+                expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(true)
+                expect(editorRootLogic!.values.titleSectionProps).toMatchObject({
+                    [field]: newValue,
+                })
+            }
+        )
+
+        it('discards pending name and description edits when the insight is closed', async () => {
+            await loadInsight()
+
+            logic.actions.setEditingInsightName('Renamed Insight')
+            logic.actions.setEditingInsightDescription('A new description')
+            logic.actions.closeEditingObject()
+
+            await expectLogic(logic).toDispatchActions(['closeEditingObject', 'updateTab']).toMatchValues({
+                editingInsight: null,
+            })
+
+            expect(logic.values.activeTab?.name).toEqual('Untitled')
+            expect(logic.values.activeTab?.description).toEqual('')
         })
     })
 

@@ -113,7 +113,7 @@ describe('DashboardHeader', () => {
             scenario: 'Edit mode',
             dashboardMode: DashboardMode.Edit,
             canEdit: true,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-add-tile'],
             notVisible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
         },
         {
