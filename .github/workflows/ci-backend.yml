@@ -1604,12 +1604,12 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
-            # Mint the read-only DevEx offload token so setup-python resolves its version
+            # Mint a GitHub token for the setup actions so they resolve their version
             # manifest off the shared per-repo GITHUB_TOKEN bucket. continue-on-error + the
             # `|| github.token` fallback make this a no-op until the secret exists, then it
             # offloads automatically — safe for unrebased PRs.
-            - name: Mint DevEx offload token
-              id: devex-offload
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -1621,7 +1621,7 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: ${{ matrix.python-version }}
-                  token: ${{ steps.devex-offload.outputs.token || github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv-tests

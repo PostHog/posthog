@@ -49,10 +49,10 @@ class SetupActionTokenCheck(WorkflowCheck):
     @property
     def fix_hint(self) -> str | None:
         return (
-            "Mint the read-only DevEx offload token in the job and pass it to the setup step's "
+            "Mint a setup-action GitHub token in the job and pass it to the setup step's "
             "`token:` input, e.g.\n"
             "    - uses: actions/create-github-app-token@<sha>\n"
-            "      id: devex-offload\n"
+            "      id: setup-gh-token\n"
             "      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository\n"
             "      continue-on-error: true  # no-op to the default token until the secret exists\n"
             "      with:\n"
@@ -61,7 +61,7 @@ class SetupActionTokenCheck(WorkflowCheck):
             "    - uses: actions/setup-python@<sha>\n"
             "      with:\n"
             "        python-version-file: pyproject.toml\n"
-            "        token: ${{ steps.devex-offload.outputs.token || github.token }}\n"
+            "        token: ${{ steps.setup-gh-token.outputs.token || github.token }}\n"
             "This moves the version-manifest API call off the shared per-repo GITHUB_TOKEN bucket."
         )
 
