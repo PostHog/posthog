@@ -82,8 +82,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.378.0
-      version: 1.378.0
+      specifier: ^1.378.1
+      version: 1.378.1
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -326,7 +326,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -354,7 +354,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -496,7 +496,7 @@ importers:
         version: 7.6.21(encoding@0.1.13)
       storybook-addon-pseudo-states:
         specifier: 2.1.2
-        version: 2.1.2(@storybook/components@7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/core-events@7.6.20)(@storybook/manager-api@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/preview-api@7.6.24)(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.1.2(@storybook/components@7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/core-events@7.6.20)(@storybook/manager-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/preview-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       style-loader:
         specifier: ^2.0.0
         version: 2.0.0(webpack@5.88.2)
@@ -749,7 +749,7 @@ importers:
         version: link:../packages/quill/packages/quill
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.0)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1076,7 +1076,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1839,7 +1839,7 @@ importers:
         version: 7.6.21(encoding@0.1.13)
       storybook-addon-pseudo-states:
         specifier: 2.1.2
-        version: 2.1.2(@storybook/components@7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/core-events@7.6.24)(@storybook/manager-api@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/preview-api@7.6.24)(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.1.2(@storybook/components@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/core-events@7.6.24)(@storybook/manager-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/preview-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       storybook-dark-mode:
         specifier: 3.0.3
         version: 3.0.3(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1902,9 +1902,21 @@ importers:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@tailwindcss/vite':
         specifier: ^4.1.17
         version: 4.2.2(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+      '@tanstack/react-table':
+        specifier: ^8.21.3
+        version: 8.21.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^5.1.1
         version: 5.2.0(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
@@ -2137,7 +2149,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2174,7 +2186,7 @@ importers:
         version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2218,7 +2230,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2317,7 +2329,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2379,7 +2391,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2392,6 +2404,9 @@ importers:
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.27)
       clsx:
         specifier: '*'
         version: 1.2.1
@@ -2407,9 +2422,31 @@ importers:
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@storybook/react':
+        specifier: ^8.6.14
+        version: 8.6.18(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@7.6.21(encoding@0.1.13))(typescript@6.0.3)
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@testing-library/user-event':
+        specifier: ^14.6.1
+        version: 14.6.1(@testing-library/dom@9.3.4)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
 
   products/data_modeling:
     dependencies:
@@ -2471,7 +2508,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2495,7 +2532,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2650,7 +2687,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2729,7 +2766,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2831,7 +2868,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2984,7 +3021,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3106,7 +3143,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3199,7 +3236,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3459,7 +3496,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3495,7 +3532,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3510,7 +3547,7 @@ importers:
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.0)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3610,7 +3647,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.0
+        version: 1.378.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -9200,8 +9237,8 @@ packages:
   '@posthog/core@1.28.3':
     resolution: {integrity: sha512-SOy0aphKawZzp8jxfeOpTcXPwi6ii0I2V6tX8YXnM+WbxKKR/R+BXLK0jS6LV8kZtW3H5YxmPAfuIbUP1UnGTw==}
 
-  '@posthog/core@1.30.1':
-    resolution: {integrity: sha512-8riw09hdoQRD63snWkrr/JmtvhVedh0O3FkakAhXFA28qnvC8hza8JrsXcpKEB+dP6oJib0vcQSRn89fRoQ0OQ==}
+  '@posthog/core@1.30.2':
+    resolution: {integrity: sha512-d7RTpfi+/q5+SZ+4f1WhanfEtNBz9onMmUxn3BO0GDT8N5ZT4DEP3LqFisqeP+xkJTaFPWCOVA/nGyKmUX9y9g==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -9259,8 +9296,8 @@ packages:
   '@posthog/types@1.372.9':
     resolution: {integrity: sha512-B7k9S+H9WUKHXxe1HOkQWbpWtMcrBvsodm5stZaLQ3pYxf9TowtwssdzTtX4hHjzSYqgrS1IpNnJX4vs1KgBzA==}
 
-  '@posthog/types@1.378.0':
-    resolution: {integrity: sha512-1JG2kMbRKaxC1t2Ws0Qod2zuOpJ4FdzkpWocnUB4XN3aDDcFc8EN1dOQMzW/E5HigOzM0y1SUkg5xKg1VHhCCA==}
+  '@posthog/types@1.378.1':
+    resolution: {integrity: sha512-bKOXVWySe5oKFjV6X9VW9jngIm14d4BvnT7l/Eb7e6DrT5uD+XclvbRdhC5f1/l5KwoIU+qswBobHRPlix2D1w==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -10976,6 +11013,11 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
+  '@storybook/components@8.6.18':
+    resolution: {integrity: sha512-55yViiZzPS/cPBuOeW4QGxGqrusjXVyxuknmbYCIwDtFyyvI/CgbjXRHdxNBaIjz+IlftxvBmmSaOqFG5+/dkA==}
+    peerDependencies:
+      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
+
   '@storybook/core-client@7.6.24':
     resolution: {integrity: sha512-1UHiA+h//U0iIm7GAhGG5hN8GaD4rhoqm4ZjUQaCPUemBtEOPMWJk1sQLyGrhlLYDEAp69Sbi4BP/J0LD0nrjQ==}
 
@@ -11045,6 +11087,11 @@ packages:
   '@storybook/manager-api@7.6.4':
     resolution: {integrity: sha512-RFb/iaBJfXygSgXkINPRq8dXu7AxBicTGX7MxqKXbz5FU7ANwV7abH6ONBYURkSDOH9//TQhRlVkF5u8zWg3bw==}
 
+  '@storybook/manager-api@8.6.18':
+    resolution: {integrity: sha512-BjIp12gEMgzFkEsgKpDIbZdnSWTZpm2dlws8WiPJCpgJtG+HWSxZ0/Ms30Au9yfwzQEKRSbV/5zpsKMGc2SIJw==}
+    peerDependencies:
+      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
+
   '@storybook/manager@7.6.21':
     resolution: {integrity: sha512-kwtG7HfxYQIZeGwDg7xFkORhNf0PH+4jRLf/9M6amR537Hctay+Vlv2MGHO6LFzw6IwT4qCtO8xNgzcV9TxZtg==}
 
@@ -11089,6 +11136,11 @@ packages:
   '@storybook/preview-api@7.6.4':
     resolution: {integrity: sha512-KhisNdQX5NdfAln+spLU4B82d804GJQp/CnI5M1mm/taTnjvMgs/wTH9AmR89OPoq+tFZVW0vhy2zgPS3ar71A==}
 
+  '@storybook/preview-api@8.6.18':
+    resolution: {integrity: sha512-joXRXh3GdVvzhbfIgmix1xs90p8Q/nja7AhEAC2egn5Pl7SKsIYZUCYI6UdrQANb2myg9P552LKXfPect8llKg==}
+    peerDependencies:
+      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
+
   '@storybook/preview@7.6.24':
     resolution: {integrity: sha512-8qa9OFD1XKrX0Ts7vZFSd0ugIHoQt4rBGZNG7gE17laFxMTMiNAaTEqBF44f6vslx0z8VjIPtQ8qKeurU0IQdg==}
 
@@ -11112,6 +11164,13 @@ packages:
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
+
+  '@storybook/react-dom-shim@8.6.18':
+    resolution: {integrity: sha512-N4xULcAWZQTUv4jy1/d346Tyb4gufuC3UaLCuU/iVSZ1brYF4OW3ANr+096btbMxY8pR/65lmtoqr5CTGwnBvA==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+      storybook: ^8.6.18
 
   '@storybook/react-vite@7.6.24':
     resolution: {integrity: sha512-0cvvXe9lrxzC50GPDWbJ4tXr3A07CURTv0ryJ9mSeT0YCNMdpX1B20ibxgy6gYgcAa/4fFPCAX6HuOn1Ec6E+g==}
@@ -11157,6 +11216,21 @@ packages:
       typescript:
         optional: true
 
+  '@storybook/react@8.6.18':
+    resolution: {integrity: sha512-BuLpzMkKtF+UCQCbi+lYVX9cdcAMG86Lu2dDn7UFkPi5HRNFq/zHPSvlz1XDgL0OYMtcqB1aoVzFzcyzUBhhjw==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@storybook/test': 8.6.18
+      react: 18.3.1
+      react-dom: 18.3.1
+      storybook: ^8.6.18
+      typescript: 6.0.3
+    peerDependenciesMeta:
+      '@storybook/test':
+        optional: true
+      typescript:
+        optional: true
+
   '@storybook/router@7.6.20':
     resolution: {integrity: sha512-mCzsWe6GrH47Xb1++foL98Zdek7uM5GhaSlrI7blWVohGa0qIUYbfJngqR4ZsrXmJeeEvqowobh+jlxg3IJh+w==}
 
@@ -11185,6 +11259,11 @@ packages:
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
+
+  '@storybook/theming@8.6.18':
+    resolution: {integrity: sha512-n6OEjEtHupa2PdTwWzRepr7cO8NkDd4rgF6BKLitRbujOspLxzMBEqdphs+QLcuiCIgf33SqmEA64QWnbSMhPw==}
+    peerDependencies:
+      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
 
   '@storybook/types@7.6.20':
     resolution: {integrity: sha512-GncdY3x0LpbhmUAAJwXYtJDUQEwfF175gsjH0/fxPkxPoV7Sef9TM41jQLJW/5+6TnZoCZP/+aJZTJtq3ni23Q==}
@@ -11690,6 +11769,17 @@ packages:
     resolution: {integrity: sha512-pCvohwOCspk3ZFn6eJzrrX3g4n2JY73H6MmYC87XfGPyTty4YsCjYTMArRZm/zOI8dIt3+EcrLHAFPe5A4bgtw==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
+
+  '@tanstack/react-table@8.21.3':
+    resolution: {integrity: sha512-5nNMTSETP4ykGegmVkhjcS8tTLW6Vl4axfEGQN3v0zdHYbK4UfoqfPChclTrJ4EoK9QynqAu9oUf8VEmrpZ5Ww==}
+    engines: {node: '>=12'}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+
+  '@tanstack/table-core@8.21.3':
+    resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
+    engines: {node: '>=12'}
 
   '@temporalio/activity@1.15.0':
     resolution: {integrity: sha512-kKEIrHMTsANiEpDVZd+v3OT6kU20UtcvAK7iibJNzQnoZUGC7XnqdKQlBuGYBxgpJzD9ppGgskXRczW+XU5Kng==}
@@ -20241,8 +20331,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.378.0:
-    resolution: {integrity: sha512-GW+FbLGfEmBZ7U7DyeeVTVDWKKsA2BH+mq9tj/TQkP/HF8+yEjMMu2qlCU6PUOEcClqlvRVKMa1Hp8CpaHZdxg==}
+  posthog-js@1.378.1:
+    resolution: {integrity: sha512-pr9hu7J9eKCWlDxGfn5jbqcaTvaS+quRVxMKo7XRiKHPtFpXoIStOctkRTMumz8LucgD4l5NVbtsaZDi6OrrLQ==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -31587,9 +31677,9 @@ snapshots:
     dependencies:
       '@posthog/types': 1.372.9
 
-  '@posthog/core@1.30.1':
+  '@posthog/core@1.30.2':
     dependencies:
-      '@posthog/types': 1.378.0
+      '@posthog/types': 1.378.1
 
   '@posthog/core@1.7.1':
     dependencies:
@@ -31635,9 +31725,9 @@ snapshots:
     transitivePeerDependencies:
       - rxjs
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.378.0)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.378.0
+      posthog-js: 1.378.1
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -31646,7 +31736,7 @@ snapshots:
 
   '@posthog/types@1.372.9': {}
 
-  '@posthog/types@1.378.0': {}
+  '@posthog/types@1.378.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -33779,6 +33869,10 @@ snapshots:
       - '@types/react'
       - '@types/react-dom'
 
+  '@storybook/components@8.6.18(storybook@7.6.21(encoding@0.1.13))':
+    dependencies:
+      storybook: 7.6.21(encoding@0.1.13)
+
   '@storybook/core-client@7.6.24':
     dependencies:
       '@storybook/client-logger': 7.6.24
@@ -34082,6 +34176,10 @@ snapshots:
       - react
       - react-dom
 
+  '@storybook/manager-api@8.6.18(storybook@7.6.21(encoding@0.1.13))':
+    dependencies:
+      storybook: 7.6.21(encoding@0.1.13)
+
   '@storybook/manager@7.6.21': {}
 
   '@storybook/mdx2-csf@1.1.0': {}
@@ -34183,7 +34281,7 @@ snapshots:
       '@storybook/csf': 0.1.13
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.24
-      '@types/qs': 6.9.18
+      '@types/qs': 6.15.1
       dequal: 2.0.3
       lodash: 4.18.1
       memoizerific: 1.11.3
@@ -34208,6 +34306,10 @@ snapshots:
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
+
+  '@storybook/preview-api@8.6.18(storybook@7.6.21(encoding@0.1.13))':
+    dependencies:
+      storybook: 7.6.21(encoding@0.1.13)
 
   '@storybook/preview@7.6.24': {}
 
@@ -34236,6 +34338,12 @@ snapshots:
     dependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+
+  '@storybook/react-dom-shim@8.6.18(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@7.6.21(encoding@0.1.13))':
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+      storybook: 7.6.21(encoding@0.1.13)
 
   '@storybook/react-vite@7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(rollup@4.60.4)(typescript@6.0.3)(vite@5.4.21(@types/node@25.8.0)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))':
     dependencies:
@@ -34353,6 +34461,20 @@ snapshots:
     transitivePeerDependencies:
       - encoding
       - supports-color
+
+  '@storybook/react@8.6.18(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@7.6.21(encoding@0.1.13))(typescript@6.0.3)':
+    dependencies:
+      '@storybook/components': 8.6.18(storybook@7.6.21(encoding@0.1.13))
+      '@storybook/global': 5.0.0
+      '@storybook/manager-api': 8.6.18(storybook@7.6.21(encoding@0.1.13))
+      '@storybook/preview-api': 8.6.18(storybook@7.6.21(encoding@0.1.13))
+      '@storybook/react-dom-shim': 8.6.18(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@7.6.21(encoding@0.1.13))
+      '@storybook/theming': 8.6.18(storybook@7.6.21(encoding@0.1.13))
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+      storybook: 7.6.21(encoding@0.1.13)
+    optionalDependencies:
+      typescript: 6.0.3
 
   '@storybook/router@7.6.20':
     dependencies:
@@ -34485,6 +34607,10 @@ snapshots:
       memoizerific: 1.11.3
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+
+  '@storybook/theming@8.6.18(storybook@7.6.21(encoding@0.1.13))':
+    dependencies:
+      storybook: 7.6.21(encoding@0.1.13)
 
   '@storybook/types@7.6.20':
     dependencies:
@@ -34931,6 +35057,14 @@ snapshots:
       '@tailwindcss/oxide': 4.2.4
       tailwindcss: 4.2.4
       vite: 7.3.3(@types/node@22.18.8)(jiti@2.6.1)(less@3.13.1)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
+
+  '@tanstack/react-table@8.21.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@tanstack/table-core': 8.21.3
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
+  '@tanstack/table-core@8.21.3': {}
 
   '@temporalio/activity@1.15.0':
     dependencies:
@@ -35763,7 +35897,7 @@ snapshots:
   '@types/express-serve-static-core@4.17.43':
     dependencies:
       '@types/node': 22.18.8
-      '@types/qs': 6.9.18
+      '@types/qs': 6.15.1
       '@types/range-parser': 1.2.7
       '@types/send': 0.17.4
 
@@ -46080,15 +46214,15 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.378.0:
+  posthog-js@1.378.1:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
       '@opentelemetry/exporter-logs-otlp-http': 0.208.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@posthog/core': 1.30.1
-      '@posthog/types': 1.378.0
+      '@posthog/core': 1.30.2
+      '@posthog/types': 1.378.1
       core-js: 3.40.0
       dompurify: 3.4.0
       fflate: 0.4.8
@@ -48150,23 +48284,23 @@ snapshots:
 
   store2@2.14.4: {}
 
-  storybook-addon-pseudo-states@2.1.2(@storybook/components@7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/core-events@7.6.20)(@storybook/manager-api@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/preview-api@7.6.24)(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  storybook-addon-pseudo-states@2.1.2(@storybook/components@7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/core-events@7.6.20)(@storybook/manager-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/preview-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       '@storybook/components': 7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/core-events': 7.6.20
-      '@storybook/manager-api': 7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@storybook/preview-api': 7.6.24
+      '@storybook/manager-api': 8.6.18(storybook@7.6.21(encoding@0.1.13))
+      '@storybook/preview-api': 8.6.18(storybook@7.6.21(encoding@0.1.13))
       '@storybook/theming': 7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     optionalDependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  storybook-addon-pseudo-states@2.1.2(@storybook/components@7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/core-events@7.6.24)(@storybook/manager-api@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@storybook/preview-api@7.6.24)(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  storybook-addon-pseudo-states@2.1.2(@storybook/components@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/core-events@7.6.24)(@storybook/manager-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/preview-api@8.6.18(storybook@7.6.21(encoding@0.1.13)))(@storybook/theming@7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      '@storybook/components': 7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@storybook/components': 8.6.18(storybook@7.6.21(encoding@0.1.13))
       '@storybook/core-events': 7.6.24
-      '@storybook/manager-api': 7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@storybook/preview-api': 7.6.24
+      '@storybook/manager-api': 8.6.18(storybook@7.6.21(encoding@0.1.13))
+      '@storybook/preview-api': 8.6.18(storybook@7.6.21(encoding@0.1.13))
       '@storybook/theming': 7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     optionalDependencies:
       react: 18.3.1

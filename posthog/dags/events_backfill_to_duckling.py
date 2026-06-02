@@ -188,12 +188,24 @@ EVENTS_COLUMNS = """
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 
+# Shared concurrency key across events + persons backfills. Each duckling
+# connection spins up a duckgres worker, and the per-org worker pool is capped
+# (maxWorkers in the duckgres chart) and shared with product queries — so the
+# two backfills must draw from ONE combined limit, not two independent ones.
+# The limit itself is a Dagster Cloud deployment setting (charts repo); this tag
+# is just the key it targets. Per-product keys are kept for optional finer limits.
+DUCKLING_BACKFILL_CONCURRENCY_TAG = {
+    "duckling_backfill_concurrency": "duckling_v1",
+}
+
 EVENTS_CONCURRENCY_TAG = {
     "duckling_events_backfill_concurrency": "duckling_events_v1",
+    **DUCKLING_BACKFILL_CONCURRENCY_TAG,
 }
 
 PERSONS_CONCURRENCY_TAG = {
     "duckling_persons_backfill_concurrency": "duckling_persons_v1",
+    **DUCKLING_BACKFILL_CONCURRENCY_TAG,
 }
 
 # Persons columns for export - joined with person_distinct_id2 to include distinct_ids
