@@ -673,13 +673,16 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs['persons-SQL'] == 'true'
         timeout-minutes: 20
-        # checks: write is needed so the "Publish Migration risk check" step
-        # can POST to /repos/.../check-runs. Workflow-level perms only grant
-        # contents:read + pull-requests:write.
+        # The "Publish Migration risk check" step posts the check via the
+        # posthog-tests app token, which carries its own checks:write
+        # installation permission — so the check lands in that app's own
+        # (otherwise-empty) check suite rather than floating under a random
+        # run in the crowded github-actions suite. The job's GITHUB_TOKEN
+        # therefore no longer needs checks:write. pull-requests:write is still
+        # required for the migration SQL comment steps below.
         permissions:
             contents: read
             pull-requests: write
-            checks: write
 
         name: Validate migrations
         runs-on: depot-ubuntu-latest
@@ -950,6 +953,26 @@ jobs:
                     exit $EXIT_CODE
                   fi
 
+            - name: Get app token for Migration risk check
+              # Mint a posthog-tests installation token so the check is
+              # attributed to that app instead of github-actions[bot]. The
+              # app owns no workflow runs, so its check suite contains only
+              # this check — it shows up as a standalone, deterministically
+              # placed check rather than nesting under an arbitrary run in
+              # the crowded github-actions suite.
+              #
+              # Skipped on fork PRs: the app secrets aren't exposed to
+              # workflows triggered from forks, so the token can't be minted
+              # there. The analyzer still runs in earlier steps and fails the
+              # job on Blocked migrations; reviewers can read the verdict in
+              # the uploaded migration-analysis artifact.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              id: migration-risk-app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             - name: Publish Migration risk check
               # Migration risk classification is published as a GitHub check on
               # the head commit so it shows up in the PR UI alongside CI checks
@@ -958,20 +981,24 @@ jobs:
               # parsing the comment. The check is a CI feature; consumers and
               # the analyzer are decoupled.
               #
+              # Published via the posthog-tests app token (see the token step
+              # above) so the check lands in that app's own check suite.
+              #
               # Always published — even with zero migrations to analyze, or
               # when the analyzer crashed — so every PR ends up with a
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
               #
-              # Skipped on PRs from forks: GITHUB_TOKEN is read-only for fork
-              # PRs regardless of the workflow's `permissions:` block, so the
-              # check-runs POST 403s. The analyzer itself still runs in earlier
-              # steps and fails the job on Blocked migrations; reviewers can
-              # read the verdict in the uploaded migration-analysis artifact.
+              # Skipped on PRs from forks: the app token can't be minted there
+              # (secrets are withheld from fork-triggered workflows), so the
+              # check-runs POST would have no credential. The analyzer itself
+              # still runs in earlier steps and fails the job on Blocked
+              # migrations; reviewers can read the verdict in the uploaded
+              # migration-analysis artifact.
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
               run: |
