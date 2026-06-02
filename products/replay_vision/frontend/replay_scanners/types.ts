@@ -1,9 +1,18 @@
+import { LemonTagType } from '@posthog/lemon-ui'
+
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
 export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+
+export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
+    monitor: 'primary',
+    classifier: 'completion',
+    scorer: 'warning',
+    summarizer: 'success',
+}
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
