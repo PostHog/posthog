@@ -1973,6 +1973,12 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         if app is None:
             raise NotFound("Application not found")
+        # This is a plain ViewSet, so it bypasses the mixin's get_object() and
+        # the object-level RBAC it runs. Enforce per-application access control
+        # explicitly (mirrors TeamAndOrgViewSetMixin.get_object) — otherwise a
+        # user with team access but no access to THIS application could read its
+        # memory files / tables by guessing the slug or UUID.
+        self.check_object_permissions(self.request, app)
         return app
 
     def _log_memory_change(
