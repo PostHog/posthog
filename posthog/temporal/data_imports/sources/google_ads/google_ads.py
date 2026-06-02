@@ -19,6 +19,7 @@ from posthog.models.integration import Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
@@ -30,6 +31,10 @@ from posthog.temporal.data_imports.sources.google_ads.configs import (
 from posthog.temporal.data_imports.sources.google_ads.schemas import FIELD_ALIASES, RESOURCE_SCHEMAS
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+# Host used to label the tracked gRPC transport's logs/metrics. Matches
+# `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
+GOOGLE_ADS_HOST = "googleads.googleapis.com"
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
@@ -262,7 +267,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     Only selectable fields are, well, selected.
     """
     client = google_ads_client(config, team_id)
-    gaf_service = client.get_service("GoogleAdsFieldService")
+    gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
     fields_query = gaf_service.search_google_ads_fields(
         query=f"select name, data_type, is_repeated, type_url where selectable = true"
     )
@@ -381,7 +386,9 @@ def google_ads_source(
             query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
 
         client = google_ads_client(config, team_id)
-        service: GoogleAdsServiceClient = client.get_service("GoogleAdsService", version="v23")
+        service: GoogleAdsServiceClient = client.get_service(
+            "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        )
         customer_id = clean_customer_id(config.customer_id)
 
         yield from _search_as_arrow_tables(
