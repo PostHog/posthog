@@ -1,3 +1,5 @@
+from posthog.batch_exports.models import S3_FAMILY_TYPES
+
 from products.batch_exports.backend.api.destination_tests.base import DestinationTest
 
 
@@ -10,7 +12,7 @@ def get_destination_test(
     (databricks, google-cloud-bigquery, snowflake, etc.). Importing them lazily keeps the
     SDKs off the API import path — only the requested destination's SDK loads.
     """
-    if destination == "S3":
+    if destination in S3_FAMILY_TYPES:
         from products.batch_exports.backend.api.destination_tests.s3 import S3DestinationTest  # noqa: PLC0415
 
         return S3DestinationTest()

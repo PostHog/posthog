@@ -185,6 +185,7 @@ class ExternalDataSourceType(models.TextChoices):
     PLAIN = "Plain", "Plain"
     RESEND = "Resend", "Resend"
     PGANALYZE = "PgAnalyze", "PgAnalyze"
+    WORKOS = "WorkOS", "WorkOS"
     CUSTOM = "Custom", "Custom"
 
 

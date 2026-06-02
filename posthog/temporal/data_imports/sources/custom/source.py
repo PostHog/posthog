@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -308,6 +309,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
             label="Custom REST source",
+            releaseStatus=ReleaseStatus.ALPHA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
