@@ -31,6 +31,9 @@ class TestChangesBetweenInsights(BaseTest):
                     {
                         "dashboard": {"id": dashboard.id, "name": dashboard.name},
                         "insight": {"id": insight_after.id},
+                        "text": None,
+                        "button_tile": None,
+                        "widget": None,
                     }
                 ],
             ),
