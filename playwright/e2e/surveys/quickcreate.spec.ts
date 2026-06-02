@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 import { randomString } from '../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
-const saveFeatureFlag = async (page: Page): Promise<string> => {
+const saveFeatureFlag = async (page: Page): Promise<void> => {
     const saveButton = page.locator('[data-attr="save-feature-flag"]').first()
     await expect(saveButton).toBeEnabled()
     const responsePromise = page.waitForResponse(
@@ -14,10 +14,9 @@ const saveFeatureFlag = async (page: Page): Promise<string> => {
     await saveButton.click()
     await responsePromise
     // Saving redirects to the flag's own detail page (featureFlagLogic.saveFeatureFlagSuccess).
-    // Stay here and return its URL — survey creation is available straight from the flag page,
-    // which avoids the flaky round-trip of finding the just-created flag in the list search.
+    // Waiting for that confirms the flag was created and committed before clickCreateSurvey
+    // navigates to the list to find it.
     await page.waitForURL(/\/feature_flags\/\d+/)
-    return page.url()
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {
@@ -53,25 +52,23 @@ const addTwoVariants = async (page: Page): Promise<void> => {
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 
-const clickCreateSurvey = async (page: Page): Promise<void> => {
-    // Open survey creation from the flag's own detail page (its scene panel), not the
-    // feature-flag list search — that search intermittently never surfaces the just-created
-    // flag, even on an isolated workspace. The panel may already be open (it persists across
-    // navigation), so only toggle it open when the action isn't already visible.
-    const createSurvey = page.locator('[data-attr="feature_flag-create-survey"]')
-    if (!(await createSurvey.isVisible().catch(() => false))) {
-        await page.locator('[data-attr="open-context-panel-button"]').first().click()
-    }
-    await createSurvey.click()
+const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
+    // Create the survey from the feature-flag list row's "more" menu. The flag detail page's
+    // create-survey action lives in the global scene side panel, whose open/closed state and
+    // active tab persist across navigation and whose toggle button unmounts while it's open —
+    // too stateful to drive reliably. The list menu opens the same QuickSurveyModal with no
+    // side panel involved. The workspace is isolated (only this flag exists), so reload the
+    // list until the row shows up, then act on it.
+    const row = page.locator(`[data-row-key="${name}"]`)
+    await expect(async () => {
+        await page.goto(urls.featureFlags())
+        await expect(row).toBeVisible({ timeout: 10_000 })
+    }).toPass({ timeout: 40_000 })
+    await row.locator('[data-attr="more-button"]').click()
+    await page.locator('[data-attr="create-survey"]').click()
 }
 
 const goToSurveyOverview = async (page: Page): Promise<void> => {
-    // Reaching "Create survey" opens the flag's context side panel, which persists across
-    // navigation and overlays the survey tabs — intercepting the Overview click. Close it first.
-    const closePanel = page.locator('[data-attr="context-panel-close-button"]')
-    if (await closePanel.isVisible().catch(() => false)) {
-        await closePanel.click()
-    }
     await page.locator('.LemonTabs__tab').getByText('Overview').click()
 }
 
@@ -127,7 +124,7 @@ test.describe('Quick create survey from feature flag', () => {
         // use defaults for basic ff
         await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
 
         await launchSurvey(page, name)
 
@@ -141,7 +138,7 @@ test.describe('Quick create survey from feature flag', () => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
 
         await launchSurvey(page, name)
 
@@ -156,7 +153,7 @@ test.describe('Quick create survey from feature flag', () => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
 
         // select variant test-1
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
@@ -170,7 +167,7 @@ test.describe('Quick create survey from feature flag', () => {
 
     test('launch survey with event', async ({ page }) => {
         await saveFeatureFlag(page)
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
 
         // add event — the beforeEach seeds a recent $autocapture event, so its definition shows
         // as "Autocapture" in the picker's Events list (no search needed).
@@ -188,14 +185,15 @@ test.describe('Quick create survey from feature flag', () => {
 
     test('survey responses visible in feature flag feedback tab', async ({ page }) => {
         await saveFeatureFlag(page)
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
         await goToSurveyOverview(page)
 
         const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
         await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
-        await page.waitForLoadState('networkidle')
+        // Don't wait for networkidle — PostHog polls continuously, so it rarely settles. goto
+        // already waits for the navigation to load.
         await page.goto(ffUrl!)
 
         await page.locator('.LemonTabs__tab').getByText('User feedback').click()
@@ -204,15 +202,14 @@ test.describe('Quick create survey from feature flag', () => {
 
     test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
         await addTwoVariants(page)
-        const flagUrl = await saveFeatureFlag(page)
+        await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
-        // Back to the flag's own page to spin up a second survey (test-2 variant).
-        await page.goto(flagUrl)
-        await clickCreateSurvey(page)
+        // Second survey (test-2 variant) — clickCreateSurvey navigates back to the flag list itself.
+        await clickCreateSurvey(page, name)
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
@@ -221,7 +218,8 @@ test.describe('Quick create survey from feature flag', () => {
         const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
         await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
-        await page.waitForLoadState('networkidle')
+        // Don't wait for networkidle — PostHog polls continuously, so it rarely settles. goto
+        // already waits for the navigation to load.
         await page.goto(ffUrl!)
 
         await page.locator('.LemonTabs__tab').getByText('User feedback').click()
@@ -230,7 +228,7 @@ test.describe('Quick create survey from feature flag', () => {
 
     test('create draft survey', async ({ page }) => {
         await saveFeatureFlag(page)
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
 
         await page
             .getByTestId('quick-survey-create')
@@ -273,7 +271,7 @@ test.describe('Quick create survey from feature flag', () => {
         })
 
         await page.reload()
-        await clickCreateSurvey(page)
+        await clickCreateSurvey(page, name)
 
         await expect(page.locator('label').getByText('Enable surveys')).toBeVisible()
     })
