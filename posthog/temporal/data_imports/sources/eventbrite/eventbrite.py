@@ -120,18 +120,15 @@ def _iter_pages(
 def _iter_organization_ids(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[str]:
     url = f"{EVENTBRITE_BASE_URL}{ORGANIZATIONS_PATH}"
     for org, _ in _iter_pages(session, url, {}, "organizations", logger):
-        org_id = org.get("id")
-        if org_id is not None:
-            yield str(org_id)
+        # Fail fast on a malformed response rather than silently dropping all of an org's children.
+        yield str(org["id"])
 
 
 def _iter_event_ids(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[str]:
     for org_id in _iter_organization_ids(session, logger):
         url = f"{EVENTBRITE_BASE_URL}{ORG_EVENTS_PATH.format(organization_id=org_id)}"
         for event, _ in _iter_pages(session, url, {}, "events", logger):
-            event_id = event.get("id")
-            if event_id is not None:
-                yield str(event_id)
+            yield str(event["id"])
 
 
 def _iter_records(

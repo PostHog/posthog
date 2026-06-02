@@ -28,8 +28,8 @@ class EventbriteEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     partition_key: Optional[str] = None  # Stable created-style field for datetime partitioning
-    # Server-side time filter param name (Eventbrite exposes `changed_since` on a couple of
-    # endpoints). When set, the endpoint supports true incremental sync; otherwise full refresh.
+    # Resource change-timestamp field targeted by Eventbrite's server-side `changed_since` filter
+    # (e.g. `changed`). When set, the endpoint supports true incremental sync; otherwise full refresh.
     changed_since_field: Optional[str] = None
 
 
