@@ -17718,17 +17718,26 @@ export namespace Schemas {
 
     export interface FileSystemShortcut {
       readonly id: string;
+      /** Display path of the shortcut in the sidebar. */
       path: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -23654,9 +23663,18 @@ export namespace Schemas {
 
     export interface PersistedFolder {
       readonly id: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -28388,17 +28406,26 @@ export namespace Schemas {
 
     export interface PatchedFileSystemShortcut {
       readonly id?: string;
+      /** Display path of the shortcut in the sidebar. */
       path?: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -29458,9 +29485,18 @@ export namespace Schemas {
 
     export interface PatchedPersistedFolder {
       readonly id?: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type?: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -45596,6 +45632,43 @@ export namespace Schemas {
      * Search in name, description, or metadata
      */
     search?: string;
+    };
+
+    export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DesktopRecordingsListParams = {
