@@ -128,22 +128,42 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             if blocked:
                 return
 
-        await workflow.execute_activity(
-            post_posthog_code_repo_picker_activity,
-            args=[
-                picker_inputs,
-                channel,
-                thread_ts,
-                slack_user_id,
-                user_id,
-                inputs.event,
-                workflow.info().workflow_id,
-                POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                False,
-            ],
-            start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        # Pre-patch command workflows replay through the 8-arg call shape so the
+        # recorded picker command matches history; new workflows append `user_id`
+        # as the final positional arg, matching the picker activity's signature.
+        if workflow.patched("posthog-code-command-user-id-2026-06"):
+            await workflow.execute_activity(
+                post_posthog_code_repo_picker_activity,
+                args=[
+                    picker_inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    inputs.event,
+                    workflow.info().workflow_id,
+                    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                    False,
+                    user_id,
+                ],
+                start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        else:
+            await workflow.execute_activity(
+                post_posthog_code_repo_picker_activity,
+                args=[
+                    picker_inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    inputs.event,
+                    workflow.info().workflow_id,
+                    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                    False,
+                ],
+                start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         try:
             await workflow.wait_condition(
