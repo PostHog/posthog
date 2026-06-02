@@ -17,7 +17,7 @@ for the design and wire protocol.
 | [`protocol/`](protocol/) | JSON wire-protocol structs shared with PostHog ingress. **The contract.**                                                   |
 | [`client/`](client/)     | HTTP client to the PostHog ingress (`heartbeat`, `poll`, `result`, `extend_lease`).                                         |
 | [`runner/`](runner/)     | Per-project loop: register, heartbeat, long-poll, dispatch, report. Owns the `Source` interface.                            |
-| [`sources/`](sources/)   | Built-in `Source` impls — `mcp` (proxy an in-cluster MCP server) and `command` (shell exec). **Currently stubbed.**         |
+| [`sources/`](sources/)   | Built-in `Source` impls — `mcp` (proxy an in-cluster MCP server) and `command` (shell exec).                                |
 
 ## Build
 
@@ -70,20 +70,25 @@ returns 503 unless every configured project is `live`.
 
 ## Project status
 
-This is the **first commit of the runner-side** of the self-hosted-tool-runners
-feature. The wire protocol, project-loop orchestration, and shell of both
-built-in `Source` impls are in place. **Tool execution itself is stubbed**
-so the loop can be exercised against the eventual PostHog ingress endpoints
-before sinking time into MCP/exec wiring that might want to change shape
-once we see the protocol in motion.
+This is the runner-side of the self-hosted-tool-runners feature. The wire
+protocol, project-loop orchestration, both built-in `Source` impls, the
+`extend_lease` plumbing, and the `/healthz` resilience surface are all
+implemented and exercised end-to-end by `e2e_test.go`.
 
-Stubbed work (separate follow-up commits):
+The matching PostHog ingress endpoints (`/runners/heartbeat`, `/runners/poll`,
+`/runners/invocations/:id/result`, `/runners/invocations/:id/extend_lease`)
+don't exist yet — for local dev, use the bundled `fake-posthog` binary
+(see _Local development_ above).
 
-- `sources/mcp.go` — open an MCP client to the configured endpoint, cache
-  `listTools()`, forward `Call()` via `client.callTool`.
-- `sources/command.go` — JSON Schema arg validation, safe arg-substitution
-  templating, `exec.CommandContext` (no shell), stdout capture.
-- `runner/runner.go` — `extend_lease` plumbing for long-running tools.
+Out of scope for this drop:
+
+- **Stdio MCP transport** — HTTP/streamable only for v1; most production
+  MCPs are deployed as their own service.
+- **Streaming tool results** — one-shot only, per the spec doc's deferred
+  decision; the bus event kind is reserved for the streaming variant.
+- **Per-MCP auth handoff** — every upstream call runs as the runner's
+  service account. The spec doc's per-MCP approval gating is the v1
+  story for sensitive ops.
 
 ## Custom runners
 
