@@ -42,6 +42,11 @@ export type RemoteStep = {
  * Throws if the step itself can't be applied — caller decides how to surface it.
  */
 export function applyRemoteStep(editor: TTEditor, remote: RemoteStep): void {
+    // The editor instance can exist before its view/state is initialized; bail until it's ready
+    // so we never read `editor.state.schema` off an undefined state.
+    if (!editor.state) {
+        return
+    }
     const expected = getVersion(editor.state) + 1
 
     const presenceMeta = (): ClientPresence | null => {
@@ -144,7 +149,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
 
         ackLocalSteps: ({ steps, clientID }) => {
             const editor = values.ttEditor
-            if (!editor || editor.isDestroyed || !steps.length) {
+            if (!editor || editor.isDestroyed || !editor.state || !steps.length) {
                 return
             }
             try {
@@ -165,7 +170,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
 
         applyRemoteSteps: ({ steps }) => {
             const editor = values.ttEditor
-            if (!editor || editor.isDestroyed) {
+            if (!editor || editor.isDestroyed || !editor.state) {
                 return
             }
             const localContent = editor.getJSON()
@@ -211,7 +216,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                     return
                 }
                 const editor = values.ttEditor
-                if (!editor || editor.isDestroyed) {
+                if (!editor || editor.isDestroyed || !editor.state) {
                     return
                 }
                 const localContent = editor.getJSON()

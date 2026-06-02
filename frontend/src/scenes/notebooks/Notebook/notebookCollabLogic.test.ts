@@ -136,6 +136,20 @@ describe('notebookCollabLogic', () => {
             expect(tr.docChanged).toBe(true)
         })
 
+        it('no-ops when the editor state is not yet initialized', () => {
+            const dispatch = jest.fn()
+            const editor = { state: undefined, view: { dispatch } } as unknown as TTEditor
+
+            expect(() =>
+                applyRemoteStep(editor, {
+                    step: insertStepJSON(4, 'X'),
+                    clientId: REMOTE_CLIENT_ID,
+                    version: 1,
+                })
+            ).not.toThrow()
+            expect(dispatch).not.toHaveBeenCalled()
+        })
+
         it('throws on malformed steps so the caller can surface the conflict modal', () => {
             const editor = createMockEditor(0)
 

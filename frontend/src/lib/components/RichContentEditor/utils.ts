@@ -33,8 +33,9 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         setMark: (id: string) => editor.commands.setMark('comment', { id }),
         isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
         isSelectionFullyWithinSingleMark: (markName: string) => {
-            const markType = editor.schema.marks[markName]
-            if (!markType) {
+            // `schema`/`state` may not be ready while the editor is still initializing
+            const markType = editor.schema?.marks[markName]
+            if (!markType || !editor.state) {
                 return false
             }
             const { from, to } = editor.state.selection
