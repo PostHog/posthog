@@ -326,6 +326,44 @@ async def bulk_delete_external_data_schedules(schedule_ids: list[str]) -> list[t
     ]
 
 
+@async_to_sync
+async def bulk_update_external_data_job_schedules(
+    schemas: list[ExternalDataSchema],
+) -> tuple[list[str], list[tuple[str, BaseException]]]:
+    """Update (re-issue) sync schedules for many schemas over a single shared connection.
+
+    The update-only counterpart to `bulk_create_external_data_job_schedules`: it connects
+    once and updates concurrently, but never triggers a run and never creates a missing
+    schedule. Schemas whose schedule does not exist (never activated) are reported as
+    skipped rather than failed — matching the per-schema `sync_external_data_job_workflow`
+    `create=False` path. Returns ``(skipped_ids, failures)``.
+    """
+    if not schemas:
+        return [], []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+    _SKIPPED = "skipped"
+
+    async def _update_one(external_data_schema: ExternalDataSchema) -> str | None:
+        async with semaphore:
+            schedule = get_sync_schedule(external_data_schema, should_sync=external_data_schema.should_sync)
+            try:
+                await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            except temporalio.service.RPCError as e:
+                # No schedule yet (schema never activated) — skip, don't create.
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    return _SKIPPED
+                raise
+            return None
+
+    schema_ids = [str(schema.id) for schema in schemas]
+    results = await asyncio.gather(*(_update_one(schema) for schema in schemas), return_exceptions=True)
+    skipped = [sid for sid, result in zip(schema_ids, results) if result == _SKIPPED]
+    failures = [(sid, result) for sid, result in zip(schema_ids, results) if isinstance(result, BaseException)]
+    return skipped, failures
+
+
 def cancel_external_data_workflow(workflow_id: str):
     temporal = sync_connect()
     cancel_workflow(temporal, workflow_id)
@@ -459,6 +497,44 @@ def delete_cdc_extraction_schedule(source_id: str) -> None:
         delete_external_data_schedule(schedule_id)
     except Exception:
         pass
+
+
+@async_to_sync
+async def bulk_sync_cdc_extraction_schedules(
+    source_intervals: list[tuple[ExternalDataSource, timedelta]],
+) -> list[tuple[str, BaseException]]:
+    """Upsert CDC extraction schedules for many sources over a single shared connection.
+
+    The bulk counterpart to `sync_cdc_extraction_schedule`: connects once and upserts
+    concurrently. The caller must compute each ``(source, min_interval)`` pair synchronously
+    (the per-source interval needs a DB query that can't run in this async context). Returns
+    ``(source_id, exception)`` pairs for any that failed — a partial failure does not abort
+    the rest.
+    """
+    if not source_intervals:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _sync_one(source: ExternalDataSource, min_interval: timedelta) -> None:
+        async with semaphore:
+            schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
+            schedule = get_cdc_extraction_schedule(source, min_interval)
+            try:
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+            except temporalio.service.RPCError as e:
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+                else:
+                    raise
+
+    source_ids = [str(source.id) for source, _ in source_intervals]
+    results = await asyncio.gather(
+        *(_sync_one(source, interval) for source, interval in source_intervals),
+        return_exceptions=True,
+    )
+    return [(source_id, result) for source_id, result in zip(source_ids, results) if isinstance(result, BaseException)]
 
 
 # ---------------------------------------------------------------------------
