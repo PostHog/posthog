@@ -5,14 +5,17 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 import { useKeepMountedWhileOpen } from 'products/logs/frontend/hooks/useKeepMountedWhileOpen'
+import { getLogsSceneUrl } from 'products/logs/frontend/logsUrl'
 
 import { logsViewerModalLogic } from './logsViewerModalLogic'
 
 export function LogsViewerModal(): JSX.Element | null {
-    const { isOpen, viewerId, fullScreen, initialFilters } = useValues(logsViewerModalLogic)
+    const { isOpen, viewerId, fullScreen, initialFilters, showOpenInScene } = useValues(logsViewerModalLogic)
     const { closeLogsViewerModal } = useActions(logsViewerModalLogic)
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
     const floatingContainerRef = useCallback((el: HTMLDivElement | null) => setFloatingContainer(el), [])
@@ -36,7 +39,18 @@ export function LogsViewerModal(): JSX.Element | null {
             maxWidth={fullScreen ? undefined : 1600}
         >
             <FloatingContainerContext.Provider value={floatingContainer}>
-                <div className="flex items-center justify-end border-b px-1 py-0.5">
+                <div className="flex items-center justify-end gap-1 border-b px-1 py-0.5">
+                    {showOpenInScene && initialFilters && (
+                        <LemonButton
+                            icon={<IconOpenInNew />}
+                            size="small"
+                            type="secondary"
+                            data-attr="logs-viewer-modal-open-in-scene"
+                            onClick={() => newInternalTab(getLogsSceneUrl(initialFilters))}
+                        >
+                            Open in Logs
+                        </LemonButton>
+                    )}
                     <LemonButton icon={<IconX />} size="small" onClick={closeLogsViewerModal} tooltip="Close" />
                 </div>
                 <LemonModal.Content embedded className="flex flex-col flex-1 min-h-0 overflow-x-hidden">

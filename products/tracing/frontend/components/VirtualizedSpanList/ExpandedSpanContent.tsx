@@ -1,16 +1,7 @@
-import { useValues } from 'kea'
-
-import { IconList } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { newInternalTab } from 'lib/utils/newInternalTab'
-
-import { buildTraceLogsUrl } from '../../logsLink'
 import { formatDuration } from '../../TraceFlameChart'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
+import { ViewLogsButton } from '../ViewLogsButton/ViewLogsButton'
 import { SpanAttributes } from './SpanAttributes'
 
 export interface ExpandedSpanContentProps {
@@ -18,7 +9,6 @@ export interface ExpandedSpanContentProps {
 }
 
 export function ExpandedSpanContent({ span }: ExpandedSpanContentProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const status = STATUS_CODE_LABELS[span.status_code]
 
     // The OTel attributes the user set on the span — the thing the row is here to surface.
@@ -39,19 +29,7 @@ export function ExpandedSpanContent({ span }: ExpandedSpanContentProps): JSX.Ele
 
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
-            {featureFlags[FEATURE_FLAGS.LOGS] && span.trace_id && (
-                <div className="flex justify-end">
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={<IconList />}
-                        data-attr="tracing-view-logs"
-                        onClick={() => newInternalTab(buildTraceLogsUrl(span.trace_id, span.timestamp))}
-                    >
-                        View logs
-                    </LemonButton>
-                </div>
-            )}
+            <ViewLogsButton span={span} className="self-end" />
             <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
             <SpanAttributes title="Span details" attributes={details} />
         </div>

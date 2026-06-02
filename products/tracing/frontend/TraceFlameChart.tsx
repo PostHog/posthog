@@ -9,6 +9,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import { ViewLogsButton } from './components/ViewLogsButton/ViewLogsButton'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
@@ -254,6 +255,9 @@ function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
 
     return (
         <div className={`border-t bg-surface-primary px-4 py-3 text-xs ${isError ? 'border-l-2 border-l-danger' : ''}`}>
+            <div className="flex justify-end mb-2">
+                <ViewLogsButton span={span} />
+            </div>
             <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
                 <span className="text-muted font-medium">Service</span>
                 <span className="font-mono">{span.service_name}</span>

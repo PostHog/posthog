@@ -1172,11 +1172,7 @@ export const productUrls = {
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
     tracingTrace: (traceId: string, spanId?: string, timestamp?: string | number): string =>
-        combineUrl('/tracing', {
-            traceId,
-            ...(spanId ? { spanId } : {}),
-            ...(timestamp ? { ts: timestamp } : {}),
-        }).url,
+        combineUrl('/tracing', { traceId, ...(spanId ? { spanId } : {}), ...(timestamp ? { ts: timestamp } : {}) }).url,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>

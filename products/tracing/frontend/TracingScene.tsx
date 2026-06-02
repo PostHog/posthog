@@ -14,6 +14,8 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
+
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TraceCompareFlame } from './TraceCompareFlame'
@@ -229,6 +231,7 @@ function TracingSceneContents(): JSX.Element {
                     initialSpanName={compareFlameSpanName}
                 />
             </LemonModal>
+            <LogsViewerModal />
         </SceneContent>
     )
 }

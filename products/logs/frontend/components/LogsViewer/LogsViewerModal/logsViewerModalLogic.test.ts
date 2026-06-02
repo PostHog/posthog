@@ -114,6 +114,23 @@ describe('logsViewerModalLogic', () => {
         })
     })
 
+    describe('showOpenInScene', () => {
+        it('defaults to false', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openLogsViewerModal()
+            }).toMatchValues({ showOpenInScene: false })
+        })
+
+        it('stores the provided value and clears on close', async () => {
+            logic.actions.openLogsViewerModal({ showOpenInScene: true })
+            await expectLogic(logic).toMatchValues({ showOpenInScene: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.closeLogsViewerModal()
+            }).toMatchValues({ showOpenInScene: false })
+        })
+    })
+
     describe('open/close cycle', () => {
         it('restores all state on reopen with different options', async () => {
             logic.actions.openLogsViewerModal({ id: 'first', fullScreen: false })

@@ -8,6 +8,9 @@ export interface OpenLogsViewerModalOptions {
     id?: string
     fullScreen?: boolean
     initialFilters?: Partial<LogsViewerFilters>
+    // Show an "Open in Logs" link that deep-links to the full Logs scene with the modal's filters.
+    // Off by default — callers already on the Logs scene don't need it; cross-product openers do.
+    showOpenInScene?: boolean
 }
 
 export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
@@ -17,6 +20,7 @@ export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
             id: options?.id ?? 'modal',
             fullScreen: options?.fullScreen ?? true,
             initialFilters: options?.initialFilters ?? null,
+            showOpenInScene: options?.showOpenInScene ?? false,
         }),
         closeLogsViewerModal: true,
     }),
@@ -45,6 +49,13 @@ export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
             {
                 openLogsViewerModal: (_, { initialFilters }) => initialFilters,
                 closeLogsViewerModal: () => null,
+            },
+        ],
+        showOpenInScene: [
+            false,
+            {
+                openLogsViewerModal: (_, { showOpenInScene }) => showOpenInScene,
+                closeLogsViewerModal: () => false,
             },
         ],
     }),
