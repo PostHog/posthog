@@ -1615,6 +1615,7 @@ def list_documents_pending_classification(
     return [PendingDocument(team_id=team_id, document_id=doc_id, content=content) for team_id, doc_id, content in rows]
 
 
+@with_team_scope(canonical=True)
 def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, reason: str = "") -> None:
     """Persist a classifier verdict on a single document (team-scoped write)."""
     KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
