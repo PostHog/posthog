@@ -17,14 +17,12 @@ from .job_timeouts import JobTimeoutsCheck
 from .pr_concurrency import PrConcurrencyCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 from .setup_action_token import SetupActionTokenCheck
-from .setup_uv_pinned import SetupUvPinnedCheck
 
 CHECKS: list[WorkflowCheck] = [
     JobTimeoutsCheck(),
     PrConcurrencyCheck(),
     DornyNegationCheck(),
     SemgrepServicesCoverageCheck(),
-    SetupUvPinnedCheck(),
     SetupActionTokenCheck(),
 ]
 

@@ -20,7 +20,6 @@ from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.checks.setup_action_token import SetupActionTokenCheck
-from hogli_commands.workflow_lint.checks.setup_uv_pinned import SetupUvPinnedCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
 
@@ -523,78 +522,11 @@ class TestSemgrepServicesCoverageCheck:
 
 
 # ---------------------------------------------------------------------------
-# SetupUvPinnedCheck
+# SetupActionTokenCheck
 # ---------------------------------------------------------------------------
 
 
 _SETUP_UV = "astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78"
-
-
-class TestSetupUvPinnedCheck:
-    def test_passes_when_version_pinned(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "wf.yml",
-            f"""
-            name: x
-            on: [pull_request]
-            jobs:
-              j:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - uses: {_SETUP_UV}
-                    with:
-                      version: '0.11.14'
-            """,
-        )
-        assert SetupUvPinnedCheck().run(_read_all(tmp_path)).issues == []
-
-    def test_fails_when_version_missing(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "wf.yml",
-            f"""
-            name: x
-            on: [pull_request]
-            jobs:
-              j:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - uses: {_SETUP_UV}
-                    with:
-                      enable-cache: true
-            """,
-        )
-        [issue] = SetupUvPinnedCheck().run(_read_all(tmp_path)).issues
-        assert issue.workflow == "wf.yml"
-        assert "version" in issue.message
-
-    def test_fails_when_no_with_block(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "wf.yml",
-            f"""
-            name: x
-            on: [pull_request]
-            jobs:
-              j:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - uses: {_SETUP_UV}
-            """,
-        )
-        assert len(SetupUvPinnedCheck().run(_read_all(tmp_path)).issues) == 1
-
-    def test_is_blocking(self) -> None:
-        assert SetupUvPinnedCheck().blocking is True
-
-
-# ---------------------------------------------------------------------------
-# SetupActionTokenCheck
-# ---------------------------------------------------------------------------
 
 
 _SETUP_PY = "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405"
