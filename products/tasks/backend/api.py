@@ -2692,12 +2692,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
             redis_stream = TaskRunRedisStream(stream_key)
-            observe_stream_connection_opened(origin_product)
             connection_started_at = asyncio.get_running_loop().time()
             # Default to client_disconnect: any exit that isn't an explicit
             # completion/error/unavailable is the client (or proxy) going away.
             outcome: StreamConnectionOutcome = "client_disconnect"
+            # Record opened inside the try so the closed counter only fires when
+            # the open succeeded — keeps opened/closed balanced for the
+            # active-connections gauge regardless of which increment fails.
+            opened = False
             try:
+                observe_stream_connection_opened(origin_product)
+                opened = True
                 delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
                 wait_started_at = asyncio.get_running_loop().time()
                 last_keepalive_at = wait_started_at
@@ -2764,8 +2769,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
                     yield format_sse_event({"error": str(e)}, event_name="error")
             finally:
-                duration = asyncio.get_running_loop().time() - connection_started_at
-                observe_stream_connection_closed(origin_product, outcome, duration)
+                if opened:
+                    duration = asyncio.get_running_loop().time() - connection_started_at
+                    observe_stream_connection_closed(origin_product, outcome, duration)
 
         return StreamingHttpResponse(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
