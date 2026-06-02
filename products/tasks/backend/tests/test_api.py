@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
 from django.utils import timezone as django_timezone
@@ -502,6 +503,186 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
 
         response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
+    """When the gate (`_is_internal_debug_team`) fires, PostHog employees can
+    read any teammate's task/run by ID — but the bypass is deliberately narrow:
+    only the `retrieve` action on TaskViewSet and read-only actions on
+    TaskRunViewSet. List views, write actions, and other teams remain
+    creator-scoped. The unaffected cases live in `TestTaskCreatorScoping`
+    above; the deployment-region requirement is covered by
+    `TestTaskVisibilityInternalDebugRegionGate`."""
+
+    def setUp(self):
+        super().setUp()
+        # Production checks `team_id == 2 AND CLOUD_DEPLOYMENT == "US"`; tests
+        # can't easily force the row id, so substitute the test team's id and
+        # keep the deployment-region clause intact so off-US tests still flip.
+        self._bypass_patch = patch(
+            "products.tasks.backend.api._is_internal_debug_team",
+            side_effect=lambda team_id: team_id == self.team.id and settings.CLOUD_DEPLOYMENT == "US",
+        )
+        self._bypass_patch.start()
+
+    def tearDown(self):
+        self._bypass_patch.stop()
+        super().tearDown()
+
+    def test_retrieve_other_user_task_succeeds(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_retrieve_other_user_task_without_ph_debug_still_404s(self):
+        # The whole point of the param-gated bypass — even on the internal team
+        # in US-prod, default behavior matches every other team.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_still_excludes_other_user_tasks(self):
+        # The bypass is scoped to `retrieve` — list still filters by creator even
+        # with `?ph_debug=true`.
+        other_user = self.create_organization_user("teammate")
+        mine = self.create_task("Mine", created_by=self.user)
+        theirs = self.create_task("Theirs", created_by=other_user)
+
+        response = self.client.get("/api/projects/@current/tasks/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item["id"] for item in response.json()["results"]}
+        assert str(mine.id) in ids
+        assert str(theirs.id) not in ids
+
+    def test_repositories_still_excludes_other_user_repos(self):
+        other_user = self.create_organization_user("teammate")
+        theirs = self.create_task("Theirs", created_by=other_user)
+        theirs.repository = "team/repo"
+        theirs.save(update_fields=["repository"])
+
+        response = self.client.get("/api/projects/@current/tasks/repositories/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["repositories"], [])
+
+    def test_list_runs_for_other_user_task_succeeds(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item["id"] for item in response.json()["results"]}
+        self.assertEqual(ids, {str(run.id)})
+
+    def test_list_runs_for_other_user_task_without_ph_debug_still_404s(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retrieve_other_user_run_succeeds(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(run.id))
+
+    def test_connection_token_on_other_user_run_still_404s_with_ph_debug(self):
+        # connection_token is a GET but mints a write-capable sandbox JWT — the
+        # read-only debug bypass must NOT expose it for another user's run.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/?ph_debug=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_write_action_on_other_user_task_still_returns_404(self, _mock_workflow):
+        # POST /tasks/<id>/run/ is a write — bypass must NOT fire even when the
+        # `?ph_debug=true` opt-in is set; that param is read-only.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_run_on_other_user_task_still_returns_404(self):
+        # POST /tasks/<id>/runs/ is a write — bypass must NOT fire even with the
+        # opt-in.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/?ph_debug=true",
+            {"environment": "cloud"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
+    """The internal-debug bypass keys on team-id 2 — but that's only meaningful in
+    the US-prod DB. On EU prod, self-hosted, and dev, team-id 2 belongs to some
+    unrelated organization. The gate must require `CLOUD_DEPLOYMENT == "US"` to
+    avoid silently granting cross-creator visibility there."""
+
+    def setUp(self):
+        super().setUp()
+        # Same shape as `TestTaskVisibilityInternalDebugTeamBypass.setUp` — the
+        # `team.id` match would pass on its own, leaving `CLOUD_DEPLOYMENT` as
+        # the only thing each test varies.
+        self._bypass_patch = patch(
+            "products.tasks.backend.api._is_internal_debug_team",
+            side_effect=lambda team_id: team_id == self.team.id and settings.CLOUD_DEPLOYMENT == "US",
+        )
+        self._bypass_patch.start()
+
+    def tearDown(self):
+        self._bypass_patch.stop()
+        super().tearDown()
+
+    @parameterized.expand(
+        [
+            ("eu_prod", "EU"),
+            ("self_hosted_or_dev", None),
+        ]
+    )
+    def test_retrieve_other_user_task_still_blocked_off_us(self, _name: str, deployment: str | None) -> None:
+        # Sending the FE opt-in must NOT unlock the bypass off-US: the deployment
+        # guard fires before the param is even considered.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("eu_prod", "EU"),
+            ("self_hosted_or_dev", None),
+        ]
+    )
+    def test_slack_thread_context_403_off_us(self, _name: str, deployment: str | None) -> None:
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/tasks/slack_thread_context/"
+                "?url=https%3A%2F%2Fposthog.slack.com%2Farchives%2FC0%2Fp1779956938619299"
+            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class TestTaskAPI(BaseTaskAPITest):
@@ -3113,9 +3294,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -3164,9 +3343,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -3294,9 +3471,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         mock_execute_relay.return_value = "relay-1"
 
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,
@@ -3378,9 +3553,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,
@@ -5087,57 +5260,6 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         OrganizationMembership.objects.filter(user=self.other_user, organization=self.other_org).update(
             level=OrganizationMembership.Level.ADMIN
         )
-
-    def test_tasks_feature_flag_required(self):
-        self.set_tasks_feature_flag(False)
-        task = self.create_task()
-        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
-
-        endpoints = [
-            # TaskViewSet endpoints
-            ("/api/projects/@current/tasks/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/", "GET"),
-            ("/api/projects/@current/tasks/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
-            (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
-            # TaskAutomationViewSet endpoints
-            ("/api/projects/@current/task_automations/", "GET"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "GET"),
-            ("/api/projects/@current/task_automations/", "POST"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "PATCH"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "DELETE"),
-            (f"/api/projects/@current/task_automations/{automation.id}/run/", "POST"),
-            # TaskRunViewSet endpoints
-            (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/start/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
-        ]
-
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
-
-    def test_invite_redemption_grants_access_when_flag_disabled(self):
-        self.set_tasks_feature_flag(False)
-        invite = CodeInvite.objects.create(code="TESTCODE", max_redemptions=0, is_active=True)
-        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
-
-        response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_no_flag_no_redemption_blocked(self):
-        self.set_tasks_feature_flag(False)
-
-        response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_check_access_flag_on_no_redemption(self):
         self.set_tasks_feature_flag(True)

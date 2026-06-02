@@ -1,5 +1,13 @@
 import type { BarRect } from '../../../core/canvas-renderer'
-import { barContainsPoint, barContainsPointOnBandAxis, cursorOutsideBarFillExtent } from './bars-under-cursor'
+import { computeStackData, createBarScales } from '../../../core/scales'
+import type { Series } from '../../../core/types'
+import { dimensions } from '../../../testing/jsdom'
+import {
+    barContainsPoint,
+    barContainsPointOnBandAxis,
+    cursorOutsideBarFillExtent,
+    findVisibleStackedSegment,
+} from './bars-under-cursor'
 
 const verticalBar: BarRect = { x: 100, y: 120, width: 50, height: 200, corners: {}, dataIndex: 0 }
 const horizontalBar: BarRect = { x: 60, y: 100, width: 140, height: 40, corners: {}, dataIndex: 0 }
@@ -88,5 +96,71 @@ describe('barContainsPoint', () => {
                 })
             ).toBe(false)
         })
+    })
+})
+
+describe('findVisibleStackedSegment — overdraw clip', () => {
+    const bandCenterX = (scales: ReturnType<typeof createBarScales>, label: string): number =>
+        (scales.band(label) ?? 0) + scales.band.bandwidth() / 2
+
+    // Genuinely stacked segments are non-overlapping slices, so hovering any segment must
+    // highlight its whole rect — nextSmallerExtent must be 0 even when a sibling is shorter.
+    // Regression: the clip used to subtract the shortest sibling's height, leaving a tall
+    // bottom segment only partly shaded.
+    it('returns nextSmallerExtent 0 for a tall bottom segment with a shorter sibling above', () => {
+        const series: Series[] = [
+            { key: 'bottom', label: 'Bottom', data: [30] },
+            { key: 'top', label: 'Top', data: [10] },
+        ]
+        const labels = ['Mon']
+        const scales = createBarScales(series, labels, dimensions, {
+            barLayout: 'stacked',
+            axisOrientation: 'vertical',
+        })
+        const stackedData = computeStackData(series, labels)
+        const visible = findVisibleStackedSegment({
+            series,
+            labels,
+            hoveredLabel: 'Mon',
+            cursor: { x: bandCenterX(scales, 'Mon'), y: scales.value(15) },
+            scales,
+            layout: 'stacked',
+            isHorizontal: false,
+            stackedData,
+            topStackedKeyByAxis: new Map(),
+        })
+        expect(visible?.series.key).toBe('bottom')
+        expect(visible?.nextSmallerExtent).toBe(0)
+    })
+
+    // Sparse "overlap" layout: each series draws from value 0 in a shared band, smallest on
+    // top. Here the clip MUST subtract the next-smaller baseline-sharing segment so the
+    // highlight doesn't paint over the slice drawn in front of it.
+    it('returns the next-smaller baseline-sharing extent for the overlap layout', () => {
+        const series: Series[] = [
+            { key: 'big', label: 'Big', data: [100, 0] },
+            { key: 'small', label: 'Small', data: [0, 20] },
+        ]
+        const labels = ['band', 'band']
+        const scales = createBarScales(series, labels, dimensions, {
+            barLayout: 'stacked',
+            axisOrientation: 'horizontal',
+        })
+        const stackedData = computeStackData(series, labels)
+        const bandCenterY = (scales.band('band') ?? 0) + scales.band.bandwidth() / 2
+        const visible = findVisibleStackedSegment({
+            series,
+            labels,
+            hoveredLabel: 'band',
+            cursor: { x: scales.value(75), y: bandCenterY },
+            scales,
+            layout: 'stacked',
+            isHorizontal: true,
+            stackedData,
+            topStackedKeyByAxis: new Map(),
+        })
+        const smallWidth = Math.abs(scales.value(20) - scales.value(0))
+        expect(visible?.series.key).toBe('big')
+        expect(visible?.nextSmallerExtent).toBeCloseTo(smallWidth, 5)
     })
 })

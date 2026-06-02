@@ -121,6 +121,27 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
 
+    def test_cannot_create_subscription_without_insight_or_dashboard(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "No content source",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert "Either dashboard or insight is required" in str(response.json())
+
+    def test_can_update_subscription_without_resending_relation(self):
+        sub_id = self._create_subscription().json()["id"]
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Updated title"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["title"], "Updated title")
+
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -672,6 +693,64 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["title"] == "renamed while over the cap"
+        assert response.json()["summary_enabled"] is True
+
+    @parameterized.expand(
+        [
+            # The credit gate fires only when a summary is being switched on: an over-budget
+            # org is blocked when summary_enabled=True but can still create plain subscriptions.
+            ("summary_on_over_budget", True, True, status.HTTP_402_PAYMENT_REQUIRED),
+            ("summary_on_under_budget", True, False, status.HTTP_201_CREATED),
+            ("summary_off_over_budget", False, True, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_summary_enabled_respects_ai_credit_budget(
+        self,
+        _name: str,
+        summary_enabled: bool,
+        is_limited: bool,
+        expected_status: int,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.is_team_limited", return_value=is_limited):
+            response = self._create_subscription(summary_enabled=summary_enabled)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_402_PAYMENT_REQUIRED:
+            assert "AI credit usage limit" in response.json()["detail"]
+
+    def test_patch_transition_to_summary_enabled_blocked_when_over_credit_budget(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription(summary_enabled=False)
+        sub_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"summary_enabled": True},
+            )
+
+        assert patch_response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert "AI credit usage limit" in patch_response.json()["detail"]
+
+    def test_patch_unrelated_field_on_already_enabled_summary_when_over_credit_budget(self) -> None:
+        # Going over budget mid-month must not trap an org out of editing existing
+        # summaries — only transitions *into* an active summary are gated.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        existing = self._seed_active_summary_subscriptions(1)
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
+                {"title": "renamed while over budget"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "renamed while over budget"
         assert response.json()["summary_enabled"] is True
 
     @parameterized.expand(

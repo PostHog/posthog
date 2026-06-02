@@ -1715,6 +1715,7 @@ export enum PersonsTabType {
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
+    LOGS = 'logs',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
@@ -2216,7 +2217,7 @@ export interface BillingType {
     trial?: {
         type: 'autosubscribe' | 'standard'
         status: 'active' | 'expired' | 'cancelled' | 'converted'
-        target: 'paid' | 'teams' | 'enterprise'
+        target: 'paid' | 'teams' | 'enterprise' | 'boost' | 'scale'
         expires_at: string
     }
     billing_plan: BillingPlan | null
@@ -2316,6 +2317,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     insight?: T
     text?: TextModel
     button_tile?: ButtonTileModel
+    widget?: DashboardWidgetModel
     deleted?: boolean
     is_cached?: boolean
     order?: number
@@ -2328,7 +2330,20 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     transparent_background?: boolean | null
 }
 
-export type DashboardWidgetType = 'insight' | 'text' | 'button_tile'
+export type DashboardWidgetType = 'insight' | 'text' | 'button_tile' | 'widget'
+
+export interface DashboardWidgetModel {
+    id: string
+    widget_type: string
+    name?: string | null
+    description?: string
+    config: Record<string, unknown>
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at?: string
+    team?: number
+    dashboard_tiles?: DashboardTileBasicType[] | null
+}
 
 export interface DashboardTileBasicType {
     id: number
@@ -2534,10 +2549,19 @@ export type DashboardTemplateStoredButtonTile = {
     color?: InsightColor | null
 }
 
+export type DashboardTemplateStoredWidgetTile = {
+    type: 'WIDGET'
+    widget_type: string
+    config?: Record<string, unknown>
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
 export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredInsightTile
     | DashboardTemplateStoredTextTile
     | DashboardTemplateStoredButtonTile
+    | DashboardTemplateStoredWidgetTile
 
 export interface DashboardTemplateType {
     id: string
@@ -4094,7 +4118,8 @@ export interface FeatureFlagFilters {
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
     payloads?: Record<string, JsonType>
-    super_groups?: FeatureFlagGroupType[]
+    early_exit?: boolean
+    feature_enrollment?: boolean
 }
 
 export interface FeatureFlagBasicType {
@@ -4567,6 +4592,7 @@ export enum ExperimentConclusion {
 }
 
 export interface ExperimentHoldoutType {
+    /** @asType integer */
     id: number | null
     name: string
     description: string | null
@@ -4615,6 +4641,7 @@ export interface Experiment {
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         rollout_percentage?: number
+        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4635,6 +4662,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        baseline_variant_key?: string
         bayesian?: {
             ci_level?: number
         }
@@ -4753,7 +4781,11 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
-    persisted_feature_flags?: string[]
+    /**
+     * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
+     * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
+     */
+    persisted_feature_flags?: string[] | Record<string, string | boolean>
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
@@ -5394,6 +5426,7 @@ export type APIScopeObject =
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
+    | 'signal_scout'
     | 'subscription'
     | 'survey'
     | 'task'

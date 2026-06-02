@@ -219,7 +219,8 @@ describe('PersonHogPersonRepository', () => {
                 } else {
                     expect(mockPostgres.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
                         [{ teamId: TEAM_ID, distinctId: 'user-123' }],
-                        true
+                        true,
+                        undefined
                     )
                     expect(handlers.getPersonsByDistinctIds).not.toHaveBeenCalled()
                 }
@@ -256,7 +257,8 @@ describe('PersonHogPersonRepository', () => {
                 } else {
                     expect(mockPostgres.fetchPersonsByPersonIds).toHaveBeenCalledWith(
                         [{ teamId: TEAM_ID, personId: TEST_PERSON.uuid }],
-                        true
+                        true,
+                        undefined
                     )
                     expect(handlers.getPersonsByUuids).not.toHaveBeenCalled()
                 }

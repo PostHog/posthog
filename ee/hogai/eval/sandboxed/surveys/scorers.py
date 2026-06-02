@@ -21,7 +21,6 @@ SURVEY_FORBIDDEN_WRITE_TOOLS = frozenset(
         "update-feature-flag",
         "delete-feature-flag",
         "feature-flags-bulk-delete-create",
-        "feature-flags-bulk-keys-create",
         "feature-flags-bulk-update-tags-create",
         "feature-flags-copy-flags-create",
         "scheduled-changes-create",
