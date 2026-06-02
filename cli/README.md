@@ -39,3 +39,20 @@ Commands require different API scopes. Make sure to set these scopes on your per
 | `exp endpoints push`          | `endpoint:write`, `insight_variable:write` |
 | `exp endpoints run`           | `query:read`                               |
 | `exp tasks`                   | `task:read`                                |
+
+## Agent-first API tools
+
+`posthog-cli api` exposes PostHog's MCP tool catalog through a shell-friendly interface for coding agents:
+
+```bash
+posthog-cli api search feature-flag
+posthog-cli api info feature-flag-get-all
+posthog-cli api schema query-trends series
+posthog-cli api call --json feature-flag-get-all '{"limit":5}'
+posthog-cli api call --dry-run feature-flags-bulk-delete-create '{"ids":[123]}'
+posthog-cli api skill list
+posthog-cli api skill install audit
+posthog-cli api agents-md install
+```
+
+Destructive tools require `--confirm` when executed. Use `--dry-run` before mutations.

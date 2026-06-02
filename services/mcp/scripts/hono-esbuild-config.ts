@@ -8,6 +8,7 @@ import type { BuildOptions, Plugin } from 'esbuild'
 import { resolve } from 'path'
 
 export const honoOutfile = resolve(process.cwd(), 'dist/hono-server.mjs')
+export const cliOutfile = resolve(process.cwd(), 'dist/posthog-api-cli.mjs')
 
 const cfWorkersStub: Plugin = {
     name: 'cf-workers-stub',
@@ -40,5 +41,13 @@ export function honoEsbuildOptions(opts: { dev?: boolean; extraPlugins?: Plugin[
         // to a global `require`. ESM has no `require`; banner injects one. The
         // alias avoids colliding with esbuild's own CJS-interop shim.
         banner: { js: `import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);` },
+    }
+}
+
+export function cliEsbuildOptions(opts: { dev?: boolean; extraPlugins?: Plugin[] } = {}): BuildOptions {
+    return {
+        ...honoEsbuildOptions(opts),
+        entryPoints: [resolve(process.cwd(), 'src/cli/index.ts')],
+        outfile: cliOutfile,
     }
 }

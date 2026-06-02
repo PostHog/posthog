@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    api_proxy,
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
@@ -74,6 +75,12 @@ pub enum Commands {
     SymbolSets {
         #[command(subcommand)]
         cmd: SymbolSetsSubcommand,
+    },
+
+    #[command(about = "Agent-first PostHog API tools", trailing_var_arg = true)]
+    Api {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
@@ -166,6 +173,7 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
                 }
@@ -231,6 +239,10 @@ impl Cli {
                     crate::download::extract(&args)?;
                 }
             },
+            Commands::Api { args } => {
+                api_proxy::run(args, self.host)?;
+                return Ok(());
+            }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,

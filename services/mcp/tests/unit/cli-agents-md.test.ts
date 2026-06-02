@@ -1,0 +1,31 @@
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+import { installAgentsMdSnippet } from '@/cli/agents-md'
+
+describe('CLI AGENTS.md installer', () => {
+    it('creates an AGENTS.md file with PostHog CLI guidance', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-agents-md-'))
+        const target = await installAgentsMdSnippet({ cwd: dir })
+        const content = await fs.readFile(target, 'utf-8')
+
+        expect(target).toBe(path.join(dir, 'AGENTS.md'))
+        expect(content).toContain('posthog-cli api search <term>')
+        expect(content).toContain('posthog-cli api skill list')
+    })
+
+    it('updates the managed section idempotently', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-agents-md-'))
+        const target = path.join(dir, 'AGENTS.md')
+        await fs.writeFile(target, '# Project\n\nExisting instructions.\n')
+
+        await installAgentsMdSnippet({ filePath: target })
+        await installAgentsMdSnippet({ filePath: target })
+
+        const content = await fs.readFile(target, 'utf-8')
+        expect(content.match(/posthog-cli-api:start/g)?.length).toBe(1)
+        expect(content).toContain('Existing instructions.')
+    })
+})
