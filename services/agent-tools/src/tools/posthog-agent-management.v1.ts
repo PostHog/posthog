@@ -248,11 +248,11 @@ export const posthogAgentApplicationsRevisionsManifestV1 = defineNativeTool({
 export const posthogAgentApplicationsRevisionsFileV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-file-retrieve',
     description:
-        "Read one file from a revision's bundle by path (e.g. 'agent.md', 'skills/research.md'). Returns the file's text content. Use after manifest-retrieve to pull specific files.",
+        "Read one file from a revision's bundle by path (e.g. 'agent.md', 'skills/research/SKILL.md'). Returns the file's text content. Use after manifest-retrieve to pull specific files.",
     args: Type.Object({
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
-        path: Type.String({ description: 'Bundle-relative path, e.g. "skills/research.md".' }),
+        path: Type.String({ description: 'Bundle-relative path, e.g. "skills/research/SKILL.md".' }),
     }),
     returns: Type.Object({ path: Type.String(), content: Type.String() }),
     requires: { integrations: [], scopes: ['agent_application:read'] },

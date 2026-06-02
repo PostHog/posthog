@@ -1,3 +1,8 @@
+---
+name: slack-thread-protocol
+description: Conventions for replying in Slack — TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply.
+---
+
 # Skill — slack thread protocol
 
 How to format and route messages so they're useful to humans on-call

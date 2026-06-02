@@ -166,9 +166,14 @@ class AgentSkillTemplate(ModelActivityMixin, UUIDModel):
 
     # Slug — lowercase a-z 0-9 hyphen, no consecutive hyphens. Enforced
     # by the serializer's regex (mirrors LLMSkill's pattern). `@posthog/`
-    # prefix is reserved for canonical (team_id NULL) rows.
-    name = models.CharField(max_length=128)
-    description = models.CharField(max_length=4096, blank=True, default="")
+    # prefix is reserved for canonical (team_id NULL) rows. Length caps at
+    # 64 to match the Agent Skills spec `name` constraint — note the
+    # registry `name` (which may carry the `@posthog/` prefix) is the
+    # registry identity, distinct from the spec `name` emitted into the
+    # frozen SKILL.md, which is the bundle-dir alias (a bare slug).
+    name = models.CharField(max_length=64)
+    # 1024 cap mirrors the Agent Skills spec `description` constraint.
+    description = models.CharField(max_length=1024, blank=True, default="")
 
     # The SKILL.md body — what gets copied into the bundle as the index
     # file when an agent pins this template.
@@ -178,8 +183,17 @@ class AgentSkillTemplate(ModelActivityMixin, UUIDModel):
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
 
-    # Free-form bag — agentskills.io-compatible slot for `license`,
-    # `compatibility`, etc. Not interpreted by the platform.
+    # First-class Agent Skills frontmatter fields, promoted out of the
+    # free-form `metadata` bag so the registry UI + spec validator can
+    # treat them specially and freeze can emit them into the SKILL.md
+    # frontmatter. `license` is unbounded by the spec; `compatibility`
+    # caps at 500.
+    license = models.CharField(max_length=256, blank=True, default="", db_default="")
+    compatibility = models.CharField(max_length=500, blank=True, default="", db_default="")
+
+    # Free-form bag — agentskills.io-compatible `metadata` map (string →
+    # string). Carries non-promoted keys like `version`, `author`. Not
+    # interpreted by the platform.
     metadata = models.JSONField(default=dict, blank=True)
 
     # Optional explicit list of tool ids the skill expects to be wired
