@@ -857,6 +857,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
 
         if request.method == "POST":
+            # A batch run sends real messages, so only fire for an enabled workflow. The scheduler applies the
+            # same gate (see internal_process_due_schedules) and the UI disables the manual trigger for non-active
+            # workflows; enforce it here too so API/MCP callers can't start a run the consumer would only drop.
+            if hog_flow.status != HogFlow.State.ACTIVE:
+                raise exceptions.ValidationError("Workflow must be active to run a batch. Enable it first.")
+
             serializer = HogFlowBatchJobSerializer(
                 data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
             )

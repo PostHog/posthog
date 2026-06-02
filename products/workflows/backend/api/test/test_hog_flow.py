@@ -1156,15 +1156,7 @@ class TestHogFlowAPI(APIBaseTest):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_post_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
-        hog_flow, _ = self._create_hog_flow_with_action(
-            {
-                "template_id": "template-webhook",
-                "inputs": {"url": {"value": "https://example.com"}},
-            }
-        )
-        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert create_response.status_code == 201, create_response.json()
-        flow_id = create_response.json()["id"]
+        flow_id = self._create_active_hog_flow()
 
         batch_job_data = {
             "variables": [{"key": "first_name", "value": "Test"}],
@@ -1178,6 +1170,22 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
 
+    def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
+        # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {"variables": [{"key": "first_name", "value": "Test"}]},
+        )
+        assert response.status_code == 400, response.json()
+        assert "active" in response.json()["detail"].lower()
+
     def test_post_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
         batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
 
@@ -1189,26 +1197,9 @@ class TestHogFlowAPI(APIBaseTest):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_get_hog_flow_batch_jobs_only_returns_jobs_for_flow(self, mock_create_invocation):
-        hog_flow, _ = self._create_hog_flow_with_action(
-            {
-                "template_id": "template-webhook",
-                "inputs": {"url": {"value": "https://example.com"}},
-            }
-        )
-        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert create_response.status_code == 201, create_response.json()
-        flow_id = create_response.json()["id"]
-
-        # Create another flow
-        hog_flow_2, _ = self._create_hog_flow_with_action(
-            {
-                "template_id": "template-webhook",
-                "inputs": {"url": {"value": "https://example2.com"}},
-            }
-        )
-        create_response_2 = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_2)
-        assert create_response_2.status_code == 201, create_response_2.json()
-        flow_id_2 = create_response_2.json()["id"]
+        # Both must be active — the batch_jobs POST is gated on an enabled workflow.
+        flow_id = self._create_active_hog_flow()
+        flow_id_2 = self._create_active_hog_flow()
 
         # Create batch jobs for both flows
         batch_job_data_1 = {"variables": [{"key": "first_name", "value": "Test1"}]}
