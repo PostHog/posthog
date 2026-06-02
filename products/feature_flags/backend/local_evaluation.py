@@ -38,10 +38,21 @@ from prometheus_client import Counter
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from posthog.models.cohort.util import get_nested_cohort_ids
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    GroupTypesUnavailable,
+    get_group_types_for_projects,
+)
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
-from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
+from posthog.storage.hypercache import (
+    HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER,
+    HYPERCACHE_REBUILD_SKIPPED_COUNTER,
+    HyperCache,
+    emit_cache_sync_metrics,
+)
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
@@ -450,6 +461,40 @@ def update_flag_definitions_cache(team: Team | int, ttl: int | None = None) -> b
     return success
 
 
+# Cross-process throttle window for Sentry capture of skipped feature_flags rebuilds.
+# A fleet-wide outage would otherwise flood Sentry; the dedicated skip counters stay
+# always-on so the throttle never hides the rate.
+_FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL = 60  # seconds
+
+
+def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, message: str, **log_fields: Any) -> None:
+    """Log a skipped flag-cache rebuild loudly, throttling the Sentry capture across
+    processes. Throttled events log ``sentry_capture_throttled=True`` so suppression
+    is explicit and queryable, while the always-on skip counter still reflects the
+    true rate."""
+    captured = get_safe_cache(throttle_key) is None
+    if captured:
+        safe_cache_set(throttle_key, True, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
+        capture_exception(exc)
+    logger.error(message, sentry_captured=captured, sentry_capture_throttled=not captured, **log_fields)
+
+
+def _group_mapping_would_be_emptied(team: Team, payload: dict[str, Any]) -> bool:
+    """True when a rebuild would overwrite a populated group_type_mapping with an
+    empty one: the freshly built payload's mapping is empty but the per-project
+    last-known-good (stale cache) is non-empty.
+
+    Reads the stale key directly (Redis-only) to avoid re-triggering a DB load. The
+    batch fetch never overwrites a populated stale entry with an empty result, so an
+    empty payload here means the stale key still reflects the prior good value —
+    this catches an empty-but-not-erroring upstream that the fail-closed read path
+    (which only reacts to DB errors) cannot see."""
+    if payload.get("group_type_mapping"):
+        return False
+    stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{team.project_id}")
+    return bool(stale)
+
+
 def update_flag_caches(team: Team):
     """Update both flag cache variants."""
     logger.info("Syncing feature_flags cache for team", team_id=team.id)
@@ -460,12 +505,39 @@ def update_flag_caches(team: Team):
     size_without_cohorts: int | None = None
     try:
         with_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
+
+        # Write-side data-quality guard: refuse to overwrite a populated
+        # group_type_mapping with an empty one, regardless of cause. Both variants
+        # share the same mapping, so one check gates both writes.
+        if _group_mapping_would_be_emptied(team, with_cohorts):
+            HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER.labels(namespace="feature_flags").inc()
+            _capture_flag_cache_skip_throttled(
+                "flag_cache_group_mapping_emptied_capture_throttle",
+                Exception(f"group_type_mapping would be emptied for team {team.id}"),
+                "Skipped feature_flags cache rebuild: refusing to empty a populated group_type_mapping",
+                team_id=team.id,
+            )
+            return
+
         size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
 
         without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
         size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
 
         success = True
+    except GroupTypesUnavailable as e:
+        # The persons DB is unavailable and no last-known-good exists, so the read
+        # path failed closed rather than handing us an empty mapping. Skip the write
+        # — the prior good entry survives its 30-day TTL — and emit a precise,
+        # alertable reason instead of a generic failure.
+        HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace="feature_flags", reason="group_types_unavailable").inc()
+        _capture_flag_cache_skip_throttled(
+            "flag_cache_group_types_unavailable_capture_throttle",
+            e,
+            "Skipped feature_flags cache rebuild: group types unavailable",
+            team_id=team.id,
+        )
+        return
     except Exception as e:
         capture_exception(e)
         logger.exception("Failed to sync feature_flags cache for team", team_id=team.id, exception=str(e))
@@ -583,8 +655,6 @@ def _get_flags_response_for_local_evaluation_batch(
 
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
-    from posthog.models.group_type_mapping import get_group_types_for_projects
-
     for pid, mappings in get_group_types_for_projects(list(project_ids)).items():
         for m in mappings:
             gtm_by_project[pid][str(m["group_type_index"])] = m["group_type"]

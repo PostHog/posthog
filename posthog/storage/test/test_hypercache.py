@@ -10,7 +10,13 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.storage import object_storage
-from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
+from posthog.storage.hypercache import (
+    DEFAULT_CACHE_MISS_TTL,
+    DEFAULT_CACHE_TTL,
+    HyperCache,
+    HyperCacheDependencyUnavailable,
+    HyperCacheStoreMissing,
+)
 
 
 class HyperCacheTestBase:
@@ -150,6 +156,41 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         result = hc.update_cache(self.team_id)
 
         assert result is False
+
+
+class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
+    """A load_fn raising HyperCacheDependencyUnavailable is a transient, fail-closed
+    signal: writes are skipped so the last-known-good survives, and reads return a
+    transient miss without caching a sentinel so the next read retries."""
+
+    @staticmethod
+    def _load_fn_unavailable(team):
+        raise HyperCacheDependencyUnavailable("persons db down")
+
+    def test_update_cache_returns_false_and_writes_nothing(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with patch("posthog.storage.hypercache.capture_exception") as mock_capture:
+            result = hc.update_cache(self.team_id)
+
+        assert result is False
+        # Nothing written — neither a value nor a miss sentinel — so a prior entry survives
+        assert cache.get(hc.get_cache_key(self.team_id)) is None
+        # Not re-captured here: the dependency layer already captured it (throttled),
+        # so a fleet-wide outage doesn't flood Sentry from the refresh path
+        mock_capture.assert_not_called()
+
+    def test_get_from_cache_returns_transient_miss_without_sentinel(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        result, source = hc.get_from_cache_with_source(self.team_id)
+
+        assert result is None
+        assert source == "db"
+        # No miss sentinel cached → the next read retries instead of serving a cached miss
+        assert cache.get(hc.get_cache_key(self.team_id)) is None
 
 
 class TestHyperCacheIntegration(HyperCacheTestBase):

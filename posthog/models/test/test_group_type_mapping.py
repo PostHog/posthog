@@ -7,6 +7,8 @@ from parameterized import parameterized
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    GroupTypesUnavailable,
+    _record_group_types_fetch_failure,
     clear_dashboard_from_group_type_mapping,
     delete_group_type_mapping,
     get_group_types_for_project,
@@ -14,7 +16,7 @@ from posthog.models.group_type_mapping import (
     get_group_types_for_team,
     update_group_type_mapping_fields,
 )
-from posthog.utils import safe_cache_delete
+from posthog.utils import safe_cache_delete, safe_cache_set
 
 
 def _clear_cache(project_id: int) -> None:
@@ -560,17 +562,21 @@ class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
 
 class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
     def setUp(self):
+        for pid in (10, 20):
+            _clear_cache(pid)
         self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
         self._client_patcher.start()
 
     def tearDown(self):
         self._client_patcher.stop()
+        for pid in (10, 20):
+            _clear_cache(pid)
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_orm_database_error_returns_empty_dicts(
+    def test_orm_database_error_without_stale_fails_closed(
         self,
         mock_errors_counter,
         mock_routing_counter,
@@ -590,9 +596,12 @@ class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
         mock_qs.order_by.return_value.values.return_value = mock_values_qs
         mock_objects.filter.return_value = mock_qs
 
-        result = get_group_types_for_projects([10, 20])
+        # With no last-known-good, the batch fetch fails closed rather than
+        # returning an all-empty mapping that would silently disable group flags.
+        with self.assertRaises(GroupTypesUnavailable) as ctx:
+            get_group_types_for_projects([10, 20])
 
-        assert result == {10: [], 20: []}
+        assert set(ctx.exception.project_ids) == {10, 20}
 
 
 # ── Write helper tests ─────────────────────────────────────────────
@@ -851,3 +860,248 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
 
         mock_objects.using.assert_called_once()
         mock_errors_counter.labels.assert_called_once()
+
+
+# ── Terminal-failure hardening tests (2026-06-02 incident) ─────────────
+
+
+def _make_db_error_objects() -> MagicMock:
+    """A GroupTypeMapping.objects mock whose .filter(...).order_by(...).values()
+    raises DatabaseError when iterated — the persons-DB-outage shape."""
+    from django.db import DatabaseError
+
+    def _raise_db_error():
+        raise DatabaseError("db is down")
+
+    mock_values_qs = MagicMock()
+    mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
+    mock_qs = MagicMock()
+    mock_qs.order_by.return_value.values.return_value = mock_values_qs
+    mock_objects = MagicMock()
+    mock_objects.filter.return_value = mock_qs
+    return mock_objects
+
+
+class TestTerminalFetchFailureMetric(SimpleTestCase):
+    """The new terminal-failure counter fires on a direct-ORM DB failure, and the
+    personhog error counter is NOT touched on that path (the swallow never calls
+    personhog, so attributing it there would pollute personhog dashboards)."""
+
+    def setUp(self):
+        self.project_id = 7777
+        _clear_cache(self.project_id)
+        # client None → personhog leg is skipped entirely, isolating the ORM failure
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+        _clear_cache(self.project_id)
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_single_project_db_error_increments_fetch_failures_not_personhog(
+        self, mock_personhog_errors, mock_fetch_failures, mock_objects
+    ):
+        mock_objects.filter.side_effect = _make_db_error_objects().filter
+
+        result = get_group_types_for_project(self.project_id)
+
+        assert result == []
+        mock_fetch_failures.labels.assert_called_once_with(
+            operation="get_group_types_for_project", source="django_orm", error_type="db_error"
+        )
+        mock_personhog_errors.labels.assert_not_called()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_team_db_error_increments_fetch_failures_not_personhog(
+        self, mock_personhog_errors, mock_fetch_failures, mock_objects
+    ):
+        mock_objects.filter.side_effect = _make_db_error_objects().filter
+
+        result = get_group_types_for_team(4242)
+
+        assert result == []
+        mock_fetch_failures.labels.assert_called_once_with(
+            operation="get_group_types_for_team", source="django_orm", error_type="db_error"
+        )
+        mock_personhog_errors.labels.assert_not_called()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_projects_db_error_increments_fetch_failures_not_personhog(
+        self, mock_personhog_errors, mock_fetch_failures, mock_objects
+    ):
+        mock_objects.filter.side_effect = _make_db_error_objects().filter
+
+        # No stale → fails closed, but the terminal counter still fires first
+        with self.assertRaises(GroupTypesUnavailable):
+            get_group_types_for_projects([self.project_id])
+
+        mock_fetch_failures.labels.assert_called_once_with(
+            operation="get_group_types_for_projects", source="django_orm", error_type="db_error"
+        )
+        mock_personhog_errors.labels.assert_not_called()
+
+
+class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
+    """Batch fetch recovers per-project last-known-good on a DB failure, and fails
+    closed (rather than returning empty) when a project has no stale entry."""
+
+    def setUp(self):
+        self.project_ids = [101, 102]
+        for pid in self.project_ids:
+            _clear_cache(pid)
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+        for pid in self.project_ids:
+            _clear_cache(pid)
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_db_error_recovers_each_project_from_stale(self, mock_objects):
+        mock_objects.filter.side_effect = _make_db_error_objects().filter
+
+        stale_101 = [{"group_type": "org", "group_type_index": 0}]
+        stale_102 = [{"group_type": "company", "group_type_index": 0}]
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", stale_101, 3600)
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}102", stale_102, 3600)
+
+        result = get_group_types_for_projects(self.project_ids)
+
+        assert result == {101: stale_101, 102: stale_102}
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_db_error_raises_group_types_unavailable_when_no_stale(self, mock_objects):
+        mock_objects.filter.side_effect = _make_db_error_objects().filter
+
+        with self.assertRaises(GroupTypesUnavailable) as ctx:
+            get_group_types_for_projects(self.project_ids)
+
+        assert set(ctx.exception.project_ids) == {101, 102}
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_db_error_raises_when_any_project_lacks_stale(self, mock_objects):
+        mock_objects.filter.side_effect = _make_db_error_objects().filter
+
+        # Only 101 has a last-known-good; 102 is unrecoverable → fail closed
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", [{"group_type": "org", "group_type_index": 0}], 3600)
+
+        with self.assertRaises(GroupTypesUnavailable) as ctx:
+            get_group_types_for_projects(self.project_ids)
+
+        assert ctx.exception.project_ids == [102]
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_empty_stale_counts_as_recovered(self, mock_objects):
+        """A cached empty list is a known value (project genuinely has no group
+        types), so it recovers rather than failing closed."""
+        mock_objects.filter.side_effect = _make_db_error_objects().filter
+
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", [], 3600)
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}102", [], 3600)
+
+        result = get_group_types_for_projects(self.project_ids)
+
+        assert result == {101: [], 102: []}
+
+
+class TestProjectsStaleCachePopulation(SimpleTestCase):
+    """On success the batch fetch persists non-empty results to the per-project
+    stale key (shared last-known-good), but never overwrites it with an empty
+    result — otherwise a transient empty fetch would erase the fallback."""
+
+    def setUp(self):
+        self.project_ids = [201, 202]
+        for pid in self.project_ids:
+            _clear_cache(pid)
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+        for pid in self.project_ids:
+            _clear_cache(pid)
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_orm_success_writes_non_empty_to_stale_only(self, mock_objects):
+        from posthog.utils import get_safe_cache
+
+        orm_rows = [
+            {"project_id": 201, "group_type": "organization", "group_type_index": 0},
+        ]
+        mock_qs = MagicMock()
+        mock_qs.order_by.return_value.values.return_value = [dict(r) for r in orm_rows]
+        mock_objects.filter.return_value = mock_qs
+
+        result = get_group_types_for_projects(self.project_ids)
+
+        # 201 had a mapping → persisted to stale; 202 was empty → stale left absent
+        assert result[201] == [{"group_type": "organization", "group_type_index": 0}]
+        assert result[202] == []
+        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}201") == [
+            {"group_type": "organization", "group_type_index": 0}
+        ]
+        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}202") is None
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_empty_success_does_not_overwrite_existing_stale(self, mock_objects):
+        from posthog.utils import get_safe_cache
+
+        prior = [{"group_type": "organization", "group_type_index": 0}]
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}201", prior, 3600)
+
+        mock_qs = MagicMock()
+        mock_qs.order_by.return_value.values.return_value = []  # empty success
+        mock_objects.filter.return_value = mock_qs
+
+        get_group_types_for_projects([201])
+
+        # Empty result must not clobber the populated last-known-good
+        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}201") == prior
+
+
+class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
+    """The Sentry capture is throttled across the ~60s window, but the log stays
+    loud every time with explicit throttle visibility."""
+
+    def setUp(self):
+        self.operation = "get_group_types_for_projects"
+        safe_cache_delete(f"group_types_failure_capture_throttle:{self.operation}")
+
+    def tearDown(self):
+        safe_cache_delete(f"group_types_failure_capture_throttle:{self.operation}")
+
+    @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
+    @patch("posthog.models.group_type_mapping.logger")
+    @patch("posthog.models.group_type_mapping.capture_exception")
+    def test_captures_once_then_logs_throttled(self, mock_capture, mock_logger, mock_counter):
+        from django.db import DatabaseError
+
+        exc = DatabaseError("db down")
+
+        _record_group_types_fetch_failure(
+            operation=self.operation, log_event="persons_db_group_types_for_projects_failure", exc=exc, project_ids=[1]
+        )
+        _record_group_types_fetch_failure(
+            operation=self.operation, log_event="persons_db_group_types_for_projects_failure", exc=exc, project_ids=[1]
+        )
+
+        # Captured exactly once across the throttle window
+        mock_capture.assert_called_once_with(exc)
+
+        # Counter always moves (true rate stays visible despite throttling)
+        assert mock_counter.labels.call_count == 2
+
+        first_kwargs = mock_logger.exception.call_args_list[0].kwargs
+        second_kwargs = mock_logger.exception.call_args_list[1].kwargs
+        assert first_kwargs["sentry_captured"] is True
+        assert first_kwargs["sentry_capture_throttled"] is False
+        assert second_kwargs["sentry_captured"] is False
+        assert second_kwargs["sentry_capture_throttled"] is True

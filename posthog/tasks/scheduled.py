@@ -76,6 +76,7 @@ from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
     compute_feature_flag_metrics,
+    feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
 )
@@ -286,6 +287,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache (with cohorts)",
         expires_seconds=60 * 60,
+    )
+
+    # Feature flags local-eval canary - every 5 minutes
+    # No-op unless FEATURE_FLAGS_CANARY_TEAM_ID is set; short interval keeps the
+    # detection latency for a silently-emptied group_type_mapping low.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        feature_flags_local_eval_canary_task.s(),
+        name="feature flags local-eval canary",
+        expires_seconds=5 * 60,
     )
 
     # Auth token cache verification - every 6 hours at minute 40

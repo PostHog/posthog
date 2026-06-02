@@ -99,3 +99,9 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Team ID for the local-evaluation canary. The canary task builds this team's
+# local-eval payload end-to-end and asserts its group_type_mapping is non-empty,
+# so a silently-emptied mapping (the 2026-06-02 incident) is caught directly.
+# Unset (None) → the task no-ops, so CI and self-hosted installs are unaffected.
+FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)

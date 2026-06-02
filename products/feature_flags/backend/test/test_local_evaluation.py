@@ -7,11 +7,16 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    GroupTypeMapping,
+    GroupTypesUnavailable,
+)
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.utils import safe_cache_delete
 
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
@@ -211,6 +216,93 @@ class TestLocalEvaluationCache(BaseTest):
         response, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
+
+
+class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
+    """update_flag_caches must never overwrite a populated group_type_mapping with
+    an empty one (the 2026-06-02 incident), regardless of cause — but must still
+    rebuild teams that genuinely have no group types."""
+
+    def setUp(self):
+        super().setUp()
+        project, team = Project.objects.create_with_team(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Guard project",
+        )
+        self.team = team
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="group-flag",
+            filters={"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100}]},
+        )
+        clear_flag_definition_caches(self.team)
+        self._clear_stale()
+
+    def tearDown(self):
+        self._clear_stale()
+        super().tearDown()
+
+    def _clear_stale(self):
+        safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+
+    def _cached_group_type_mapping(self) -> dict:
+        response, _ = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        return (response or {}).get("group_type_mapping", {})
+
+    @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_REBUILD_SKIPPED_COUNTER")
+    def test_skips_write_on_group_types_unavailable(self, mock_skipped_counter):
+        # Warm with the real fetch so a prior good entry exists
+        update_flag_caches(self.team)
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+        # Persons DB now unavailable with no recoverable last-known-good
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            side_effect=GroupTypesUnavailable([self.team.project_id]),
+        ):
+            with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
+                update_flag_caches(self.team)
+                mock_set.assert_not_called()
+
+        mock_skipped_counter.labels.assert_called_once_with(namespace="feature_flags", reason="group_types_unavailable")
+        # Prior good entry survives untouched
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+    @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
+    def test_skips_write_when_mapping_would_be_emptied(self, mock_emptied_counter):
+        # Warm with the real fetch → prior entry + non-empty last-known-good stale
+        update_flag_caches(self.team)
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+        # Fetch now succeeds-but-empty (e.g. an empty-but-not-erroring upstream)
+        # while the last-known-good is still non-empty
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            return_value={self.team.project_id: []},
+        ):
+            with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
+                update_flag_caches(self.team)
+                mock_set.assert_not_called()
+
+        mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+    @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
+    def test_writes_when_genuinely_empty(self, mock_emptied_counter):
+        # A team that truly has no group types must still rebuild normally
+        GroupTypeMapping.objects.filter(team_id=self.team.id).delete()
+        self._clear_stale()
+        clear_flag_definition_caches(self.team)
+
+        update_flag_caches(self.team)
+
+        # Wrote an empty mapping (correct for this team) without tripping the guard
+        assert self._cached_group_type_mapping() == {}
+        mock_emptied_counter.labels.assert_not_called()
 
 
 class TestLocalEvaluationSignals(BaseTest):
