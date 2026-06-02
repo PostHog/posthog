@@ -201,8 +201,6 @@ describe('createKeyedRateLimiterStep', () => {
         })
     })
 
-    // Three distinct per-issue keys must collapse into one row per outcome under
-    // getAppSourceId — never one row per key — regardless of the outcome mix.
     it.each([
         ['all allowed', {}, [{ metric_name: 'allowed', count: 3 }]],
         [
