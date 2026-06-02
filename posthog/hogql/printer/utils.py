@@ -16,6 +16,7 @@ from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.json_property_pushdown import pushdown_json_extract_to_property
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
@@ -110,6 +111,12 @@ def prepare_ast_for_printing(
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
             resolver_factory=resolver_factory,
         )
+
+    # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
+    # aggregate, so it does not materialize the whole JSON blob per row. Must run after type
+    # resolution and before lazy-table resolution.
+    with context.timings.measure("pushdown_json_extract_to_property"):
+        node = pushdown_json_extract_to_property(node, context)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
