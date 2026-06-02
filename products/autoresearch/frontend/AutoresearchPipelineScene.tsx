@@ -388,6 +388,40 @@ function ModelsTab(): JSX.Element {
     )
 }
 
+/** Top/bottom-N users by predicted probability for a pipeline. */
+function ProbabilityUsersTable({
+    pipelineId,
+    direction,
+}: {
+    pipelineId: string
+    direction: 'DESC' | 'ASC'
+}): JSX.Element {
+    return (
+        <Query
+            readOnly
+            query={{
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT
+                            person_id,
+                            round(argMax(toFloat(properties.$autoresearch_p_y), timestamp), 4) AS probability,
+                            max(timestamp) AS last_scored
+                        FROM events
+                        WHERE event = 'autoresearch_prediction'
+                          AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                        GROUP BY person_id
+                        ORDER BY probability ${direction}
+                        LIMIT 50
+                    `,
+                    values: { pipeline_id: pipelineId },
+                },
+            }}
+        />
+    )
+}
+
 function PredictionsTab(): JSX.Element {
     const { pipeline } = useValues(autoresearchPipelineLogic)
     if (!pipeline) {
@@ -455,28 +489,12 @@ function PredictionsTab(): JSX.Element {
 
             <div className="space-y-2">
                 <h4 className="text-sm font-semibold">Highest-probability users</h4>
-                <Query
-                    readOnly
-                    query={{
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: `
-                                SELECT
-                                    person_id,
-                                    round(argMax(toFloat(properties.$autoresearch_p_y), timestamp), 4) AS probability,
-                                    max(timestamp) AS last_scored
-                                FROM events
-                                WHERE event = 'autoresearch_prediction'
-                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                                GROUP BY person_id
-                                ORDER BY probability DESC
-                                LIMIT 50
-                            `,
-                            values,
-                        },
-                    }}
-                />
+                <ProbabilityUsersTable pipelineId={pipeline.id} direction="DESC" />
+            </div>
+
+            <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Lowest-probability users</h4>
+                <ProbabilityUsersTable pipelineId={pipeline.id} direction="ASC" />
             </div>
 
             <div className="space-y-2">
