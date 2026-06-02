@@ -1,27 +1,41 @@
 ## Releases
 
-Releases are cut by pushing a release tag to the repository, for the `posthog-cli` app. Generally we want to do this on a branch,
-and bump the package version number at the same time.
+Releases are prepared with [Sampo](https://github.com/bruits/sampo) changesets and published through the existing
+[`cargo-dist`](https://github.com/axodotdev/cargo-dist) tag workflow.
+
+When making a releasable CLI change, add a changeset from the `./cli` directory:
 
 ```bash
-git checkout -b "cli/release-v0.1.0-pre1"
+sampo add --package cargo/posthog-cli --bump patch --message "Describe the CLI change"
 ```
 
-1. Bump version number in Cargo.toml
-2. Build to update Cargo.lock (cargo build)
-3. Update the CHANGELOG.md
+Use `minor` or `major` instead of `patch` when appropriate. Commit the generated file under
+`cli/.sampo/changesets/` with your pull request.
+
+After the pull request merges to `master`, the `Release CLI` workflow:
+
+1. Checks for pending CLI changesets
+2. Waits for approval in the GitHub `Release` environment
+3. Runs `sampo release` from `./cli`
+4. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
+5. Commits the release bump to `master`
+6. Pushes the `posthog-cli/vX.Y.Z` tag that triggers the cargo-dist release workflow
+
+You can also trigger `Release CLI` manually from the Actions tab. Manual runs still require pending changesets.
+Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
+
+If you need to cut a release by hand, keep the same file and tag contract:
 
 ```bash
-git add .
-git commit -m "Bump version number"
-git tag "posthog-cli-v0.1.0-prerelease.1"
+cd cli
+sampo release
+cargo metadata --format-version 1 --no-deps > /dev/null
+git add Cargo.toml Cargo.lock CHANGELOG.md .sampo/changesets
+git commit -m "chore(cli): release v0.1.0"
+git tag "posthog-cli/v0.1.0"
 git push
 git push --tags
-# Optional - also publish to crates.io
-cd cli && cargo publish
 ```
-
-We manage publishing releases through [`cargo-dist`](https://github.com/axodotdev/cargo-dist)
 
 We release semi-regularly, as new features are added. If a release breaks your CI or workflow, please open an issue on GitHub, and tag one or all of the crate authors
 

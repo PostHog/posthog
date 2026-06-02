@@ -1,0 +1,210 @@
+name: Release CLI
+
+on:
+    push:
+        branches: [master]
+        paths:
+            - 'cli/.sampo/changesets/*.md'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-cli
+    cancel-in-progress: false
+
+jobs:
+    check-changesets:
+        name: Check for CLI changesets
+        runs-on: ubuntu-latest
+        outputs:
+            has-changesets: ${{ steps.check.outputs.has-changesets }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  fetch-depth: 0
+
+            - name: Check for changesets
+              id: check
+              run: |
+                  changeset_count=$(find cli/.sampo/changesets -name '*.md' 2>/dev/null | wc -l)
+                  if [ "$changeset_count" -gt 0 ]; then
+                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                      echo "Found $changeset_count CLI changeset(s), ready to release"
+                  else
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "No CLI changesets to release"
+                  fi
+
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: check-changesets
+        if: needs.check-changesets.outputs.has-changesets == 'true'
+        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5fc4680761e8ac29a61b212756230eba0e276d8c
+        with:
+            slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+            slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+        secrets:
+            slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+            posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+
+    release:
+        name: Prepare CLI release
+        needs: [check-changesets, notify-approval-needed]
+        runs-on: ubuntu-latest
+        if: always() && needs.check-changesets.outputs.has-changesets == 'true'
+        environment: Release
+        permissions:
+            contents: write
+            actions: write
+        outputs:
+            new-version: ${{ steps.prepare-release.outputs.new-version }}
+            release-tag: ${{ steps.push-tag.outputs.release-tag }}
+        steps:
+            - name: Notify Slack - Approved
+              if: needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release approved. Preparing posthog-cli version bump.'
+                  emoji_reaction: 'white_check_mark'
+
+            - name: Get GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  fetch-depth: 0
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Sampo CLI
+              id: cache-sampo
+              uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              with:
+                  path: ~/.cargo/bin/sampo
+                  key: sampo-${{ runner.os }}-${{ runner.arch }}
+
+            - name: Install Sampo CLI
+              if: steps.cache-sampo.outputs.cache-hit != 'true'
+              run: cargo install sampo
+
+            - name: Prepare release with Sampo
+              id: prepare-release
+              working-directory: cli
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  sampo release
+                  cargo metadata --format-version 1 --no-deps > /dev/null
+                  new_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+                  echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
+                  echo "Prepared posthog-cli v$new_version"
+
+            - name: Check release changes
+              id: check-changes
+              run: |
+                  changed_files=$(git diff --name-only)
+                  if [ -z "$changed_files" ]; then
+                      echo "::error::Sampo did not produce any release changes"
+                      exit 1
+                  fi
+
+                  unexpected=$(echo "$changed_files" | grep -Ev '^(cli/Cargo\.toml|cli/Cargo\.lock|cli/CHANGELOG\.md|cli/\.sampo/changesets/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::Unexpected files changed during CLI release prep:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+
+                  echo "committed=true" >> "$GITHUB_OUTPUT"
+
+            - name: Commit release changes
+              id: commit-release
+              if: steps.check-changes.outputs.committed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore(cli): release v${{ steps.prepare-release.outputs.new-version }} [skip ci]'
+                  repo: ${{ github.repository }}
+                  branch: master
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Sync checkout to release commit
+              if: steps.commit-release.outputs.commit-hash != ''
+              env:
+                  COMMIT_HASH: ${{ steps.commit-release.outputs.commit-hash }}
+              run: |
+                  git fetch origin master
+                  git reset --hard "$COMMIT_HASH"
+
+            - name: Push release tag
+              id: push-tag
+              if: steps.commit-release.outputs.commit-hash != ''
+              env:
+                  NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+              run: |
+                  release_tag="posthog-cli/v$NEW_VERSION"
+                  if git rev-parse "$release_tag" >/dev/null 2>&1; then
+                      echo "::error::Tag $release_tag already exists"
+                      exit 1
+                  fi
+
+                  git tag "$release_tag"
+                  git push origin "$release_tag"
+                  echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+            - name: Send failure event to PostHog
+              if: failure()
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-cli-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "version": "${{ steps.prepare-release.outputs.new-version }}"
+                      }
+
+            - name: Notify Slack - Failed
+              if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Failed to prepare posthog-cli release. View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+                  emoji_reaction: 'x'
+
+    notify-released:
+        name: Notify Slack - Release Prepared
+        needs: [notify-approval-needed, release]
+        runs-on: ubuntu-latest
+        if: always() && needs.release.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != ''
+        steps:
+            - name: Notify Slack - Release Prepared
+              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'posthog-cli release ${{ needs.release.outputs.new-version }} prepared; cargo-dist was triggered by ${{ needs.release.outputs.release-tag }}.'
+                  emoji_reaction: 'rocket'
