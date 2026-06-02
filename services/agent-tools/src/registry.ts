@@ -22,6 +22,14 @@ import {
 } from './tools/memory'
 import { endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
 import {
+    tableAppendV1,
+    tableCountV1,
+    tableDeleteV1,
+    tableMembershipV1,
+    tableQueryV1,
+    tableTruncateV1,
+} from './tools/table'
+import {
     posthogAgentApplicationsListV1,
     posthogAgentApplicationsRetrieveV1,
     posthogAgentApplicationsRevisionsFileV1,
@@ -75,6 +83,12 @@ export const ALL_TOOLS: NativeTool[] = [
     memoryWriteV1,
     memoryUpdateV1,
     memoryDeleteV1,
+    tableMembershipV1,
+    tableAppendV1,
+    tableQueryV1,
+    tableCountV1,
+    tableDeleteV1,
+    tableTruncateV1,
 ]
 
 const BY_ID = new Map<string, NativeTool>(ALL_TOOLS.map((t) => [t.id, t]))

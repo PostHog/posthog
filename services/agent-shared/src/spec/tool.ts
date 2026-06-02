@@ -18,6 +18,7 @@
 import { Static, TSchema, Type } from 'typebox'
 
 import type { MemoryStore } from '../memory/store'
+import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
 
 export type { Static, TSchema }
@@ -69,6 +70,13 @@ export interface ToolContext {
      * `InMemoryMemoryStore` directly.
      */
     memoryStore?: MemoryStore
+    /**
+     * Deterministic tabular store (seen-sets, append logs, simple queries),
+     * scoped to (teamId, applicationId). Optional — when absent the
+     * `@posthog/table-*` tools surface 'tabular_store_unavailable'. Wired in
+     * the runner from the same S3 config as memory (agent_tables prefix).
+     */
+    tabularStore?: TabularStore
     /**
      * Resolve a per-session credential by target name. Set by ingress at
      * /run + /send (see `CredentialBroker`); returns null when the broker

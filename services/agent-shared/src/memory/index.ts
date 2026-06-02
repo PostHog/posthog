@@ -7,3 +7,7 @@ export * from './store'
 export * from './s3-store'
 export * from './search'
 export * from './test-helpers'
+// Tabular reference — deterministic structured state (seen-sets, append logs,
+// simple queries), JSONL-in-S3 behind a swappable interface.
+export * from './tabular-store'
+export * from './s3-tabular-store'

@@ -21,14 +21,19 @@ export function OverviewSegment(): React.ReactElement {
     useSetDockPage({ kind: 'agent', agent: { id: agent.id, name: agent.name, slug: agent.slug } })
 
     // Stats + sessions: best-effort. Janitor 404 / 502 leaves the panel
-    // with zeros + an empty list rather than failing the segment.
-    const stats = useResource(() => getAgentStats(teamId, agent.slug).catch(() => null), [teamId, agent.slug])
+    // with zeros + an empty list rather than failing the segment. Both
+    // poll on a short interval — this is a live monitoring surface.
+    const POLL_MS = 10_000
+    const stats = useResource(() => getAgentStats(teamId, agent.slug).catch(() => null), [teamId, agent.slug], {
+        pollMs: POLL_MS,
+    })
     const sessions = useResource(
         () =>
             listSessionsForAgent(teamId, agent.slug, { id: agent.id, name: agent.name, slug: agent.slug }).catch(
                 () => [] as ChatSession[]
             ),
-        [teamId, agent.slug, agent.id]
+        [teamId, agent.slug, agent.id],
+        { pollMs: POLL_MS }
     )
 
     const liveRevision = revisions.find((r) => r.id === agent.live_revision) ?? null

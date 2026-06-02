@@ -32,6 +32,7 @@ import {
     GatewayClient,
     LogSink,
     MemoryStore,
+    TabularStore,
     RevisionStore,
     SandboxInstanceStore,
     SandboxPool,
@@ -147,6 +148,8 @@ export interface WorkerDeps {
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
      */
     memoryStore?: MemoryStore
+    /** Deterministic tabular store for `@posthog/table-*` tools; same S3 config as memory. */
+    tabularStore?: TabularStore
     /**
      * Per-session credential broker, populated by ingress at /run + /send.
      * The runner passes this through to `runSession` → tool deps →
@@ -391,6 +394,7 @@ export class Worker {
                 approvals: this.deps.approvals,
                 buildApprovalUrl: this.deps.buildApprovalUrl,
                 memoryStore: this.deps.memoryStore,
+                tabularStore: this.deps.tabularStore,
                 credentialBroker: this.deps.credentialBroker,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 mcpClients: openedMcpClients,

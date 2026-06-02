@@ -184,6 +184,29 @@ before archiving. Writes go through the same approval gate as agent
 mutations — `archive-create` and `files-destroy` require explicit
 user consent.
 
+### Tabular reference — deterministic structured state for agents
+
+When you help someone design an agent that needs to remember a *set* or keep a
+*log* — "skip messages I've already processed", "dedupe alerts", "append an
+audit row each run", "look up a value by key" — point them at the
+`@posthog/table-*` native tools instead of cramming it into markdown memory.
+They give an agent deterministic structured state in S3-backed JSONL tables,
+manipulated by tool (never by re-reading a list into the model's context):
+
+| Tool                                  | Use it for                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `@posthog/table-membership`           | partition ids into already-seen vs new — the seen-set / skip-set workhorse  |
+| `@posthog/table-append`               | append rows (optional `dedupe_on` a key column)                             |
+| `@posthog/table-query`                | filter (`eq` / `in` / range) + project + order + limit                      |
+| `@posthog/table-count`                | count rows matching a filter                                                |
+| `@posthog/table-delete` / `-truncate` | remove matching rows / reset a table                                        |
+
+The win over prose memory: membership + append are O(1) on the model's context
+regardless of table size, and the bytes never round-trip through inference (no
+lossy read-rewrite of a growing list). Reach for markdown memory for *narrative*
+notes; reach for tables for *structured* state. The console's memory tab
+surfaces these tables read-only under a Tables view.
+
 ### The client tools
 
 These run in the connecting client, not on the runner. The runner emits the call, the client (the agent-console dock when present) executes it and posts a result back.

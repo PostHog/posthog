@@ -56,12 +56,14 @@ import {
     FRAMEWORK_PROMPT_VERSION,
     lastAssistantTextPreview,
     MemoryStore,
+    TabularStore,
     RevisionStore,
     SessionQueue,
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 import { mountMemoryRoutes } from './api/memory'
+import { mountTableRoutes } from './api/tables'
 import { buildApprovalDecidedMarker } from './approval-marker'
 import { fireCronManually } from './cron-tick'
 import { asyncHandler, errorHandler } from './http-utils'
@@ -89,6 +91,8 @@ export interface JanitorServerOpts {
      * `InMemoryMemoryStore` directly.
      */
     memoryStore?: MemoryStore
+    /** Read-only tabular store for the console Tables view. */
+    tabularStore?: TabularStore
     internalSecret?: string
 }
 
@@ -902,6 +906,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // pattern applies when they get extracted: one file per logical group,
     // each exporting `mount*Routes(app, opts, log)` called here.
     mountMemoryRoutes(app, { memoryStore: opts.memoryStore, log })
+    mountTableRoutes(app, { tabularStore: opts.tabularStore, log })
 
     // Last in the chain. Catches anything the route handlers threw (via
     // asyncHandler), translates ZodError → 400, everything else → 500.
