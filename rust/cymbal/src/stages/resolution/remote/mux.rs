@@ -496,7 +496,7 @@ mod tests {
             vec![101, 102]
         );
 
-        let outcomes = vec![mux
+        let outcomes = [mux
             .submit_session(item(103))
             .wait_terminal(Duration::from_secs(1))
             .await
@@ -518,7 +518,7 @@ mod tests {
         let mux = ResolveMux::new(addr, channel, "test-secret".to_string(), 1);
         mux.close();
 
-        let outcomes = vec![mux
+        let outcomes = [mux
             .submit_session(item(7))
             .wait_terminal(Duration::from_secs(1))
             .await
