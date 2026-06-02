@@ -70,9 +70,10 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
         topIssues: [
             [] as TopIssue[],
             {
-                loadTopIssues: async ({ bucketMinutes }: { bucketMinutes: number }) => {
+                loadTopIssues: async ({ bucketMinutes }: { bucketMinutes: number }, breakpoint) => {
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
+                    await breakpoint(300)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -91,6 +92,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                         `,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     })) as HogQLQueryResponse
+                    breakpoint()
                     return (response.results ?? []).map(([issue_id, name, description, occurrences]) => ({
                         issue_id: String(issue_id),
                         name: name == null ? null : String(name),
@@ -103,15 +105,19 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
         selectedIssueVolume: [
             [] as ExceptionVolumeBucket[],
             {
-                loadSelectedIssueVolume: async ({
-                    issueId,
-                    bucketMinutes,
-                }: {
-                    issueId: string
-                    bucketMinutes: number
-                }) => {
+                loadSelectedIssueVolume: async (
+                    {
+                        issueId,
+                        bucketMinutes,
+                    }: {
+                        issueId: string
+                        bucketMinutes: number
+                    },
+                    breakpoint
+                ) => {
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
+                    await breakpoint(300)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -127,6 +133,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                         `,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     })) as HogQLQueryResponse
+                    breakpoint()
                     return (response.results ?? []).map(([bucket, count]) => ({
                         bucket: String(bucket),
                         count: Number(count),
