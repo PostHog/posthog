@@ -53,12 +53,15 @@ const INPUT_TYPE_LIST = [
     'non_failure_status_codes',
 ] as const
 
-const INPUT_TYPE_LABELS: Partial<Record<(typeof INPUT_TYPE_LIST)[number], string>> = {
+// Keyed by the full CyclotronJobInputSchemaType['type'] union — the schema editor's LemonSelect
+// receives `value={value.type}` which widens the inferred T past INPUT_TYPE_LIST, so the map's
+// indexer needs to accept any of the schema types.
+const INPUT_TYPE_LABELS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
     native_email: 'Native email',
     non_failure_status_codes: 'Non-failure codes',
 }
 
-const INPUT_TYPE_DEFAULT_DESCRIPTIONS: Partial<Record<(typeof INPUT_TYPE_LIST)[number], string>> = {
+const INPUT_TYPE_DEFAULT_DESCRIPTIONS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
     non_failure_status_codes:
         'HTTP response codes that should NOT mark the invocation as failed. Accepts specific codes (e.g. 409, 422) or the wildcards 4xx and 5xx. Useful when an API returns 4xx for expected non-error states.',
 }
