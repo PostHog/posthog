@@ -50,6 +50,7 @@ from posthog.storage.hypercache import (
     HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER,
     HYPERCACHE_REBUILD_SKIPPED_COUNTER,
     HyperCache,
+    KeyType,
     emit_cache_sync_metrics,
 )
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
@@ -497,6 +498,24 @@ def _group_mapping_would_be_emptied(team: Team, payload: dict[str, Any]) -> bool
     return project_has_group_types_authoritatively(team.project_id)
 
 
+def _skip_write_if_group_mapping_emptied(key: KeyType, payload: dict[str, Any]) -> bool:
+    """Veto a flag-definitions write that would empty a populated group_type_mapping,
+    emitting the skip metric + throttled capture. Shared by every write path — the
+    signal-driven rebuild and the refresh/warm update_cache path — so the guard can't
+    be bypassed depending on which trigger fired."""
+    team = HyperCache.team_from_key(key)
+    if not _group_mapping_would_be_emptied(team, payload):
+        return False
+    HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER.labels(namespace="feature_flags").inc()
+    _capture_flag_cache_skip_throttled(
+        "flag_cache_group_mapping_emptied_capture_throttle",
+        Exception(f"group_type_mapping would be emptied for team {team.id}"),
+        "Skipped feature_flags cache rebuild: refusing to empty a populated group_type_mapping",
+        team_id=team.id,
+    )
+    return True
+
+
 def update_flag_caches(team: Team):
     """Update both flag cache variants."""
     logger.info("Syncing feature_flags cache for team", team_id=team.id)
@@ -509,14 +528,7 @@ def update_flag_caches(team: Team):
         with_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
 
         # Both variants share the same mapping, so one check gates both writes.
-        if _group_mapping_would_be_emptied(team, with_cohorts):
-            HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER.labels(namespace="feature_flags").inc()
-            _capture_flag_cache_skip_throttled(
-                "flag_cache_group_mapping_emptied_capture_throttle",
-                Exception(f"group_type_mapping would be emptied for team {team.id}"),
-                "Skipped feature_flags cache rebuild: refusing to empty a populated group_type_mapping",
-                team_id=team.id,
-            )
+        if _skip_write_if_group_mapping_emptied(team, with_cohorts):
             return
 
         size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
@@ -750,14 +762,18 @@ def _update_flag_definitions_with_cohorts(team: Team | int, ttl: int | None = No
     resolved_team = _resolve_team(team)
     if resolved_team is None:
         return False
-    return flag_definitions_hypercache.update_cache(resolved_team, ttl=ttl)
+    return flag_definitions_hypercache.update_cache(
+        resolved_team, ttl=ttl, should_skip_write=_skip_write_if_group_mapping_emptied
+    )
 
 
 def _update_flag_definitions_without_cohorts(team: Team | int, ttl: int | None = None) -> bool:
     resolved_team = _resolve_team(team)
     if resolved_team is None:
         return False
-    return flag_definitions_without_cohorts_hypercache.update_cache(resolved_team, ttl=ttl)
+    return flag_definitions_without_cohorts_hypercache.update_cache(
+        resolved_team, ttl=ttl, should_skip_write=_skip_write_if_group_mapping_emptied
+    )
 
 
 # HyperCache management configs for warming/verification.

@@ -396,7 +396,12 @@ class HyperCache:
                 # If everything fails, return None with modified=True
                 return None, None, True
 
-    def update_cache(self, key: KeyType, ttl: Optional[int] = None) -> bool:
+    def update_cache(
+        self,
+        key: KeyType,
+        ttl: Optional[int] = None,
+        should_skip_write: Optional[Callable[[KeyType, dict], bool]] = None,
+    ) -> bool:
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
@@ -404,6 +409,11 @@ class HyperCache:
         size: int | None = None
         try:
             data = self.load_fn(key)
+            if should_skip_write is not None and isinstance(data, dict) and should_skip_write(key, data):
+                # A caller-supplied predicate vetoed persisting this freshly loaded
+                # value (e.g. it would overwrite good data with a degraded one). Keep
+                # the existing entry; the predicate owns its own metric/logging.
+                return False
             size = self.set_cache_value(key, data, ttl=ttl)
             success = True
             return True
