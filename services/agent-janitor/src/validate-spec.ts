@@ -27,6 +27,7 @@ export type ValidationCode =
     | 'missing_custom_tool_schema'
     | 'missing_skill'
     | 'invalid_cron_schedule'
+    | 'cron_schedule_too_frequent'
     | 'invalid_cron_timezone'
     | 'duplicate_cron_name'
     | 'unknown_cron_placeholder'
@@ -45,6 +46,15 @@ export const CRON_PLACEHOLDERS: ReadonlySet<string> = new Set([
     'schedule',
     'cron_name',
 ])
+
+/**
+ * Minimum interval between two consecutive cron firings. The janitor ticks on
+ * a ~30s loop and catch-up fires per surviving firing — a sub-minute (6-field)
+ * schedule like `* * * * * *` turns a paused janitor + the 7-day catch-up cap
+ * into a fire storm of hundreds of thousands of sessions in one tick. Reject
+ * those at freeze; the per-tick cap in `cron-tick.ts` is the runtime backstop.
+ */
+const MIN_CRON_INTERVAL_SECONDS = 60
 
 export interface ValidationError {
     code: ValidationCode
@@ -148,7 +158,23 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         }
         const cfg = trigger.config
         try {
-            cronParser.parseExpression(cfg.schedule, { tz: cfg.timezone })
+            const it = cronParser.parseExpression(cfg.schedule, { tz: cfg.timezone })
+            // Reject schedules that fire more than once a minute. We can only
+            // measure the gap when two firings exist; a one-shot schedule
+            // (no second firing) is harmless and slips through unflagged.
+            try {
+                const first = it.next().toDate().getTime()
+                const second = it.next().toDate().getTime()
+                if (second - first < MIN_CRON_INTERVAL_SECONDS * 1000) {
+                    errors.push({
+                        code: 'cron_schedule_too_frequent',
+                        message: `cron "${cfg.name}" schedule "${cfg.schedule}" fires more than once a minute; the minimum interval is ${MIN_CRON_INTERVAL_SECONDS}s`,
+                        pointer: `spec.triggers[${i}].config.schedule`,
+                    })
+                }
+            } catch {
+                // No second firing to compare against — not a frequency risk.
+            }
         } catch (err) {
             errors.push({
                 code: 'invalid_cron_schedule',

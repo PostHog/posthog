@@ -68,6 +68,14 @@ export interface CronTickResult {
 const CRON_PRINCIPAL: SessionPrincipal = { kind: 'service', id: 'cron' }
 
 /**
+ * Hard cap on firings fired for a single cron trigger in one tick. Only bites
+ * `catch_up: "all"` (`most_recent` / `skip` yield <=1). A runtime backstop for
+ * specs that predate the freeze-time frequency guard or that fire
+ * legitimately-often after a long pause; truncation is logged, never silent.
+ */
+const MAX_FIRINGS_PER_TICK = 100
+
+/**
  * One firing per `cronTick()` invocation, per cron trigger, per surviving
  * firing time within `(lastTickAt, now]`. Stateful across invocations: pass
  * the same `tickState` back in so `lastTickAt` advances.
@@ -201,8 +209,27 @@ export async function cronTick(deps: CronTickDeps, state: CronTickState): Promis
                 result.skipped_no_window++
                 continue
             }
-            const survivors = applyCatchUp(firings, cfg.catch_up, cfg.max_catch_up_age_seconds, now)
+            let survivors = applyCatchUp(firings, cfg.catch_up, cfg.max_catch_up_age_seconds, now)
             result.skipped_caught_up += firings.length - survivors.length
+
+            // Backstop the validation guard: only `catch_up: "all"` can yield
+            // more than one survivor, and a long pause on a frequent schedule
+            // can still pile up thousands. Keep the most recent firings, drop
+            // the stale tail, and log it — never silently truncate.
+            if (survivors.length > MAX_FIRINGS_PER_TICK) {
+                const dropped = survivors.length - MAX_FIRINGS_PER_TICK
+                survivors = survivors.slice(-MAX_FIRINGS_PER_TICK)
+                result.skipped_caught_up += dropped
+                log.warn(
+                    {
+                        revision_id: rev.id,
+                        cron_name: cfg.name,
+                        dropped,
+                        kept: MAX_FIRINGS_PER_TICK,
+                    },
+                    'cron.tick.firings_capped'
+                )
+            }
 
             for (const firedAt of survivors) {
                 try {

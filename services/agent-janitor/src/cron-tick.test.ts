@@ -161,11 +161,11 @@ describe('cronTick', () => {
         const t0 = new Date('2026-06-01T10:00:00Z')
         await cronTick({ revisions, queue, now: () => t0 }, state)
         // Window (10:00, 10:05]: firings at 10:01, 10:02, 10:03, 10:04, 10:05.
-        // With max_catch_up_age_seconds=120 and now=10:05, the age cap is
-        // 10:03 (inclusive) — so 10:03, 10:04, 10:05 = 3 firings survive.
+        // With max_catch_up_age_seconds=120 and now=10:05, the clamp starts the
+        // window strictly after the 10:03 boundary — so 10:04, 10:05 survive.
         const t1 = new Date('2026-06-01T10:05:00Z')
         const out = await cronTick({ revisions, queue, now: () => t1 }, state)
-        expect(out.fired).toBe(3)
+        expect(out.fired).toBe(2)
     })
 
     it('clamps the enumeration window to max_catch_up_age_seconds', async () => {
@@ -192,6 +192,30 @@ describe('cronTick', () => {
 
         expect(out.fired).toBe(2)
         expect(out.skipped_caught_up).toBe(0)
+    })
+
+    it('catch_up=all caps firings per tick and drops the stale tail', async () => {
+        // A frequent schedule with a long catch-up window can pile up far more
+        // survivors than one tick should fire. The cap keeps the most recent
+        // MAX_FIRINGS_PER_TICK (100) and counts the rest as caught-up.
+        const revisions = new MemoryRevisionStore()
+        const queue = new MemorySessionQueue()
+        await deploy(revisions, {
+            triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'all', max_catch_up_age_seconds: 100_000 })],
+        })
+        const state = newCronTickState()
+
+        const t0 = new Date('2026-06-01T10:00:00Z')
+        await cronTick({ revisions, queue, now: () => t0 }, state)
+
+        // 200 minute-firings fall in (10:00, 13:20]; the age window (100000s)
+        // covers all of them, so all 200 survive catch-up — then the cap trims
+        // to the most recent 100.
+        const t1 = new Date('2026-06-01T13:20:00Z')
+        const out = await cronTick({ revisions, queue, now: () => t1 }, state)
+
+        expect(out.fired).toBe(100)
+        expect(out.skipped_caught_up).toBe(100)
     })
 
     it('idempotency: re-running the same tick is a no-op (the unique-key path)', async () => {

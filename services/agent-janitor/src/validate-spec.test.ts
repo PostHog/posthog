@@ -178,6 +178,18 @@ describe('validateRevisionBundle', () => {
             expect(codes).toContain('invalid_cron_schedule')
         })
 
+        it('flags a sub-minute schedule that fires more than once a minute', async () => {
+            const report = await setup([cronTrigger({ schedule: '* * * * * *' })])
+            const codes = report.errors.map((e) => e.code)
+            expect(codes).toContain('cron_schedule_too_frequent')
+        })
+
+        it('accepts an every-minute schedule (the 60s boundary)', async () => {
+            const report = await setup([cronTrigger({ schedule: '* * * * *' })])
+            const codes = report.errors.map((e) => e.code)
+            expect(codes).not.toContain('cron_schedule_too_frequent')
+        })
+
         it('flags an unknown IANA timezone', async () => {
             const report = await setup([cronTrigger({ timezone: 'Mars/Olympus_Mons' })])
             const codes = report.errors.map((e) => e.code)
