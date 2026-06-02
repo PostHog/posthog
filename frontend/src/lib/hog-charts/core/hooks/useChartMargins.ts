@@ -2,7 +2,7 @@ import * as d3 from 'd3'
 import { useMemo } from 'react'
 
 import { normalizeAxisLabel } from '../../utils/axis-labels'
-import { MAX_CATEGORY_LABEL_WIDTH, measureLabelWidth } from '../../utils/text-measure'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
@@ -34,11 +34,15 @@ interface UseChartMarginsOptions {
      *  passes the whisker min/max samples so the y-tick column fits the actual range, not just
      *  the medians it draws on `series.data`. yAxis-id discovery still reads from `series`. */
     valueRangeSeries?: Series[]
+    /** When set, clamp the reserved category-label width to this ceiling so a single long label
+     *  can't grow the axis margin without bound. Mirrors AxisLabels' display truncation. */
+    maxCategoryLabelWidth?: number
 }
 
 function widestCategoryLabelWidth(
     labels: string[],
-    xTickFormatter: ((value: string, index: number) => string | null) | undefined
+    xTickFormatter: ((value: string, index: number) => string | null) | undefined,
+    maxCategoryLabelWidth = 0
 ): number {
     let widest = 0
     for (let i = 0; i < labels.length; i++) {
@@ -48,9 +52,7 @@ function widestCategoryLabelWidth(
         }
         widest = Math.max(widest, measureLabelWidth(text))
     }
-    // Cap the reserved width so a single long label (e.g. a URL breakdown value) can't grow the
-    // axis margin without bound — AxisLabels truncates the displayed text to the same ceiling.
-    return Math.min(widest, MAX_CATEGORY_LABEL_WIDTH)
+    return maxCategoryLabelWidth > 0 ? Math.min(widest, maxCategoryLabelWidth) : widest
 }
 
 function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
@@ -84,6 +86,7 @@ export function useChartMargins({
     axisOrientation = 'vertical',
     override,
     valueRangeSeries,
+    maxCategoryLabelWidth = 0,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
     const valueSeries = valueRangeSeries ?? series
@@ -102,10 +105,10 @@ export function useChartMargins({
             return 0
         }
         if (isHorizontal) {
-            return widestCategoryLabelWidth(labels, xTickFormatter)
+            return widestCategoryLabelWidth(labels, xTickFormatter, maxCategoryLabelWidth)
         }
         return widestValueLabelWidth(valueSeries, yTickFormatter)
-    }, [valueSeries, yTickFormatter, hideYAxis, isHorizontal, labels, xTickFormatter])
+    }, [valueSeries, yTickFormatter, hideYAxis, isHorizontal, labels, xTickFormatter, maxCategoryLabelWidth])
 
     const xLabelHalfWidth = useMemo<number>(() => {
         if (hideXAxis) {
@@ -118,8 +121,8 @@ export function useChartMargins({
         if (labels.length === 0) {
             return 0
         }
-        return Math.ceil(widestCategoryLabelWidth(labels, xTickFormatter) / 2)
-    }, [labels, xTickFormatter, hideXAxis, isHorizontal, valueSeries, yTickFormatter])
+        return Math.ceil(widestCategoryLabelWidth(labels, xTickFormatter, maxCategoryLabelWidth) / 2)
+    }, [labels, xTickFormatter, hideXAxis, isHorizontal, valueSeries, yTickFormatter, maxCategoryLabelWidth])
 
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis

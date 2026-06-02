@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { AXIS_LABEL_FONT, MAX_CATEGORY_LABEL_WIDTH, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
+import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
@@ -15,6 +15,9 @@ interface AxisLabelsProps {
     /** Optional override for label → coord mapping. Falls back to `scales.x`, which chart types
      *  serving horizontal orientation are expected to set to a label→band-center function. */
     labelToCoord?: (label: string) => number | undefined
+    /** When set, truncate category tick labels wider than this (px) with an ellipsis and reveal
+     *  the full value on hover. Omitted (default) renders labels untruncated. */
+    maxCategoryLabelWidth?: number
 }
 
 const LABEL_PADDING = 20
@@ -22,7 +25,8 @@ const LABEL_PADDING = 20
 export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
-    formatter?: (value: string, index: number) => string | null
+    formatter?: (value: string, index: number) => string | null,
+    maxCategoryLabelWidth = 0
 ): { index: number; text: string; fullText: string; x: number }[] {
     const candidates: { index: number; text: string; fullText: string; x: number }[] = []
     for (let i = 0; i < labels.length; i++) {
@@ -34,8 +38,9 @@ export function computeVisibleXLabels(
         if (fullText === null) {
             continue
         }
-        // Truncate for display and overlap measurement; the full value is revealed on hover.
-        const text = truncateToWidth(fullText, MAX_CATEGORY_LABEL_WIDTH)
+        // When a max width is set, truncate for display and overlap measurement; the full value
+        // is revealed on hover. A non-positive width leaves the label untruncated.
+        const text = truncateToWidth(fullText, maxCategoryLabelWidth)
         candidates.push({ index: i, text, fullText, x })
     }
 
@@ -162,6 +167,7 @@ export function AxisLabels({
     axisColor = 'rgba(0, 0, 0, 0.5)',
     orientation = 'vertical',
     labelToCoord,
+    maxCategoryLabelWidth = 0,
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels } = useChartLayout()
     const yTicks = scales.yTicks()
@@ -176,8 +182,10 @@ export function AxisLabels({
 
     const visibleXLabels = useMemo(
         () =>
-            hideXAxis || orientation === 'horizontal' ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter),
-        [hideXAxis, labels, scales.x, xTickFormatter, orientation]
+            hideXAxis || orientation === 'horizontal'
+                ? []
+                : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth),
+        [hideXAxis, labels, scales.x, xTickFormatter, orientation, maxCategoryLabelWidth]
     )
 
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
@@ -198,7 +206,7 @@ export function AxisLabels({
                         if (y == null || !isFinite(y)) {
                             return null
                         }
-                        const text = truncateToWidth(fullText, MAX_CATEGORY_LABEL_WIDTH)
+                        const text = truncateToWidth(fullText, maxCategoryLabelWidth)
                         return (
                             <YTickLabel
                                 key={`y-cat-${i}`}
