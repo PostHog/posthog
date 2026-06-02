@@ -1,8 +1,8 @@
-# Replace the full `safety_verdict` btree with a partial index on the only
-# value ever queried (`unknown`), so it shrinks to ~0 rows once docs are
-# classified. Concurrent build/drop avoids locking the documents table.
+# Partial index backing the cross-team "docs awaiting classification" scan.
+# Partial on the only value ever queried (`unknown`) so it stays ~0 rows once
+# docs are classified. Concurrent build avoids locking the documents table.
 
-from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
+from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
 
@@ -14,10 +14,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        RemoveIndexConcurrently(
-            model_name="knowledgedocument",
-            name="bk_doc_safety_verdict",
-        ),
         AddIndexConcurrently(
             model_name="knowledgedocument",
             index=models.Index(

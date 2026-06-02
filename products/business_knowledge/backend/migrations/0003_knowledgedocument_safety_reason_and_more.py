@@ -41,16 +41,4 @@ class Migration(migrations.Migration):
                 max_length=16,
             ),
         ),
-        migrations.AddIndex(
-            model_name="knowledgedocument",
-            index=models.Index(fields=["safety_verdict"], name="bk_doc_safety_verdict"),
-        ),
-        migrations.AddIndex(
-            model_name="knowledgedocument",
-            index=models.Index(fields=["tombstoned_at"], name="bk_doc_tombstoned"),
-        ),
-        migrations.AddIndex(
-            model_name="knowledgesource",
-            index=models.Index(fields=["refresh_interval", "last_refresh_at"], name="bk_source_refresh_due"),
-        ),
     ]
