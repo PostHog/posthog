@@ -1077,4 +1077,116 @@ describe('Workflows E2E (email queue)', () => {
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
     })
+
+    it('re-routes between hogflow and email queues across email → fetch → email', async () => {
+        // Exercises the full ping-pong:
+        //   hogflow worker → email queue (email_1) → email worker sends → routes back to hogflow
+        //   → hogflow worker does fetch → email queue (email_2) → email worker sends → exits
+        // Proves queueMetadata.originQueue is honored on the return trip from the email worker.
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-workflows-e2e-fetch',
+            name: 'Workflows E2E Fetch',
+            code: `
+            let res := fetch(inputs.url, {'method': inputs.method});
+            print('Fetch result:', res.status);
+            `,
+            inputs_schema: [
+                { key: 'url', type: 'string', required: true },
+                { key: 'method', type: 'string', required: false },
+            ],
+        })
+
+        mockFetch.mockResolvedValue({
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+            json: () => Promise.resolve({ success: true }),
+            text: () => Promise.resolve(JSON.stringify({ success: true })),
+            dump: () => Promise.resolve(),
+        })
+
+        const emailAction = (label: string) => ({
+            type: 'function_email' as const,
+            config: {
+                template_id: 'template-workflows-e2e-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                            subject: label,
+                            text: label,
+                            html: `<p>${label}</p>`,
+                        },
+                    },
+                },
+            },
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: emailAction('First email'),
+                    fetch_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-fetch',
+                            inputs: {
+                                url: { value: 'https://example.com/between-emails' },
+                                method: { value: 'POST' },
+                            },
+                        },
+                    },
+                    email_2: emailAction('Second email'),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
+                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // The fetch must fire exactly once — happens on the hogflow worker between
+        // the two email queue hops. If it never fires, the email worker is failing
+        // to route back to hogflow after the first send.
+        await waitForExpect(() => {
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/between-emails',
+                expect.objectContaining({ method: 'POST' })
+            )
+        }, 15000)
+
+        // Two emails were queued and two were sent — one for each side of the fetch.
+        await waitForExpect(() => {
+            const emailMetrics = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_kind === 'email')
+            const queued = emailMetrics.filter((m: any) => m.value.metric_name === 'email_queued')
+            const sent = emailMetrics.filter((m: any) => m.value.metric_name === 'email_sent')
+            expect(queued.length).toBe(2)
+            expect(sent.length).toBe(2)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+    })
 })
