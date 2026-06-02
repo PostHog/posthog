@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
@@ -69,7 +70,12 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
 
         generationsColumns: [
             null as string[] | null,
-            { persist: true },
+            // Stable storage key — the logic is keyed by an ephemeral per-load tabId, so the
+            // default path-derived persist key would change on every refresh and lose the selection.
+            {
+                persist: true,
+                storageKey: `products.ai_observability.frontend.tabs.aiObservabilityGenerationsLogic.${getCurrentTeamId()}.generationsColumns`,
+            },
             {
                 setGenerationsColumns: (_, { columns }) => columns,
             },
@@ -156,48 +162,12 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
             (override, defQuery) => override || defQuery,
         ],
 
-        // Ensure feature-flag-gated columns are present in persisted column sets.
-        // Without this, users who visited the page before a flag was enabled would
-        // never see the new column because their persisted selection takes priority.
-        effectiveGenerationsColumns: [
-            (s) => [s.generationsColumns, s.featureFlags],
-            (generationsColumns, featureFlags): string[] | null => {
-                if (!generationsColumns) {
-                    return null
-                }
-
-                let columns = generationsColumns
-
-                const sentimentCol = "'' -- Sentiment"
-                if (!!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && !columns.includes(sentimentCol)) {
-                    // Insert after person column, or before Model
-                    const modelIdx = columns.findIndex((c) => c.includes('ai_model'))
-                    columns =
-                        modelIdx >= 0
-                            ? [...columns.slice(0, modelIdx), sentimentCol, ...columns.slice(modelIdx)]
-                            : [...columns, sentimentCol]
-                }
-
-                const toolsCol = 'properties.$ai_tools_called'
-                if (!!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] && !columns.includes(toolsCol)) {
-                    // Insert before the Error column, or at the end
-                    const errorIdx = columns.findIndex((c) => c.includes('ai_is_error'))
-                    columns =
-                        errorIdx >= 0
-                            ? [...columns.slice(0, errorIdx), toolsCol, ...columns.slice(errorIdx)]
-                            : [...columns, toolsCol]
-                }
-
-                return columns
-            },
-        ],
-
         defaultGenerationsQuery: [
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
-                s.effectiveGenerationsColumns,
+                s.generationsColumns,
                 s.generationsSort,
                 s.groupsTaxonomicTypes,
                 s.featureFlags,
@@ -206,7 +176,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
-                effectiveGenerationsColumns,
+                generationsColumns,
                 generationsSort,
                 groupsTaxonomicTypes,
                 featureFlags
@@ -216,7 +186,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                     kind: NodeKind.EventsQuery,
                     limit: 100,
                     select:
-                        effectiveGenerationsColumns ||
+                        generationsColumns ||
                         getDefaultGenerationsColumns(
                             !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                             !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
