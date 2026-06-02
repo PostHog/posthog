@@ -835,6 +835,10 @@ type StringReplacementResult<T> = {
     value: T
     count: number
 }
+type TextReplacementResult = {
+    step: ReplaceStep
+    nextPosition: number
+}
 
 function replaceInString(
     value: string,
@@ -1011,19 +1015,23 @@ function applyTextReplacementInBlock(
     doc: ProseMirrorDoc,
     index: number,
     find: string,
-    replacement: string
-): ReplaceStep | null {
+    replacement: string,
+    startPosition: number = 0
+): TextReplacementResult | null {
     const node = doc.content[index]
     if (!node) {
         return null
     }
 
-    const match = findTextMatch(node, find, topLevelPositionBefore(doc, index))
+    const match = findTextMatch(node, find, topLevelPositionBefore(doc, index), null, null, startPosition)
     if (!match) {
         return null
     }
 
-    return applyTextMatchReplacement(match, find, replacement)
+    return {
+        step: applyTextMatchReplacement(match, find, replacement),
+        nextPosition: match.from + replacement.length,
+    }
 }
 
 function applyReplacementsInBlockRange(
@@ -1049,13 +1057,15 @@ function applyReplacementsInBlockRange(
             continue
         }
 
+        let searchPosition = topLevelPositionBefore(doc, index)
         while (true) {
-            const textStep = applyTextReplacementInBlock(doc, index, find, replacement)
-            if (!textStep) {
+            const textReplacement = applyTextReplacementInBlock(doc, index, find, replacement, searchPosition)
+            if (!textReplacement) {
                 break
             }
 
-            steps.push(textStep)
+            steps.push(textReplacement.step)
+            searchPosition = textReplacement.nextPosition
             replacements += 1
 
             if (!allOccurrences) {
@@ -1074,11 +1084,13 @@ function findTextMatch(
     find: string,
     position: number,
     parent: ProseMirrorNode | ProseMirrorDoc | null = null,
-    childIndex: number | null = null
+    childIndex: number | null = null,
+    startPosition: number = 0
 ): TextMatch | null {
     if (node.type === 'text') {
         const text = typeof node.text === 'string' ? node.text : ''
-        const startIndex = text.indexOf(find)
+        const localStartIndex = Math.max(0, startPosition - position)
+        const startIndex = text.indexOf(find, localStartIndex)
         if (startIndex === -1) {
             return null
         }
@@ -1102,7 +1114,7 @@ function findTextMatch(
         if (!child) {
             continue
         }
-        const match = findTextMatch(child, find, childPosition, node, index)
+        const match = findTextMatch(child, find, childPosition, node, index, startPosition)
         if (match) {
             return match
         }
@@ -1191,13 +1203,21 @@ function applyTextMatchReplacement(match: TextMatch, find: string, replacement: 
     return replaceStep(match.from, match.to, replacementTextNodes(match, replacement))
 }
 
-function applyTextReplacement(doc: ProseMirrorDoc, find: string, replacement: string): ReplaceStep | null {
-    const match = findTextMatch(doc, find, 0)
+function applyTextReplacement(
+    doc: ProseMirrorDoc,
+    find: string,
+    replacement: string,
+    startPosition: number = 0
+): TextReplacementResult | null {
+    const match = findTextMatch(doc, find, 0, null, null, startPosition)
     if (!match) {
         return null
     }
 
-    return applyTextMatchReplacement(match, find, replacement)
+    return {
+        step: applyTextMatchReplacement(match, find, replacement),
+        nextPosition: match.from + replacement.length,
+    }
 }
 
 function applyExactTextNodeReplacementEdit(
@@ -1361,6 +1381,33 @@ function applyReplaceTextEdit(
     const steps: ReplaceStep[] = []
     let replacements = 0
 
+    if (allOccurrences) {
+        for (let index = 0; index < doc.content.length; index++) {
+            const attributeSteps = applyAttributeReplacementInBlock(doc, index, find, replacement, true)
+            steps.push(...attributeSteps)
+            replacements += attributeSteps.length
+            assertReplacementLimit(find, replacements)
+        }
+
+        let searchPosition = 0
+        while (true) {
+            const textReplacement = applyTextReplacement(doc, find, replacement, searchPosition)
+            if (!textReplacement) {
+                break
+            }
+            steps.push(textReplacement.step)
+            searchPosition = textReplacement.nextPosition
+            replacements += 1
+            assertReplacementLimit(find, replacements)
+        }
+
+        if (steps.length === 0) {
+            throw new Error(`Could not find text "${find}" in the notebook.`)
+        }
+
+        return steps
+    }
+
     while (true) {
         const attributeIndex = findAttributeReplacementBlockIndex(doc, find)
         if (attributeIndex !== null) {
@@ -1368,19 +1415,15 @@ function applyReplaceTextEdit(
             steps.push(...attributeSteps)
             replacements += attributeSteps.length
         } else {
-            const step = applyTextReplacement(doc, find, replacement)
-            if (!step) {
+            const textReplacement = applyTextReplacement(doc, find, replacement)
+            if (!textReplacement) {
                 break
             }
-            steps.push(step)
+            steps.push(textReplacement.step)
             replacements += 1
         }
 
-        if (!allOccurrences) {
-            break
-        }
-
-        assertReplacementLimit(find, replacements)
+        break
     }
 
     if (steps.length === 0) {

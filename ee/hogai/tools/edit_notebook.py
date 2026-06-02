@@ -110,6 +110,22 @@ LEAF_NODE_TYPES = {"hardBreak", "horizontalRule"}
 MAX_TEXT_REPLACEMENTS = 100
 
 
+def utf16_length(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
+def code_point_index_for_utf16_offset(value: str, offset: int) -> int:
+    if offset <= 0:
+        return 0
+
+    utf16_position = 0
+    for index, char in enumerate(value):
+        if utf16_position >= offset:
+            return index
+        utf16_position += utf16_length(char)
+    return len(value)
+
+
 class InsertContentArgs(BaseModel):
     content: str | None = Field(
         default=None,
@@ -257,7 +273,7 @@ def normalize_document(content: Any) -> ProseMirrorDoc:
 def node_size(node: ProseMirrorNode) -> int:
     if node.get("type") == "text":
         text = node.get("text")
-        return len(text) if isinstance(text, str) else 0
+        return utf16_length(text) if isinstance(text, str) else 0
 
     content = node.get("content")
     if not isinstance(content, list):
@@ -451,17 +467,22 @@ def find_text_match(
     position: int,
     parent: ProseMirrorNode | ProseMirrorDoc | None = None,
     child_index: int | None = None,
+    start_position: int = 0,
 ) -> TextMatch | None:
     if node.get("type") == "text":
         text = node.get("text")
         if not isinstance(text, str):
             return None
-        start_index = text.find(find)
+        local_start_index = 0
+        if start_position > position:
+            local_start_index = code_point_index_for_utf16_offset(text, start_position - position)
+        start_index = text.find(find, local_start_index)
         if start_index == -1:
             return None
+        start_offset = utf16_length(text[:start_index])
         return TextMatch(
-            from_pos=position + start_index,
-            to_pos=position + start_index + len(find),
+            from_pos=position + start_offset,
+            to_pos=position + start_offset + utf16_length(find),
             node=node,
             parent=parent,
             child_index=child_index,
@@ -476,7 +497,7 @@ def find_text_match(
     for index, child in enumerate(content):
         if not isinstance(child, dict):
             continue
-        match = find_text_match(child, find, child_position, node, index)
+        match = find_text_match(child, find, child_position, node, index, start_position)
         if match:
             return match
         child_position += node_size(child)
@@ -643,14 +664,22 @@ def apply_text_match_replacement(match: TextMatch, find: str, replacement: str) 
     return replace_step(match.from_pos, match.to_pos, replacement_text_nodes(match, replacement))
 
 
-def apply_text_replacement(doc: ProseMirrorDoc, find: str, replacement: str) -> ReplaceStep | None:
-    match = find_text_match(doc, find, 0)
+def apply_text_replacement(
+    doc: ProseMirrorDoc, find: str, replacement: str, start_position: int = 0
+) -> tuple[ReplaceStep, int] | None:
+    match = find_text_match(doc, find, 0, start_position=start_position)
     if not match:
         return None
-    return apply_text_match_replacement(match, find, replacement)
+    next_position = match.from_pos + utf16_length(replacement)
+    step = apply_text_match_replacement(match, find, replacement)
+    if not step:
+        return None
+    return step, next_position
 
 
-def apply_text_replacement_in_block(doc: ProseMirrorDoc, index: int, find: str, replacement: str) -> ReplaceStep | None:
+def apply_text_replacement_in_block(
+    doc: ProseMirrorDoc, index: int, find: str, replacement: str, start_position: int = 0
+) -> tuple[ReplaceStep, int] | None:
     try:
         node = doc["content"][index]
     except (KeyError, IndexError):
@@ -658,10 +687,14 @@ def apply_text_replacement_in_block(doc: ProseMirrorDoc, index: int, find: str, 
     if not isinstance(node, dict):
         return None
 
-    match = find_text_match(node, find, top_level_position_before(doc, index))
+    match = find_text_match(node, find, top_level_position_before(doc, index), start_position=start_position)
     if not match:
         return None
-    return apply_text_match_replacement(match, find, replacement)
+    next_position = match.from_pos + utf16_length(replacement)
+    step = apply_text_match_replacement(match, find, replacement)
+    if not step:
+        return None
+    return step, next_position
 
 
 def assert_replacement_limit(find: str, replacement_count: int) -> None:
@@ -692,10 +725,12 @@ def apply_replacements_in_block_range(
             assert_replacement_limit(find, replacements)
             continue
 
+        search_position = top_level_position_before(doc, index)
         while True:
-            step = apply_text_replacement_in_block(doc, index, find, replacement)
-            if not step:
+            text_replacement = apply_text_replacement_in_block(doc, index, find, replacement, search_position)
+            if not text_replacement:
                 break
+            step, search_position = text_replacement
             steps.append(step)
             replacements += 1
             if not all_occurrences:
@@ -731,6 +766,30 @@ def apply_replace_text_edit(
 
     steps: list[ReplaceStep] = []
     replacements = 0
+
+    if all_occurrences:
+        content = doc.get("content", [])
+        if isinstance(content, list):
+            for index in range(len(content)):
+                attribute_steps = apply_attribute_replacement_in_block(doc, index, find, replacement, True)
+                steps.extend(attribute_steps)
+                replacements += len(attribute_steps)
+                assert_replacement_limit(find, replacements)
+
+        search_position = 0
+        while True:
+            text_replacement = apply_text_replacement(doc, find, replacement, search_position)
+            if not text_replacement:
+                break
+            step, search_position = text_replacement
+            steps.append(step)
+            replacements += 1
+            assert_replacement_limit(find, replacements)
+
+        if not steps:
+            raise MaxToolRetryableError(f'Could not find text "{find}" in the notebook.')
+        return steps
+
     while True:
         attribute_index = find_attribute_replacement_block_index(doc, find)
         if attribute_index is not None:
@@ -738,15 +797,14 @@ def apply_replace_text_edit(
             steps.extend(attribute_steps)
             replacements += len(attribute_steps)
         else:
-            step = apply_text_replacement(doc, find, replacement)
-            if not step:
+            text_replacement = apply_text_replacement(doc, find, replacement)
+            if not text_replacement:
                 break
+            step, _ = text_replacement
             steps.append(step)
             replacements += 1
 
-        if not all_occurrences:
-            break
-        assert_replacement_limit(find, replacements)
+        break
 
     if not steps:
         raise MaxToolRetryableError(f'Could not find text "{find}" in the notebook.')

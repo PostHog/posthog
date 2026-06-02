@@ -377,6 +377,101 @@ describe('notebook-edit anchored edits', () => {
         })
     })
 
+    it('replaces all text occurrences without matching replacement text again', async () => {
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: doc(paragraph('http http')),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(paragraph('https https')),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [{ type: 'replace_text', find: 'http', replace: 'https', all_occurrences: true, occurrence: 1 }],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            text_content: 'https https',
+            content: doc(paragraph('https https')),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 1,
+                    to: 5,
+                    slice: { content: [{ type: 'text', text: 'https' }] },
+                },
+                {
+                    stepType: 'replace',
+                    from: 7,
+                    to: 11,
+                    slice: { content: [{ type: 'text', text: 'https' }] },
+                },
+            ],
+        })
+    })
+
+    it('replaces all query attribute occurrences without matching replacement text again', async () => {
+        const oldQuery = {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: "SELECT 'http' AS url\nUNION ALL SELECT 'http'" },
+            display: 'ActionsTable',
+        }
+        const newQuery = {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: "SELECT 'https' AS url\nUNION ALL SELECT 'https'" },
+            display: 'ActionsTable',
+        }
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: doc(queryNode(oldQuery, 'URLs')),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(queryNode(newQuery, 'URLs')),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [{ type: 'replace_text', find: 'http', replace: 'https', all_occurrences: true, occurrence: 1 }],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            content: doc(queryNode(newQuery, 'URLs')),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 0,
+                    to: 1,
+                    slice: { content: [queryNode(newQuery, 'URLs')] },
+                },
+            ],
+        })
+    })
+
     it('inserts nodes after an exact heading match', async () => {
         const requestMock = vi
             .fn()

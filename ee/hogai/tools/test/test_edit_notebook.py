@@ -56,6 +56,46 @@ def test_build_edit_plan_replace_text_updates_document_content():
     assert plan.text_content == "replace that text"
 
 
+def test_build_edit_plan_replace_text_uses_utf16_offsets_after_non_bmp_text():
+    plan = build_edit_plan(
+        {"type": "doc", "content": [_paragraph("😀 replace this text")]},
+        [ReplaceTextEdit(find="this", replace="that")],
+        {},
+    )
+
+    assert plan.content == {"type": "doc", "content": [_paragraph("😀 replace that text")]}
+    assert plan.steps == [
+        {"stepType": "replace", "from": 12, "to": 16, "slice": {"content": [{"type": "text", "text": "that"}]}}
+    ]
+
+
+def test_build_edit_plan_text_positions_use_utf16_node_sizes():
+    plan = build_edit_plan(
+        {"type": "doc", "content": [_paragraph("😀"), _paragraph("target text")]},
+        [ReplaceTextEdit(find="target", replace="updated")],
+        {},
+    )
+
+    assert plan.content == {"type": "doc", "content": [_paragraph("😀"), _paragraph("updated text")]}
+    assert plan.steps == [
+        {"stepType": "replace", "from": 5, "to": 11, "slice": {"content": [{"type": "text", "text": "updated"}]}}
+    ]
+
+
+def test_build_edit_plan_replace_text_all_occurrences_does_not_rematch_replacement_text():
+    plan = build_edit_plan(
+        {"type": "doc", "content": [_paragraph("http http")]},
+        [ReplaceTextEdit(find="http", replace="https", all_occurrences=True)],
+        {},
+    )
+
+    assert plan.content == {"type": "doc", "content": [_paragraph("https https")]}
+    assert plan.steps == [
+        {"stepType": "replace", "from": 1, "to": 5, "slice": {"content": [{"type": "text", "text": "https"}]}},
+        {"stepType": "replace", "from": 7, "to": 11, "slice": {"content": [{"type": "text", "text": "https"}]}},
+    ]
+
+
 def test_build_edit_plan_replace_text_updates_query_node_by_title_anchor():
     old_query = {
         "kind": "DataVisualizationNode",
@@ -81,6 +121,35 @@ def test_build_edit_plan_replace_text_updates_query_node_by_title_anchor():
             "from": 0,
             "to": 1,
             "slice": {"content": [_query_node(new_query, "Referring domain by segment")]},
+        }
+    ]
+
+
+def test_build_edit_plan_replace_text_all_occurrences_does_not_rematch_query_attribute_replacements():
+    old_query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT 'http' AS url\nUNION ALL SELECT 'http'"},
+        "display": "ActionsTable",
+    }
+    new_query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT 'https' AS url\nUNION ALL SELECT 'https'"},
+        "display": "ActionsTable",
+    }
+
+    plan = build_edit_plan(
+        {"type": "doc", "content": [_query_node(old_query, "URLs")]},
+        [ReplaceTextEdit(find="http", replace="https", all_occurrences=True)],
+        {},
+    )
+
+    assert plan.content == {"type": "doc", "content": [_query_node(new_query, "URLs")]}
+    assert plan.steps == [
+        {
+            "stepType": "replace",
+            "from": 0,
+            "to": 1,
+            "slice": {"content": [_query_node(new_query, "URLs")]},
         }
     ]
 
