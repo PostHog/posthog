@@ -1,6 +1,7 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { chunk } from 'lib/utils'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapeHogQLString } from '~/queries/utils'
@@ -30,14 +31,6 @@ const FIELD_TRUNCATE_CHARS = 2000
 const TRACE_ID_MAX_LENGTH = 128
 // Matches TracesQueryDateRange.CAPTURE_RANGE_MINUTES on the backend runner.
 const BATCH_WINDOW_BUFFER_MINUTES = 10
-
-function chunk<T>(arr: T[], size: number): T[][] {
-    const chunks: T[][] = []
-    for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size))
-    }
-    return chunks
-}
 
 // "2026-04-11T19:20:55.828Z" → "2026-04-11 19:20:55" (ClickHouse toDateTime format, UTC).
 function formatHogqlDateTime(d: Date): string {

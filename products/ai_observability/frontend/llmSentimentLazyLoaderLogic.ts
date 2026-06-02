@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { chunk } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmSentimentLazyLoaderLogicType } from './llmSentimentLazyLoaderLogicType'
@@ -46,14 +47,6 @@ const BATCH_MAX_SIZE = 5
 // connections per origin; fanning out all chunks at once starves sibling lazy
 // loaders (trace messages, persons) on page loads with many rows.
 const MAX_CONCURRENT_BATCHES = 2
-
-function chunk<T>(arr: T[], size: number): T[][] {
-    const chunks: T[][] = []
-    for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size))
-    }
-    return chunks
-}
 
 export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>([
     path(['products', 'ai_observability', 'frontend', 'llmSentimentLazyLoaderLogic']),

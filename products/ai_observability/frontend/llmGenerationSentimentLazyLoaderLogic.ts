@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { chunk } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmGenerationSentimentLazyLoaderLogicType } from './llmGenerationSentimentLazyLoaderLogicType'
@@ -25,14 +26,6 @@ const BATCH_MAX_SIZE = 5
 // keeps sentiment from starving sibling lazy loaders on list pages with many
 // rows, given the browser's per-origin connection limit (~6).
 const MAX_CONCURRENT_BATCHES = 2
-
-function chunk<T>(arr: T[], size: number): T[][] {
-    const chunks: T[][] = []
-    for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size))
-    }
-    return chunks
-}
 
 export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentLazyLoaderLogicType>([
     path(['products', 'ai_observability', 'frontend', 'llmGenerationSentimentLazyLoaderLogic']),
