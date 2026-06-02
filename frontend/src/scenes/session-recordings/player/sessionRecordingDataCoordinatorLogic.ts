@@ -451,8 +451,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         isRecentAndInvalid: [
             (s) => [s.start, s.snapshotsInvalid],
             (start, snapshotsInvalid) => {
-                const withinIngestionWindow =
-                    dayjs().diff(start, 'minute') <= RECENT_RECORDING_INGESTION_WINDOW_MINUTES
+                const withinIngestionWindow = dayjs().diff(start, 'minute') <= RECENT_RECORDING_INGESTION_WINDOW_MINUTES
                 return snapshotsInvalid && withinIngestionWindow
             },
         ],

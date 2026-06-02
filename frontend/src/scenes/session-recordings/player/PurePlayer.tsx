@@ -284,8 +284,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                 <BuilderHog2 height={200} />
                                 <h1 className="mb-0">We're still working on it</h1>
                                 <p className="max-w-md mb-0">
-                                    This recording hasn't finished ingesting yet. We're checking for it automatically and
-                                    it'll start playing as soon as it's ready — usually within a few minutes.
+                                    This recording hasn't finished ingesting yet. We're checking for it automatically
+                                    and it'll start playing as soon as it's ready — usually within a few minutes.
                                 </p>
                                 <div className="flex items-center gap-2 text-secondary">
                                     <Spinner />
