@@ -7,13 +7,13 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import WooCommerceSourceConfig
-from posthog.temporal.data_imports.sources.woocommerce.settings import ENDPOINTS, PARTITION_FIELDS
+from posthog.temporal.data_imports.sources.woocommerce.settings import ENDPOINTS, INCREMENTAL_FIELDS, PARTITION_FIELDS
 from posthog.temporal.data_imports.sources.woocommerce.source import WooCommerceSource
 from posthog.temporal.data_imports.sources.woocommerce.woocommerce import WooCommerceResumeConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
-INCREMENTAL_ENDPOINTS = {"products", "orders", "coupons"}
+INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
 
 def _make_inputs(schema_name: str, should_use_incremental_field: bool = False, last_value: object = None):
@@ -103,7 +103,7 @@ class TestWooCommerceSource:
         is_valid, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
-        mock_validate.assert_called_once_with("https://example.com", "ck_test", "cs_test")
+        mock_validate.assert_called_once_with("https://example.com", "ck_test", "cs_test", self.team_id)
 
     def test_validate_credentials_missing_fields(self):
         config = WooCommerceSourceConfig(store_url="", consumer_key="", consumer_secret="")
@@ -145,6 +145,21 @@ class TestWooCommerceSource:
             response = self.source.source_for_pipeline(self.config, manager, inputs)
 
         _, kwargs = mock_source.call_args
+        assert kwargs["db_incremental_field_last_value"] is None
+        assert response.sort_mode == "asc"
+
+    def test_source_for_pipeline_ignores_incremental_for_non_incremental_endpoint(self):
+        # A non-incremental endpoint must stay full refresh even if the flag is set, so it
+        # doesn't advertise desc semantics or carry a cursor value it can't honor.
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        inputs = _make_inputs("customers", should_use_incremental_field=True, last_value="2024-01-01T00:00:00")
+
+        with mock.patch("posthog.temporal.data_imports.sources.woocommerce.source.woocommerce_source") as mock_source:
+            mock_source.return_value = mock.MagicMock(name="customers", column_hints=None)
+            response = self.source.source_for_pipeline(self.config, manager, inputs)
+
+        _, kwargs = mock_source.call_args
+        assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
         assert response.sort_mode == "asc"
 

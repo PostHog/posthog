@@ -273,9 +273,42 @@ class TestValidateCredentials:
     def test_returns_status_code(self, status_code: int) -> None:
         with patch("posthog.temporal.data_imports.sources.woocommerce.woocommerce.make_tracked_session") as MockSession:
             MockSession.return_value.get.return_value = MagicMock(status_code=status_code)
-            assert validate_credentials("https://example.com", "ck", "cs") == status_code
+            assert validate_credentials("https://example.com", "ck", "cs", 123) == status_code
 
     def test_returns_none_on_connection_error(self) -> None:
         with patch("posthog.temporal.data_imports.sources.woocommerce.woocommerce.make_tracked_session") as MockSession:
             MockSession.return_value.get.side_effect = Exception("boom")
-            assert validate_credentials("https://example.com", "ck", "cs") is None
+            assert validate_credentials("https://example.com", "ck", "cs", 123) is None
+
+    def test_unsafe_host_short_circuits_without_request(self) -> None:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
+                return_value=(False, "blocked"),
+            ),
+            patch("posthog.temporal.data_imports.sources.woocommerce.woocommerce.make_tracked_session") as MockSession,
+        ):
+            assert validate_credentials("https://169.254.169.254", "ck", "cs", 123) is None
+            MockSession.return_value.get.assert_not_called()
+
+
+class TestSourceHostGuard:
+    def test_woocommerce_source_rejects_unsafe_host(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "posthog.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
+            return_value=(False, "Hosts with internal IP addresses are not allowed"),
+        ):
+            with pytest.raises(ValueError, match="internal IP"):
+                woocommerce_source(
+                    store_url="https://169.254.169.254",
+                    consumer_key="ck",
+                    consumer_secret="cs",
+                    endpoint="products",
+                    team_id=123,
+                    job_id="job",
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=None,
+                )

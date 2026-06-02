@@ -1,10 +1,12 @@
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from requests import Request, Response
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -23,10 +25,11 @@ class WooCommerceResumeConfig:
 
 
 def normalize_store_url(store_url: str) -> str:
-    """Normalize a user-supplied store URL to an HTTPS origin with no trailing slash.
+    """Normalize a user-supplied store URL to an HTTPS base with no trailing slash.
 
     The WooCommerce REST API requires HTTPS for consumer key/secret Basic Auth, so
-    an `http://` (or scheme-less) value is upgraded to `https://`.
+    an `http://` (or scheme-less) value is upgraded to `https://`. Any path segment
+    the user includes (e.g. a store hosted under `/store`) is preserved.
     """
     url = store_url.strip().rstrip("/")
     if url.startswith("http://"):
@@ -38,6 +41,19 @@ def normalize_store_url(store_url: str) -> str:
 
 def _base_url(store_url: str) -> str:
     return f"{normalize_store_url(store_url)}{WOOCOMMERCE_API_BASE_PATH}"
+
+
+def _assert_host_safe(store_url: str, team_id: int) -> None:
+    """Block SSRF: reject store URLs that resolve to internal/private hosts.
+
+    The store URL is fully user-controlled and drives server-side requests, so it
+    must be vetted before any outbound call. `_is_host_safe` is a no-op on
+    self-hosted instances and blocks private/internal IPs on PostHog Cloud.
+    """
+    host = urlparse(normalize_store_url(store_url)).hostname or ""
+    is_safe, error = _is_host_safe(host, team_id)
+    if not is_safe:
+        raise ValueError(error or "WooCommerce store host is not allowed")
 
 
 def _to_woocommerce_datetime(value: Any) -> Optional[str]:
@@ -155,7 +171,7 @@ def woocommerce_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ):
-    use_incremental = should_use_incremental_field and endpoint in INCREMENTAL_FIELDS
+    _assert_host_safe(store_url, team_id)
 
     config: RESTAPIConfig = {
         "client": {
@@ -167,9 +183,8 @@ def woocommerce_source(
             },
             "paginator": WooCommercePaginator(),
         },
-        "resource_defaults": {
-            "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
-        },
+        # write_disposition is set per-resource by get_resource, so no defaults are needed.
+        "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
@@ -194,8 +209,17 @@ def woocommerce_source(
     )
 
 
-def validate_credentials(store_url: str, consumer_key: str, consumer_secret: str) -> Optional[int]:
-    """Probe a cheap authenticated endpoint. Returns the HTTP status code, or None on a connection error."""
+def validate_credentials(store_url: str, consumer_key: str, consumer_secret: str, team_id: int) -> Optional[int]:
+    """Probe a cheap authenticated endpoint. Returns the HTTP status code, or None on a connection error.
+
+    Returns None (treated as a connection failure by the caller) for store URLs that resolve to an
+    internal/private host, so a blocked SSRF target never reaches an outbound request.
+    """
+    host = urlparse(normalize_store_url(store_url)).hostname or ""
+    is_safe, _ = _is_host_safe(host, team_id)
+    if not is_safe:
+        return None
+
     try:
         response = make_tracked_session().get(
             f"{_base_url(store_url)}/products",

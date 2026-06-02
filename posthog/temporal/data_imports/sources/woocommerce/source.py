@@ -66,7 +66,9 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
         if not config.store_url or not config.consumer_key or not config.consumer_secret:
             return False, "Missing WooCommerce credentials"
 
-        status = validate_woocommerce_credentials(config.store_url, config.consumer_key, config.consumer_secret)
+        status = validate_woocommerce_credentials(
+            config.store_url, config.consumer_key, config.consumer_secret, team_id
+        )
 
         if status == 200:
             return True, None
@@ -76,7 +78,10 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
         if status == 403 and schema_name is None:
             return True, None
 
-        if status in (401, 403):
+        if status == 403:
+            return False, "WooCommerce API key lacks read permission for this resource. Please check the key scope."
+
+        if status == 401:
             return False, "WooCommerce authentication failed. Please check your consumer key and secret."
 
         return False, "Could not connect to your WooCommerce store. Please check the store URL."
@@ -90,6 +95,10 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
         resumable_source_manager: ResumableSourceManager[WooCommerceResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        # Only the endpoints that expose a server-side `modified_after` filter sync
+        # incrementally — guard against a stale schema requesting it elsewhere.
+        use_incremental = inputs.should_use_incremental_field and inputs.schema_name in INCREMENTAL_FIELDS
+
         resource = woocommerce_source(
             store_url=config.store_url,
             consumer_key=config.consumer_key,
@@ -98,10 +107,8 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value
-            if inputs.should_use_incremental_field
-            else None,
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value if use_incremental else None,
         )
 
         response = SourceResponse(
@@ -112,7 +119,7 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
             # Incremental endpoints can't be reliably sorted ascending by the
             # `date_modified` cursor server-side, so we only commit the watermark
             # once the whole resource has been read (desc semantics).
-            sort_mode="desc" if inputs.should_use_incremental_field else "asc",
+            sort_mode="desc" if use_incremental else "asc",
         )
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name)
