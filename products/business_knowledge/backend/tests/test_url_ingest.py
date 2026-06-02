@@ -427,7 +427,7 @@ class TestUrlApi(APIBaseTest):
         mock_ingest.assert_called_once()
 
     @patch("products.business_knowledge.backend.logic.ingest_source")
-    @patch("posthog.temporal.common.client.sync_connect", side_effect=Exception("temporal unavailable"))
+    @patch("products.business_knowledge.backend.api.views.sync_connect", side_effect=Exception("temporal unavailable"))
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
     @patch(
         "products.business_knowledge.backend.api.serializers.is_url_allowed",
