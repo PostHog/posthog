@@ -151,33 +151,38 @@ describe('tracingDataLogic', () => {
             captureSpy.mockRestore()
         })
 
-        it('captures results returned for spans with a count', () => {
-            logic.actions.fetchSpansSuccess(mockSpans)
-            expect(captureSpy).toHaveBeenCalledWith('tracing results returned', {
-                count: mockSpans.length,
-                query_type: 'spans',
-            })
-        })
-
-        it('captures no results returned for empty spans', () => {
-            logic.actions.fetchSpansSuccess([])
-            expect(captureSpy).toHaveBeenCalledWith('tracing no results returned', { query_type: 'spans' })
-        })
-
-        it('captures results returned for aggregation with a count', () => {
-            logic.actions.fetchAggregationSuccess({
-                current: [createMockAggregatedRow('op-1'), createMockAggregatedRow('op-2')],
-                previous: null,
-            })
-            expect(captureSpy).toHaveBeenCalledWith('tracing results returned', {
-                count: 2,
-                query_type: 'aggregation',
-            })
-        })
-
-        it('captures no results returned for empty aggregation', () => {
-            logic.actions.fetchAggregationSuccess({ current: [], previous: null })
-            expect(captureSpy).toHaveBeenCalledWith('tracing no results returned', { query_type: 'aggregation' })
+        it.each([
+            {
+                name: 'spans with a count',
+                dispatch: (l: typeof logic) => l.actions.fetchSpansSuccess(mockSpans),
+                event: 'tracing results returned',
+                properties: { count: mockSpans.length, query_type: 'spans' },
+            },
+            {
+                name: 'empty spans',
+                dispatch: (l: typeof logic) => l.actions.fetchSpansSuccess([]),
+                event: 'tracing no results returned',
+                properties: { query_type: 'spans' },
+            },
+            {
+                name: 'aggregation with a count',
+                dispatch: (l: typeof logic) =>
+                    l.actions.fetchAggregationSuccess({
+                        current: [createMockAggregatedRow('op-1'), createMockAggregatedRow('op-2')],
+                        previous: null,
+                    }),
+                event: 'tracing results returned',
+                properties: { count: 2, query_type: 'aggregation' },
+            },
+            {
+                name: 'empty aggregation',
+                dispatch: (l: typeof logic) => l.actions.fetchAggregationSuccess({ current: [], previous: null }),
+                event: 'tracing no results returned',
+                properties: { query_type: 'aggregation' },
+            },
+        ])('captures the right event for $name', ({ dispatch, event, properties }) => {
+            dispatch(logic)
+            expect(captureSpy).toHaveBeenCalledWith(event, properties)
         })
     })
 })
