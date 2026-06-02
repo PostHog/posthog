@@ -174,7 +174,7 @@ function XTickLabel({
     )
 }
 
-export function AxisLabels({
+export const AxisLabels = React.memo(function AxisLabels({
     xTickFormatter,
     yTickFormatter,
     yRightTickFormatter,
@@ -204,50 +204,38 @@ export function AxisLabels({
         [hideXAxis, labels, scales.x, xTickFormatter, orientation, maxCategoryLabelWidth]
     )
 
-    // Horizontal-orientation category labels live on the y-axis. Truncating each one runs a
-    // binary search of canvas measurements, and AxisLabels re-renders on every hover, so this is
-    // memoized to keep that work off the pointer-move path. In horizontal mode the label→y-pixel
-    // function lives on `scales.x` (or `labelToCoord` if explicitly overridden).
-    const visibleYCategoryLabels = useMemo(() => {
-        if (hideYAxis || orientation !== 'horizontal') {
-            return []
-        }
-        const labelToY = labelToCoord ?? scales.x
-        const out: { index: number; y: number; text: string; title?: string }[] = []
-        for (let i = 0; i < labels.length; i++) {
-            const fullText = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
-            if (fullText === null) {
-                continue
-            }
-            const y = labelToY(labels[i])
-            if (y == null || !isFinite(y)) {
-                continue
-            }
-            const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
-            out.push({ index: i, y, text, title })
-        }
-        return out
-    }, [hideYAxis, orientation, labels, labelToCoord, scales.x, xTickFormatter, maxCategoryLabelWidth])
-
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     if (orientation === 'horizontal') {
-        // `scales.y` holds value→x-pixel in horizontal mode, used for the x-axis value ticks below.
+        // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives
+        // on `scales.x` (or `labelToCoord` if explicitly overridden).
+        const labelToY = labelToCoord ?? scales.x
         return (
             <>
                 {!hideYAxis &&
-                    visibleYCategoryLabels.map(({ index, y, text, title }) => (
-                        <YTickLabel
-                            key={`y-cat-${index}`}
-                            y={y}
-                            side="left"
-                            box={dimensions}
-                            text={text}
-                            title={title}
-                            color={axisColor}
-                            dataAttr="hog-chart-axis-tick-y"
-                        />
-                    ))}
+                    labels.map((labelText, i) => {
+                        const fullText = xTickFormatter ? xTickFormatter(labelText, i) : labelText
+                        if (fullText === null) {
+                            return null
+                        }
+                        const y = labelToY(labelText)
+                        if (y == null || !isFinite(y)) {
+                            return null
+                        }
+                        const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
+                        return (
+                            <YTickLabel
+                                key={`y-cat-${i}`}
+                                y={y}
+                                side="left"
+                                box={dimensions}
+                                text={text}
+                                title={title}
+                                color={axisColor}
+                                dataAttr="hog-chart-axis-tick-y"
+                            />
+                        )
+                    })}
                 {!hideXAxis &&
                     yTicks.map((tick: number) => {
                         const x = scales.y(tick)
@@ -326,4 +314,4 @@ export function AxisLabels({
             ))}
         </>
     )
-}
+})
