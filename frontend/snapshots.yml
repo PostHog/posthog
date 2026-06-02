@@ -129,13 +129,13 @@ snapshots:
     components-bulkupdatetagsbutton--replace-mode--light:
         hash: v1.k794b7964.379cf8e29d15c49e9dced0e75d7dc6c25936204286649beef587801633564121.wYCp32fZHjbDeJb5u_l7qYy823rCGHUMZIBfMRYfMYY
     components-cards-button-tile-card--template--dark:
-        hash: v1.k794b7964.ea8f8f9e593a467027450a8ba4241c3b3160387a41dcbd2a7fa6fc3e3299fffa.AE40xjOLMiJfje4e2EC8Mpc00oXcDCL9gVW8xqGnblQ
+        hash: v1.k794b7964.5c00d2f9e77c78cdd552d6cf96dbcb8b1d7dbe75e17fd082b5b2b17bf71e28ad.iquYtANfIhPoSSL7HkZc7KSDBN7CfaFVah3qN_oxYiA
     components-cards-button-tile-card--template--light:
-        hash: v1.k794b7964.a86778e36f69e58b94ef945c637882db2b137f3808164d03835c577052641233.U7ID1Y5rA8T0ZryMom2Ptil_3cVKGJbD40HmY9SwXMk
+        hash: v1.k794b7964.77467b6090958453bd5c0ad1fce49642555a49287f615c2e3220deb5cb298818.9oqgdb2D2Lsjcyn1K0ATwch_vZvW_yB2Kinp9oC-Acc
     components-cards-button-tile-card--transparent-background--dark:
-        hash: v1.k794b7964.eefb6cdbc10cbb32b240e36a8d4826e7e3d7dde9a296965fa1486831ce8154f0.lUTzIoRhG3FOoss5EOZV6yYxHhRBV6imS4QwgDrQXBo
+        hash: v1.k794b7964.b204c14d32246500e5ecc5839821b1741e847904ebb44ee59f58bf7e71d0cebd.6PNT0tZSsBkTJQhKN4OOYBp8vrAxMvBAd3gAHqwOsyc
     components-cards-button-tile-card--transparent-background--light:
-        hash: v1.k794b7964.78fcc9af23a4701854c872c3d037ed0f353477edd993e574e1965028cad581be.Ldlwd87dJe5vtaLEEDZ4jlWjtBk95fOWHIULkXr2O-4
+        hash: v1.k794b7964.510d6d3ba8844dec15ad98f4f076b5208153cb4738681d78cc28c5fc3eee5ef2.FSi57cM2bmg0pzgUKTQ1ExBBVs3A87RbUL2GE_cQ7Qg
     components-cards-button-tile-card--with-more-button--dark:
         hash: v1.k794b7964.d1b9018f28a80e9d5f20ad0b4afbb62ad4b34065fc140074e830d9a70206e283.HC7o7m5L0cWof-9FGL8kZZpoXfHj2-WKiOx89OR2rIQ
     components-cards-button-tile-card--with-more-button--light:
@@ -1452,6 +1452,26 @@ snapshots:
         hash: v1.k794b7964.ec79c434bdd0a29af24dbee3162d74ac2ac927b1431b29eef0246ef0cd9b5820.BUKk_-UGOgJ-1jJ1Yw5FnL1_yp3UP0y5G7wizjZ2aaE
     components-verticalnesteddnd--base--light:
         hash: v1.k794b7964.253572e7c878adb761595b38b07c93ba529e1bf165d0e67fe79550ef784dcf5d.um0bjxs1ERf6_rMKphvKrO7fE5D7cV_HaikHm5fGsM8
+    dashboards-dashboard-widgets-widgetcard--dashboard-tile-populated--dark:
+        hash: v1.k794b7964.44c19632537a43879cd2fb8196905bf21e18e784b907a6851aa9d49ec7f45ce7.WRJJJH-g5HOJnILNLSsqi-nP04K6dA4KQiUwxLxbiVk
+    dashboards-dashboard-widgets-widgetcard--dashboard-tile-populated--light:
+        hash: v1.k794b7964.6b9d967ad5f62013c74577e0158a80f912db8256aa4f25992bdfe5fd39559bcd.BU8LEUwt0lMAxQAzNv0VGt1tRGzfyA7MgitIq-_bgug
+    dashboards-dashboard-widgets-widgetcard--empty-body-message--dark:
+        hash: v1.k794b7964.fb5502d577f533bf872e1766c23226cbcda80bdbd74452085c80b66f47ba8321.sKixzO_rRkbQr_iwW7eFXB3wacyz3kkk3RTB8lerUp4
+    dashboards-dashboard-widgets-widgetcard--empty-body-message--light:
+        hash: v1.k794b7964.dd73195c1eb7a8b81367b736af0f9f7eb16f6e74ce11d11915484c5c714cad5e.CZI84_ZdLXfmzwpIaVZdmj8bCeSFgmOHkdg3v6z4IH0
+    dashboards-dashboard-widgets-widgetcard--locked--dark:
+        hash: v1.k794b7964.5dba098f0e676516512a97f6783aa7db0d1d690ea655e38174f2692c50c9c7c6.3ngw_BbiP8-FwkNjGia7N7qct9mTs84lu-8KlPeFrVc
+    dashboards-dashboard-widgets-widgetcard--locked--light:
+        hash: v1.k794b7964.e9c99461c55467ec079f53a30b3be0820f65b3636a075d25ad7cccb3c4703d11.U8h7teCTfeWZ6pXgL969YSqyHClaG291LZQLex3ivHQ
+    dashboards-dashboard-widgets-widgetcard--setup-unavailable-pattern--dark:
+        hash: v1.k794b7964.fe2b2039b1f01836e7f4e9e85e7baddfc5436046d6869608d8b87c7a5341f41f.rRdGKkZtuub5fWGjW3NGhy8QwZJQZTHHHt_sSmYaPvU
+    dashboards-dashboard-widgets-widgetcard--setup-unavailable-pattern--light:
+        hash: v1.k794b7964.96a03e3e594bed406ba87a4109ec787c616a5d7e1cf14e87ab9b8ceb3e5d84b1.vkVUiK1Ff2TvfT2TOWlst18v9mwlJXRzVdCqUCt9Uzc
+    dashboards-dashboard-widgets-widgetcard--simple-header-loading--dark:
+        hash: v1.k794b7964.5b157e65b047cb3de5ed4b5220cfda9064ab2cee2afcf19ebfbb3862b7d8a87d.NpCsyJrSQbrbk2i9pO2oRpNTSLZFtY6hPfz122QFKbw
+    dashboards-dashboard-widgets-widgetcard--simple-header-loading--light:
+        hash: v1.k794b7964.5c626cb714f69b201185730439abe84f00d1045d1439db992975dcba34f38a1c.w0dHtsZ71gku0WWyG6xzC9TMDC2WJLN3v83xuBv26zA
     data-warehouse-query-history-modal--empty--dark:
         hash: v1.k794b7964.4c38283dea0ebc9b3e3e0aa03a05f6e4153bfe3550336ead008a187a43ddab4c.4ArpfVpkJGTdOVoU2PbGNjGH1Kzbq84osask8eFk-BA
     data-warehouse-query-history-modal--empty--light:
@@ -4913,7 +4933,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
         hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
-        hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.KSiw8WpvjWXIDh87ExL4cPnopVJlTXvzU8N8ruh6Hi8
+        hash: v1.k794b7964.6c391cbc05b64230fbd8defdbb960b131fd433409817497873fb9ffc705cd360.EIwByuofuT77yP259A9ffqfjSFwW9MrUDOvsZNA_aZM
     scenes-app-insights-funnels--funnel-time-to-convert--dark:
         hash: v1.k794b7964.d64808d2bfc36017f89b57feeaa373e20188738a622801207fa1beb59d02fdd9.cFuKF_Ow887Z3X3BoNhtTvkUWY2vips9HDBe-B02eQE
     scenes-app-insights-funnels--funnel-time-to-convert--light:
