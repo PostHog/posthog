@@ -147,4 +147,4 @@ jobs:
                       echo "| default GITHUB_TOKEN | $DEF_BEFORE | $def_after | $((def_after - DEF_BEFORE)) |"
                       echo ""
                       echo "_Expectation: the app-bucket delta absorbs the setup manifest calls; the default-bucket delta from setup is ~0 (any residual is concurrent repo CI on the shared bucket)._"
-                  } >> "$GITHUB_STEP_SUMMARY"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
