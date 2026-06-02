@@ -80,6 +80,8 @@ function parseToolDefinition(filePath) {
  * - `type: ['string', 'null']` (OpenAPI 3.1 / JSON Schema)
  * - `anyOf: [{ type: 'string' }, { type: 'null' }]` (OpenAPI 3.1 / JSON Schema)
  * - `oneOf: [{ type: 'string' }, { type: 'null' }]` (OpenAPI 3.1 / JSON Schema)
+ * - Untyped `typing.Any` — Pydantic emits a bare `{}` (no type, no $ref, no
+ *   variants, no enum, no properties) which accepts every value including null.
  */
 function schemaAllowsNull(schema) {
     if (!schema || typeof schema !== 'object') {
@@ -96,6 +98,10 @@ function schemaAllowsNull(schema) {
         if (Array.isArray(variants) && variants.some(schemaAllowsNull)) {
             return true
         }
+    }
+    const constrained = ['type', 'anyOf', 'oneOf', '$ref', 'enum', 'const', 'properties']
+    if (constrained.every((key) => !(key in schema))) {
+        return true
     }
     return false
 }
