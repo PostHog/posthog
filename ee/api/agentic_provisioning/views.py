@@ -2296,8 +2296,11 @@ def _get_legacy_stripe_oauth_app() -> OAuthApplication:
 
     try:
         app = OAuthApplication.objects.get(client_id=client_id)
-    except OAuthApplication.DoesNotExist:
+    except OAuthApplication.DoesNotExist as exc:
         error = LegacyStripeOAuthAppMissingError("Stripe Projects OAuth app not found for configured client_id")
+        # Chain the DoesNotExist so the captured event keeps its traceback; the new
+        # error was never raised, so it carries no traceback of its own.
+        error.__cause__ = exc
         capture_exception(error, additional_properties={"client_id": client_id})
         raise error from None
 
