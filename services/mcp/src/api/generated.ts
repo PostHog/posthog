@@ -2175,6 +2175,8 @@ export namespace Schemas {
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
       smoothingIntervals?: number | null;
+      /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+      stackBreakdownValues?: boolean | null;
       /** Custom label rendered under the X axis. */
       xAxisLabel?: string | null;
       /** Custom label rendered alongside the Y axis. */
