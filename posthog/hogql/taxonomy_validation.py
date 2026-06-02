@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from difflib import get_close_matches
 from logging import getLogger
+from typing import Literal
 
 from django.db import DatabaseError
 from django.db.models import QuerySet
@@ -8,11 +9,17 @@ from django.db.models import QuerySet
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
 
 logger = getLogger(__name__)
+
+# How a suggested name is rendered back into the marked range for a one-click fix:
+# `string` → a quoted, escaped string literal (event `=`/`IN` values, `properties['key']` keys);
+# `property` → a `properties.<identifier>` field. Both escape the suggestion (see `_build_fix`).
+FixContext = Literal["string", "property"]
 
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
 # never appear in PropertyDefinition and must not be flagged as unknown.
@@ -30,10 +37,10 @@ class TaxonomyReference:
     start: int | None = None
     end: int | None = None
     # The `start`/`end` range covers the whole token in source (quotes, `properties.` prefix and all),
-    # so a quick-fix that replaces that range must rebuild the whole token — not just the bare name —
-    # or it strips the quotes/prefix. `fix_template` formats the suggested name into a valid replacement.
+    # so a quick-fix that replaces that range must rebuild the whole token — not just the bare name — or
+    # it strips the quotes/prefix. `fix_context` says how to render the suggested name back into that slot.
     # `None` means "warn, but offer no one-click fix" (e.g. nested `properties.a.b`).
-    fix_template: str | None = "{}"
+    fix_context: FixContext | None = "string"
 
 
 class TaxonomyReferenceVisitor(TraversingVisitor):
@@ -69,10 +76,8 @@ class TaxonomyReferenceVisitor(TraversingVisitor):
         if len(node.chain) >= 2 and node.chain[0] == "properties" and isinstance(node.chain[1], str):
             # The range spans the whole `properties.<name>` field, so the fix must too. Only offer it
             # for the simple two-segment shape; a nested `properties.a.b` would need to keep the suffix.
-            fix_template = "properties.{}" if len(node.chain) == 2 else None
-            self.property_names.append(
-                TaxonomyReference(node.chain[1], node.start, node.end, fix_template=fix_template)
-            )
+            fix_context: FixContext | None = "property" if len(node.chain) == 2 else None
+            self.property_names.append(TaxonomyReference(node.chain[1], node.start, node.end, fix_context=fix_context))
 
     def _collect_property_array_access(self, node: ast.ArrayAccess) -> None:
         if (
@@ -81,7 +86,7 @@ class TaxonomyReferenceVisitor(TraversingVisitor):
             and isinstance(node.property.value, str)
         ):
             self.property_names.append(
-                TaxonomyReference(node.property.value, node.property.start, node.property.end, fix_template="'{}'")
+                TaxonomyReference(node.property.value, node.property.start, node.property.end, fix_context="string")
             )
 
 
@@ -145,7 +150,7 @@ def _event_literal_from_equality(field_node: ast.Expr, value_node: ast.Expr) -> 
         return None
     if not isinstance(value_node, ast.Constant) or not isinstance(value_node.value, str):
         return None
-    return TaxonomyReference(value_node.value, value_node.start, value_node.end, fix_template="'{}'")
+    return TaxonomyReference(value_node.value, value_node.start, value_node.end, fix_context="string")
 
 
 def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
@@ -155,7 +160,7 @@ def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
     references: list[TaxonomyReference] = []
     for expr in node.exprs:
         if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-            references.append(TaxonomyReference(expr.value, expr.start, expr.end, fix_template="'{}'"))
+            references.append(TaxonomyReference(expr.value, expr.start, expr.end, fix_context="string"))
     return references
 
 
@@ -194,10 +199,25 @@ def _warnings_for_unknown_references(
 
         # `fix` is the literal replacement text for the marked range, so it carries the quotes /
         # `properties.` prefix; the message keeps the bare name for readability.
-        fix = reference.fix_template.format(suggestion) if suggestion and reference.fix_template else None
+        fix = _build_fix(reference.fix_context, suggestion) if suggestion else None
         warnings.append(HogQLNotice(message=message, start=reference.start, end=reference.end, fix=fix))
 
     return warnings
+
+
+def _build_fix(fix_context: FixContext | None, suggestion: str) -> str | None:
+    # The fix is spliced verbatim into the query, and the suggested name comes from user-controlled
+    # taxonomy — it can contain quotes, backticks, dots or spaces. Escape it for its slot so the
+    # quick-fix can never produce broken HogQL (e.g. an event named `o'brien`, or a property with a
+    # space). `escape_hogql_identifier` rejects a few names (e.g. containing `%`); offer no fix then.
+    try:
+        if fix_context == "string":
+            return escape_hogql_string(suggestion)
+        if fix_context == "property":
+            return f"properties.{escape_hogql_identifier(suggestion)}"
+    except Exception:
+        return None
+    return None
 
 
 def _known_names(taxonomy: QuerySet) -> set[str]:

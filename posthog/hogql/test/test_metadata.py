@@ -17,6 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
+from posthog.hogql.parser import parse_select
 
 from posthog.models import Cohort, EventDefinition, PropertyDefinition
 
@@ -305,6 +306,27 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
         self.assertEqual(replaced, "SELECT properties.$geoip_country_code FROM events")
+
+    def test_metadata_event_literal_fix_escapes_quote_in_suggestion(self):
+        EventDefinition.objects.create(team=self.team, name="o'brien")
+
+        query = "SELECT count() FROM events WHERE event = 'obrien'"
+        warning = self._select(query).warnings[0]
+
+        # A suggested name containing a quote must be escaped so the quick-fix stays valid HogQL.
+        replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
+        self.assertEqual(replaced, "SELECT count() FROM events WHERE event = 'o\\'brien'")
+        parse_select(replaced)  # round-trips to a parseable query
+
+    def test_metadata_property_field_fix_quotes_suggestion_needing_backticks(self):
+        PropertyDefinition.objects.create(team=self.team, name="my prop")
+
+        query = "SELECT properties.myprop FROM events"
+        warning = self._select(query).warnings[0]
+
+        replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
+        self.assertEqual(replaced, "SELECT properties.`my prop` FROM events")
+        parse_select(replaced)
 
     def test_metadata_taxonomy_db_error_fails_open(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
