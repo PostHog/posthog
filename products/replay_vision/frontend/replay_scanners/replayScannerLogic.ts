@@ -13,11 +13,12 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import {
     visionScannersCreate,
     visionScannersDestroy,
+    visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
 } from '../generated/api'
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import type { EstimateResponseApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { readFixedTags, readFreeformTags, readModelOutput, readTags, readVerdict } from '../utils/observation'
 import type { replayScannerLogicType } from './replayScannerLogicType'
@@ -130,6 +131,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationTagFilter: (values: string[]) => ({ values }),
         clearObservationFilters: true,
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        requestScannerEstimate: true,
+        loadScannerEstimate: true,
+        loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
+        loadScannerEstimateFailure: true,
     }),
 
     forms(({ props }) => ({
@@ -206,6 +211,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadObservations: () => true,
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
+            },
+        ],
+        scannerEstimate: [
+            null as EstimateResponseApi | null,
+            {
+                loadScannerEstimateSuccess: (_, { estimate }) => estimate,
+                loadScannerEstimateFailure: () => null,
+            },
+        ],
+        scannerEstimateLoading: [
+            false,
+            {
+                loadScannerEstimate: () => true,
+                loadScannerEstimateSuccess: () => false,
+                loadScannerEstimateFailure: () => false,
             },
         ],
         observationStatusFilter: [
@@ -529,10 +549,44 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
         loadScannerSuccess: ({ scanner }) => {
             actions.setScannerValues(scanner)
+            actions.requestScannerEstimate()
         },
 
         setScannerType: ({ scannerType }) => {
             actions.setScannerValues({ scanner_type: scannerType, scanner_config: defaultConfigForType(scannerType) })
+        },
+
+        // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags
+        // and rapid filter edits don't fire one request per tick.
+        setScannerValue: () => actions.requestScannerEstimate(),
+        setScannerValues: () => actions.requestScannerEstimate(),
+        submitScannerSuccess: () => actions.requestScannerEstimate(),
+
+        requestScannerEstimate: () => {
+            cache.disposables.add(() => {
+                const id = setTimeout(() => actions.loadScannerEstimate(), 300)
+                return () => clearTimeout(id)
+            }, 'scannerEstimateDebounce')
+        },
+
+        loadScannerEstimate: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            const scanner = values.scanner
+            if (!teamId || !scanner) {
+                actions.loadScannerEstimateFailure()
+                return
+            }
+            try {
+                const response = await visionScannersEstimateCreate(String(teamId), {
+                    query: scanner.query ?? undefined,
+                    sampling_rate: scanner.sampling_rate,
+                })
+                actions.loadScannerEstimateSuccess(response)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.warn('[replay-vision] scanner estimate failed', error)
+                actions.loadScannerEstimateFailure()
+            }
         },
 
         deleteScanner: async () => {
