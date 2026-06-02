@@ -170,11 +170,14 @@ describe('hog-charts bar scales', () => {
             expect(value.domain()[1]).toBeCloseTo(1)
         })
 
-        it('stays well-formed when there is no data and only a goal line', () => {
-            const { value } = createBarScales([], ['a', 'b'], dimensions, { valueDomain: { include: [0] } })
+        it.each([[100], [0], [-5]])('stays well-formed and zero-anchored with no data and only goal %s', (goal) => {
+            const { value } = createBarScales([], ['a', 'b'], dimensions, { valueDomain: { include: [goal] } })
             const [lo, hi] = value.domain()
             expect(lo).toBeLessThan(hi)
-            expect(isFinite(value(0))).toBe(true)
+            // The bar value axis always keeps a zero baseline, so the domain spans across 0.
+            expect(lo).toBeLessThanOrEqual(0)
+            expect(hi).toBeGreaterThanOrEqual(0)
+            expect(isFinite(value(goal))).toBe(true)
         })
     })
 
