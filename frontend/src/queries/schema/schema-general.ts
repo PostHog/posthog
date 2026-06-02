@@ -6224,7 +6224,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         statsTableName: 'campaign_performance_report',
         tableKeywords: ['campaigns'] as const,
         tableExclusions: ['performance'] as const,
-        defaultSources: ['bing', 'microsoft'] as const,
+        defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
         // no separate entity tables. The report embeds the entity columns, so it

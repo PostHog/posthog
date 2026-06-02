@@ -964,6 +964,8 @@ class BillingUsageResponseBreakdownType(StrEnum):
 class BingAdsDefaultSources(StrEnum):
     BING = "bing"
     MICROSOFT = "microsoft"
+    MSADS = "msads"
+    BING_VIDEO = "bing_video"
 
 
 class BingAdsTableExclusions(StrEnum):
@@ -3270,7 +3272,7 @@ class MarketingIntegrationConfig6(BaseModel):
     adsetStatsTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     adsetTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["bing"] = "bing"
