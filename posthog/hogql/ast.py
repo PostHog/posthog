@@ -658,7 +658,10 @@ class FieldType(Type):
                 # Map aliased name back to the original DB column name
                 if isinstance(self.table_type, ColumnAliasedTableType):
                     field_name = self.table_type.alias_to_original.get(field_name, field_name)
-                return table.get_field(field_name)
+                # The field passed type resolution (e.g. a CTE/alias column) but may not exist on the
+                # underlying database table. Degrade gracefully instead of letting get_field raise.
+                if table.has_field(field_name):
+                    return table.get_field(field_name)
         return None
 
     def is_nullable(self, context: HogQLContext) -> bool:
