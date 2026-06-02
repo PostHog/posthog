@@ -201,6 +201,25 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
+    describe('setSelectedPerson', () => {
+        it.each([
+            {
+                description: 'stores a full person (from Persons tab)',
+                person: { name: 'Jane Doe', uuid: 'uuid-abc', distinct_ids: ['user-123'] },
+                expected: { name: 'Jane Doe', uuid: 'uuid-abc', distinct_ids: ['user-123'] },
+            },
+            {
+                description: 'stores a partial person (from recent tab — name only, no uuid or distinct_ids)',
+                person: { name: 'Jane Doe' },
+                expected: { name: 'Jane Doe' },
+            },
+        ])('$description', async ({ person, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedPerson(person)
+            }).toMatchValues({ selectedPerson: expected })
+        })
+    })
+
     describe('hasValidPerson selector', () => {
         it.each([
             {

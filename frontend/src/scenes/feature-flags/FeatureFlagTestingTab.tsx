@@ -95,10 +95,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     // name + distinct_id, not the full person (no uuid/distinct_ids).
                                     const distinctId = typeof value === 'string' ? value : ''
                                     if (distinctId) {
-                                        setSelectedPerson((person as PersonType) ?? null)
+                                        setSelectedPerson((person as Partial<PersonType>) ?? null)
                                         setTestFormData({
                                             distinct_id: distinctId,
-                                            person_id: (person as PersonType)?.uuid || '',
+                                            person_id: (person as Partial<PersonType>)?.uuid || '',
                                         })
                                     } else {
                                         setSelectedPerson(null)
