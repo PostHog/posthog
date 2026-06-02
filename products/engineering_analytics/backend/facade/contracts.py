@@ -2,8 +2,11 @@
 
 Framework-free frozen dataclasses that define the canonical data model this
 product exposes — Author, RepoRef, PullRequest, WorkflowRun — plus the
-tool-specific return types (WorkflowReport, TimeToMerge, PRLifecycle). No Django
-imports.
+``pr_lifecycle`` deep-tool return types. No Django imports.
+
+These back the named deep tool (``pr_lifecycle``) and any cross-product use. The
+SQL/MCP query surface returns rows shaped by the read layer's columns, not these
+types; there, metric quality is carried by honest column naming and the skill.
 
 These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant: same
 ``is_dataclass()`` compatibility (so ``DataclassSerializer`` keeps working) but
@@ -11,7 +14,7 @@ with runtime validation on construction, so a mapper that hands back the wrong
 shape fails at the facade boundary instead of producing malformed JSON later.
 
 Provider-specific shapes (GitHub column names, nesting) never reach here — the
-query layer maps them into these types. Reviewers, deploys, and file paths are
+read layer maps them into these types. Reviewers, deploys, and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
@@ -37,12 +40,13 @@ class WorkflowConclusion(StrEnum):
 
 
 class MetricQuality(StrEnum):
-    """How much to trust a metric, surfaced on every tool return so an
+    """How much to trust a metric, surfaced on a deep-tool return so an
     autonomous caller can act on the result without paraphrasing a caveat.
 
     - ``precise``: computed directly from the data, no known approximation.
-    - ``coarse``: a usable approximation with a known systematic gap (e.g.
-      ``time_to_merge`` combines draft and ready-for-review time).
+    - ``coarse``: a usable approximation with a known systematic gap (e.g. the
+      read layer's ``open_to_merge_seconds`` combines draft and ready-for-review
+      time).
     - ``partial``: real but incomplete, because backing data hasn't landed yet
       (e.g. ``pr_lifecycle`` has no review/comment events).
     """
@@ -50,11 +54,6 @@ class MetricQuality(StrEnum):
     PRECISE = "precise"
     COARSE = "coarse"
     PARTIAL = "partial"
-
-
-class BucketKind(StrEnum):
-    ALL = "all"
-    AUTHOR = "author"
 
 
 class PRLifecycleEventKind(StrEnum):
@@ -104,44 +103,6 @@ class WorkflowRun:
     run_started_at: datetime
     updated_at: datetime
     duration_seconds: int
-
-
-@dataclass(frozen=True)
-class WorkflowReportRow:
-    workflow_name: str
-    total_runs: int
-    success_rate: float
-    median_duration_seconds: float
-    p95_duration_seconds: float
-    last_failed_at: datetime | None
-
-
-@dataclass(frozen=True)
-class WorkflowReport:
-    rows: list[WorkflowReportRow]
-    date_from: str
-    date_to: str | None
-    repo: RepoRef | None
-    metric_quality: MetricQuality = MetricQuality.PRECISE
-
-
-@dataclass(frozen=True)
-class TimeToMergeRow:
-    bucket: str
-    bucket_kind: BucketKind
-    pr_count: int
-    median_seconds: float
-    p95_seconds: float
-
-
-@dataclass(frozen=True)
-class TimeToMerge:
-    rows: list[TimeToMergeRow]
-    date_from: str
-    date_to: str | None
-    repo: RepoRef | None
-    group_by_author: bool
-    metric_quality: MetricQuality = MetricQuality.COARSE
 
 
 @dataclass(frozen=True)

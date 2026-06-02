@@ -134,134 +134,13 @@ export interface PRLifecycleApi {
     metric_quality?: MetricQualityEnumApi
 }
 
-/**
- * * `all` - ALL
- * `author` - AUTHOR
- */
-export type BucketKindEnumApi = (typeof BucketKindEnumApi)[keyof typeof BucketKindEnumApi]
-
-export const BucketKindEnumApi = {
-    All: 'all',
-    Author: 'author',
-} as const
-
-export interface TimeToMergeRowApi {
-    /** 'all', or an author handle when grouping by author. */
-    bucket: string
-    /** Whether this row aggregates all PRs ('all') or one author ('author').
-
-  * `all` - ALL
-  * `author` - AUTHOR */
-    bucket_kind: BucketKindEnumApi
-    /** Number of merged pull requests in the bucket. */
-    pr_count: number
-    /** Median seconds from PR open to merge. */
-    median_seconds: number
-    /** 95th-percentile seconds from PR open to merge. */
-    p95_seconds: number
-}
-
-export interface TimeToMergeApi {
-    /** One row for 'all', or one per author when grouping by author. */
-    rows: TimeToMergeRowApi[]
-    /** Repository the result is labeled with, if a repo filter was supplied. */
-    repo?: RepoRefApi | null
-    /** Start of the window, echoed from the request (relative string or ISO8601). */
-    date_from: string
-    /**
-     * End of the window, echoed from the request; null means 'now'.
-     * @nullable
-     */
-    date_to: string | null
-    /** Whether rows are split per author. */
-    group_by_author: boolean
-    /** Always 'coarse' — measures PR open to merge, combining draft and ready-for-review time.
-
-  * `precise` - PRECISE
-  * `coarse` - COARSE
-  * `partial` - PARTIAL */
-    metric_quality?: MetricQualityEnumApi
-}
-
-export interface WorkflowReportRowApi {
-    /** GitHub Actions workflow name. */
-    workflow_name: string
-    /** Number of runs of this workflow in the window. */
-    total_runs: number
-    /** Fraction of runs that concluded 'success', from 0.0 to 1.0. */
-    success_rate: number
-    /** Median run duration in seconds. */
-    median_duration_seconds: number
-    /** 95th-percentile run duration in seconds. */
-    p95_duration_seconds: number
-    /**
-     * Timestamp of the most recent failed run, or null if none failed in the window.
-     * @nullable
-     */
-    last_failed_at: string | null
-}
-
-export interface WorkflowReportApi {
-    /** Workflows in the window, slowest median duration first. */
-    rows: WorkflowReportRowApi[]
-    /** Repository the report is labeled with, if a repo filter was supplied. */
-    repo?: RepoRefApi | null
-    /** Start of the window, echoed from the request (relative string or ISO8601). */
-    date_from: string
-    /**
-     * End of the window, echoed from the request; null means 'now'.
-     * @nullable
-     */
-    date_to: string | null
-    /** Always 'precise' — computed directly from CI run records.
-
-  * `precise` - PRECISE
-  * `coarse` - COARSE
-  * `partial` - PARTIAL */
-    metric_quality?: MetricQualityEnumApi
-}
-
 export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
      */
     pr_number: number
     /**
-     * Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows.
-     */
-    repo?: string
-}
-
-export type EngineeringAnalyticsTimeToMergeParams = {
-    /**
-     * Start of the window: a relative string like '-7d' or an ISO8601 timestamp. Defaults to '-7d'.
-     */
-    date_from?: string
-    /**
-     * End of the window: a relative string or ISO8601 timestamp. Omit for 'now'.
-     */
-    date_to?: string
-    /**
-     * Split results per author handle instead of one overall bucket.
-     */
-    group_by_author?: boolean
-    /**
-     * Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows.
-     */
-    repo?: string
-}
-
-export type EngineeringAnalyticsWorkflowReportParams = {
-    /**
-     * Start of the window: a relative string like '-7d' or an ISO8601 timestamp. Defaults to '-7d'.
-     */
-    date_from?: string
-    /**
-     * End of the window: a relative string or ISO8601 timestamp. Omit for 'now'.
-     */
-    date_to?: string
-    /**
-     * Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows.
+     * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string
 }

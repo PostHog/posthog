@@ -2,8 +2,11 @@
 # The tool list and operation IDs are kept in sync automatically:
 #   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 #
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# The primary surface for this product is the generic SQL/query tool over the
+# curated read layer (engineering_analytics_pull_requests /
+# engineering_analytics_workflow_runs), guided by the
+# diagnosing-ci-and-merge-bottlenecks skill. pr-lifecycle is the one named deep
+# tool — a genuine single-PR assembly the SQL surface can't express in one call.
 category: Engineering analytics
 feature: engineering_analytics
 url_prefix: /engineering_analytics
@@ -23,56 +26,10 @@ tools:
             The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus
             ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer "where is this PR
             stuck and what happened to it". metric_quality is "partial" — it covers CI events only; review and comment
-            events are not yet available.
+            events are not yet available. For aggregate questions (CI health, time to merge, throughput), query the
+            engineering_analytics_pull_requests / engineering_analytics_workflow_runs views with SQL instead.
         param_overrides:
             pr_number:
                 description: Pull request number to inspect.
             repo:
-                description: Optional 'owner/name' repository. In v1 this only labels the response.
-    time-to-merge:
-        operation: engineering_analytics_time_to_merge
-        enabled: true
-        scopes:
-            - engineering_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: PR time to merge
-        description: >
-            How long pull requests take from open to merge over a time window: median and p95 seconds plus a PR count,
-            either overall or split per author. Bots and drafts are excluded. Use this to answer "how long are PRs
-            sitting before they merge" or to compare an author's throughput to the baseline. metric_quality is "coarse"
-            — it measures open-to-merge, combining draft and ready-for-review time, because the warehouse holds current
-            PR state rather than a transition history.
-        param_overrides:
-            date_from:
-                description: Start of the window — a relative string like '-7d' or an ISO8601 timestamp. Defaults to '-7d'.
-            date_to:
-                description: End of the window — a relative string or ISO8601 timestamp. Omit for 'now'.
-            repo:
-                description: Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows.
-            group_by_author:
-                description: Set true to split results per author handle instead of one overall bucket.
-    workflow-report:
-        operation: engineering_analytics_workflow_report
-        enabled: true
-        scopes:
-            - engineering_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: CI workflow report
-        description: >
-            Report on GitHub Actions workflow health over a time window: per workflow, the run count, success rate
-            (0.0–1.0), median and p95 duration in seconds, and the last failure time, sorted slowest median first. Use
-            this to answer "what is slow or flaky in CI right now" or to check whether a known long-pole workflow is
-            holding up a pull request. metric_quality is always "precise" — computed directly from CI run records.
-        param_overrides:
-            date_from:
-                description: Start of the window — a relative string like '-7d' or an ISO8601 timestamp. Defaults to '-7d'.
-            date_to:
-                description: End of the window — a relative string or ISO8601 timestamp. Omit for 'now'.
-            repo:
-                description: Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows.
+                description: Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
