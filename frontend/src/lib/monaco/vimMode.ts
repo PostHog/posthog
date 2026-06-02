@@ -157,6 +157,37 @@ function patchSubstituteHighlight(cmAdapter: any, statusBar: any): () => void {
     }
 }
 
+// monaco-vim's ExCommandDispatcher._processCommand surfaces ex-command failures
+// in the status bar via showConfirm(), but then rethrows them. The rethrow
+// escapes through the status-bar input's keydown handler — which invokes the
+// onClose callback synchronously — and reaches PostHog's global error handler.
+// e.g. an ex-command line spec referencing an unset mark (`:'a`) throws a raw
+// Error("Mark not set"). Wrap the status-bar input callback so these expected,
+// already-displayed library errors stay contained to the editor UI, matching
+// native vim's behavior of showing the message inline.
+function patchExCommandErrors(statusBar: any): () => void {
+    const originalSetSec = statusBar.setSec.bind(statusBar)
+
+    statusBar.setSec = function (text: any, callback: any, options: any): any {
+        const wrappedCallback =
+            typeof callback === 'function'
+                ? (value: string): void => {
+                      try {
+                          callback(value)
+                      } catch {
+                          // monaco-vim already rendered the message via showConfirm;
+                          // swallow the rethrow so it doesn't reach the global handler.
+                      }
+                  }
+                : callback
+        return originalSetSec(text, wrappedCallback, options)
+    }
+
+    return () => {
+        statusBar.setSec = originalSetSec
+    }
+}
+
 function setupClipboardSync(editor: monacoEditor.IStandaloneCodeEditor, statusBarEl: HTMLElement): () => void {
     const regController = (VimMode as any).Vim.getRegisterController()
     const origPushText = regController.pushText.bind(regController)
@@ -251,6 +282,7 @@ export function setupVimMode(
     const restoreCloseInput = patchCloseInput(cmAdapter.statusBar)
     const restoreArrowKeys = patchStatusBarArrowKeys(statusBarEl)
     const restoreSetSec = patchSubstituteHighlight(cmAdapter, cmAdapter.statusBar)
+    const restoreExCommandErrors = patchExCommandErrors(cmAdapter.statusBar)
     const cleanupClipboard = setupClipboardSync(editor, statusBarEl)
 
     let cleanupHistoryPersistence: (() => void) | undefined
@@ -266,6 +298,7 @@ export function setupVimMode(
         dispose: () => {
             cleanupHistoryPersistence?.()
             cleanupClipboard()
+            restoreExCommandErrors()
             restoreSetSec()
             restoreArrowKeys()
             restoreCloseInput()
