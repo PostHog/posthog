@@ -190,9 +190,6 @@ export function stripNullDefaults(obj) {
 /**
  * Run standard preprocessing on a full OpenAPI schema.
  * Mutates the schema in place, also returns it for convenience.
- *
- * Does NOT call `stripNullDefaults` — pipelines that want it call it
- * separately (e.g. the frontend zod generator).
  */
 export function preprocessSchema(schema) {
     inlineSchemaRefs(schema)
@@ -201,5 +198,6 @@ export function preprocessSchema(schema) {
     }
     stripCollidingInlineEnums(schema)
     clampIntegerBounds(schema)
+    stripNullDefaults(schema)
     return schema
 }
