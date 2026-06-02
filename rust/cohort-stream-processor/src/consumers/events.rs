@@ -251,6 +251,10 @@ impl EventDispatcher {
             histogram!(REVOKE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
         }
 
+        // Drop the offset entry, or the commit loop keeps committing this partition after we lost it.
+        // After the join: the worker's drain re-inserts the entry via `mark_processed`.
+        self.tracker.forget_partition(partition);
+
         // Reclaim the state slice so a later tenure of this partition never reads a previous owner's
         // state. `delete_partition` takes the store's `u16` partition id; guard the cast rather than
         // silently truncate (the shuffler emits 64 partitions, so this never bites in practice).
@@ -271,6 +275,17 @@ impl EventDispatcher {
 
     fn tracker(&self) -> &OffsetTracker {
         self.tracker.as_ref()
+    }
+
+    /// Processed offsets restricted to still-owned partitions. `owned` is cleared synchronously on
+    /// revoke (before any async commit runs), so this drops a revoked partition's tail immediately —
+    /// the authoritative guard against committing a partition this consumer no longer owns.
+    fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
+        self.tracker
+            .committable_offsets()
+            .into_iter()
+            .filter(|(partition, _)| self.owned.contains(partition))
+            .collect()
     }
 
     /// Stop feeding workers and drain them. [`clear`](PartitionRouter::clear)ing the router closes
@@ -383,7 +398,13 @@ impl CohortStreamEventsConsumer {
                     self.handle_outcome(outcome).await;
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
-                        commit_offsets(&self.consumer, self.dispatcher.tracker(), &self.topic, CommitMode::Async);
+                        commit_offsets(
+                            &self.consumer,
+                            self.dispatcher.tracker(),
+                            self.dispatcher.owned_committable_offsets(),
+                            &self.topic,
+                            CommitMode::Async,
+                        );
                         commit_deadline = now + self.offset_commit_interval;
                     }
                 }
@@ -391,7 +412,14 @@ impl CohortStreamEventsConsumer {
         }
 
         let tracker = self.dispatcher.shutdown().await;
-        commit_offsets(&self.consumer, &tracker, &self.topic, CommitMode::Sync);
+        let offsets = self.dispatcher.owned_committable_offsets();
+        commit_offsets(
+            &self.consumer,
+            &tracker,
+            offsets,
+            &self.topic,
+            CommitMode::Sync,
+        );
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
@@ -498,16 +526,17 @@ fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> TopicPartitionL
     tpl
 }
 
-/// Commit the tracker's processed offsets to Kafka and record what was acked. A free function so
-/// both the periodic (async) and final (sync) commits reuse it. Generic over the consumer context
-/// so it works regardless of which [`ConsumerContext`] the consumer carries.
+/// Commit the given processed offsets (already restricted to owned partitions by the caller) and
+/// record what was acked. A free function so both the periodic (async) and final (sync) commits
+/// reuse it. Generic over the consumer context so it works regardless of which [`ConsumerContext`]
+/// the consumer carries.
 fn commit_offsets<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
     tracker: &OffsetTracker,
+    offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
 ) {
-    let offsets = tracker.committable_offsets();
     if offsets.is_empty() {
         return;
     }
@@ -955,10 +984,11 @@ mod tests {
 
     #[tokio::test]
     async fn revoke_then_shutdown_drain_each_worker_exactly_once() {
-        // Revoke and shutdown share one `Arc<DashMap>`: `remove` hands a worker to exactly one of
-        // them, so neither double-drains and both partitions' tails are marked.
+        // Revoke and shutdown share one `Arc<DashMap>`, so `remove` hands a worker to exactly one of
+        // them (no double-drain). The revoked partition is drained then forgotten; the survivor
+        // commits on shutdown.
         let (_dir, store) = temp_store();
-        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+        let (dispatcher, sink) = dispatcher_and_sink(&store, behavioral_catalog());
 
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);
@@ -973,16 +1003,82 @@ mod tests {
 
         let tracker = dispatcher.shutdown().await;
         assert_eq!(dispatcher.workers.len(), 0);
+
+        // Produced exactly once: partition 0 drained before being forgotten, with no double-drain.
+        assert_eq!(
+            sink.changes()
+                .iter()
+                .filter(|change| change.person_id == person(1).to_string())
+                .count(),
+            1,
+        );
         assert_eq!(
             tracker.committable_offsets().get(&0),
-            Some(&11),
-            "the revoked partition's tail was drained once",
+            None,
+            "the revoked partition's offset was forgotten on drain, not left to re-commit",
         );
         assert_eq!(
             tracker.committable_offsets().get(&1),
             Some(&21),
             "the survivor drained on shutdown",
         );
+    }
+
+    #[tokio::test]
+    async fn revoke_partition_drain_forgets_the_offset_so_it_is_not_recommitted() {
+        // A revoked partition's tail must leave the tracker, or the periodic/final commit keeps
+        // committing it for a partition this consumer no longer owns → regresses the new owner.
+        let (_dir, store) = temp_store();
+        let (dispatcher, sink) = dispatcher_and_sink(&store, behavioral_catalog());
+
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        dispatcher
+            .dispatch(vec![consumed(person(1), 0, 10), consumed(person(2), 1, 20)])
+            .await;
+
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.revoke_partition_drain(0).await;
+
+        // The drain produced partition 0's tail, so its offset was marked before being forgotten.
+        assert_eq!(
+            sink.changes()
+                .iter()
+                .filter(|change| change.person_id == person(1).to_string())
+                .count(),
+            1,
+        );
+        assert_eq!(dispatcher.tracker().committable_offsets().get(&0), None);
+        assert!(!dispatcher.owned_committable_offsets().contains_key(&0));
+
+        // The marking mechanism still works: the still-owned partition commits on shutdown.
+        let tracker = dispatcher.shutdown().await;
+        assert_eq!(tracker.committable_offsets().get(&1), Some(&21));
+    }
+
+    #[tokio::test]
+    async fn owned_committable_offsets_excludes_unowned_partitions() {
+        // The owned filter is the authoritative commit guard, covering the window between the sync
+        // revoke (clears ownership) and the async drain (forgets the lingering tracker entry).
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        for (partition, next) in [(0, 11), (1, 21)] {
+            dispatcher.assign_partition(partition);
+            dispatcher.tracker().mark_dispatched(partition, next);
+            let _ = dispatcher.tracker().mark_processed(partition, next);
+        }
+        assert_eq!(dispatcher.owned_committable_offsets().get(&0), Some(&11));
+
+        dispatcher.revoke_partition_sync(0);
+
+        assert_eq!(
+            dispatcher.tracker().committable_offsets().get(&0),
+            Some(&11),
+            "the entry lingers in the tracker until the async drain forgets it",
+        );
+        assert!(!dispatcher.owned_committable_offsets().contains_key(&0));
+        assert_eq!(dispatcher.owned_committable_offsets().get(&1), Some(&21));
     }
 
     #[tokio::test]
