@@ -129,9 +129,8 @@ async def emit_finding(
         )
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
 
-    # Defer the import: products.signals.backend.api transitively imports temporal
-    # workflows, which we don't want loaded at module import time inside the harness.
-    from products.signals.backend.api import emit_signal
+    # Deferred to keep the harness module import lightweight — emitting is an opt-in path here.
+    from products.signals.backend.facade.api import emit_signal
 
     source_id = f"run:{run.id}:finding:{finding_id}"
     await emit_signal(
@@ -210,7 +209,7 @@ def emit_finding_sync(
         )
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
 
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     source_id = f"run:{run.id}:finding:{finding_id}"
     async_to_sync(emit_signal)(

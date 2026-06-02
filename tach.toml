@@ -176,6 +176,7 @@ depends_on = [
     "posthog",
     "products.alerts",
     "products.ai_observability",
+    "products.error_tracking",
     "products.mcp_analytics",
     "products.product_analytics",
 ]
@@ -349,6 +350,7 @@ path = "products.logs"
 depends_on = [
     "posthog",
     "products.cdp",
+    "products.signals",
 ]
 layer = "modules"
 
