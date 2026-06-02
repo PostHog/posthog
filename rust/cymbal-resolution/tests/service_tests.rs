@@ -187,7 +187,12 @@ async fn resolve_items(
     resolve_items_with_accepted(service, items)
         .await
         .into_iter()
-        .filter(|outcome| !matches!(outcome_result(outcome), resolve_outcome::Result::Accepted(_)))
+        .filter(|outcome| {
+            !matches!(
+                outcome_result(outcome),
+                resolve_outcome::Result::Accepted(_)
+            )
+        })
         .collect()
 }
 
