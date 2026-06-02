@@ -186,7 +186,7 @@ async def _handle_transcription(
 
     request = TranscriptionRequest(model=normalized_model, file=file_tuple, language=language)
 
-    # is_streaming=False guarantees a dict response, but handle_llm_request's signature is the union.
+    # is_streaming=False always yields a dict, never a StreamingResponse.
     return cast(
         dict[str, Any],
         await handle_llm_request(
