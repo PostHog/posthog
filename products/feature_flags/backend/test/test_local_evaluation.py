@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.db import DatabaseError
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -330,6 +331,52 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         # Wrote an empty mapping (correct for this team) without tripping the guard
         assert self._cached_group_type_mapping() == {}
         mock_emptied_counter.labels.assert_not_called()
+
+    @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
+    def test_skips_write_when_stale_absent_but_primary_has_group_types(self, mock_emptied_counter):
+        # TOCTOU / replica-lag: the stale key was deleted by a concurrent
+        # invalidate_group_types_cache (or expired) while the group type still exists.
+        # The guard must confirm against the primary, not wave the empty through.
+        update_flag_caches(self.team)
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+        # Simulate the concurrent invalidation deleting the last-known-good stale key.
+        self._clear_stale()
+
+        # Fetch returns empty without erroring, but the row still exists in the DB.
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            return_value={self.team.project_id: []},
+        ):
+            with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
+                update_flag_caches(self.team)
+                mock_set.assert_not_called()
+
+        mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+    @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
+    def test_fails_closed_when_confirmation_read_errors(self, mock_emptied_counter):
+        # Stale absent and the authoritative confirmation read fails: the guard must
+        # fail closed (block the empty write) rather than risk clobbering good data.
+        update_flag_caches(self.team)
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+        self._clear_stale()
+
+        with (
+            patch(
+                "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+                return_value={self.team.project_id: []},
+            ),
+            patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects,
+        ):
+            mock_objects.using.return_value.filter.return_value.exists.side_effect = DatabaseError("persons db down")
+            with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
+                update_flag_caches(self.team)
+                mock_set.assert_not_called()
+
+        mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
+        assert self._cached_group_type_mapping() == {"0": "organization"}
 
 
 class TestLocalEvaluationSignals(BaseTest):

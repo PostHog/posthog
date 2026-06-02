@@ -14,8 +14,10 @@ from posthog.models.group_type_mapping import (
     get_group_types_for_project,
     get_group_types_for_projects,
     get_group_types_for_team,
+    project_has_group_types_authoritatively,
     update_group_type_mapping_fields,
 )
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.utils import safe_cache_delete, safe_cache_set
 
 
@@ -1115,3 +1117,29 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
         assert first_kwargs["capture_throttled"] is False
         assert second_kwargs["exception_captured"] is False
         assert second_kwargs["capture_throttled"] is True
+
+
+class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_returns_true_when_rows_exist(self, mock_objects):
+        mock_objects.using.return_value.filter.return_value.exists.return_value = True
+
+        assert project_has_group_types_authoritatively(123) is True
+        # Reads the primary, not a replica, so a lagging read cannot fake a deletion.
+        mock_objects.using.assert_called_once_with(PERSONS_DB_FOR_WRITE)
+        mock_objects.using.return_value.filter.assert_called_once_with(project_id=123)
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_returns_false_when_no_rows(self, mock_objects):
+        mock_objects.using.return_value.filter.return_value.exists.return_value = False
+
+        assert project_has_group_types_authoritatively(123) is False
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_fails_closed_on_db_error(self, mock_objects):
+        from django.db import DatabaseError
+
+        mock_objects.using.return_value.filter.return_value.exists.side_effect = DatabaseError("db down")
+
+        # Cannot confirm absence → assume present so the caller keeps the existing entry.
+        assert project_has_group_types_authoritatively(123) is True

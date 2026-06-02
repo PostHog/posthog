@@ -42,6 +42,7 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
     get_group_types_for_projects,
+    project_has_group_types_authoritatively,
 )
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
@@ -479,15 +480,21 @@ def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, me
 
 
 def _group_mapping_would_be_emptied(team: Team, payload: dict[str, Any]) -> bool:
-    """True when the freshly built payload's group_type_mapping is empty but the
-    per-project last-known-good (stale cache) is non-empty, i.e. a write would
-    replace populated data with an empty mapping.
+    """True when writing this payload would replace a populated group_type_mapping
+    with an empty one.
 
-    Reads the stale key directly to avoid triggering another DB load."""
+    An empty freshly built mapping is correct for a team with no group types but is
+    the symptom of a silent upstream failure for a team that has them. The per-project
+    stale key is the cheap last-known-good signal; when it is absent (never populated,
+    expired, or deleted by a concurrent invalidate_group_types_cache) we confirm
+    against the persons-DB primary, so the check cannot be defeated by stale-key
+    timing.
+    """
     if payload.get("group_type_mapping"):
         return False
-    stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{team.project_id}")
-    return bool(stale)
+    if get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{team.project_id}"):
+        return True
+    return project_has_group_types_authoritatively(team.project_id)
 
 
 def update_flag_caches(team: Team):

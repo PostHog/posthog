@@ -17,6 +17,7 @@ from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import RootTeamMixin
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
@@ -427,6 +428,31 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     return result
 
 
+def project_has_group_types_authoritatively(project_id: int) -> bool:
+    """True if the project has group types per the persons-DB primary, or if that
+    cannot be confirmed (fail closed).
+
+    The local-eval empty-mapping guard uses this when its cheap last-known-good signal
+    (the per-project stale key) is absent, so a write that would empty a populated
+    mapping is only allowed when the project is *confirmed* to have no group types.
+
+    Reads the primary (PERSONS_DB_FOR_WRITE) on purpose: the normal fetch already
+    returned the suspect empty (possibly from personhog or a lagging replica), so this
+    independent check must hit the source of truth rather than route through personhog
+    again. On a DB error it returns True — the caller must not treat an unconfirmable
+    state as safe to empty.
+    """
+    try:
+        return (
+            GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
+            .filter(project_id=project_id)
+            .exists()
+        )
+    except DatabaseError:
+        logger.warning("group_types_primary_confirmation_failed", project_id=project_id, exc_info=True)
+        return True
+
+
 def update_group_type_mapping_fields(
     instance: GroupTypeMapping,
     *,
@@ -564,8 +590,6 @@ def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int, pro
                 dashboard_id=dashboard_id,
                 exc_info=True,
             )
-
-    from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name=get_client_name()
