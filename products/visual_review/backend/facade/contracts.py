@@ -73,20 +73,25 @@ class ApproveSnapshotInput:
 
 @dataclass(frozen=True)
 class ApproveRunRequestInput:
-    """Request body for approving a run. run_id and user_id come from URL and auth."""
+    """Request body for marking snapshots reviewed (DB only). run_id and user_id come from URL and auth."""
 
     snapshots: list[ApproveSnapshotInput] = field(default_factory=list)
-    approve_all: bool = False
-    commit_to_github: bool = True
 
 
 @dataclass(frozen=True)
 class ApproveRunInput:
-    """Full input for approving visual changes (internal use)."""
+    """Full input for marking snapshots reviewed (internal use)."""
 
     run_id: UUID
     user_id: int
     snapshots: list[ApproveSnapshotInput]
+
+
+@dataclass(frozen=True)
+class FinalizeRunRequestInput:
+    """Request body for finalizing a run. run_id and user_id come from URL and auth."""
+
+    approve_all: bool = False
     commit_to_github: bool = True
 
 
@@ -252,8 +257,12 @@ class Run:
 
 
 @dataclass(frozen=True)
-class AutoApproveResult:
-    """Result of auto-approving a run, including the signed baseline YAML."""
+class FinalizeResult:
+    """Result of finalizing a run: the run plus the signed baseline YAML.
+
+    ``baseline_content`` is populated only when ``commit_to_github=False`` (the caller commits
+    the baseline itself); it is empty when the server already committed it to the PR branch.
+    """
 
     run: Run
     baseline_content: str
