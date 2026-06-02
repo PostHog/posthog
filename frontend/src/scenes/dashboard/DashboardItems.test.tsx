@@ -195,7 +195,7 @@ describe('DashboardItems', () => {
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
                     refreshDashboardWidgets: jest.fn(),
-                    updateWidgetTileMetadata: jest.fn(),
+                    updateWidgetTile: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),

@@ -31,13 +31,11 @@ jest.mock('../../widgets/registry', () => ({
             name,
             defaultTitle,
             description,
-            onSaveMetadata: _onSaveMetadata,
         }: {
             isOpen: boolean
             name?: string
             defaultTitle?: string
             description?: string
-            onSaveMetadata?: (metadata: { name?: string; description?: string }) => void
         }) =>
             isOpen ? (
                 <div role="dialog" aria-label="Widget settings">
@@ -128,8 +126,7 @@ describe('DashboardWidgetItem', () => {
                 loading={false}
                 lastFetchedAt={Date.now()}
                 onRefresh={onRefresh}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 toggleShowDescription={jest.fn()}
                 showEditingControls
                 onDuplicate={jest.fn()}
@@ -169,8 +166,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
                 onRemove={onRemove}
             />
@@ -194,8 +190,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
             />
         )
@@ -213,8 +208,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 toggleShowDescription={toggleShowDescription}
                 showEditingControls
             />
@@ -236,8 +230,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
             />
         )
@@ -262,8 +255,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
             />
         )

@@ -1746,7 +1746,7 @@ describe('dashboardLogic', () => {
             expect(fetchRunWidgetsMock).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 5, [addedTile.id], expect.anything())
         })
 
-        it('updateWidgetTileMetadata persists batched name and description', async () => {
+        it('updateWidgetTile persists config and metadata in one patch', async () => {
             const updateDashboardWidgetTileMock = jest
                 .spyOn(dashboardWidgetUtils, 'updateDashboardWidgetTile')
                 .mockResolvedValueOnce({
@@ -1755,6 +1755,7 @@ describe('dashboardLogic', () => {
                         ...WIDGET_TILE.widget!,
                         name: 'Weekly errors',
                         description: 'Top issues this week',
+                        config: { limit: 5 },
                     },
                 } as DashboardTile<QueryBasedInsightModel>)
 
@@ -1763,23 +1764,28 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.updateWidgetTileMetadata({
+                logic.actions.updateWidgetTile({
                     tile: WIDGET_TILE,
+                    config: { limit: 5 },
                     name: 'Weekly errors',
                     description: 'Top issues this week',
                 })
-            }).toFinishAllListeners()
+            })
+                .toDispatchActions(['refreshDashboardWidgets'])
+                .toFinishAllListeners()
 
             expect(updateDashboardWidgetTileMock).toHaveBeenCalledWith({
                 teamId: MOCK_TEAM_ID,
                 dashboardId: 5,
                 tile: WIDGET_TILE,
+                config: { limit: 5 },
                 name: 'Weekly errors',
                 description: 'Top issues this week',
             })
             expect(logic.values.dashboard?.tiles.find((tile) => tile.id === WIDGET_TILE.id)?.widget).toMatchObject({
                 name: 'Weekly errors',
                 description: 'Top issues this week',
+                config: { limit: 5 },
             })
 
             updateDashboardWidgetTileMock.mockRestore()

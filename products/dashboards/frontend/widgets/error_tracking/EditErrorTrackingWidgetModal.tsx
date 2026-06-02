@@ -29,7 +29,6 @@ function EditErrorTrackingWidgetModalContents(): JSX.Element {
         saveDisabledReason,
         onClose,
         defaultTitle,
-        onSaveMetadata,
     } = useValues(editErrorTrackingWidgetModalLogic)
     const {
         setLimit,
@@ -42,7 +41,7 @@ function EditErrorTrackingWidgetModalContents(): JSX.Element {
         submit,
     } = useActions(editErrorTrackingWidgetModalLogic)
 
-    const showTileDetails = !!onSaveMetadata
+    const showTileDetails = true
 
     return (
         <LemonModal
@@ -162,7 +161,6 @@ export function EditErrorTrackingWidgetModal({
     name,
     defaultTitle,
     description,
-    onSaveMetadata,
 }: DashboardWidgetEditModalProps): JSX.Element | null {
     if (!isOpen) {
         return null
@@ -171,7 +169,7 @@ export function EditErrorTrackingWidgetModal({
     return (
         <BindLogic
             logic={editErrorTrackingWidgetModalLogic}
-            props={{ onClose, config, onSave, name, defaultTitle, description, onSaveMetadata }}
+            props={{ onClose, config, onSave, name, defaultTitle, description }}
         >
             <EditErrorTrackingWidgetModalContents />
         </BindLogic>

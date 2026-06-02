@@ -64,7 +64,6 @@ describe('EditErrorTrackingWidgetModal', () => {
 
     it('saves title and description from widget settings modal', async () => {
         const onSave = jest.fn().mockResolvedValue(undefined)
-        const onSaveMetadata = jest.fn().mockResolvedValue(undefined)
 
         render(
             <EditErrorTrackingWidgetModal
@@ -75,7 +74,6 @@ describe('EditErrorTrackingWidgetModal', () => {
                 defaultTitle="Top issues"
                 description=""
                 onSave={onSave}
-                onSaveMetadata={onSaveMetadata}
             />
         )
 
@@ -85,10 +83,16 @@ describe('EditErrorTrackingWidgetModal', () => {
         await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
         expect(onSave).toHaveBeenCalledTimes(1)
-        expect(onSaveMetadata).toHaveBeenCalledWith({
-            name: 'Critical crashes',
-            description: 'Top crashes this week',
-        })
+        expect(onSave).toHaveBeenCalledWith(
+            expect.objectContaining({
+                limit: 10,
+                orderBy: 'occurrences',
+            }),
+            {
+                name: 'Critical crashes',
+                description: 'Top crashes this week',
+            }
+        )
     })
 
     it('saves filterTestAccounts from widget settings modal', async () => {
@@ -115,13 +119,13 @@ describe('EditErrorTrackingWidgetModal', () => {
         expect(onSave).toHaveBeenCalledWith(
             expect.objectContaining({
                 filterTestAccounts: false,
-            })
+            }),
+            {}
         )
     })
 
     it('saves description from widget settings modal', async () => {
         const onSave = jest.fn().mockResolvedValue(undefined)
-        const onSaveMetadata = jest.fn().mockResolvedValue(undefined)
 
         render(
             <EditErrorTrackingWidgetModal
@@ -130,7 +134,6 @@ describe('EditErrorTrackingWidgetModal', () => {
                 config={{ limit: 10, orderBy: 'occurrences', dateRange: { date_from: '-7d' } }}
                 description=""
                 onSave={onSave}
-                onSaveMetadata={onSaveMetadata}
             />
         )
 
@@ -139,7 +142,12 @@ describe('EditErrorTrackingWidgetModal', () => {
         await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
         expect(onSave).toHaveBeenCalledTimes(1)
-        expect(onSaveMetadata).toHaveBeenCalledWith({ description: 'Top crashes this week' })
+        expect(onSave).toHaveBeenCalledWith(
+            expect.objectContaining({
+                limit: 10,
+            }),
+            { description: 'Top crashes this week' }
+        )
     })
 
     it('disables save while request is in flight', async () => {
@@ -182,7 +190,6 @@ describe('EditErrorTrackingWidgetModal', () => {
                 defaultTitle="Top issues"
                 description=""
                 onSave={jest.fn()}
-                onSaveMetadata={jest.fn()}
             />
         )
 

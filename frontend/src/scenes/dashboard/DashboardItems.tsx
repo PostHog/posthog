@@ -65,8 +65,7 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         refreshDashboardWidgets,
-        updateWidgetTileMetadata,
-        updateWidgetTileConfig,
+        updateWidgetTile,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
@@ -500,11 +499,8 @@ export function DashboardItems(): JSX.Element {
                                         onRefresh={() =>
                                             refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
                                         }
-                                        onUpdateConfig={async (config) => {
-                                            await updateWidgetTileConfig({ tile, config })
-                                        }}
-                                        onUpdateMetadata={async (metadata) => {
-                                            await updateWidgetTileMetadata({ tile, ...metadata })
+                                        onUpdateWidgetTile={async (patch) => {
+                                            await updateWidgetTile({ tile, ...patch })
                                         }}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         onDuplicate={() => duplicateTile(tile)}

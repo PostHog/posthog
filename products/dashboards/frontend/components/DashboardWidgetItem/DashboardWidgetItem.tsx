@@ -37,8 +37,11 @@ type DashboardWidgetItemProps = {
     error?: string | null
     lastFetchedAt?: number
     onRefresh: () => void
-    onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
-    onUpdateMetadata?: (metadata: { name?: string; description?: string }) => void | Promise<void>
+    onUpdateWidgetTile?: (patch: {
+        config?: Record<string, unknown>
+        name?: string
+        description?: string
+    }) => void | Promise<void>
     toggleShowDescription?: () => void
     showResizeHandles?: boolean
     canEnterEditModeFromEdge?: boolean
@@ -76,8 +79,7 @@ function DashboardWidgetItemContent({
     error,
     lastFetchedAt,
     onRefresh,
-    onUpdateConfig,
-    onUpdateMetadata,
+    onUpdateWidgetTile,
     toggleShowDescription,
     onDragHandleMouseDown,
     showEditingControls,
@@ -111,7 +113,11 @@ function DashboardWidgetItemContent({
         loading,
         error,
         onRefresh,
-        onUpdateConfig,
+        onUpdateConfig: onUpdateWidgetTile
+            ? async (config) => {
+                  await onUpdateWidgetTile({ config })
+              }
+            : undefined,
     }
 
     const EditModal = definition?.EditModal
@@ -129,7 +135,7 @@ function DashboardWidgetItemContent({
     const hasDashboardSectionActions =
         !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
         (showEditingControls && toggleShowDescription && !!description) ||
-        (showEditingControls && onUpdateMetadata && !showDescription && !description)
+        (showEditingControls && onUpdateWidgetTile && !showDescription && !description)
 
     const refreshDisabledReason = loading ? 'Refreshing...' : undefined
 
@@ -169,7 +175,7 @@ function DashboardWidgetItemContent({
                             <>
                                 <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
-                                {showEditingControls && onUpdateMetadata && !showDescription && !description && (
+                                {showEditingControls && onUpdateWidgetTile && !showDescription && !description && (
                                     <LemonButton
                                         fullWidth
                                         onClick={() => {
@@ -230,11 +236,8 @@ function DashboardWidgetItemContent({
                             name={title}
                             defaultTitle={defaultTitle}
                             description={description}
-                            onSaveMetadata={
-                                onUpdateMetadata ? async (metadata) => await onUpdateMetadata(metadata) : undefined
-                            }
-                            onSave={async (config) => {
-                                await onUpdateConfig?.(config)
+                            onSave={async (config, metadata) => {
+                                await onUpdateWidgetTile?.({ config, ...metadata })
                             }}
                         />,
                         document.body
@@ -255,8 +258,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             error,
             lastFetchedAt,
             onRefresh,
-            onUpdateConfig,
-            onUpdateMetadata,
+            onUpdateWidgetTile,
             toggleShowDescription,
             showResizeHandles,
             canEnterEditModeFromEdge,
@@ -327,8 +329,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                         error={error}
                         lastFetchedAt={lastFetchedAt}
                         onRefresh={onRefresh}
-                        onUpdateConfig={onUpdateConfig}
-                        onUpdateMetadata={onUpdateMetadata}
+                        onUpdateWidgetTile={onUpdateWidgetTile}
                         toggleShowDescription={toggleShowDescription}
                         onDragHandleMouseDown={onDragHandleMouseDown}
                         showEditingControls={showEditingControls}

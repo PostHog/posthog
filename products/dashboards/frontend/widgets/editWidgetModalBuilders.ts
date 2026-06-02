@@ -94,10 +94,6 @@ export const widgetEditModalPropSelectors = {
         (_: unknown, p: { defaultTitle?: string }) => [p.defaultTitle],
         (defaultTitle?: string) => defaultTitle ?? 'Untitled',
     ],
-    onSaveMetadata: [
-        (_: unknown, p: { onSaveMetadata?: unknown }) => [p.onSaveMetadata],
-        (onSaveMetadata: unknown) => onSaveMetadata,
-    ],
 }
 
 export const widgetEditModalValidationSelectors = {

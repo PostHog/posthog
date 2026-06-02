@@ -67,15 +67,19 @@ export type DashboardWidgetComponentProps = {
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
 }
 
+export type DashboardWidgetMetadataPatch = {
+    name?: string
+    description?: string
+}
+
 export type DashboardWidgetEditModalProps = {
     isOpen: boolean
     onClose: () => void
     config: Record<string, unknown>
-    onSave: (config: Record<string, unknown>) => void | Promise<void>
+    onSave: (config: Record<string, unknown>, metadata?: DashboardWidgetMetadataPatch) => void | Promise<void>
     name?: string
     defaultTitle?: string
     description?: string
-    onSaveMetadata?: (metadata: { name?: string; description?: string }) => void | Promise<void>
 }
 
 /**

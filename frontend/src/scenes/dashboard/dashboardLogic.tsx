@@ -694,59 +694,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        widgetTileConfigUpdate: [
+        widgetTileUpdate: [
             null,
             {
-                updateWidgetTileConfig: async ({
+                updateWidgetTile: async ({
                     tile,
                     config,
-                }: {
-                    tile: DashboardTile<QueryBasedInsightModel>
-                    config: Record<string, unknown>
-                }) => {
-                    if (!values.dashboard?.id || !tile.widget) {
-                        return null
-                    }
-
-                    try {
-                        const updatedTile = await updateDashboardWidgetTile({
-                            teamId: teamLogic.values.currentTeamId!,
-                            dashboardId: values.dashboard.id,
-                            tile,
-                            config,
-                        })
-                        const dashboard = mergeUpdatedWidgetTileIntoDashboard(values.dashboard, updatedTile)
-                        if (dashboard) {
-                            dashboardsModel.actions.updateDashboardSuccess(dashboard)
-                        }
-                        actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
-                        return updatedTile
-                    } catch (e) {
-                        if (isWidgetConfigValidationError(e)) {
-                            throw e
-                        }
-                        lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
-                        throw e
-                    }
-                },
-            },
-        ],
-        widgetTileMetadataUpdate: [
-            null,
-            {
-                updateWidgetTileMetadata: async ({
-                    tile,
                     name,
                     description,
                 }: {
                     tile: DashboardTile<QueryBasedInsightModel>
+                    config?: Record<string, unknown>
                     name?: string | null
                     description?: string
                 }) => {
                     if (!values.dashboard?.id || !tile.widget) {
                         return null
                     }
-                    if (name === undefined && description === undefined) {
+                    if (config === undefined && name === undefined && description === undefined) {
                         return null
                     }
 
@@ -760,6 +725,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             teamId: teamLogic.values.currentTeamId!,
                             dashboardId: values.dashboard.id,
                             tile,
+                            config,
                             name,
                             description,
                             showDescription: shouldShowDescription ? true : undefined,
@@ -768,8 +734,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (dashboard) {
                             dashboardsModel.actions.updateDashboardSuccess(dashboard)
                         }
+                        if (config !== undefined) {
+                            actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
+                        }
                         return updatedTile
                     } catch (e) {
+                        if (config !== undefined && isWidgetConfigValidationError(e)) {
+                            throw e
+                        }
                         lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
                         throw e
                     }

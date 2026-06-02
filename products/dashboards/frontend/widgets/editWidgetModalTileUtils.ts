@@ -2,7 +2,7 @@ import type { DashboardWidgetEditModalProps } from './registry'
 
 export type WidgetEditModalTileMetadataProps = Pick<
     DashboardWidgetEditModalProps,
-    'name' | 'description' | 'defaultTitle' | 'onSaveMetadata'
+    'name' | 'description' | 'defaultTitle'
 >
 
 export function getWidgetEditModalTileDefaults(props: Pick<DashboardWidgetEditModalProps, 'name' | 'description'>): {
@@ -38,19 +38,4 @@ export function buildWidgetTileMetadataPatch(
         metadata.description = trimmedDescription
     }
     return metadata
-}
-
-export async function saveWidgetTileMetadataAfterConfig(
-    props: WidgetEditModalTileMetadataProps,
-    tileName: string,
-    tileDescription: string
-): Promise<void> {
-    if (!props.onSaveMetadata) {
-        return
-    }
-
-    const metadata = buildWidgetTileMetadataPatch(props, tileName, tileDescription)
-    if (Object.keys(metadata).length > 0) {
-        await props.onSaveMetadata(metadata)
-    }
 }

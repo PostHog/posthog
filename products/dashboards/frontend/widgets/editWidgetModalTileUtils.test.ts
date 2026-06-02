@@ -1,8 +1,4 @@
-import {
-    buildWidgetTileMetadataPatch,
-    getWidgetEditModalTileDefaults,
-    saveWidgetTileMetadataAfterConfig,
-} from './editWidgetModalTileUtils'
+import { buildWidgetTileMetadataPatch, getWidgetEditModalTileDefaults } from './editWidgetModalTileUtils'
 
 describe('editWidgetModalTileUtils', () => {
     it('getWidgetEditModalTileDefaults returns empty strings when metadata is missing', () => {
@@ -10,12 +6,6 @@ describe('editWidgetModalTileUtils', () => {
             tileName: '',
             tileDescription: '',
         })
-    })
-
-    it('saveWidgetTileMetadataAfterConfig no-ops without onSaveMetadata', async () => {
-        await expect(
-            saveWidgetTileMetadataAfterConfig({ name: 'Old', description: 'Desc' }, 'New', 'Other')
-        ).resolves.toBeUndefined()
     })
 
     it('buildWidgetTileMetadataPatch batches name and description changes', () => {
@@ -28,15 +18,20 @@ describe('editWidgetModalTileUtils', () => {
         ).toEqual({ name: 'New title', description: 'New desc' })
     })
 
-    it('saveWidgetTileMetadataAfterConfig clears name when it matches default title', async () => {
-        const onSaveMetadata = jest.fn().mockResolvedValue(undefined)
+    it('buildWidgetTileMetadataPatch returns empty object when nothing changed', () => {
+        expect(
+            buildWidgetTileMetadataPatch(
+                { name: 'Same', description: 'Same desc', defaultTitle: 'Untitled' },
+                'Same',
+                'Same desc'
+            )
+        ).toEqual({})
+    })
 
-        await saveWidgetTileMetadataAfterConfig(
-            { name: 'Custom', defaultTitle: 'Untitled', onSaveMetadata },
-            'Untitled',
-            'Desc'
-        )
-
-        expect(onSaveMetadata).toHaveBeenCalledWith({ name: '', description: 'Desc' })
+    it('buildWidgetTileMetadataPatch clears name when it matches default title', () => {
+        expect(buildWidgetTileMetadataPatch({ name: 'Custom', defaultTitle: 'Untitled' }, 'Untitled', 'Desc')).toEqual({
+            name: '',
+            description: 'Desc',
+        })
     })
 })

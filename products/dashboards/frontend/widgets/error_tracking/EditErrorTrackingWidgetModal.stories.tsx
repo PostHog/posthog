@@ -14,7 +14,6 @@ function EditErrorTrackingWidgetModalStory({
     isOpen = true,
     onClose = () => undefined,
     onSave = () => Promise.resolve(),
-    onSaveMetadata = () => Promise.resolve(),
     config = DEFAULT_CONFIG,
     name = 'Top issues',
     defaultTitle = ERROR_TRACKING_CATALOG.headerTitle ?? ERROR_TRACKING_CATALOG.label,
@@ -27,7 +26,6 @@ function EditErrorTrackingWidgetModalStory({
             onClose={onClose}
             config={config}
             onSave={onSave}
-            onSaveMetadata={onSaveMetadata}
             name={name}
             defaultTitle={defaultTitle}
             description={description}
@@ -59,7 +57,4 @@ export const Default: Story = {
 
 export const BeforeExceptionIngestion: Story = {
     decorators: [withErrorTrackingProjectState(false)],
-    args: {
-        onSaveMetadata: () => Promise.resolve(),
-    },
 }
