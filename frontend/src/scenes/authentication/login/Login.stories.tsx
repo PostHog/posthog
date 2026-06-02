@@ -2,13 +2,13 @@ import { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Login2FA } from 'scenes/authentication/login-2fa/Login2FA'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import preflightJson from '../../mocks/fixtures/_preflight.json'
+import preflightJson from '../../../mocks/fixtures/_preflight.json'
 import { Login } from './Login'
-import { Login2FA } from './Login2FA'
 import { loginLogic } from './loginLogic'
 
 const meta: Meta = {

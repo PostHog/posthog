@@ -43,7 +43,7 @@ function getDefaultScopesForUseCases(useCases: CLIUseCase[]): string[] {
 const DEFAULT_SCOPES = getDefaultScopesForUseCases(DEFAULT_USE_CASES)
 
 export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
-    path(['scenes', 'authentication', 'cliAuthorizeLogic']),
+    path(['scenes', 'authentication', 'cli', 'cliAuthorizeLogic']),
     connect(() => ({
         actions: [userLogic, ['loadUserSuccess']],
         values: [userLogic, ['user']],

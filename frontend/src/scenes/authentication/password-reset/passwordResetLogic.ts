@@ -30,7 +30,7 @@ export interface PasswordResetForm {
 }
 
 export const passwordResetLogic = kea<passwordResetLogicType>([
-    path(['scenes', 'authentication', 'passwordResetLogic']),
+    path(['scenes', 'authentication', 'password-reset', 'passwordResetLogic']),
     loaders(() => ({
         validatedResetToken: [
             null as ValidatedTokenResponseType | null,

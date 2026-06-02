@@ -7,7 +7,7 @@ import api from 'lib/api'
 import type { cliLiveLogicType } from './cliLiveLogicType'
 
 export const cliLiveLogic = kea<cliLiveLogicType>([
-    path(['scenes', 'authentication', 'cliLiveLogic']),
+    path(['scenes', 'authentication', 'cli', 'cliLiveLogic']),
     actions({
         setPort: (port: string) => ({ port }),
         selectProject: (projectId: number) => ({ projectId }),

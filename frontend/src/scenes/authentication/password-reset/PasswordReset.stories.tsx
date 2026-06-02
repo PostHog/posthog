@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
+import { passwordResetLogic } from 'scenes/authentication/password-reset/passwordResetLogic'
 import { urls } from 'scenes/urls'
 
 import { useStorybookMocks } from '~/mocks/browser'

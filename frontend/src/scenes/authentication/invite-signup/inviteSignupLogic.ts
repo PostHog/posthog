@@ -10,10 +10,10 @@ import { ValidatedPasswordResult, validatePassword } from 'lib/components/Passwo
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
+import type { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 
 import { PrevalidatedInvite } from '~/types'
 
-import type { RegistrationBeginResponse } from '../settings/user/passkeySettingsLogic'
 import type { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
@@ -35,7 +35,7 @@ export interface AcceptInvitePayloadInterface {
 }
 
 export const inviteSignupLogic = kea<inviteSignupLogicType>([
-    path(['scenes', 'authentication', 'inviteSignupLogic']),
+    path(['scenes', 'authentication', 'invite-signup', 'inviteSignupLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),

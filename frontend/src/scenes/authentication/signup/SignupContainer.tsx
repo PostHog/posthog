@@ -6,13 +6,13 @@ import { IconCheckCircle } from '@posthog/icons'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { AuthShell } from 'scenes/authentication/shared/AuthShell'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { Region } from '~/types'
 
-import { AuthShell } from '../AuthShell'
 import { SignupForm } from './signupForm/SignupForm'
 
 export const scene: SceneExport = {

@@ -5,10 +5,10 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
 
-import { handleLoginRedirect, loginLogic } from './loginLogic'
 import type { passkeyLogicType } from './passkeyLogicType'
 
 export interface PasskeyLoginBeginResponse {
@@ -26,7 +26,7 @@ export interface BeginPasskeyLoginParams {
 }
 
 export const passkeyLogic = kea<passkeyLogicType>([
-    path(['scenes', 'authentication', 'passkeyLogic']),
+    path(['scenes', 'authentication', 'shared', 'passkeyLogic']),
     connect(() => ({
         actions: [
             loginLogic,

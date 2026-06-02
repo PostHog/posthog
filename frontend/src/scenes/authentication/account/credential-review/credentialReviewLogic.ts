@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { credentialReviewLogicType } from './credentialReviewLogicType'
 
 export const credentialReviewLogic = kea<credentialReviewLogicType>([
-    path(['scenes', 'authentication', 'credentialReviewLogic']),
+    path(['scenes', 'authentication', 'account', 'credential-review', 'credentialReviewLogic']),
     // connect (not a bare import call) so personalAPIKeysLogic is mounted as a dependency
     // of this scene logic. afterMount runs before the review component renders, so without
     // this the loadKeys() call below hits an unmounted logic and throws, which sceneLogic

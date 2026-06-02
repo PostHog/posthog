@@ -14,11 +14,11 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { passwordResetLogic } from './passwordResetLogic'
-import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: PasswordReset,
