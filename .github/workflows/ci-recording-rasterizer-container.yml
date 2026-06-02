@@ -7,6 +7,10 @@ on:
     push:
         branches:
             - 'master'
+    schedule:
+        # Weekly rebuild (Mondays 07:30 UTC) so floated deps (chrome-headless-shell@stable,
+        # ffmpeg, unpinned apt packages) pick up security updates. Fires only from master.
+        - cron: '30 7 * * 1'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -64,6 +68,7 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.rasterizer_files == 'true') ||
             github.event_name == 'merge_group' ||
             github.event_name == 'workflow_dispatch' ||
+            github.event_name == 'schedule' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.rasterizer_files == 'true')
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
@@ -151,7 +156,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'schedule'
         permissions:
             contents: read
         steps:
@@ -173,6 +178,37 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
+            # On a scheduled (cron) run there is no head_commit in the event payload, so reuse it
+            # verbatim for push and synthesize a minimal commit object from git HEAD for schedule.
+            - name: Resolve commit metadata
+              id: commit
+              shell: bash
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_COMMIT_JSON: ${{ toJson(github.event.head_commit) }}
+                  HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
+                  COMMIT_SHA: ${{ github.sha }}
+              run: |
+                  if [ "$EVENT_NAME" = "schedule" ]; then
+                    timestamp="$(git show -s --format=%cI HEAD)"
+                    commit_json="$(jq -nc \
+                      --arg id "$COMMIT_SHA" \
+                      --arg message "$(git show -s --format=%s HEAD)" \
+                      --arg timestamp "$timestamp" \
+                      --arg name "$(git show -s --format=%an HEAD)" \
+                      --arg email "$(git show -s --format=%ae HEAD)" \
+                      '{id: $id, message: $message, timestamp: $timestamp, author: {name: $name, email: $email}}')"
+                  else
+                    commit_json="$HEAD_COMMIT_JSON"
+                    timestamp="$HEAD_COMMIT_TIMESTAMP"
+                  fi
+                  {
+                    echo "commit_json<<COMMIT_JSON_EOF"
+                    echo "$commit_json"
+                    echo "COMMIT_JSON_EOF"
+                    echo "timestamp=$timestamp"
+                  } >> "$GITHUB_OUTPUT"
+
             - name: Trigger recording-rasterizer deployment
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
@@ -187,8 +223,8 @@ jobs:
                           }
                         },
                         "release": "recording-rasterizer",
-                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "commit": ${{ steps.commit.outputs.commit_json }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit.outputs.timestamp }}"
                       }
