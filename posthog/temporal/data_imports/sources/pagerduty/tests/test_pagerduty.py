@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 import requests
 
