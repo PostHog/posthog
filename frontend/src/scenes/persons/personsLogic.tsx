@@ -159,7 +159,13 @@ export const personsLogic = kea<personsLogicType>([
         }
         return {
             persons: [
-                { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
+                {
+                    next: null,
+                    previous: null,
+                    count: 0,
+                    results: [],
+                    offset: 0,
+                } as CountedPaginatedResponse<PersonType> & {
                     offset: number
                 },
                 {
