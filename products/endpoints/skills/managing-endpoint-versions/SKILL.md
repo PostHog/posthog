@@ -108,27 +108,16 @@ every version at once. Use the version-scoped form for surgical takedowns.
 
 ### Pruning unused versions
 
-Old versions accumulate over time. To find which are actually dead, check per-version usage in the
-`query_log` table with `execute-sql` — it records every personal-API-key call tagged with the
-version that ran:
+Old versions accumulate over time. To find which are dead, call `endpoint-versions` and read each
+version's `last_executed_at`: a version that's null or long stale hasn't been called recently.
+Materialised dead versions are the costly ones — disable their materialisation with
+`endpoint-update` + `version` + `is_materialized: false`, and deactivate with `is_active: false`
+to signal they're retired.
 
-```sql
-SELECT endpoint_version, count() AS calls, max(query_start_time) AS last_called
-FROM query_log
-WHERE name = '<endpoint_name>'
-  AND endpoint LIKE '%/endpoints/%'
-  AND is_personal_api_key_request
-GROUP BY endpoint_version
-ORDER BY endpoint_version DESC
-```
-
-A version with no rows (or only an old `last_called`) hasn't been called recently. Materialised
-dead versions are the costly ones — disable their materialisation with `endpoint-update` +
-`version` + `is_materialized: false`, and deactivate with `is_active: false` to signal they're
-retired.
-
-Confirm with the user before retiring a version: `query_log` covers personal-API-key calls only,
-and a caller may still be pinned to `?version=N`. The full audit flow lives in `auditing-endpoints`.
+Confirm with the user before retiring a version: `last_executed_at` counts only personal-API-key
+calls and is recorded only for runs since that tracking was added (so a used version can still
+read null), and a caller may be pinned to `?version=N`. The full audit flow lives in
+`auditing-endpoints`.
 
 ## Example interaction
 

@@ -24,37 +24,38 @@ find candidates and hand off.
 - A periodic review (monthly / quarterly) of endpoint sprawl
 - The user is over a materialisation cost budget and wants to know what to disable
 
-The dedicated tools give a fast endpoint-level view. For per-version usage, call frequency, or
-historical trends, query the `query_log` table with `execute-sql` — see "Deeper usage analysis"
-below.
+The dedicated tools give a fast endpoint-level view. For call frequency, recency, and cost over
+time, query the `query_log` table with `execute-sql` (endpoint-level). Per-version recency comes
+from `endpoint-versions` — each version carries its own `last_executed_at`.
 
 ## Available tools
 
-| Tool                              | What it's for                                                                                                                                                                                                                 |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `execute-sql` (HogQL)             | **Primary read path.** Query `system.data_modeling_endpoints` for metadata (name, is_active, current_version, derived_from_insight, last_executed_at) and `query_log` for usage (per-version calls, recency, duration, bytes) |
-| `endpoint-materialization-status` | Per endpoint: is materialisation eligible, current status, last run, last error (not in the system tables — use this tool)                                                                                                    |
-| `endpoint-versions`               | All versions for one endpoint, latest first, with each version's query and materialisation state                                                                                                                              |
-| `endpoint-update`                 | Write path — disable (`is_active: false`) or unmaterialise (`is_materialized: false`) after the user confirms                                                                                                                 |
-| `agent-feedback`                  | Tell the PostHog team what's missing or confusing in this flow so the product and skill improve                                                                                                                               |
+| Tool                              | What it's for                                                                                                                                                                                                                          |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execute-sql` (HogQL)             | **Primary read path.** Query `system.data_modeling_endpoints` for metadata (name, is_active, current_version, derived_from_insight, last_executed_at) and `query_log` for endpoint-level usage (call counts, recency, duration, bytes) |
+| `endpoint-materialization-status` | Per endpoint: is materialisation eligible, current status, last run, last error (not in the system tables — use this tool)                                                                                                             |
+| `endpoint-versions`               | All versions for one endpoint, latest first, with each version's query, materialisation state, and `last_executed_at`                                                                                                                  |
+| `endpoint-update`                 | Write path — disable (`is_active: false`) or unmaterialise (`is_materialized: false`) after the user confirms                                                                                                                          |
+| `agent-feedback`                  | Tell the PostHog team what's missing or confusing in this flow so the product and skill improve                                                                                                                                        |
 
 Prefer reading from the system tables over the `endpoints-get-all` / `endpoint-get` tools — one
 SQL query returns the whole inventory and lets you join metadata to usage in `query_log`.
 
 ## What counts as an issue
 
-| Category                        | Trigger                                                               | Typical action                                     |
-| ------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------- |
-| **Never called**                | No rows in `query_log` for the endpoint (personal-API-key calls only) | Confirm with the user, then disable                |
-| **Stale**                       | `query_log` shows the last call more than 30 days ago                 | Confirm with the user; often safe to disable       |
-| **Inactive**                    | `is_active = 0` in `system.data_modeling_endpoints`                   | Verify intent; if abandoned, delete                |
-| **Failing materialisation**     | `endpoint-materialization-status` returns `Failed` with an error      | Hand off to `diagnosing-endpoint-performance`      |
-| **Unused materialised version** | A materialised version with no calls in `query_log`                   | Unmaterialise that version, or roll to a newer one |
-| **Drifted versions**            | Many versions exist (query changed repeatedly)                        | History noise — not an issue, but worth noting     |
+| Category                        | Trigger                                                                                          | Typical action                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| **Never called**                | No rows in `query_log` for the endpoint (personal-API-key calls only)                            | Confirm with the user, then disable                |
+| **Stale**                       | `query_log` shows the last call more than 30 days ago                                            | Confirm with the user; often safe to disable       |
+| **Inactive**                    | `is_active = 0` in `system.data_modeling_endpoints`                                              | Verify intent; if abandoned, delete                |
+| **Failing materialisation**     | `endpoint-materialization-status` returns `Failed` with an error                                 | Hand off to `diagnosing-endpoint-performance`      |
+| **Unused materialised version** | A materialised version whose `last_executed_at` (from `endpoint-versions`) is null or long stale | Unmaterialise that version, or roll to a newer one |
+| **Drifted versions**            | Many versions exist (query changed repeatedly)                                                   | History noise — not an issue, but worth noting     |
 
-`query_log` usage reflects the actual latest call (no artificial granularity) but covers
-**personal-API-key calls only** — an endpoint exercised solely from the Playground tab or the app
-will look unused. Always confirm before removing.
+Usage counts only **personal-API-key calls** — an endpoint exercised solely from the Playground
+tab or the app will look unused. Per-version `last_executed_at` is recorded only for runs since
+that tracking was added, so a version can read null while still being used; always confirm before
+removing.
 
 ## Workflow
 
@@ -69,36 +70,40 @@ ORDER BY name
 ```
 
 No rows → the project has no endpoints; say so and stop. Don't invent issues. (The
-`last_executed_at` column here is a convenience endpoint-level timestamp; for accurate, per-version
-and historical usage, use `query_log` in the next step.)
+`last_executed_at` column here is a convenience endpoint-level timestamp; for call frequency and
+cost, use `query_log` in the next step.)
 
 ### 2. Pull usage from `query_log`
 
-`query_log` records every personal-API-key call, tagged with the endpoint name and the version
-that ran. One query gives recency and per-version call counts across all endpoints:
+`query_log` records every personal-API-key call, tagged with the endpoint name. One query gives
+recency and call counts across all endpoints:
 
 ```sql
-SELECT name, endpoint_version, count() AS calls, max(query_start_time) AS last_called
+SELECT name, count() AS calls, max(query_start_time) AS last_called
 FROM query_log
 WHERE endpoint LIKE '%/endpoints/%' AND is_personal_api_key_request
-GROUP BY name, endpoint_version
-ORDER BY name, endpoint_version DESC
+GROUP BY name
+ORDER BY name
 ```
 
 Cross-reference with step 1:
 
 - **In metadata, absent from `query_log`** → never called via API key
 - **Last call more than 30 days ago** → stale
-- **A materialised version with 0 calls** → unused materialised version (the prime cleanup target)
 
 `query_log` also exposes `query_duration_ms`, `read_rows`, and `read_bytes` per call — useful to
-flag expensive endpoints in the same pass. Per-version coverage begins when the `endpoint_version`
-tag started being recorded; older calls aggregate at the endpoint level only.
+flag expensive endpoints in the same pass. This is endpoint-level; per-version recency comes from
+`endpoint-versions` (step 3).
 
-### 3. Check materialisation health
+### 3. Check materialisation health and unused versions
 
 For each materialised endpoint, call `endpoint-materialization-status` (this isn't in the system
 tables). Surface any with `status: "Failed"` separately — these are active failures, not staleness.
+
+Then call `endpoint-versions` and read each version's `last_executed_at`: a **materialised**
+version that's null or long stale is an unused-materialised-version candidate. Treat this as a
+lead, not proof — per-version recency only counts API-key runs since tracking was added, so confirm
+with the user before unmaterialising.
 
 ### 4. Present the audit
 
@@ -117,9 +122,9 @@ section:
 - legacy_signup_funnel — created 1 year ago, materialised
 - experiment_arm_lookup — created 9 months ago
 
-### 🟠 Unused materialised versions (2)  [from query_log]
-- monthly_active_users — v3 materialised, 0 calls (currently on v4 — unmaterialise v3)
-- order_summary — v1 materialised, 0 calls
+### 🟠 Unused materialised versions (2)  [from endpoint-versions]
+- monthly_active_users — v3 materialised, last_executed_at null (currently on v4 — unmaterialise v3)
+- order_summary — v1 materialised, last_executed_at null
 
 ### 🟡 Stale (3)
 - holiday_promo_2024 — last called 4 months ago
@@ -156,9 +161,9 @@ User: "Audit my endpoints"
 
 Agent steps:
 - execute-sql on system.data_modeling_endpoints → 12 endpoints (4 materialised)
-- execute-sql on query_log grouped by name, endpoint_version → 8 endpoints have calls;
-  order_summary v2 has 0 calls
+- execute-sql on query_log grouped by name → 8 endpoints have calls
 - endpoint-materialization-status on each materialised endpoint → 1 failing
+- endpoint-versions on the materialised ones → order_summary v2's last_executed_at is null
 
 - Report:
   "Found 6 things worth looking at across 12 endpoints:
@@ -173,16 +178,16 @@ Agent steps:
    - test_export — created 3 months ago
    - admin_dump — created 8 months ago, materialised (wasteful)
 
-   🟠 Unused materialised versions (1)  [from query_log]
-   - order_summary v2 — materialised but only v3 has calls.
-     The v2 materialised view can be dropped safely.
+   🟠 Unused materialised versions (1)  [from endpoint-versions]
+   - order_summary v2 — materialised but its last_executed_at is null
+     while v3 is current. Likely safe to unmaterialise v2.
 
    🟡 Stale (1)
    - holiday_2024 — last called 5 months ago
 
-   Caveat: the endpoint-level signal only covers personal-API-key calls;
-   playground and dashboard runs aren't counted. Per-version numbers
-   come from query_log. Confirm before disabling.
+   Caveat: usage only counts personal-API-key calls; playground and
+   dashboard runs aren't counted. Per-version recency comes from
+   endpoint-versions and is sparse. Confirm before disabling.
 
    Want me to start with the failing materialisation, or clean up the
    unused version first?"
@@ -194,12 +199,11 @@ Agent steps:
   before any modification.
 - **Empty = healthy.** Don't pad an empty report with theoretical issues. "Nothing to clean up"
   is a good answer.
-- **Read with SQL.** `system.data_modeling_endpoints` (metadata) and `query_log` (usage) via
-  `execute-sql` are the read path — one or two queries answer the whole audit and let you join
-  metadata to per-version usage. The `data_modeling_endpoints.last_executed_at` column is a handy
-  endpoint-level shortcut, but `query_log` is authoritative for per-version, frequency, and history.
-- **API-key-only scope.** `query_log` usage only counts personal-API-key calls. An endpoint
-  exercised only from the Playground tab or the app will look unused. Always confirm before acting.
+- **Read with SQL, drill in with the version tool.** `system.data_modeling_endpoints` (metadata)
+  and `query_log` (endpoint-level call counts, recency, cost) via `execute-sql` answer most of the
+  audit. Per-version recency comes from `endpoint-versions` (each version's `last_executed_at`).
+- **API-key-only scope.** Usage only counts personal-API-key calls. An endpoint exercised only from
+  the Playground tab or the app will look unused. Always confirm before acting.
 - **Materialisation costs storage and compute.** When an endpoint no longer needs materialisation,
   the cheapest fix is `endpoint-update` with `is_materialized: false` — not deleting the endpoint.
 - **Inactive ≠ stale.** An endpoint with `is_active: false` was deliberately turned off. Don't

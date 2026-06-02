@@ -32,7 +32,7 @@ If the question is project-wide ("what should I clean up?"), use `auditing-endpo
 | `endpoint-materialization-status`   | Whether materialisation is eligible, current state, last run, last error                       |
 | `endpoints-materialization-preview` | What the materialised query would look like, plus the rejection reason if ineligible           |
 | `endpoints-last-execution-times`    | When was it last called (endpoint-level sanity-check that it is in active use)                 |
-| `execute-sql`                       | Query `query_log` for per-version usage, call frequency, and per-call duration/bytes           |
+| `execute-sql`                       | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
 
 ## The decision tree
 
@@ -103,19 +103,20 @@ came from a specific commit and reverting that version is faster than rewriting.
 
 Only the latest version runs by default; older versions run only when a caller pins `?version=N`.
 So the version to tune is almost always the current one — unless a pinned older version is the
-culprit. To see which versions actually get traffic (and how much), query `query_log` with
-`execute-sql`:
+culprit. Call `endpoint-versions` and read each version's `last_executed_at` to see which versions
+have been hit recently; a materialised version with a null or long-stale `last_executed_at` is a
+candidate to unmaterialise or delete rather than tune (confirm first — that signal only counts
+API-key runs and can be sparse).
+
+For endpoint-level call frequency and per-call cost, query `query_log` with `execute-sql` — it
+carries `query_duration_ms`, `read_rows`, and `read_bytes`, handy for confirming how heavy the
+endpoint's calls actually are:
 
 ```sql
-SELECT endpoint_version, count() AS calls, max(query_start_time) AS last_called
+SELECT count() AS calls, max(query_start_time) AS last_called, avg(query_duration_ms) AS avg_ms
 FROM query_log
 WHERE name = '<endpoint_name>' AND endpoint LIKE '%/endpoints/%' AND is_personal_api_key_request
-GROUP BY endpoint_version ORDER BY endpoint_version DESC
 ```
-
-If the slow version has no recent calls there, the fix may be to delete or unmaterialise the dead
-version rather than tune it. `query_log` also carries `query_duration_ms` and `read_bytes` per
-call — handy for confirming which version is actually the slow one.
 
 ## Workflow
 
@@ -170,11 +171,10 @@ Agent steps:
   the requirement that callers pass all variables.
 - **Don't rewrite the query without the user.** A query change creates a new version and may
   break callers!!! Surface the suggested change, get sign-off, then apply.
-- **Two usage sources, SQL is authoritative.** `endpoint-get`'s `last_executed_at` is a coarse
-  endpoint-level recency shortcut (personal-API-key calls only). For accurate per-version usage,
-  call frequency, duration, or history, query `query_log` with `execute-sql` — it reflects the
-  actual latest call. Both see only personal-API-key traffic, so confirm with the user before
-  calling a version dead.
+- **Three usage signals.** `endpoint-get`'s `last_executed_at` is endpoint-level recency;
+  `endpoint-versions` gives each version's own `last_executed_at`; `query_log` (via `execute-sql`)
+  gives endpoint-level call frequency and per-call cost. All count only personal-API-key calls, and
+  per-version recency can be sparse — confirm with the user before calling a version dead.
 - **The "right" fix depends on the SLA, not the query.** Always ask the user about acceptable
   staleness before recommending materialisation. A 15-minute-stale materialised view is wrong
   for a real-time dashboard, regardless of how cheap it'd be.
