@@ -18,8 +18,9 @@ snapshot is approved or tolerated in the [VR UI](https://us.posthog.com/project/
 
 This skill teaches an agent how to answer the questions a human reviewer would actually ask, by chaining
 the VR MCP tools — instead of reaching for `gh pr view` and tab-hopping to the VR web UI. The read tools
-cover status / scope / history / triage; two write tools (`approve-create`, `tolerate-create`) let the
-agent act once the user confirms.
+cover status / scope / history / triage. Two are reversible DB-only triage marks (`approve-create`,
+`tolerate-create`); one ships the change (`finalize-create`) — it commits the baseline and greens the gate,
+and only that one needs explicit per-run human confirmation.
 
 ## When this skill applies
 
@@ -49,26 +50,54 @@ Read tools (safe to call freely):
 | `posthog:visual-review-repos-list`                 | Repos (one per GitHub repo) — usually only one matters; useful for filtering.                                      |
 | `posthog:visual-review-repos-retrieve`             | Repo metadata: baseline file paths, PR-comment configuration.                                                      |
 
-Write tools (require explicit user confirmation — these ship the visual change):
+Triage tools (reversible, DB-only — they record a review decision but do NOT change the baseline or the gate):
 
 | Tool                                         | Purpose                                                                                                                |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-approve-create`  | Approve `changed` / `new` snapshots in a run. Updates the baseline YAML and (by default) pushes a commit to the PR.    |
+| `posthog:visual-review-runs-approve-create`  | Mark `changed` / `new` snapshots reviewed (approved) in the DB. Does NOT commit or green the gate — ship via finalize. |
 | `posthog:visual-review-runs-tolerate-create` | Mark a single changed snapshot as a known tolerated alternate. Does NOT change the baseline — use for benign variants. |
 
-Approval call shape:
+Ship tool (irreversible, outward-facing — requires explicit per-run human confirmation; see [the gate](#the-finalize-gate)):
+
+| Tool                                         | Purpose                                                                                                          |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `posthog:visual-review-runs-finalize-create` | Commit the approved baseline to the PR branch and green the GitHub `visual-review` check. This ships the change. |
+
+Mark-reviewed call shape (`approve-create`):
 
 - `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
-- `approve_all: true` — approves every `changed` and `new` snapshot in the run. Convenient when you've verified every diff is intended.
-- `snapshots: [{identifier, new_hash}]` — explicit list. `new_hash` is the `content_hash` of each snapshot's `current_artifact`. Prefer this when only some diffs are intended.
-- `commit_to_github: true` (default) — pushes the baseline-YAML update straight to the PR branch. Set false to record the approval without a commit.
+- `snapshots: [{identifier, new_hash}]` — `new_hash` is the `content_hash` of each snapshot's `current_artifact`. This only records the review in the DB; nothing is committed and the gate stays red until you finalize.
 
 Toleration call shape — both fields are required:
 
 - `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
 - `snapshot_id` (required) — the UUID of the individual snapshot to tolerate (from `visual-review-runs-snapshots-list`). This identifies _which_ snapshot inside the run; it does not replace the run `id`.
 
-If approval fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and approve the newest one. A successful approval often kicks off a fresh CI run, which is normal.
+Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
+
+- `id` (required) — the run UUID.
+- `approve_all: true` — approve every still-pending `changed`/`new` snapshot before finalizing (tolerated ones are left alone). Use when you've verified every remaining diff is intended.
+- Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` (and lists what's left) unless every changed/new snapshot is approved, tolerated, or quarantined.
+- It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — the gate still greens) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
+
+If finalize fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and finalize the newest one. A successful finalize often kicks off a fresh CI run, which is normal.
+
+### The finalize gate
+
+Finalize is the one irreversible, outward-facing action in this skill: it rewrites the baseline committed to the
+PR and greens the merge gate. Treat it like pushing to someone's branch — never automatic.
+
+Before _any_ `finalize-create` call, all of these must hold:
+
+1. **You verified the diffs.** You pulled the current (and, for `changed`, baseline) PNGs and looked at them, ran
+   the flake check on anything suspect, and reached a per-snapshot verdict. Metadata alone is never enough.
+2. **You presented the verdict and waited.** Show the user, per snapshot, what changed and your recommendation, then stop.
+3. **The user explicitly approved _this_ run.** A broad "get the gate green" / "fix the PR" is permission to
+   investigate and recommend — NOT to finalize. When the task implies finalizing but the human hasn't said it for
+   this specific run, ask.
+
+`approve-create` and `tolerate-create` are reversible triage and don't need this gate — but they don't ship anything
+either. The moment you're about to `finalize-create` and can't point to a specific human "yes" for this run, stop and ask.
 
 ## Vocabulary cheat sheet
 

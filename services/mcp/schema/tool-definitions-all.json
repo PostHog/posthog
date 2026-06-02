@@ -2424,7 +2424,7 @@
             "readOnlyHint": false
         }
     },
-    "feature-flags-bulk-keys-create": {
+    "feature-flags-bulk-keys-retrieve": {
         "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
         "category": "Feature flags",
         "feature": "flags",
@@ -2660,6 +2660,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "inbox-reports-set-state": {
+        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze a signal report",
+        "title": "Dismiss or snooze a signal report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "inbox-source-configs-list": {
@@ -4216,6 +4230,22 @@
             "readOnlyHint": true
         }
     },
+    "promoted-product-intent-get": {
+        "description": "Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured. Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean — for example, if their primary product is `session_replay`, treat a vague reference to \"watch a session\" as referring to a session recording rather than a survey response.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get the team's promoted product.",
+        "title": "Get the team's promoted product.",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "promoted-product",
+        "feature_flag_variant": "intent_plus"
+    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",
@@ -5754,8 +5784,53 @@
             "readOnlyHint": false
         }
     },
+    "vision-observations-list": {
+        "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List a session's replay vision observations",
+        "title": "List a session's replay vision observations",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-observations-retrieve": {
+        "description": "Get a single replay vision observation by ID, scoped to the scanners the caller can read. Returns the full `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any event citations). Use `vision-observations-list` to find observation IDs for a session first.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get a session's replay vision observation",
+        "title": "Get a session's replay vision observation",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-quota-retrieve": {
+        "description": "Get the organization's monthly Replay Vision observation budget. Returns `monthly_quota`, `usage_this_month` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over quota are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get replay vision quota",
+        "title": "Get replay vision quota",
+        "required_scopes": ["replay_scanner:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-scanners-create": {
-        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team. Before creating a broad scanner (a permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly observation volume and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the monthly budget on its first sweeps.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create replay vision scanner",
@@ -5782,6 +5857,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-estimate-create": {
+        "description": "Preview how many observations a proposed scanner would generate before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) and an optional `sampling_rate`. Returns `matched_sessions_in_window`, the `window_days` it was measured over, and `estimated_observations_per_month`. Enabled scanners sweep every 5 minutes, so a broad query can exhaust the monthly quota quickly — run this and compare against `vision-quota-retrieve` before `vision-scanners-create`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Estimate replay vision scanner volume",
+        "title": "Estimate replay vision scanner volume",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "replay-vision"
     },
@@ -5831,7 +5921,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-scanners-observations-list": {
-        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.",
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time; to see every scanner's observations for one session, use `vision-observations-list`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List scanner observations",
@@ -5846,7 +5936,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-scanners-scan-session": {
-        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining.",
+        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining. A scanner can observe a given session only once — re-triggering it on a session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Run scanner against a session now",
@@ -5862,7 +5952,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-scanners-update": {
-        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility.",
+        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you widen the `query` or raise `sampling_rate`, re-check projected volume with `vision-scanners-estimate-create` and remaining budget with `vision-quota-retrieve` first — the scanner resumes sweeping every 5 minutes at the new, broader scope.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Update replay vision scanner",
@@ -5908,15 +5998,15 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-approve-create": {
-        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "description": "Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does NOT update the baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`.",
         "category": "Visual review",
         "feature": "visual_review",
-        "summary": "Approve visual review snapshots",
-        "title": "Approve visual review snapshots",
+        "summary": "Mark visual review snapshots reviewed",
+        "title": "Mark visual review snapshots reviewed",
         "required_scopes": ["visual_review:write"],
         "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -5934,6 +6024,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-finalize-create": {
+        "description": "Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With `approve_all: true` every still-pending changed/new snapshot is approved first. When a baseline commit is pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation first — finalizing ships the visual change and rewrites the committed baseline.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Finalize a visual review run",
+        "title": "Finalize a visual review run",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },
