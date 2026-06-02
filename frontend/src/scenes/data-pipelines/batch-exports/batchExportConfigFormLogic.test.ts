@@ -76,6 +76,22 @@ const BIGQUERY_BATCH_EXPORT = fixture('test-bq-id', 'BigQuery Export', {
     },
 })
 
+// Integration-backed BigQuery: carries `integration` and omits the service-account fields,
+// so its wire shape differs from the legacy JSON-key-file variant above.
+const BIGQUERY_INTEGRATION_BATCH_EXPORT = fixture('test-bq-integration-id', 'BigQuery Integration Export', {
+    type: 'BigQuery',
+    integration: 7,
+    // Integration-backed config legitimately omits the service-account fields that
+    // BatchExportServiceBigQuery['config'] declares, so the cast keeps the fixture honest.
+    config: {
+        dataset_id: 'test_dataset',
+        table_id: 'events',
+        exclude_events: [],
+        include_events: [],
+        use_json_type: false,
+    } as any,
+})
+
 const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
     type: 'Postgres',
     config: {
@@ -253,6 +269,7 @@ const AZUREBLOB_BATCH_EXPORT = fixture('fixture-azureblob', 'Azure Blob Export',
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     S3_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
+    BIGQUERY_INTEGRATION_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
     SNOWFLAKE_PASSWORD_BATCH_EXPORT,
     SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
@@ -885,6 +902,7 @@ describe('batchExportConfigFormLogic', () => {
         it.each([
             { name: 'S3', fixture: S3_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
+            { name: 'BigQuery (integration)', fixture: BIGQUERY_INTEGRATION_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
             { name: 'Snowflake (password)', fixture: SNOWFLAKE_PASSWORD_BATCH_EXPORT },
             { name: 'Snowflake (keypair)', fixture: SNOWFLAKE_KEYPAIR_BATCH_EXPORT },
