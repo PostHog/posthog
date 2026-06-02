@@ -43,6 +43,7 @@ Completed in this branch:
 - Added resolver binding for common higher-order array lambdas, so lambda parameters inherit element types from surrounding array arguments and `arrayMap(...)` can infer its return element type from the lambda body.
 - Added parsed return-type inference for `JSONExtract(..., 'Type')`, including typed array results that feed higher-order lambda binding.
 - Added family-specific JSON helper inference for `JSONExtract*`, `JSON_VALUE`, `JSONHas`, `JSONType`, and `JSONLength`, including typed `JSONExtractKeysAndValues(...)` tuples and `JSONExtractArrayRaw(...)` arrays.
+- Added optimizer-blocker diagnostics on `TypeDiagnosticReport`, including grouping by detail/source and representative no-blocker coverage for typed query shapes that optimizer work can now target.
 - Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 
@@ -92,7 +93,7 @@ TODO:
 - [ ] Keep strict mode limited to tests, diagnostics, selected internal queries, or explicit developer workflows until coverage is high.
 - [ ] Treat missing function signatures as optimizer barriers by default, not immediate user-facing errors.
 - [ ] Put behavior-changing optimizations behind modifiers, internal flags, or equivalence tests before enabling them broadly.
-- [ ] Add compatibility tests that compile representative existing HogQL queries before and after type-system changes.
+- [x] Add compatibility tests that compile representative typed HogQL query shapes before optimizer work depends on them.
 - [ ] Preserve parser and printer acceptance for existing query shapes, even if the new type diagnostics can explain that a shape is imprecisely typed.
 
 Acceptance criteria:
@@ -382,12 +383,12 @@ Acceptance criteria:
 TODO:
 
 - [ ] Add a signature coverage inventory command or test that reports:
-  - [ ] total function metadata entries
-  - [ ] entries by dialect/print target
-  - [ ] entries with precise signatures
-  - [ ] entries with wildcard signatures
-  - [ ] entries with unknown return types
-  - [ ] aggregate entries without return types
+  - [x] total function metadata entries
+  - [x] entries by dialect/print target
+  - [x] entries with precise signatures
+  - [x] entries with wildcard signatures
+  - [x] entries with unknown return types
+  - [x] aggregate entries without return types
   - [ ] functions used in production query corpus but still unknown
 - [ ] Prioritize catalog coverage by optimizer value and dialect reach, not by alphabetical order.
 - [ ] Cover comparisons and logical functions first:

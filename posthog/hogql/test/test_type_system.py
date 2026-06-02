@@ -410,6 +410,9 @@ class TestHogQLTypeSystem:
 
         assert diagnostics.report.unknown_count == 1
         assert diagnostics.report.unknowns_by_source() == {"missing_function_signature": 1}
+        assert diagnostics.report.unknowns_by_detail() == {"formatReadableSize": 1}
+        assert diagnostics.report.optimizer_blocker_count == 1
+        assert diagnostics.report.optimizer_blockers_by_source() == {"missing_function_signature": 1}
         assert diagnostics.report.unknowns[0].detail == "formatReadableSize"
 
     def test_type_diagnostics_treats_typed_string_functions_as_known(self) -> None:
@@ -426,6 +429,27 @@ class TestHogQLTypeSystem:
         )
 
         assert diagnostics.report.unknown_count == 0
+
+    def test_type_diagnostics_treats_representative_optimizer_queries_as_ready(self) -> None:
+        queries = [
+            (
+                "SELECT "
+                "if(equals(protocol('https://posthog.com'), 'https'), toFloat(1), 2.0), "
+                "coalesce(JSONExtractString('{\"name\": \"Ada\"}', 'name'), 'unknown')"
+            ),
+            (
+                "SELECT "
+                "arrayMap(x -> x + 0.5, JSONExtract('[1, 2]', 'Array(Int64)')), "
+                "arrayReduce('sum', [1, 2.0]), "
+                "arrayZip([1], ['a'])"
+            ),
+            ("SELECT mapApply((k, v) -> tuple(k, v + 0.5), map('a', 1)), mapFilter((k, v) -> v > 0, map('a', 1))"),
+            ("SELECT count(), sum(toFloat(1)), argMax('a', 1), quantiles(0.5, 0.9)(1) FROM events"),
+        ]
+
+        for query in queries:
+            diagnostics = resolve_with_type_diagnostics(self._select(query), self.context, dialect="clickhouse")
+            assert diagnostics.report.optimizer_blocker_count == 0, query
 
     def test_function_catalog_inventory(self) -> None:
         inventory = function_catalog_inventory()

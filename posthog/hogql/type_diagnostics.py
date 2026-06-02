@@ -8,9 +8,19 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
 from posthog.hogql.visitor import TraversingVisitor
 
 T_AST = TypeVar("T_AST", bound=AST)
+
+OPTIMIZER_BLOCKER_SOURCES = frozenset(
+    {
+        "missing_function_signature",
+        "unknown_cast_target",
+        "unknown_expression",
+        "unknown_field",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +42,20 @@ class TypeDiagnosticReport:
 
     def unknowns_by_source(self) -> dict[str, int]:
         return dict(Counter(unknown.source for unknown in self.unknowns))
+
+    def unknowns_by_detail(self) -> dict[str, int]:
+        return dict(Counter(unknown.detail for unknown in self.unknowns))
+
+    @property
+    def optimizer_blockers(self) -> list[UnknownTypeOccurrence]:
+        return [unknown for unknown in self.unknowns if unknown.source in OPTIMIZER_BLOCKER_SOURCES]
+
+    @property
+    def optimizer_blocker_count(self) -> int:
+        return len(self.optimizer_blockers)
+
+    def optimizer_blockers_by_source(self) -> dict[str, int]:
+        return dict(Counter(unknown.source for unknown in self.optimizer_blockers))
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +197,10 @@ class _UnknownTypeCollector(TraversingVisitor):
         if isinstance(node, ast.Expr) and node.type is not None:
             if isinstance(node.type, ast.SelectQueryType | ast.SelectSetQueryType):
                 return super().visit(node)
-            constant_type = node.type.resolve_constant_type(self.context)
+            try:
+                constant_type = node.type.resolve_constant_type(self.context)
+            except HogQLNotImplementedError:
+                return super().visit(node)
             if isinstance(constant_type, ast.UnknownType):
                 self.unknowns.append(
                     UnknownTypeOccurrence(

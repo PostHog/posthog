@@ -278,12 +278,15 @@ This gives projection pushdown, CTE consumers, and future strict validation a mo
 
 `resolve_with_type_diagnostics(...)` returns a resolved AST plus a `TypeDiagnosticReport`.
 The report records unknown-type occurrences and groups them by source.
+It also exposes optimizer blockers, which are unknown expressions that typed rewrites must treat as hard boundaries.
 
 Example:
 
 ```python
 diagnostics = resolve_with_type_diagnostics(parse_select("SELECT formatReadableSize(1024)"), context)
 diagnostics.report.unknowns_by_source()
+# {"missing_function_signature": 1}
+diagnostics.report.optimizer_blockers_by_source()
 # {"missing_function_signature": 1}
 ```
 
