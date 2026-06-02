@@ -205,11 +205,15 @@ def _fetch_predictions_by_model(
     prediction_date: date,
 ) -> dict[str, dict[str, float]]:
     """
-    Return {model_id: {distinct_id: p_y}} for all predictions emitted on prediction_date.
+    Return {model_id: {person_id: p_y}} for all predictions emitted on prediction_date.
+
+    Keyed on person_id to match realized labels (also keyed on person_id). Predictions
+    carry it as the $autoresearch_person_id property; we fall back to distinct_id for
+    events emitted before that property existed (when distinct_id was str(person_id)).
     """
     sql = (
         "SELECT"
-        " distinct_id,"
+        " coalesce(nullIf(properties['$autoresearch_person_id'], ''), distinct_id) AS person_id,"
         " properties['$autoresearch_model_id'] AS model_id,"
         " toFloat(properties['$autoresearch_p_y']) AS p_y"
         " FROM events"
@@ -241,13 +245,13 @@ def _fetch_predictions_by_model(
 
     model_predictions: dict[str, dict[str, float]] = {}
     for row in result.results:
-        distinct_id, model_id, p_y = row[0], row[1], row[2]
-        if not distinct_id or not model_id or p_y is None:
+        person_id, model_id, p_y = row[0], row[1], row[2]
+        if not person_id or not model_id or p_y is None:
             continue
         mid = str(model_id)
         if mid not in model_predictions:
             model_predictions[mid] = {}
-        model_predictions[mid][str(distinct_id)] = float(p_y)
+        model_predictions[mid][str(person_id)] = float(p_y)
 
     return model_predictions
 

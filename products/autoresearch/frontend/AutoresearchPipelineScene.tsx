@@ -19,6 +19,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import { humanizeBytes } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -388,7 +389,16 @@ function ModelsTab(): JSX.Element {
     )
 }
 
-/** Top/bottom-N users by predicted probability for a pipeline. */
+/** Renders a prediction's person_id (a person UUID) as a link to that person's page. */
+function PersonLink({ value }: { value: unknown }): JSX.Element {
+    const personId = value == null ? '' : String(value)
+    if (!personId) {
+        return <>—</>
+    }
+    return <Link to={urls.personByUUID(personId)}>{personId}</Link>
+}
+
+/** Top/bottom-N users by predicted probability for a pipeline, grouped by person. */
 function ProbabilityUsersTable({
     pipelineId,
     direction,
@@ -399,13 +409,14 @@ function ProbabilityUsersTable({
     return (
         <Query
             readOnly
+            context={{ columns: { person_id: { title: 'Person', render: PersonLink } } }}
             query={{
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: `
                         SELECT
-                            person_id,
+                            coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
                             round(argMax(toFloat(properties.$autoresearch_p_y), timestamp), 4) AS probability,
                             max(timestamp) AS last_scored
                         FROM events

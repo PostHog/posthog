@@ -219,6 +219,8 @@ def _score_and_emit(
     emitted = 0
     errors = 0
     for row in scored:
+        # Every row is keyed on person_id (the feature/score SQL aliases it "distinct_id").
+        person_id = str(row["distinct_id"])
         try:
             features_hash = hashlib.sha256(
                 json.dumps({k: v for k, v in row.items() if k != "p_y"}, sort_keys=True).encode()
@@ -233,12 +235,13 @@ def _score_and_emit(
                 "$autoresearch_p_y": row["p_y"],
                 "$autoresearch_prediction_date": prediction_date_str,
                 "$autoresearch_features_hash": features_hash,
+                "$autoresearch_person_id": person_id,
             }
             response = capture_internal(
                 token=token,
                 event_name=PREDICTION_EVENT_NAME,
                 event_source=EVENT_SOURCE,
-                distinct_id=row["distinct_id"],
+                distinct_id=person_id,
                 timestamp=emit_timestamp,
                 properties=props,
                 process_person_profile=False,
@@ -250,7 +253,7 @@ def _score_and_emit(
             logger.exception(
                 "autoresearch_prediction_emit_failed",
                 pipeline_id=str(pipeline.pk),
-                distinct_id=row.get("distinct_id"),
+                person_id=person_id,
             )
 
     if errors:
