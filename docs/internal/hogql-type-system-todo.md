@@ -46,13 +46,15 @@ Completed in this branch:
 - Added optimizer-blocker diagnostics on `TypeDiagnosticReport`, including grouping by detail/source and representative no-blocker coverage for typed query shapes that optimizer work can now target.
 - Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
+- Added `posthog/hogql/property_planner.py`, which combines semantic property types, physical property sources, source index metadata, restricted-property materialization rules, and comparison compatibility into optimizer-ready property comparison plans.
+- Wired the ClickHouse materialized-column range rewrite through that property comparison plan, so the existing string minmax-friendly rewrite only uses direct physical-source comparisons when the planner says the source type matches the property semantics.
 
 Still intentionally left as follow-up work:
 
 - Full ClickHouse parity for every function signature and aggregate combinator.
 - Full higher-order array parity beyond common lambda-first functions, especially lambda-aware array sorting and strict lambda arity/return validation.
 - Full higher-order map parity beyond key/value binding, especially strict lambda arity and return validation.
-- Materialized-property comparison rewrites.
+- Typed materialized-property comparison rewrites for numeric and datetime properties whose physical source columns can support semantic ordering.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Strict resolver mode.
 - Query-corpus unknown-type baselines and ClickHouse integration tests for planner/index wins.
@@ -510,6 +512,7 @@ TODO:
   - [x] conversion is required for correctness
   - [x] conversion would block an index
   - [ ] conversion should move to the literal side
+- [x] Use the property comparison planner to guard the existing ClickHouse materialized string-column range rewrite.
 - [ ] Add a type-aware rule for numeric property comparisons that can use minmax indexes when safe.
 - [ ] Add a type-aware rule for datetime property comparisons that can use minmax indexes when safe.
 - [x] Preserve property group and dynamic materialized column behavior.
@@ -698,7 +701,8 @@ This phase should reduce `UnknownType` rates enough to make selective optimizati
 TODO:
 
 - [ ] Add cast simplification behind a modifier or internal flag.
-- [ ] Add typed property comparison rewrites behind a modifier or internal flag.
+- [x] Use property comparison planning as the default guard for the existing materialized string-column range rewrite.
+- [ ] Add typed property comparison rewrites behind a modifier or internal flag once physical source types or another proven-safe index path exist.
 - [ ] Add nullability wrapper simplification behind a modifier or internal flag.
 - [ ] Add aggregate state typing support for preaggregation work.
 - [ ] Add projection/lazy table improvements only after field lineage is stable.
@@ -780,5 +784,5 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Immediate Next Step
 
-Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, and property comparison planning metadata exists in `posthog/hogql/property_planner.py`.
-The next concrete task should be the first guarded materialized-property comparison rewrite, paired with ClickHouse planner tests before enabling any property/index rewrite broadly.
+Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, and the existing materialized string-column range rewrite now consumes that planner.
+The next concrete task should be a typed materialized-property comparison rewrite only for a source shape whose physical type preserves the semantic ordering being compared, paired with ClickHouse planner tests before enabling any new property/index rewrite broadly.

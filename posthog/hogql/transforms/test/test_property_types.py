@@ -128,6 +128,7 @@ class TestPropertyTypes(BaseTest):
         assert plan.access.semantic_type == ast.StringType(nullable=True)
         assert plan.access.source.physical_type == ast.StringType(nullable=True)
         assert plan.physical_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+        assert plan.can_compare_physical_source_directly is True
         assert plan.can_use_minmax_index is True
         assert plan.minmax_blocker is None
 
@@ -140,6 +141,7 @@ class TestPropertyTypes(BaseTest):
         assert plan.access.source.physical_type == ast.StringType(nullable=True)
         assert plan.semantic_compatibility == ComparisonCompatibility.CHEAP_CAST
         assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+        assert plan.can_compare_physical_source_directly is False
         assert plan.can_use_minmax_index is False
         assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
 
@@ -160,6 +162,7 @@ class TestPropertyTypes(BaseTest):
         assert plan.access.source.physical_type == ast.StringType(nullable=True)
         assert plan.semantic_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
         assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+        assert plan.can_compare_physical_source_directly is False
         assert plan.can_use_minmax_index is False
         assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
 

@@ -20,7 +20,12 @@ from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
-from posthog.hogql.property_planner import get_restricted_keys_for_table_type, is_property_type_restricted
+from posthog.hogql.property_planner import (
+    PropertySourceKind,
+    get_restricted_keys_for_table_type,
+    is_property_type_restricted,
+    plan_property_comparison,
+)
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -628,6 +633,15 @@ class ClickHousePrinter(BasePrinter):
         Non-nullable: PropertySwapper wraps in ``nullIf(nullIf(col, ''), 'null')`` to scrub ``''`` / ``'null'`` sentinels, hiding the column from minmax. Inline the sentinel exclusion as ``AND notEquals(col, '') AND notEquals(col, 'null')`` so the comparison stays bare; ClickHouse evaluates each AND-ed clause against the index independently.
         """
         if node.op not in self._RANGE_OP_TO_CH_NAME:
+            return None
+
+        comparison_plan = plan_property_comparison(node, self.context)
+        if (
+            comparison_plan is None
+            or comparison_plan.property_side != "left"
+            or not comparison_plan.can_compare_physical_source_directly
+            or comparison_plan.access.source.kind != PropertySourceKind.MATERIALIZED_COLUMN
+        ):
             return None
 
         # property_to_expr always emits the column on the left, so we only need to handle that side.

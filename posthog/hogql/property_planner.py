@@ -81,6 +81,10 @@ class PropertyComparisonPlan:
     can_use_minmax_index: bool
     minmax_blocker: PropertyMinmaxBlocker | None
 
+    @property
+    def can_compare_physical_source_directly(self) -> bool:
+        return self.source_matches_semantics and self.physical_compatibility in _OPTIMIZER_COMPATIBLE_COMPARISONS
+
 
 def plan_property_comparison(node: ast.CompareOperation, context: HogQLContext) -> PropertyComparisonPlan | None:
     left_plan = plan_property_access(node.left, context)

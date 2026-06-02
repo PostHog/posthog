@@ -355,8 +355,13 @@ The foundation is real, but several TODOs remain intentionally incomplete.
 Common lambda-first higher-order array functions now bind lambda argument types from surrounding array element types.
 Remaining higher-order gaps include `arrayReduce` aggregate-name binding, aggregate combinator return typing, and strict validation of lambda arity and predicate return types.
 
-Property-definition metadata is not yet part of planning.
-The type system can represent physical and semantic type facts, but the property materialization planner still needs a separate pass that combines property definitions, materialized column metadata, restricted-property access control, and printer behavior.
+Property-definition metadata is now part of property comparison planning.
+`posthog/hogql/property_planner.py` combines semantic property-definition types, physical source metadata, restricted-property access control, and comparison compatibility.
+The ClickHouse materialized string-column range rewrite now consumes that plan before using direct physical-source comparisons.
+
+Typed numeric and datetime materialized-property minmax rewrites remain blocked for current individually materialized columns because those columns are still physically strings.
+The planner correctly treats those source/semantic mismatches as optimizer barriers, so `toFloat(col) < 5` and `parseDateTime64BestEffortOrNull(col) < ts` are not rewritten into lexicographic string comparisons.
+Future typed-property index work needs either physically typed sources or a separately proven index path with ClickHouse planner tests.
 
 Aggregate states are represented structurally, but the common state/merge pairs still need deeper catalog coverage before preaggregation transformations can rely on final and intermediate state types.
 
@@ -422,10 +427,11 @@ This gives internal callers a safe way to compare emitted SQL before and after s
 `posthog/hogql/property_planner.py` now adds property-planning metadata for materialized property comparisons.
 It separates semantic property-definition type facts from physical source type facts, reports selected materialized-column, dynamic materialized-column, property-group, or JSON sources, and classifies comparison compatibility for both the semantic property value and the physical source value.
 
-That gets the optimizer to the point where skip-index rewrites are realistic, but the rewrite itself should stay separate because it needs ClickHouse planner tests and access-control checks.
+The existing ClickHouse materialized string-column range rewrite now uses that plan as its guard.
+That means lexical string range comparisons can keep their minmax-friendly direct-column shape, while numeric and datetime properties backed by string materialized columns keep their semantic conversion wrappers.
 
 Good first targets:
 
-- use the property comparison plan as the input to the first guarded rewrite
+- identify source shapes where a typed property comparison can preserve semantic ordering while exposing a direct indexed expression
 - identify cases where a literal can be converted instead of wrapping the materialized column
-- add ClickHouse planner tests for numeric and datetime minmax skip-index use
+- add ClickHouse planner tests for numeric and datetime minmax skip-index use before enabling a new rewrite
