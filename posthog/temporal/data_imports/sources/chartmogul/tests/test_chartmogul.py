@@ -166,9 +166,11 @@ class TestGetRows:
         assert batches == []
 
     @pytest.mark.parametrize("status", [429, 503])
-    def test_retryable_status_codes_recover(self, status: int) -> None:
+    @patch("tenacity.nap.time.sleep", return_value=None)
+    def test_retryable_status_codes_recover(self, _mock_sleep: MagicMock, status: int) -> None:
         # A single retryable response then success: the tenacity retry should
-        # recover and still yield the data.
+        # recover and still yield the data. tenacity's backoff sleep is patched
+        # out to keep the test fast and deterministic.
         responses = [
             _FakeResponse(status, {}),
             _FakeResponse(200, {"plans": [{"uuid": "p1"}], "has_more": False, "cursor": None}),
