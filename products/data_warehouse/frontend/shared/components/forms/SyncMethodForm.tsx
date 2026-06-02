@@ -303,7 +303,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 <div className="mb-4 font-normal">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                         <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
-                        {!incrementalSyncSupported.disabled && !showWebhookOption && !showCdcOption && (
+                        {!incrementalSyncSupported.disabled && !schema.supports_webhooks && !schema.cdc_available && (
                             <LemonTag type="success">Recommended</LemonTag>
                         )}
                     </div>

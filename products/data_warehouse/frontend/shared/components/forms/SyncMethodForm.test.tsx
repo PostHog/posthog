@@ -20,29 +20,19 @@ const baseSchema: ExternalDataSourceSyncSchema = {
 }
 
 describe('SyncMethodForm', () => {
-    it('shows the webhook option when the schema is already on webhook mode even if no longer available', () => {
-        expect(shouldShowWebhookOption({ ...baseSchema, sync_type: 'webhook', supports_webhooks: false })).toBe(true)
+    it.each<[string, ExternalDataSourceSyncSchema['sync_type'], boolean, boolean]>([
+        ['already on webhook mode, no longer available', 'webhook', false, true],
+        ['not supported and not the current mode', 'full_refresh', false, false],
+        ['currently supported', null, true, true],
+    ])('shouldShowWebhookOption: %s', (_name, sync_type, supports_webhooks, expected) => {
+        expect(shouldShowWebhookOption({ ...baseSchema, sync_type, supports_webhooks })).toBe(expected)
     })
 
-    it('hides the webhook option when not supported and not the current mode', () => {
-        expect(shouldShowWebhookOption({ ...baseSchema, sync_type: 'full_refresh', supports_webhooks: false })).toBe(
-            false
-        )
-    })
-
-    it('shows the webhook option when currently supported', () => {
-        expect(shouldShowWebhookOption({ ...baseSchema, sync_type: null, supports_webhooks: true })).toBe(true)
-    })
-
-    it('shows the CDC option when the schema is already on CDC mode even if no longer available', () => {
-        expect(shouldShowCdcOption({ ...baseSchema, sync_type: 'cdc', cdc_available: false })).toBe(true)
-    })
-
-    it('hides the CDC option when not available and not the current mode', () => {
-        expect(shouldShowCdcOption({ ...baseSchema, sync_type: 'full_refresh', cdc_available: false })).toBe(false)
-    })
-
-    it('shows the CDC option when currently available', () => {
-        expect(shouldShowCdcOption({ ...baseSchema, sync_type: null, cdc_available: true })).toBe(true)
+    it.each<[string, ExternalDataSourceSyncSchema['sync_type'], boolean, boolean]>([
+        ['already on CDC mode, no longer available', 'cdc', false, true],
+        ['not available and not the current mode', 'full_refresh', false, false],
+        ['currently available', null, true, true],
+    ])('shouldShowCdcOption: %s', (_name, sync_type, cdc_available, expected) => {
+        expect(shouldShowCdcOption({ ...baseSchema, sync_type, cdc_available })).toBe(expected)
     })
 })

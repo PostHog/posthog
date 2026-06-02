@@ -316,7 +316,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["supports_webhooks"] is True
 
-    def test_incremental_fields_returns_404_when_schema_name_absent(self):
+    def test_incremental_fields_returns_400_when_schema_name_absent(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
         )
