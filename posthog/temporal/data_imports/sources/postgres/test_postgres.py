@@ -39,9 +39,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     JsonAsStringLoader,
     PostgresImplementation,
     PostgreSQLColumn,
+    PostgresSourceConnectionError,
     RangeAsStringLoader,
     SafeDateLoader,
-    PostgresSourceConnectionError,
+    SSLRequiredError,
     _build_count_query,
     _build_query,
     _get_estimated_row_count_for_partitioned_table,
@@ -225,8 +226,6 @@ class TestHandleSourceConnectError:
         assert not isinstance(exc_info.value, PostgresSourceConnectionError)
 
     def test_ssl_errors_take_priority_when_ssl_required(self):
-        from posthog.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
-
         with pytest.raises(SSLRequiredError):
             _handle_source_connect_error(
                 psycopg.OperationalError("SSL connection is required"), require_ssl=True
