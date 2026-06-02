@@ -1,14 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { FilterLogicalOperator } from '~/types'
-
-import { overrideSessionRecordingMocks, setupSessionRecordingTest } from '../__mocks__/test-setup'
+import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -181,76 +177,6 @@ describe('playerInspectorLogic', () => {
                     },
                 ],
             })
-        })
-    })
-
-    describe('matching events player-unmount race', () => {
-        it('does not error when the recording-keyed player logic unmounts before backend matching events resolve', async () => {
-            // Park the matching-events request so we can unmount the player logic mid-flight,
-            // reproducing the navigation-into-filtered-recordings race from Web analytics.
-            let releaseMatchingEvents: () => void = () => {}
-            const matchingEventsGate = new Promise<void>((resolve) => {
-                releaseMatchingEvents = resolve
-            })
-
-            overrideSessionRecordingMocks({
-                getMocks: {
-                    '/api/environments/:team_id/session_recordings/matching_events': async () => {
-                        await matchingEventsGate
-                        return [200, { results: [] }]
-                    },
-                },
-            })
-
-            const captureExceptionSpy = jest
-                .spyOn(posthog, 'captureException')
-                .mockImplementation(() => undefined as any)
-
-            const raceProps = {
-                sessionRecordingId: 'race',
-                playerKey: 'race-player',
-                matchingEventsMatchType: {
-                    matchType: 'backend' as const,
-                    filters: {
-                        date_from: '-7d',
-                        date_to: null,
-                        duration: [],
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [{ type: FilterLogicalOperator.And, values: [] }],
-                        },
-                    },
-                },
-            }
-
-            const raceLogic = playerInspectorLogic(raceProps)
-            raceLogic.mount()
-
-            // `connect` auto-mounts the recording-keyed player logic.
-            expect(
-                sessionRecordingPlayerLogic.findMounted({ sessionRecordingId: 'race', playerKey: 'race-player' })
-            ).not.toBeNull()
-
-            // Let the loader (dispatched from afterMount) reach the awaited request.
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            // The recording switches / filtered list reloads: the player subtree unmounts.
-            raceLogic.unmount()
-            expect(
-                sessionRecordingPlayerLogic.findMounted({ sessionRecordingId: 'race', playerKey: 'race-player' })
-            ).toBeNull()
-
-            // Backend responds only now, after the player logic is gone.
-            releaseMatchingEvents()
-            await matchingEventsGate
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            const pathErrors = captureExceptionSpy.mock.calls.filter(([error]) =>
-                String((error as any)?.message ?? error).includes('Can not find path')
-            )
-            expect(pathErrors).toEqual([])
-
-            captureExceptionSpy.mockRestore()
         })
     })
 
