@@ -12102,7 +12102,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
      */
     export type DataWarehouseSavedQueryQuery = {
       kind?: DataWarehouseSavedQueryQueryKind;
@@ -12157,7 +12157,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -27769,7 +27769,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
      */
     export type PatchedDataWarehouseSavedQueryQuery = {
       kind?: PatchedDataWarehouseSavedQueryQueryKind;
@@ -27792,7 +27792,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
