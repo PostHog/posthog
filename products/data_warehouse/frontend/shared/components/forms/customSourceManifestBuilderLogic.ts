@@ -161,6 +161,8 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             props.setValue(['payload', 'auth_token'] as FieldName, values.authSecrets.auth_token)
             props.setValue(['payload', 'auth_api_key'] as FieldName, values.authSecrets.auth_api_key)
             props.setValue(['payload', 'auth_password'] as FieldName, values.authSecrets.auth_password)
+            props.setValue(['payload', 'auth_client_secret'] as FieldName, values.authSecrets.auth_client_secret)
+            props.setValue(['payload', 'auth_refresh_token'] as FieldName, values.authSecrets.auth_refresh_token)
         },
     })),
     // Every state mutation re-pushes the serialized manifest + secrets to the

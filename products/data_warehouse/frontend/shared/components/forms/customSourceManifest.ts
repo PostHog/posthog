@@ -6,8 +6,14 @@
 // Each enum-like value set is declared once as an `as const` tuple; the union type
 // and the runtime guard (via `isMember`) are derived from it, so the allowed values
 // can't drift between the type, the parser, and the component's select options.
-export const AUTH_TYPES = ['none', 'bearer', 'api_key', 'http_basic'] as const
+export const AUTH_TYPES = ['none', 'bearer', 'api_key', 'http_basic', 'oauth2'] as const
 export type AuthType = (typeof AUTH_TYPES)[number]
+
+// OAuth2 grants the Custom source supports. Only these two are exposed: a fresh
+// access token is minted per sync (client_credentials) or from a stable
+// refresh token; rotating single-use refresh tokens are not supported.
+export const OAUTH2_GRANT_TYPES = ['client_credentials', 'refresh_token'] as const
+export type OAuth2GrantType = (typeof OAUTH2_GRANT_TYPES)[number]
 
 // The backend treats 'query' and 'param' as synonymous (auth.py:41), so we
 // only surface 'query' in the UI — the parser still accepts 'param' for
@@ -97,6 +103,15 @@ export interface ManifestState {
     auth_api_key_location: ApiKeyLocation
     auth_username: string
     auth_password: string
+    // OAuth2: token_url / client_id / grant_type / scopes are non-secret and live
+    // in the manifest; client_secret / refresh_token are secrets pushed to their
+    // own form fields (see extractAuthSecrets).
+    auth_oauth_token_url: string
+    auth_oauth_client_id: string
+    auth_oauth_grant_type: OAuth2GrantType
+    auth_oauth_scopes: string
+    auth_oauth_client_secret: string
+    auth_oauth_refresh_token: string
     headers: HeaderEntry[]
     streams: StreamForm[]
 }
@@ -105,6 +120,8 @@ export interface AuthSecrets {
     auth_token: string
     auth_api_key: string
     auth_password: string
+    auth_client_secret: string
+    auth_refresh_token: string
 }
 
 export function emptyHeader(): HeaderEntry {
@@ -138,6 +155,12 @@ export function defaultState(): ManifestState {
         auth_api_key_location: 'header',
         auth_username: '',
         auth_password: '',
+        auth_oauth_token_url: '',
+        auth_oauth_client_id: '',
+        auth_oauth_grant_type: 'client_credentials',
+        auth_oauth_scopes: '',
+        auth_oauth_client_secret: '',
+        auth_oauth_refresh_token: '',
         headers: [],
         streams: [emptyStream()],
     }
@@ -165,6 +188,24 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
                 }
             case 'http_basic':
                 return { type: 'http_basic', username: state.auth_username }
+            case 'oauth2': {
+                const oauth: Record<string, unknown> = {
+                    type: 'oauth2',
+                    token_url: state.auth_oauth_token_url.trim(),
+                    grant_type: state.auth_oauth_grant_type,
+                }
+                if (state.auth_oauth_client_id.trim()) {
+                    oauth.client_id = state.auth_oauth_client_id.trim()
+                }
+                const scopes = state.auth_oauth_scopes
+                    .split(/[\s,]+/)
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                if (scopes.length > 0) {
+                    oauth.scopes = scopes
+                }
+                return oauth
+            }
             default:
                 return undefined
         }
@@ -230,10 +271,16 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
  * sensitive-field machinery. Non-active auth types yield empty strings.
  */
 export function extractAuthSecrets(state: ManifestState): AuthSecrets {
+    const isOauth = state.auth_type === 'oauth2'
     return {
         auth_token: state.auth_type === 'bearer' ? state.auth_token : '',
         auth_api_key: state.auth_type === 'api_key' ? state.auth_api_key : '',
         auth_password: state.auth_type === 'http_basic' ? state.auth_password : '',
+        auth_client_secret: isOauth ? state.auth_oauth_client_secret : '',
+        // refresh_token only applies to the refresh_token grant — leave it empty
+        // for client_credentials so a stale value isn't persisted.
+        auth_refresh_token:
+            isOauth && state.auth_oauth_grant_type === 'refresh_token' ? state.auth_oauth_refresh_token : '',
     }
 }
 
@@ -310,6 +357,13 @@ export function parseManifestIntoState(rawJson: string | undefined): ManifestSta
     const apiKeyLocation: ApiKeyLocation = isMember(API_KEY_LOCATIONS, normalizedLocation)
         ? normalizedLocation
         : 'header'
+    const oauthGrantRaw = asString(auth.grant_type, 'client_credentials')
+    const oauthGrant: OAuth2GrantType = isMember(OAUTH2_GRANT_TYPES, oauthGrantRaw)
+        ? oauthGrantRaw
+        : 'client_credentials'
+    // scopes may be authored as an array or a space-delimited string; surface it
+    // as a single editable string either way.
+    const oauthScopes = Array.isArray(auth.scopes) ? auth.scopes.map((s) => String(s)).join(' ') : asString(auth.scopes)
     const headerObj = asObject(client.headers)
     const headers: HeaderEntry[] = Object.entries(headerObj).map(([key, value]) => ({
         id: nextHeaderId(),
@@ -327,6 +381,14 @@ export function parseManifestIntoState(rawJson: string | undefined): ManifestSta
         auth_api_key_location: apiKeyLocation,
         auth_username: asString(auth.username),
         auth_password: asString(auth.password),
+        // client_secret / refresh_token are stored in separate secret fields and
+        // redacted from reads, so they parse back as empty — re-entered on edit.
+        auth_oauth_token_url: asString(auth.token_url),
+        auth_oauth_client_id: asString(auth.client_id),
+        auth_oauth_grant_type: oauthGrant,
+        auth_oauth_scopes: oauthScopes,
+        auth_oauth_client_secret: asString(auth.client_secret),
+        auth_oauth_refresh_token: asString(auth.refresh_token),
         headers,
         streams,
     }

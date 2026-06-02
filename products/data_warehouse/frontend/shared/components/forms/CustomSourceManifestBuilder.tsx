@@ -15,6 +15,8 @@ import {
     type CursorType,
     type HeaderEntry,
     type ManifestState,
+    OAUTH2_GRANT_TYPES,
+    type OAuth2GrantType,
     type Paginator,
     PAGINATOR_DEFAULTS,
     PAGINATOR_TYPES,
@@ -46,8 +48,15 @@ const AUTH_LABELS: Record<AuthType, string> = {
     bearer: 'Bearer token',
     api_key: 'API key',
     http_basic: 'HTTP basic auth',
+    oauth2: 'OAuth2',
 }
 const AUTH_OPTIONS = AUTH_TYPES.map((value) => ({ value, label: AUTH_LABELS[value] }))
+
+const OAUTH2_GRANT_LABELS: Record<OAuth2GrantType, string> = {
+    client_credentials: 'Client credentials',
+    refresh_token: 'Refresh token',
+}
+const OAUTH2_GRANT_OPTIONS = OAUTH2_GRANT_TYPES.map((value) => ({ value, label: OAUTH2_GRANT_LABELS[value] }))
 
 const API_KEY_LOCATION_LABELS: Record<ApiKeyLocation, string> = {
     header: 'Header',
@@ -230,6 +239,66 @@ function AuthSection({
                             value={state.auth_password}
                             onChange={(value) => update({ auth_password: value })}
                         />
+                    </LemonField.Pure>
+                </div>
+            )}
+            {state.auth_type === 'oauth2' && (
+                <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Grant type">
+                            <LemonSelect
+                                value={state.auth_oauth_grant_type}
+                                onChange={(value) => update({ auth_oauth_grant_type: value as OAuth2GrantType })}
+                                options={OAUTH2_GRANT_OPTIONS}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Token URL">
+                            <LemonInput
+                                placeholder="https://auth.example.com/oauth/token"
+                                value={state.auth_oauth_token_url}
+                                onChange={(value) => update({ auth_oauth_token_url: value })}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Client ID">
+                            <LemonInput
+                                placeholder="client id"
+                                value={state.auth_oauth_client_id}
+                                onChange={(value) => update({ auth_oauth_client_id: value })}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Client secret">
+                            <LemonInput
+                                type="password"
+                                autoComplete="off"
+                                placeholder="client secret"
+                                value={state.auth_oauth_client_secret}
+                                onChange={(value) => update({ auth_oauth_client_secret: value })}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    {state.auth_oauth_grant_type === 'refresh_token' && (
+                        <LemonField.Pure label="Refresh token">
+                            <LemonInput
+                                type="password"
+                                autoComplete="off"
+                                placeholder="refresh token"
+                                value={state.auth_oauth_refresh_token}
+                                onChange={(value) => update({ auth_oauth_refresh_token: value })}
+                            />
+                        </LemonField.Pure>
+                    )}
+                    <LemonField.Pure label="Scopes (optional)">
+                        <LemonInput
+                            placeholder="read write"
+                            value={state.auth_oauth_scopes}
+                            onChange={(value) => update({ auth_oauth_scopes: value })}
+                        />
+                        <p className="m-0 mt-1 text-xs text-secondary">
+                            Space- or comma-separated. PostHog mints an access token at sync time and refreshes it on
+                            expiry.
+                        </p>
                     </LemonField.Pure>
                 </div>
             )}
