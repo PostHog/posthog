@@ -68,9 +68,17 @@ test.describe('Experiment lifecycle', () => {
                 await page.goto('/experiments/new')
                 await expect(page.getByRole('heading', { name: 'New experiment' })).toBeVisible()
 
-                // About step
+                // About step. Typing into the name/flag-key fields schedules a debounced
+                // feature-flag-key validation request (used to detect key collisions). The
+                // final "Save as draft" handler silently rejects the save while this
+                // validation is still in flight, so wait for it to resolve here — otherwise
+                // the save is dropped and the redirect never happens.
+                const flagKeyValidated = page.waitForResponse(
+                    (resp) => resp.url().includes('/feature_flags/') && resp.url().includes(`search=${FLAG_KEY}`)
+                )
                 await page.getByTestId('experiment-wizard-name').fill(experimentName)
                 await page.getByTestId('experiment-wizard-flag-key').fill(FLAG_KEY)
+                await flagKeyValidated
                 await page.getByRole('button', { name: 'Continue' }).click()
 
                 // Variants step — wait for stepper to confirm transition
@@ -88,13 +96,11 @@ test.describe('Experiment lifecycle', () => {
                 await expect(page.locator('[aria-current="step"]', { hasText: 'Analytics' })).toBeVisible()
                 await expect(page.getByText('How to measure impact?')).toBeVisible()
 
-                // This click occasionally doesn't produce a navigation. Possible causes:
-                // the click not reaching React's event handler after the step transition,
-                // or the backend response being slow. Retry until navigation confirms success.
-                await expect(async () => {
-                    await page.getByRole('button', { name: 'Save as draft' }).click()
-                    await page.waitForURL(/\/experiments\/\d+$/, { timeout: 5000 })
-                }).toPass({ timeout: 30000 })
+                // Flag-key validation settled on the About step, so the save handler won't
+                // reject this click. Click once and wait for the redirect to the saved
+                // experiment — re-clicking risks a double submission.
+                await page.getByRole('button', { name: 'Save as draft' }).click()
+                await page.waitForURL(/\/experiments\/\d+$/, { timeout: 30000 })
                 await expect(page.getByTestId('launch-experiment')).toBeVisible()
 
                 // Verify the custom split is preserved
