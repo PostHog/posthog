@@ -3,10 +3,12 @@
 from typing import cast
 from uuid import UUID
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 
 import structlog
+from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
@@ -19,11 +21,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.temporal.common.client import sync_connect
 
 from .. import logic
 from ..file_parse import FileParseError
 from ..models import KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
+from ..temporal.coordinator import IngestSourceInputs
 from .serializers import (
     CreateCrawlSourceSerializer,
     CreateFileSourceSerializer,
@@ -157,14 +161,6 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         in PROCESSING — the stale-claim sweep would otherwise only recover it
         after several minutes.
         """
-        from django.conf import settings  # noqa: PLC0415 — keeps the temporal SDK off the web import path
-
-        from asgiref.sync import async_to_sync  # noqa: PLC0415
-
-        from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
-
-        from ..temporal.coordinator import IngestSourceInputs  # noqa: PLC0415
-
         try:
             client = sync_connect()
             # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
