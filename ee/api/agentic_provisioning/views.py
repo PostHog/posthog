@@ -25,7 +25,7 @@ import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import APIException, AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -742,6 +742,10 @@ def _handle_new_user(
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         try:
             EmailVerifier.create_token_and_send_email_verification(user)
+        except APIException:
+            # Send failures are already captured inside EmailVerifier; swallow so a mail
+            # problem doesn't fail provisioning, and avoid a duplicate error report.
+            pass
         except Exception:
             capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_email_verification"})
 
