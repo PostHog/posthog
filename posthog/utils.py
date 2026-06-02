@@ -1336,6 +1336,21 @@ def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> No
         logger.warning("safe_cache_set_failure", cache_key=cache_key, exc_info=True)
 
 
+def safe_cache_add(cache_key: str, value: Any, timeout: int | None = None) -> bool:
+    """Best-effort atomic set-if-absent. Returns True if this caller set the key
+    (i.e. won the race), False if it was already present — useful for cross-process
+    throttles where a wave of workers must act at most once per window.
+
+    On a cache failure, returns True so the caller still proceeds (e.g. captures the
+    error) rather than silently dropping the signal, matching the fail-visible
+    behaviour of the other safe_cache_* helpers."""
+    try:
+        return bool(cache.add(cache_key, value, timeout))
+    except Exception:
+        logger.warning("safe_cache_add_failure", cache_key=cache_key, exc_info=True)
+        return True
+
+
 def safe_cache_delete(cache_key: str) -> None:
     """Best-effort cache delete. Logs a warning on failure so Redis blips
     are visible during incidents without breaking the calling request."""

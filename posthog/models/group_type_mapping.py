@@ -20,7 +20,7 @@ from posthog.models.utils import RootTeamMixin
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
-from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_add, safe_cache_delete, safe_cache_set
 
 logger = structlog.get_logger(__name__)
 
@@ -68,9 +68,10 @@ def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: Ba
     GROUP_TYPES_FETCH_FAILURES.labels(operation=operation, source="django_orm", error_type="db_error").inc()
 
     throttle_key = f"group_types_failure_capture_throttle:{operation}"
-    captured = get_safe_cache(throttle_key) is None
+    # Atomic set-if-absent so a wave of workers failing at once captures at most once
+    # per window, instead of each racing past a non-atomic get-then-set.
+    captured = safe_cache_add(throttle_key, True, GROUP_TYPES_FAILURE_CAPTURE_THROTTLE_TTL)
     if captured:
-        safe_cache_set(throttle_key, True, GROUP_TYPES_FAILURE_CAPTURE_THROTTLE_TTL)
         capture_exception(exc)
 
     logger.exception(

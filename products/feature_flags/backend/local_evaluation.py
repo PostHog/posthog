@@ -52,7 +52,7 @@ from posthog.storage.hypercache import (
     emit_cache_sync_metrics,
 )
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_add
 
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
@@ -470,9 +470,10 @@ def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, me
     """Log a skipped flag-cache rebuild and capture the exception, throttling the
     capture across processes. Each log line records whether the capture ran or was
     throttled."""
-    captured = get_safe_cache(throttle_key) is None
+    # Atomic set-if-absent so a wave of workers skipping at once captures at most once
+    # per window, instead of each racing past a non-atomic get-then-set.
+    captured = safe_cache_add(throttle_key, True, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
     if captured:
-        safe_cache_set(throttle_key, True, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
         capture_exception(exc)
     logger.error(message, exception_captured=captured, capture_throttled=not captured, **log_fields)
 
