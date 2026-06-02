@@ -59,9 +59,37 @@ def test_prepare_key(key: bytes, expected: bytes) -> None:
     assert base64.urlsafe_b64decode(result) == _resize_key(key)
 
 
+def test_codec_rejects_short_keys_when_not_debug_or_test(codec: EncryptionCodec):
+    class EncryptionSettings:
+        TEMPORAL_SECRET_KEY: str | bytes = b"a"
+        TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes] = []
+        TEST: bool = False
+        DEBUG: bool = False
+
+    settings = EncryptionSettings()
+
+    with pytest.raises(ValueError):
+        _ = EncryptionCodec.from_settings(settings)
+
+    settings.TEMPORAL_FALLBACK_KEYS = [b"b"]
+    settings.TEMPORAL_SECRET_KEY = b"a" * 32
+
+    with pytest.raises(ValueError):
+        _ = EncryptionCodec.from_settings(settings)
+
+    settings.DEBUG = True
+    _ = EncryptionCodec.from_settings(settings)
+
+    settings.DEBUG = False
+    settings.TEST = True
+    _ = EncryptionCodec.from_settings(settings)
+
+
 class TestEncryptionSettings:
-    TEMPORAL_SECRET_KEY: str | bytes = b"aaabbbccc-111-222-333"
-    TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes] = [b"aaa-111", b"bbb-222"]
+    TEMPORAL_SECRET_KEY: str | bytes = b"a" * 32
+    TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes] = [b"b" * 32, b"c" * 32]
+    TEST: bool = False
+    DEBUG: bool = False
 
 
 @pytest.fixture

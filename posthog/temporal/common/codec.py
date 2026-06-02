@@ -12,6 +12,8 @@ class _RequiredSettings(typing.Protocol):
 
     TEMPORAL_SECRET_KEY: str | bytes
     TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes]
+    TEST: bool
+    DEBUG: bool
 
 
 def _prepare_key(key: str | bytes) -> bytes:
@@ -19,7 +21,8 @@ def _prepare_key(key: str | bytes) -> bytes:
 
     We require a URL-safe, base64 encoded, 32 byte key.
     """
-    resized_key = _resize_key(key.encode() if isinstance(key, str) else key)
+    key_bytes = key.encode() if isinstance(key, str) else key
+    resized_key = _resize_key(key_bytes)
     encoded_key = base64.urlsafe_b64encode(resized_key)
     return encoded_key
 
@@ -57,7 +60,21 @@ class EncryptionCodec(PayloadCodec):
 
     @classmethod
     def from_settings(cls, settings: _RequiredSettings) -> typing.Self:
-        """Initialize an EncryptionCodec from any settings-like object."""
+        """Initialize an EncryptionCodec from any settings-like object.
+
+        Args:
+            settings: Any settings-like object containing required encryption keys,
+                like a Django settings module. Keys must be at least 32 bytes long, and
+                will be padded to 32 bytes in TEST or DEBUG environments.
+
+        Raises:
+            ValueError: If a key with less than 32 bytes is used in non-TEST non-DEBUG
+                environments.
+        """
+        if not settings.TEST and not settings.DEBUG:
+            if any(len(key) < 32 for key in (settings.TEMPORAL_SECRET_KEY, *settings.TEMPORAL_FALLBACK_KEYS)):
+                raise ValueError("Keys must be at least 32 bytes")
+
         main_key = _prepare_key(settings.TEMPORAL_SECRET_KEY)
         fallback_keys = map(_prepare_key, settings.TEMPORAL_FALLBACK_KEYS)
 
