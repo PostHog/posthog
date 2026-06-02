@@ -94,7 +94,7 @@ function ErrorTrackingWidgetBody({ result }: { result: DashboardWidgetComponentP
 
     return (
         <WidgetCardContent>
-            <ErrorTrackingIssueList issues={rows} className="overflow-x-visible overflow-y-visible" />
+            <ErrorTrackingIssueList issues={rows} />
         </WidgetCardContent>
     )
 }

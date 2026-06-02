@@ -2,14 +2,14 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { ErrorTrackingIssueListHeader } from './ErrorTrackingIssueList'
+import { ErrorTrackingIssueListHeader, ERROR_TRACKING_ISSUE_LIST_GRID_COLS } from './ErrorTrackingIssueList'
 
 function ErrorTrackingIssueListSkeletonRow(): JSX.Element {
     return (
         <div
             className={cn(
                 'grid items-start gap-3 border-b border-primary px-3 py-2 last:border-b-0',
-                'grid-cols-[minmax(0,1fr)_clamp(5rem,18vw,7rem)_clamp(3.5rem,8vw,4.5rem)]'
+                ERROR_TRACKING_ISSUE_LIST_GRID_COLS
             )}
             aria-hidden
         >
@@ -51,7 +51,7 @@ export function ErrorTrackingIssueListSkeleton({
             aria-busy
             aria-label="Loading issues"
         >
-            <div className="min-w-[22rem]">
+            <div className="w-full min-w-0">
                 <ErrorTrackingIssueListHeader />
                 <div>
                     {Array.from({ length: rowCount }, (_, index) => (

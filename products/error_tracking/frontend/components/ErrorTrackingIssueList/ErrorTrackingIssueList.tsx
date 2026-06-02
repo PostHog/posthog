@@ -19,14 +19,15 @@ import { RuntimeIcon } from '../RuntimeIcon'
 import { CustomSeparator } from '../TableColumns'
 import { VolumeSparkline } from '../VolumeSparkline/VolumeSparkline'
 
-const GRID_COLS = 'grid-cols-[minmax(0,1fr)_clamp(5rem,18vw,7rem)_clamp(3.5rem,8vw,4.5rem)]'
+/** Issue (flex) + volume sparkline + occurrences count. Fixed side columns so headers fit in dashboard tiles. */
+export const ERROR_TRACKING_ISSUE_LIST_GRID_COLS = 'grid-cols-[minmax(0,1fr)_5.5rem_7rem]' as const
 
 export function ErrorTrackingIssueListHeader(): JSX.Element {
     return (
         <div
             className={cn(
                 'grid gap-3 border-b border-primary bg-bg-light px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted',
-                GRID_COLS
+                ERROR_TRACKING_ISSUE_LIST_GRID_COLS
             )}
         >
             <span>Issue</span>
@@ -64,7 +65,7 @@ export function ErrorTrackingIssueListRow({ issue }: { issue: ErrorTrackingIssue
             to={issueUrl}
             className={cn(
                 'grid items-start gap-3 border-b border-primary px-3 py-2 last:border-b-0 text-primary transition-colors hover:bg-fill-button-tertiary-hover',
-                GRID_COLS
+                ERROR_TRACKING_ISSUE_LIST_GRID_COLS
             )}
             onClick={() => prefetchIssueScene(issue)}
         >
@@ -133,7 +134,7 @@ type ErrorTrackingIssueListProps = {
 export function ErrorTrackingIssueList({ issues, className, listClassName }: ErrorTrackingIssueListProps): JSX.Element {
     return (
         <div className={cn('min-w-0 w-full max-w-full overflow-x-auto rounded border bg-surface-primary', className)}>
-            <div className="min-w-[22rem]">
+            <div className="w-full min-w-0">
                 <ErrorTrackingIssueListHeader />
                 <div className={listClassName} data-attr="error-tracking-issue-row">
                     {issues.map((issue) => (
