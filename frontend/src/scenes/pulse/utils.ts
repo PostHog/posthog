@@ -1,10 +1,11 @@
+import { dayjs } from 'lib/dayjs'
 import { percentage } from 'lib/utils'
 import { InsightWithQuery } from 'scenes/max/maxTypes'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
-import { PulseFindingType, PulseReference, PulseSensitivity } from './pulseTypes'
+import { PulseFindingType, PulseReference, PulseSensitivity, PulseTimelineMarker } from './pulseTypes'
 
 export function formatSignedPct(pct: number): string {
     return `${pct >= 0 ? '+' : ''}${percentage(pct, 0)}`
@@ -138,6 +139,44 @@ export function suggestedNextStep(finding: PulseFindingType): { label: string; s
         }
     }
     return null
+}
+
+// Build a finding's own timeline from the changes its narrative referenced (evidence.references), each
+// carrying its own ISO timestamp — so it's self-contained and never depends on a digest-wide cap. Markers
+// are positioned by time along axisStart..axisEnd (0..1, clamped) and sorted chronologically. Pure +
+// deterministic. Returns [] when the finding cites nothing (with a timestamp) or the axis is missing.
+export function buildFindingTimelineMarkers(
+    finding: PulseFindingType,
+    axisStart?: string,
+    axisEnd?: string
+): PulseTimelineMarker[] {
+    const references = finding.evidence?.references ?? []
+    if (!references.length || !axisStart || !axisEnd) {
+        return []
+    }
+    const start = dayjs(axisStart)
+    const span = dayjs(axisEnd).diff(start)
+    if (span <= 0) {
+        return []
+    }
+    const markers: PulseTimelineMarker[] = []
+    references.forEach((ref, index) => {
+        if (!ref.timestamp) {
+            return // older findings may lack timestamps on their references — nothing to place
+        }
+        const fraction = dayjs(ref.timestamp).diff(start) / span
+        const position = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 0
+        markers.push({
+            key: `${ref.type}-${ref.id || index}-${ref.timestamp}`,
+            type: ref.type,
+            label: ref.label,
+            change: ref.change,
+            timestamp: ref.timestamp,
+            position,
+            to: describeReference(ref).to,
+        })
+    })
+    return markers.sort((a, b) => a.position - b.position)
 }
 
 // Frontend mirror of the backend SENSITIVITY_PRESETS. Selecting a preset applies these thresholds locally.

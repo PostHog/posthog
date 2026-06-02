@@ -17,7 +17,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.annotation import Annotation
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.pulse.detection import MAX_BASELINE_WEEKS, MIN_BASELINE_WEEKS
+from posthog.temporal.ai.pulse.detection import MAX_BASELINE_WEEKS, MIN_BASELINE_WEEKS, _extract_weekly_series
 from posthog.temporal.ai.pulse.types import EnrichedFinding, Finding, run_trends_query_sync
 
 from ee.hogai.llm import MaxChatOpenAI
@@ -70,6 +70,8 @@ class CoincidentSignal:
     label: str  # display name (flag/experiment name, or annotation note)
     detail_id: str  # entity pk for the deep link, or "" when not linkable
     summary: str  # short human phrase for the prompt, e.g. "turned on 2026-05-20"
+    timestamp: str = ""  # full ISO instant, so a referenced signal can be placed on the finding's timeline
+    change: str = ""  # the verb (turned on / launched / created), empty for annotations
 
 
 class _NarrativeOutput(BaseModel):
@@ -123,6 +125,38 @@ def _build_breakdown_query(base_query: dict, breakdown_property: str) -> dict:
     query["interval"] = "week"
     query["breakdownFilter"] = {"breakdown": breakdown_property, "breakdown_type": "event"}
     return query
+
+
+def _build_daily_query(base_query: dict, period_start: str, period_end: str) -> dict:
+    """A daily trends query over the digest period — the line behind the per-finding chart."""
+    query = json.loads(json.dumps(base_query))  # deep copy
+    query["dateRange"] = {
+        "date_from": datetime.fromisoformat(period_start).date().isoformat(),
+        "date_to": datetime.fromisoformat(period_end).date().isoformat(),
+    }
+    query["interval"] = "day"
+    if "breakdownFilter" in query:
+        query["breakdownFilter"] = None  # headline metric, no breakdown
+    return query
+
+
+async def _fetch_daily_series(team: Team, finding: Finding, period_start: str, period_end: str) -> list[float]:
+    """Daily metric values across the period for the finding chart (markers spread intra-day on this axis).
+
+    Best-effort: any failure degrades to [] and the chart falls back to the weekly detection series.
+    """
+    if not period_start or not period_end:
+        return []
+    try:
+        result = await run_trends_query_sync(
+            team, _build_daily_query(finding.descriptor.query, period_start, period_end)
+        )
+        return _extract_weekly_series(result)  # generic results[0].data extractor (daily values here)
+    except Exception as exc:
+        logger.warning(
+            "pulse_fetch_daily_series_failed", team_id=team.id, metric=finding.descriptor.label, error=str(exc)
+        )
+        return []
 
 
 def _pick_top_contributor(result: Any) -> tuple[str, float, float] | None:
@@ -367,10 +401,12 @@ async def _enrich_one(
         catalog_by_id = {s.ref_id: s for s in (signal_catalog or [])}
         attribution: dict[str, Any] | None = None
         session_ids: list[str] = []
+        daily_series: list[float] = []
         references: list[dict[str, str]] = []
         try:
             attribution = await _attribute_finding(team, finding, attribution_semaphore)
             session_ids = await _collect_replay_evidence(team, finding, attribution, period_start, period_end)
+            daily_series = await _fetch_daily_series(team, finding, period_start, period_end)
             narrative, related_ids = await _generate_narrative(team, user, finding, attribution, signal_catalog)
             if not narrative:  # empty LLM response — keep a useful, attribution-aware line (no relevance signal)
                 narrative = _fallback_narrative(finding, attribution)
@@ -391,6 +427,8 @@ async def _enrich_one(
         evidence: dict[str, Any] = {}
         if finding.series:
             evidence["series"] = finding.series
+        if daily_series:
+            evidence["daily_series"] = daily_series
         if session_ids:
             evidence["session_ids"] = session_ids
         if references:
@@ -504,6 +542,8 @@ def _fetch_flag_changes(team_id: int, start: datetime, end: datetime) -> list[di
     return [
         {
             "date": created_at.date().isoformat(),
+            # Full ISO instant for the per-finding timeline (chronological, tz-consistent with period bounds).
+            "timestamp": created_at.isoformat(),
             "flag": _sanitize_for_prompt(str((detail or {}).get("name") or "a feature flag")),
             "change": _describe_flag_change(activity, detail),
             # item_id is the flag's pk; the UI turns it into a /feature_flags/:id link (None when absent).
@@ -545,6 +585,7 @@ def _fetch_experiment_changes(team_id: int, start: datetime, end: datetime) -> l
     return [
         {
             "date": created_at.date().isoformat(),
+            "timestamp": created_at.isoformat(),
             "experiment": _sanitize_for_prompt(str((detail or {}).get("name") or "an experiment")),
             "change": _describe_experiment_change(activity, detail),
             "id": str(item_id) if item_id else "",
@@ -568,7 +609,7 @@ def _build_signal_catalog(
     catalog: list[CoincidentSignal] = []
     seen: set[tuple[str, str]] = set()
 
-    def _add(ref_type: str, detail_id: str, label: str, summary: str) -> None:
+    def _add(ref_type: str, detail_id: str, label: str, summary: str, timestamp: str, change: str = "") -> None:
         key = (ref_type, detail_id or label)
         if key in seen:
             return
@@ -580,25 +621,55 @@ def _build_signal_catalog(
                 label=label,
                 detail_id=detail_id,
                 summary=summary,
+                timestamp=timestamp,
+                change=change,
             )
         )
 
     for exp in experiment_changes:
-        _add("experiment", exp.get("id", ""), exp["experiment"], f"{exp['change']} {exp.get('date', '')}".strip())
+        _add(
+            "experiment",
+            exp.get("id", ""),
+            exp["experiment"],
+            f"{exp['change']} {exp.get('date', '')}".strip(),
+            exp.get("timestamp", ""),
+            exp.get("change", ""),
+        )
     for flag in flag_changes:
-        _add("feature_flag", flag.get("id", ""), flag["flag"], f"{flag['change']} {flag.get('date', '')}".strip())
+        _add(
+            "feature_flag",
+            flag.get("id", ""),
+            flag["flag"],
+            f"{flag['change']} {flag.get('date', '')}".strip(),
+            flag.get("timestamp", ""),
+            flag.get("change", ""),
+        )
     for ann in annotations:
-        _add("annotation", ann.get("id", ""), ann["note"], f"noted {ann.get('date', '')}".strip())
+        _add(
+            "annotation",
+            ann.get("id", ""),
+            ann["note"],
+            f"noted {ann.get('date', '')}".strip(),
+            ann.get("timestamp", ""),
+        )
 
     return catalog[:MAX_SIGNAL_CATALOG]
 
 
 def _signal_to_reference(signal: CoincidentSignal) -> dict[str, str]:
-    """Project a referenced signal into the chip shape the UI renders ({type, label, id?})."""
+    """Project a referenced signal into the chip shape the UI renders ({type, label, timestamp, id?, change?}).
+
+    The timestamp lets the finding chart place this change on its own axis — self-contained, so it never
+    depends on a digest-wide cap dropping it.
+    """
     label = signal.label if len(signal.label) <= MAX_REFERENCE_LABEL else signal.label[:MAX_REFERENCE_LABEL] + "…"
     reference = {"type": signal.ref_type, "label": label}
+    if signal.timestamp:  # lets the UI place it on the finding's timeline
+        reference["timestamp"] = signal.timestamp
     if signal.detail_id:  # no detail id → a label-only chip (no deep link)
         reference["id"] = signal.detail_id
+    if signal.change:
+        reference["change"] = signal.change
     return reference
 
 
@@ -626,7 +697,12 @@ def _fetch_period_signals(
     )
     annotations = [
         # id lets a referenced annotation deep-link to /data-management/annotations/:id, like flags/experiments.
-        {"id": str(pk), "date": dm.date().isoformat(), "note": _sanitize_for_prompt(content)}
+        {
+            "id": str(pk),
+            "date": dm.date().isoformat(),
+            "timestamp": dm.isoformat(),
+            "note": _sanitize_for_prompt(content),
+        }
         for pk, dm, content in rows
         if content
     ]
@@ -669,9 +745,9 @@ async def synthesize_digest(
 ) -> str:
     """Digest-level "big picture" across ALL findings — co-movement hypotheses, not per-metric prose.
 
-    Runs once per digest (vs _generate_narrative, which is per-finding). Pulls in any team annotations
-    in the period as known-event context. Returns "" when there is too little to synthesize across or
-    the call fails — the summary is additive, never load-bearing.
+    Runs once per digest (vs _generate_narrative, which is per-finding). Pulls in the period's annotations,
+    flag changes, experiment launches, and new error issues as coincident context. Returns "" when there is
+    too little to synthesize across or the call fails — the summary is additive, never load-bearing.
     """
     if len(findings) < 2:
         return ""

@@ -14,12 +14,14 @@ export interface PulseDigestSummary {
     summary: string
 }
 
-// A same-period change (feature flag, experiment, annotation) the finding's narrative tied to it. The
-// frontend builds the link from (type, id) — mirroring how replay session ids become links.
+// A same-period change (feature flag, experiment, annotation) the finding's narrative tied to it. Carries
+// its own ISO timestamp so it can be placed on the finding's timeline; the deep link is built from (type, id).
 export interface PulseReference {
     type: 'feature_flag' | 'experiment' | 'annotation' | string
     label: string
+    timestamp?: string // full ISO instant
     id?: string
+    change?: string // 'turned on', 'launched', etc. (flags/experiments; absent for annotations)
 }
 
 export interface PulseFindingType {
@@ -33,7 +35,12 @@ export interface PulseFindingType {
     robust_z: number
     impact: number
     attribution_breakdown: Record<string, any> | null
-    evidence: { series?: number[]; session_ids?: string[]; references?: PulseReference[] } | null
+    evidence: {
+        series?: number[] // weekly values (detection baseline window + current)
+        daily_series?: number[] // daily values over the digest period — drives the finding chart when present
+        session_ids?: string[]
+        references?: PulseReference[]
+    } | null
     narrative: string
     chart_thumbnail_url: string
     rank: number
@@ -43,6 +50,18 @@ export interface PulseFindingType {
 export interface PulseDigestDetail extends PulseDigestSummary {
     workflow_run_id: string
     findings: PulseFindingType[]
+}
+
+// A positioned marker on a finding's timeline: one change the finding's narrative referenced, placed by
+// time along the digest period (0..1) with a deep link to the flag / experiment / annotation.
+export interface PulseTimelineMarker {
+    key: string
+    type: PulseReference['type']
+    label: string
+    change?: string
+    timestamp: string // full ISO
+    position: number // 0..1 along period_start..period_end
+    to?: string // deep link to the flag / experiment / annotation
 }
 
 export interface PulseSubscriptionType {

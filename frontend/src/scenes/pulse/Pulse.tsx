@@ -2,7 +2,18 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconBell, IconChevronRight, IconPlay, IconPulse, IconRefresh, IconTrending } from '@posthog/icons'
+import {
+    IconBell,
+    IconChevronRight,
+    IconCursorClick,
+    IconDashboard,
+    IconGraph,
+    IconList,
+    IconPlay,
+    IconPulse,
+    IconRefresh,
+    IconTrending,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonCard,
@@ -14,13 +25,14 @@ import {
     LemonSwitch,
     LemonTag,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -39,14 +51,15 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
+import { PulseFindingChart } from './PulseFindingChart'
 import { pulseLogic } from './pulseLogic'
 import { PulseDigestStatus, PulseDigestSummary, PulseFindingType, PulseSensitivity } from './pulseTypes'
 import {
     SENSITIVITY_PRESETS,
     buildFindingInsightContext,
+    buildFindingTimelineMarkers,
     buildMaxSeedPrompt,
     describeChange,
-    describeReference,
     suggestedNextStep,
 } from './utils'
 
@@ -112,7 +125,15 @@ function FindingCardSkeleton(): JSX.Element {
     )
 }
 
-function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
+function FindingCard({
+    finding,
+    periodStart,
+    periodEnd,
+}: {
+    finding: PulseFindingType
+    periodStart: string
+    periodEnd: string
+}): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { addOrUpdateContextInsight } = useActions(maxContextLogic)
     const change = describeChange(finding.change_pct)
@@ -129,14 +150,23 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
     // task when we have a high-confidence lead (e.g. dive into the segment), else a generic explain.
     const exploreSeed = suggestedNextStep(finding)?.seed ?? buildMaxSeedPrompt(finding)
 
-    // Left-border accent + sparkline + delta tag all share the change's tone (danger=drop, success=rise),
-    // so a red/green left edge makes the list scannable at a glance.
+    // Border accent + delta tag + the chart line all share the change's tone (danger=drop, success=rise).
     const TrendIcon =
         change.direction === 'up' ? IconTrending : change.direction === 'down' ? IconTrendingDown : IconTrendingFlat
-    const sparklineColor = change.tone === 'danger' ? 'danger' : change.tone === 'success' ? 'success' : 'muted'
-    const series = finding.evidence?.series
+    // Prefer the daily series over the period (markers spread intra-day); fall back to the weekly series,
+    // whose axis then runs one week per point back from the period end.
+    const dailySeries = finding.evidence?.daily_series
+    const useDaily = !!dailySeries && dailySeries.length > 1
+    const chartSeries = useDaily ? dailySeries : (finding.evidence?.series ?? [])
+    const axisStart =
+        useDaily || chartSeries.length < 2
+            ? periodStart
+            : dayjs(periodEnd)
+                  .subtract(chartSeries.length - 1, 'week')
+                  .toISOString()
     const breakdown = finding.attribution_breakdown
-    const references = finding.evidence?.references ?? []
+    // The finding's referenced flag/experiment/annotation changes, placed on the same axis as the line.
+    const timelineMarkers = buildFindingTimelineMarkers(finding, axisStart, periodEnd)
     const sessionIds = finding.evidence?.session_ids ?? []
 
     return (
@@ -175,34 +205,16 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                     </AIConsentPopoverWrapper>
                 </div>
             </div>
-            <div className="flex items-end justify-between gap-4 mb-2">
-                <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className="text-2xl font-bold leading-none">
-                        {humanFriendlyLargeNumber(finding.current_value)}
-                    </span>
-                    <LemonTag type={change.tone} icon={<TrendIcon />}>
-                        {change.label}
-                    </LemonTag>
-                    <span className="text-muted-alt text-xs">
-                        vs {humanFriendlyLargeNumber(finding.baseline_value)}/wk typical
-                    </span>
-                </div>
-                {/* Decorative trend — pointer-events-none so its tooltip doesn't fight the card; the
-                    headline number carries the values. */}
-                {series && series.length > 1 ? (
-                    <div className="w-28 h-10 shrink-0 pointer-events-none">
-                        <Sparkline
-                            type="line"
-                            data={series}
-                            labels={series.map((_, i) =>
-                                i === series.length - 1 ? 'This week' : `${series.length - 1 - i}w ago`
-                            )}
-                            color={sparklineColor}
-                            maximumIndicator={false}
-                            className="h-10 w-full"
-                        />
-                    </div>
-                ) : null}
+            <div className="flex items-baseline gap-2 flex-wrap mb-2">
+                <span className="text-2xl font-bold leading-none">
+                    {humanFriendlyLargeNumber(finding.current_value)}
+                </span>
+                <LemonTag type={change.tone} icon={<TrendIcon />}>
+                    {change.label}
+                </LemonTag>
+                <span className="text-muted-alt text-xs">
+                    vs {humanFriendlyLargeNumber(finding.baseline_value)}/wk typical
+                </span>
             </div>
             <p className="text-sm mb-0">{finding.narrative}</p>
             {breakdown?.value ? (
@@ -214,24 +226,15 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                     <span className="font-medium text-default">{String(breakdown.value)}</span>
                 </div>
             ) : null}
-            {references.length || sessionIds.length ? <LemonDivider className="my-3" /> : null}
-            {references.length ? (
-                <div className="flex items-center flex-wrap gap-2 text-xs">
-                    <span className="text-muted-alt">Related changes:</span>
-                    {references.map((ref, index) => {
-                        const { label, to } = describeReference(ref)
-                        const key = `${ref.type}-${ref.id || index}`
-                        return to ? (
-                            <LemonButton key={key} type="tertiary" size="xsmall" to={to} targetBlank>
-                                {label}
-                            </LemonButton>
-                        ) : (
-                            <LemonTag key={key} type="muted">
-                                {label}
-                            </LemonTag>
-                        )
-                    })}
-                </div>
+            {chartSeries.length > 1 || sessionIds.length ? <LemonDivider className="my-3" /> : null}
+            {chartSeries.length > 1 ? (
+                <PulseFindingChart
+                    series={chartSeries}
+                    markers={timelineMarkers}
+                    axisStart={axisStart}
+                    axisEnd={periodEnd}
+                    tone={change.tone}
+                />
             ) : null}
             {sessionIds.length ? (
                 <div className="flex items-center flex-wrap gap-2 mt-2 text-xs">
@@ -370,6 +373,14 @@ function SubscriptionPanel(): JSX.Element {
     )
 }
 
+// Icon + readable label per watched-metric source, so a glance tells dashboard vs insight vs event.
+const WATCHED_META: Record<string, { icon: JSX.Element; label: string }> = {
+    dashboard_tile: { icon: <IconDashboard />, label: 'Dashboard tile' },
+    recent_insight: { icon: <IconGraph />, label: 'Insight' },
+    saved_insight: { icon: <IconGraph />, label: 'Insight' },
+    top_event: { icon: <IconCursorClick />, label: 'Event' },
+}
+
 function WatchedPanel(): JSX.Element | null {
     const { watchedCandidates, watchedCandidatesLoading } = useValues(pulseLogic)
 
@@ -390,11 +401,16 @@ function WatchedPanel(): JSX.Element | null {
                 Internal: the metric set scanned each cycle. Hidden from non-staff while we tune it.
             </p>
             <div className="flex flex-wrap gap-2">
-                {watchedCandidates.map((c, i) => (
-                    <LemonTag key={c.source_id ?? `${c.source}-${i}`} type="muted">
-                        {c.label}
-                    </LemonTag>
-                ))}
+                {watchedCandidates.map((c, i) => {
+                    const meta = WATCHED_META[c.source] ?? { icon: <IconList />, label: 'Metric' }
+                    return (
+                        <Tooltip key={c.source_id ?? `${c.source}-${i}`} title={meta.label}>
+                            <LemonTag type="muted" icon={meta.icon}>
+                                {c.label}
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                })}
             </div>
         </LemonCard>
     )
@@ -449,7 +465,12 @@ function DigestRow({ digest }: { digest: PulseDigestSummary }): JSX.Element {
                         <>
                             {expandedDigest.summary ? <DigestReadBanner summary={expandedDigest.summary} /> : null}
                             {expandedDigest.findings.map((finding) => (
-                                <FindingCard key={finding.id} finding={finding} />
+                                <FindingCard
+                                    key={finding.id}
+                                    finding={finding}
+                                    periodStart={expandedDigest.period_start}
+                                    periodEnd={expandedDigest.period_end}
+                                />
                             ))}
                         </>
                     )}
@@ -627,7 +648,12 @@ export function Pulse(): JSX.Element {
                                     ) : (
                                         <div className="grid grid-cols-1 gap-4">
                                             {findingsForLatest.map((finding) => (
-                                                <FindingCard key={finding.id} finding={finding} />
+                                                <FindingCard
+                                                    key={finding.id}
+                                                    finding={finding}
+                                                    periodStart={latestDigest.period_start}
+                                                    periodEnd={latestDigest.period_end}
+                                                />
                                             ))}
                                         </div>
                                     )}

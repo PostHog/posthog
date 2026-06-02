@@ -4,6 +4,7 @@ import { PulseFindingType } from './pulseTypes'
 import {
     SENSITIVITY_PRESETS,
     buildFindingInsightContext,
+    buildFindingTimelineMarkers,
     buildMaxSeedPrompt,
     describeChange,
     describeReference,
@@ -11,6 +12,9 @@ import {
     formatSignedPct,
     suggestedNextStep,
 } from './utils'
+
+const PERIOD_START = '2026-05-19T00:00:00+00:00'
+const PERIOD_END = '2026-05-26T00:00:00+00:00'
 
 const FINDING: PulseFindingType = {
     id: 'f1',
@@ -129,5 +133,63 @@ describe('pulse utils', () => {
 
         // No segment and no references -> no specific lead (generic "Explore with AI" covers it).
         expect(suggestedNextStep({ ...base, evidence: null })).toBeNull()
+    })
+
+    it('buildFindingTimelineMarkers returns [] without references or a valid axis', () => {
+        const finding = {
+            ...FINDING,
+            evidence: {
+                references: [{ type: 'feature_flag', label: 'f', timestamp: '2026-05-22T10:00:00+00:00', id: '7' }],
+            },
+        }
+        expect(buildFindingTimelineMarkers({ ...FINDING, evidence: null }, PERIOD_START, PERIOD_END)).toEqual([])
+        expect(buildFindingTimelineMarkers(finding, undefined, PERIOD_END)).toEqual([])
+        expect(buildFindingTimelineMarkers(finding, PERIOD_END, PERIOD_START)).toEqual([]) // span <= 0
+    })
+
+    it('buildFindingTimelineMarkers places the finding-referenced changes chronologically over the axis', () => {
+        // References carry their own ISO timestamps (self-contained), so positions are exact regardless of tz.
+        const finding = {
+            ...FINDING,
+            evidence: {
+                references: [
+                    {
+                        type: 'feature_flag',
+                        label: 'new-onboarding',
+                        id: '7',
+                        timestamp: '2026-05-25T00:00:00+00:00',
+                        change: 'turned on',
+                    },
+                    {
+                        type: 'experiment',
+                        label: 'checkout-v2',
+                        id: '3',
+                        timestamp: '2026-05-22T00:00:00+00:00',
+                        change: 'launched',
+                    },
+                ],
+            },
+        }
+        const markers = buildFindingTimelineMarkers(finding, PERIOD_START, PERIOD_END)
+        // Sorted chronologically: experiment (day 3) before flag (day 6).
+        expect(markers.map((m) => m.type)).toEqual(['experiment', 'feature_flag'])
+        expect(markers[0].position).toBeCloseTo(3 / 7, 5)
+        expect(markers[1].position).toBeCloseTo(6 / 7, 5)
+        expect(markers[0].change).toBe('launched')
+        expect(markers[0].to).toBe(urls.experiment('3'))
+    })
+
+    it('buildFindingTimelineMarkers skips references without a timestamp', () => {
+        const finding = {
+            ...FINDING,
+            evidence: {
+                references: [
+                    { type: 'feature_flag', label: 'dated', id: '7', timestamp: '2026-05-22T00:00:00+00:00' },
+                    { type: 'annotation', label: 'undated', id: '9' }, // no timestamp -> nothing to place
+                ],
+            },
+        }
+        const markers = buildFindingTimelineMarkers(finding, PERIOD_START, PERIOD_END)
+        expect(markers.map((m) => m.label)).toEqual(['dated'])
     })
 })

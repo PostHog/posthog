@@ -27,12 +27,14 @@ from posthog.temporal.ai.pulse.narrative import (
     SYNTHESIS_SYSTEM_PROMPT,
     CoincidentSignal,
     _attribute_finding,
+    _build_daily_query,
     _build_signal_catalog,
     _collect_replay_evidence,
     _describe_experiment_change,
     _describe_flag_change,
     _enrich_one,
     _fallback_narrative,
+    _fetch_daily_series,
     _fetch_error_signals,
     _fetch_experiment_changes,
     _fetch_flag_changes,
@@ -612,7 +614,15 @@ class TestFetchFlagChanges:
             datetime(2026, 5, 26, tzinfo=UTC),
         )
 
-        assert out == [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on", "id": "42"}]
+        assert out == [
+            {
+                "date": "2026-05-20",
+                "timestamp": "2026-05-20T00:00:00+00:00",
+                "flag": "new-onboarding",
+                "change": "turned on",
+                "id": "42",
+            }
+        ]
 
 
 @pytest.mark.django_db
@@ -641,7 +651,15 @@ class TestFetchExperimentChanges:
 
         out = _fetch_experiment_changes(team_id, datetime(2026, 5, 19, tzinfo=UTC), datetime(2026, 5, 26, tzinfo=UTC))
 
-        assert out == [{"date": "2026-05-21", "experiment": "checkout-v2", "change": expected_change, "id": "exp-9"}]
+        assert out == [
+            {
+                "date": "2026-05-21",
+                "timestamp": "2026-05-21T00:00:00+00:00",
+                "experiment": "checkout-v2",
+                "change": expected_change,
+                "id": "exp-9",
+            }
+        ]
 
 
 @pytest.mark.django_db
@@ -683,10 +701,31 @@ class TestFetchPeriodSignals:
             team.id, "2026-05-19T00:00:00+00:00", "2026-05-26T00:00:00+00:00"
         )
 
-        assert annotations == [{"id": str(annotation.id), "date": "2026-05-20", "note": "pricing v2 launch"}]
-        assert flag_changes == [{"date": "2026-05-21", "flag": "new-onboarding", "change": "turned on", "id": "7"}]
+        assert annotations == [
+            {
+                "id": str(annotation.id),
+                "date": "2026-05-20",
+                "timestamp": "2026-05-20T00:00:00+00:00",
+                "note": "pricing v2 launch",
+            }
+        ]
+        assert flag_changes == [
+            {
+                "date": "2026-05-21",
+                "timestamp": "2026-05-21T00:00:00+00:00",
+                "flag": "new-onboarding",
+                "change": "turned on",
+                "id": "7",
+            }
+        ]
         assert experiment_changes == [
-            {"date": "2026-05-22", "experiment": "checkout-v2", "change": "launched", "id": "exp-3"}
+            {
+                "date": "2026-05-22",
+                "timestamp": "2026-05-22T00:00:00+00:00",
+                "experiment": "checkout-v2",
+                "change": "launched",
+                "id": "exp-3",
+            }
         ]
 
     def test_returns_empty_without_period_bounds(self):
@@ -695,9 +734,27 @@ class TestFetchPeriodSignals:
 
 class TestBuildSignalCatalog:
     def test_orders_experiments_then_flags_then_annotations_with_dense_ids(self):
-        annotations = [{"id": "9", "date": "2026-05-20", "note": "pricing v2 promo"}]
-        flag_changes = [{"date": "2026-05-21", "flag": "new-onboarding", "change": "turned on", "id": "7"}]
-        experiment_changes = [{"date": "2026-05-22", "experiment": "checkout-v2", "change": "launched", "id": "3"}]
+        annotations = [
+            {"id": "9", "date": "2026-05-20", "timestamp": "2026-05-20T08:00:00+00:00", "note": "pricing v2 promo"}
+        ]
+        flag_changes = [
+            {
+                "date": "2026-05-21",
+                "timestamp": "2026-05-21T14:00:00+00:00",
+                "flag": "new-onboarding",
+                "change": "turned on",
+                "id": "7",
+            }
+        ]
+        experiment_changes = [
+            {
+                "date": "2026-05-22",
+                "timestamp": "2026-05-22T11:00:00+00:00",
+                "experiment": "checkout-v2",
+                "change": "launched",
+                "id": "3",
+            }
+        ]
 
         catalog = _build_signal_catalog(annotations, flag_changes, experiment_changes)
 
@@ -707,6 +764,10 @@ class TestBuildSignalCatalog:
             ("s2", "annotation", "pricing v2 promo", "9"),
         ]
         assert catalog[0].summary == "launched 2026-05-22"
+        # The full timestamp + change verb propagate so a referenced signal can be placed on the timeline.
+        assert catalog[0].timestamp == "2026-05-22T11:00:00+00:00"
+        assert catalog[0].change == "launched"
+        assert catalog[2].change == ""  # annotations have no change verb
 
     def test_dedupes_repeated_changes_by_id(self):
         # A flag changed several times in the period (created -> turned on) is ONE referenceable signal.
@@ -735,16 +796,37 @@ class TestBuildSignalCatalog:
 
 
 class TestSignalToReference:
-    def test_linkable_signal_carries_detail_id(self):
-        signal = CoincidentSignal("s0", "experiment", "checkout-v2", "3", "launched 2026-05-21")
-        assert _signal_to_reference(signal) == {"type": "experiment", "label": "checkout-v2", "id": "3"}
+    def test_linkable_signal_carries_timestamp_change_and_detail_id(self):
+        signal = CoincidentSignal(
+            "s0",
+            "experiment",
+            "checkout-v2",
+            "3",
+            "launched 2026-05-21",
+            timestamp="2026-05-21T11:00:00+00:00",
+            change="launched",
+        )
+        assert _signal_to_reference(signal) == {
+            "type": "experiment",
+            "label": "checkout-v2",
+            "timestamp": "2026-05-21T11:00:00+00:00",
+            "id": "3",
+            "change": "launched",
+        }
 
-    def test_annotation_with_id_is_linkable(self):
-        # Annotations carry a pk now, so a referenced one becomes a deep-linkable chip (the headline change).
-        signal = CoincidentSignal("s0", "annotation", "pricing v2 promo", "9", "noted 2026-05-20")
-        assert _signal_to_reference(signal) == {"type": "annotation", "label": "pricing v2 promo", "id": "9"}
+    def test_annotation_carries_timestamp_but_no_change(self):
+        # Annotations carry a pk + timestamp (deep-linkable, placeable on the timeline) but no change verb.
+        signal = CoincidentSignal(
+            "s0", "annotation", "pricing v2 promo", "9", "noted 2026-05-20", timestamp="2026-05-20T08:00:00+00:00"
+        )
+        assert _signal_to_reference(signal) == {
+            "type": "annotation",
+            "label": "pricing v2 promo",
+            "timestamp": "2026-05-20T08:00:00+00:00",
+            "id": "9",
+        }
 
-    def test_idless_signal_is_label_only(self):
+    def test_idless_timestampless_signal_is_label_only(self):
         signal = CoincidentSignal("s0", "annotation", "deploy note", "", "noted 2026-05-21")
         assert _signal_to_reference(signal) == {"type": "annotation", "label": "deploy note"}
 
@@ -753,6 +835,49 @@ class TestSignalToReference:
         ref = _signal_to_reference(signal)
         assert ref["label"].endswith("…")
         assert len(ref["label"]) == 61  # MAX_REFERENCE_LABEL (60) + the ellipsis
+
+
+class TestBuildDailyQuery:
+    def test_sets_daily_interval_period_range_and_strips_breakdown(self):
+        query = _build_daily_query(
+            {"kind": "TrendsQuery", "series": [{"event": "x"}], "breakdownFilter": {"breakdown": "$browser"}},
+            "2026-05-19T00:00:00+00:00",
+            "2026-05-26T12:00:00+00:00",
+        )
+        assert query["interval"] == "day"
+        assert query["dateRange"] == {"date_from": "2026-05-19", "date_to": "2026-05-26"}
+        assert query["breakdownFilter"] is None
+
+
+class TestFetchDailySeries:
+    @pytest.mark.asyncio
+    async def test_extracts_daily_values(self):
+        finding = _finding(impact=1.0, robust_z=1.0, label="m")
+        with patch(
+            "posthog.temporal.ai.pulse.narrative.run_trends_query_sync",
+            new=AsyncMock(return_value={"results": [{"data": [10, 12, 9, 15]}]}),
+        ):
+            out = await _fetch_daily_series(
+                MagicMock(id=1), finding, "2026-05-19T00:00:00+00:00", "2026-05-26T00:00:00+00:00"
+            )
+        assert out == [10.0, 12.0, 9.0, 15.0]
+
+    @pytest.mark.asyncio
+    async def test_no_period_returns_empty(self):
+        finding = _finding(impact=1.0, robust_z=1.0, label="m")
+        assert await _fetch_daily_series(MagicMock(id=1), finding, "", "") == []
+
+    @pytest.mark.asyncio
+    async def test_degrades_on_query_failure(self):
+        finding = _finding(impact=1.0, robust_z=1.0, label="m")
+        with patch(
+            "posthog.temporal.ai.pulse.narrative.run_trends_query_sync",
+            new=AsyncMock(side_effect=Exception("clickhouse down")),
+        ):
+            out = await _fetch_daily_series(
+                MagicMock(id=1), finding, "2026-05-19T00:00:00+00:00", "2026-05-26T00:00:00+00:00"
+            )
+        assert out == []
 
 
 class TestDescribeExperimentChange:
@@ -824,7 +949,6 @@ class TestSynthesizeDigestFeedsErrorIssuesToLLM:
             # (team, user, annotations, flag_changes, experiment_changes, error_signals)
             return MagicMock(name="team"), MagicMock(name="user"), [], [], [], error_signals
 
-        # database_sync_to_async(fn) -> a callable returning the coroutine (matches the real wrapper shape).
         mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
 
         fake_chain = MagicMock()
@@ -987,14 +1111,16 @@ class TestCollectReplayEvidence:
 
 
 class TestEnrichOneSetsEvidence:
-    async def test_evidence_set_when_sessions_found(self):
+    async def test_evidence_set_when_sessions_and_daily_series_found(self):
         with (
             patch("posthog.temporal.ai.pulse.narrative._attribute_finding", new_callable=AsyncMock) as mock_attr,
             patch("posthog.temporal.ai.pulse.narrative._collect_replay_evidence", new_callable=AsyncMock) as mock_evi,
+            patch("posthog.temporal.ai.pulse.narrative._fetch_daily_series", new_callable=AsyncMock) as mock_daily,
             patch("posthog.temporal.ai.pulse.narrative._generate_narrative", new_callable=AsyncMock) as mock_narr,
         ):
             mock_attr.return_value = {"property": "$browser", "value": "Safari"}
             mock_evi.return_value = ["s1", "s2"]
+            mock_daily.return_value = [9.0, 7.0, 4.0]
             mock_narr.return_value = ("Purchases dropped, concentrated in Safari.", [])
             result = await _enrich_one(
                 team=MagicMock(id=1),
@@ -1006,7 +1132,7 @@ class TestEnrichOneSetsEvidence:
                 period_end="2026-05-26T00:00:00+00:00",
             )
 
-        assert result.evidence == {"session_ids": ["s1", "s2"]}
+        assert result.evidence == {"daily_series": [9.0, 7.0, 4.0], "session_ids": ["s1", "s2"]}
         assert result.attribution_breakdown == {"property": "$browser", "value": "Safari"}
 
     async def test_evidence_carries_only_referenced_signals(self):
