@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import requests
@@ -59,9 +59,11 @@ def _to_unix_seconds(value: Any) -> int | None:
     if isinstance(value, float):
         return int(value)
     if isinstance(value, datetime):
-        return int(value.timestamp())
+        # Treat naive datetimes as UTC so the epoch cutoff doesn't shift with the host timezone.
+        aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return int(aware.timestamp())
     if isinstance(value, date):
-        return int(datetime(value.year, value.month, value.day).timestamp())
+        return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -69,8 +71,8 @@ def _to_unix_seconds(value: Any) -> int | None:
 
 
 def validate_credentials(api_key: str, user_email: str) -> tuple[bool, str | None]:
+    session = make_tracked_session(headers=_get_headers(api_key, user_email), redact_values=(api_key,))
     try:
-        session = make_tracked_session(headers=_get_headers(api_key, user_email))
         response = session.get(f"{COPPER_BASE_URL}/account", timeout=10)
         if response.status_code == 200:
             return True, None
@@ -79,6 +81,8 @@ def validate_credentials(api_key: str, user_email: str) -> tuple[bool, str | Non
         return False, f"Copper credential check failed with status {response.status_code}"
     except Exception as e:
         return False, str(e)
+    finally:
+        session.close()
 
 
 def _build_search_body(
@@ -116,7 +120,7 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = COPPER_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_get_headers(api_key, user_email))
+    session = make_tracked_session(headers=_get_headers(api_key, user_email), redact_values=(api_key,))
 
     @retry(
         retry=retry_if_exception_type((CopperRetryableError, requests.ReadTimeout, requests.ConnectionError)),

@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -57,6 +57,13 @@ class TestToUnixSeconds:
     def test_datetime_coercion(self) -> None:
         dt = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
         assert _to_unix_seconds(dt) == int(dt.timestamp())
+
+    def test_naive_datetime_treated_as_utc(self) -> None:
+        naive = datetime(2023, 11, 14, 22, 13, 20)
+        assert _to_unix_seconds(naive) == int(datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC).timestamp())
+
+    def test_date_treated_as_utc(self) -> None:
+        assert _to_unix_seconds(date(2023, 11, 14)) == int(datetime(2023, 11, 14, tzinfo=UTC).timestamp())
 
 
 class TestGetRows:
@@ -268,6 +275,27 @@ class TestGetRows:
         assert [r["id"] for r in batches[0]] == [1]
         assert session.request.call_count == 2
 
+    def test_redacts_api_key_and_closes_session(self) -> None:
+        manager = _make_manager()
+        logger = MagicMock()
+
+        with _patch_session() as session_cls:
+            session = session_cls.return_value
+            session.request.return_value = _make_response(_records([1]))
+
+            list(
+                get_rows(
+                    api_key="secret-key",
+                    user_email="user@example.com",
+                    endpoint="people",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session_cls.call_args.kwargs["redact_values"] == ("secret-key",)
+        session.close.assert_called_once()
+
 
 class TestCopperSource:
     def test_source_response_metadata_for_searchable(self) -> None:
@@ -345,3 +373,13 @@ class TestValidateCredentials:
 
         assert valid is False
         assert error == "boom"
+
+    def test_redacts_api_key_and_closes_session(self) -> None:
+        with _patch_session() as session_cls:
+            session = session_cls.return_value
+            session.get.return_value = _make_response({}, status_code=200)
+
+            validate_credentials("secret-key", "user@example.com")
+
+        assert session_cls.call_args.kwargs["redact_values"] == ("secret-key",)
+        session.close.assert_called_once()

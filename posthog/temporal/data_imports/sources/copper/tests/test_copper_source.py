@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.copper.copper import CopperResumeConfig
 from posthog.temporal.data_imports.sources.copper.settings import ENDPOINTS
@@ -30,7 +32,7 @@ class TestCopperSource:
         assert config.unreleasedSource is True
         assert config.releaseStatus == "alpha"
 
-        fields = {f.name: f for f in config.fields}
+        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"api_key", "user_email"}
         assert fields["api_key"].secret is True
         assert fields["api_key"].type.value == "password"
