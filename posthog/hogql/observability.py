@@ -1,0 +1,294 @@
+from __future__ import annotations
+
+from collections import Counter
+from dataclasses import dataclass, field
+from random import random
+from time import perf_counter
+from typing import Literal, Union
+
+from django.conf import settings
+
+from statshog.defaults.django import statsd
+
+from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
+
+Precision = Literal["precise", "partial", "unknown"]
+StatsdTags = dict[str, Union[str, int]]
+
+_UNKNOWN_REASONS = {
+    "missing_function_signature",
+    "signature_mismatch",
+    "unsupported_ast_node",
+    "unknown_property_metadata",
+    "property_metadata_conflict",
+    "unknown_database_field_type",
+    "set_query_type_conflict",
+    "lambda_type_unbound",
+    "dialect_gap",
+    "transform_invalidated_type",
+    "inference_exception",
+}
+
+_FUNCTION_GROUPS = {
+    "comparison",
+    "logical",
+    "cast",
+    "datetime",
+    "string",
+    "json",
+    "array",
+    "tuple",
+    "map",
+    "aggregate",
+    "aggregate_state",
+    "posthog",
+    "url",
+    "math",
+    "unknown",
+}
+
+_SQL_SHAPES = {
+    "datetime_cast",
+    "numeric_cast",
+    "string_cast",
+    "boolean_cast",
+    "nullable_comparison_wrapper",
+    "assume_not_null",
+    "json_extract",
+    "json_extract_raw",
+    "property_conversion_wrapper",
+}
+
+
+@dataclass
+class HogQLTypeObservability:
+    engine: str = "current"
+    dialect: str = "unknown"
+    source: str = "unknown"
+    enabled: bool = False
+    sampled: bool = False
+
+    started_at: float = field(default_factory=perf_counter)
+    result: str = "success"
+
+    expression_count: int = 0
+    typed_by_precision: Counter[str] = field(default_factory=Counter)
+    unknown_by_reason: Counter[str] = field(default_factory=Counter)
+
+    function_call_count: int = 0
+    function_return_by_precision: Counter[str] = field(default_factory=Counter)
+    function_signature_miss_by_group: Counter[str] = field(default_factory=Counter)
+    function_signature_mismatch_by_group: Counter[str] = field(default_factory=Counter)
+
+    property_access_count: int = 0
+    property_typing: Counter[str] = field(default_factory=Counter)
+    materialized_property_usage: Counter[str] = field(default_factory=Counter)
+
+    sql_shape: Counter[str] = field(default_factory=Counter)
+
+    def tags(self) -> StatsdTags:
+        return {
+            "engine": self.engine,
+            "dialect": self.dialect,
+            "source": self.source,
+        }
+
+    def record_unknown(self, reason: str, count: int = 1) -> None:
+        self.unknown_by_reason[_bounded(reason, _UNKNOWN_REASONS)] += count
+
+    def record_function_call(self, function_name: str, return_type: ast.ConstantType, signatures_present: bool) -> None:
+        self.function_call_count += 1
+        precision = classify_constant_type(return_type)
+        self.function_return_by_precision[precision] += 1
+
+        if isinstance(return_type, ast.UnknownType):
+            function_group = classify_function_group(function_name)
+            if signatures_present:
+                self.function_signature_mismatch_by_group[function_group] += 1
+                self.record_unknown("signature_mismatch")
+            else:
+                self.function_signature_miss_by_group[function_group] += 1
+                self.record_unknown("missing_function_signature")
+
+    def record_property_definition_lookup(self, property_source: str, known_count: int, total_count: int) -> None:
+        property_source = _bounded(property_source, {"event", "person", "group"})
+        unknown_count = max(total_count - known_count, 0)
+        self.property_access_count += total_count
+        self.property_typing[f"{property_source}_known"] += known_count
+        self.property_typing[f"{property_source}_unknown"] += unknown_count
+        if unknown_count:
+            self.record_unknown("unknown_property_metadata", unknown_count)
+
+
+def create_hogql_type_observability(
+    dialect: str, source: str = "unknown", engine: str = "current"
+) -> HogQLTypeObservability:
+    enabled = bool(getattr(settings, "HOGQL_TYPE_OBSERVABILITY_ENABLED", False))
+    sample_rate = float(getattr(settings, "HOGQL_TYPE_OBSERVABILITY_SAMPLE_RATE", 0.0))
+    return HogQLTypeObservability(
+        engine=_clean_tag(engine),
+        dialect=_clean_tag(dialect),
+        source=_clean_tag(source),
+        enabled=enabled,
+        sampled=enabled and sample_rate > 0 and random() < sample_rate,
+    )
+
+
+def classify_expr_type(type_: ast.Type | None) -> Precision:
+    if type_ is None or isinstance(type_, ast.UnknownType):
+        return "unknown"
+    if isinstance(type_, ast.CallType):
+        return classify_constant_type(type_.return_type)
+    if isinstance(type_, ast.FieldAliasType):
+        return classify_expr_type(type_.type)
+    if isinstance(type_, ast.ConstantType):
+        return classify_constant_type(type_)
+    return "partial"
+
+
+def classify_constant_type(type_: ast.ConstantType | None) -> Precision:
+    if type_ is None or isinstance(type_, ast.UnknownType):
+        return "unknown"
+    if isinstance(type_, ast.ArrayType):
+        return classify_constant_type(type_.item_type)
+    if isinstance(type_, ast.TupleType):
+        item_precisions = {classify_constant_type(item_type) for item_type in type_.item_types}
+        if "unknown" in item_precisions:
+            return "unknown"
+        if "partial" in item_precisions:
+            return "partial"
+        return "precise"
+    return "precise"
+
+
+def classify_function_group(function_name: str) -> str:
+    name = function_name.lower()
+
+    if name in {"equals", "notequals", "less", "greater", "lessorequals", "greaterorequals", "in", "notin"}:
+        return "comparison"
+    if name in {"and", "or", "xor", "not", "if", "multiif"}:
+        return "logical"
+    if name.startswith("json") or "json" in name:
+        return "json"
+    if name.startswith("array"):
+        return "array"
+    if name.startswith("tuple"):
+        return "tuple"
+    if name.startswith("map"):
+        return "map"
+    if name.startswith("to") or "cast" in name:
+        return "cast"
+    if name in {"count", "sum", "avg", "min", "max", "uniq", "quantile"}:
+        return "aggregate"
+    if name.endswith("state") or name.endswith("merge"):
+        return "aggregate_state"
+    if "date" in name or "time" in name or name in {"now", "today", "yesterday"}:
+        return "datetime"
+    if name in {"concat", "substring", "lower", "upper", "replace", "match", "like", "ilike", "regexp"}:
+        return "string"
+    if "url" in name:
+        return "url"
+    if name in {"abs", "round", "floor", "ceil", "sqrt", "pow", "exp", "log"}:
+        return "math"
+    if name.startswith("hogql") or name.startswith("__"):
+        return "posthog"
+    return "unknown"
+
+
+def collect_hogql_type_coverage(node: ast.AST, stats: HogQLTypeObservability | None) -> None:
+    if stats is None or not stats.enabled or not stats.sampled:
+        return
+    TypeCoverageCollector(stats).visit(node)
+
+
+def collect_hogql_sql_shape(node: ast.AST, stats: HogQLTypeObservability | None) -> None:
+    if stats is None or not stats.enabled or not stats.sampled:
+        return
+    SQLShapeCollector(stats).visit(node)
+
+
+def emit_hogql_type_observability(stats: HogQLTypeObservability | None) -> None:
+    if stats is None or not stats.enabled or not stats.sampled:
+        return
+
+    tags = stats.tags()
+    statsd.incr("hogql_typecheck_total", tags=tags | {"result": stats.result})
+    statsd.incr("hogql_typecheck_duration_ms", count=max(0, int((perf_counter() - stats.started_at) * 1000)), tags=tags)
+
+    if stats.expression_count:
+        statsd.incr("hogql_expression_observed_total", count=stats.expression_count, tags=tags)
+    _emit_counter("hogql_expression_typed_total", stats.typed_by_precision, tags, "precision")
+    _emit_counter("hogql_type_unknown_total", stats.unknown_by_reason, tags, "reason")
+
+    if stats.function_call_count:
+        statsd.incr("hogql_function_call_total", count=stats.function_call_count, tags=tags)
+    _emit_counter("hogql_function_return_typed_total", stats.function_return_by_precision, tags, "precision")
+    _emit_counter("hogql_function_signature_miss_total", stats.function_signature_miss_by_group, tags, "function_group")
+    _emit_counter(
+        "hogql_function_signature_mismatch_total",
+        stats.function_signature_mismatch_by_group,
+        tags,
+        "function_group",
+    )
+    _emit_counter("hogql_property_typing_total", stats.property_typing, tags, "result")
+    _emit_counter("hogql_materialized_property_usage_total", stats.materialized_property_usage, tags, "result")
+    _emit_counter("hogql_sql_shape_total", stats.sql_shape, tags, "shape")
+
+
+class TypeCoverageCollector(TraversingVisitor):
+    def __init__(self, stats: HogQLTypeObservability):
+        super().__init__()
+        self.stats = stats
+
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Expr):
+            self.stats.expression_count += 1
+            self.stats.typed_by_precision[classify_expr_type(node.type)] += 1
+        return super().visit(node)
+
+
+class SQLShapeCollector(TraversingVisitor):
+    def __init__(self, stats: HogQLTypeObservability):
+        super().__init__()
+        self.stats = stats
+
+    def visit_call(self, node: ast.Call) -> None:
+        name = node.name.lower()
+        if name in {"todatetime", "todatetime64", "todate"}:
+            self.stats.sql_shape["datetime_cast"] += 1
+            self.stats.sql_shape["property_conversion_wrapper"] += 1
+        elif name in {"tofloat", "tofloat32", "tofloat64", "toint", "toint32", "toint64", "todecimal"}:
+            self.stats.sql_shape["numeric_cast"] += 1
+            self.stats.sql_shape["property_conversion_wrapper"] += 1
+        elif name in {"tostring", "tofixedstring"}:
+            self.stats.sql_shape["string_cast"] += 1
+            self.stats.sql_shape["property_conversion_wrapper"] += 1
+        elif name == "tobool":
+            self.stats.sql_shape["boolean_cast"] += 1
+            self.stats.sql_shape["property_conversion_wrapper"] += 1
+        elif name == "ifnull":
+            self.stats.sql_shape["nullable_comparison_wrapper"] += 1
+        elif name == "assumenotnull":
+            self.stats.sql_shape["assume_not_null"] += 1
+        elif name == "jsonextractraw":
+            self.stats.sql_shape["json_extract_raw"] += 1
+        elif name.startswith("jsonextract") or name in {"json_value", "jsonhas", "jsontype", "jsonlength"}:
+            self.stats.sql_shape["json_extract"] += 1
+
+        super().visit_call(node)
+
+
+def _emit_counter(metric_name: str, values: Counter[str], tags: StatsdTags, tag_name: str) -> None:
+    for tag_value, count in values.items():
+        if count:
+            statsd.incr(metric_name, count=count, tags=tags | {tag_name: _clean_tag(tag_value)})
+
+
+def _bounded(value: str, allowed_values: set[str]) -> str:
+    return value if value in allowed_values else "unknown"
+
+
+def _clean_tag(value: str) -> str:
+    safe = "".join(character if character.isalnum() or character in {"_", "-"} else "_" for character in str(value))
+    return safe[:64] or "unknown"
