@@ -35,7 +35,7 @@ permissions:
 jobs:
     control-default-token:
         name: Control (setup-* on default GITHUB_TOKEN)
-        runs-on: depot-ubuntu-latest
+        runs-on: ubuntu-latest # free GitHub-hosted runner; note its tool-cache differs from the Depot runners prod CI uses
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -93,11 +93,11 @@ jobs:
                       echo "delta(node) = $((AFTER_NODE - BEFORE)), delta(python) = $((after - AFTER_NODE)), total = $((after - BEFORE))"
                       echo ""
                       echo "_Shared bucket: deltas include concurrent repo CI, so treat as a floor, not an exact per-step count. The job log above shows each setup downloading from {node,python}-versions/releases, which is the manifest API call._"
-                  } >> "$GITHUB_STEP_SUMMARY"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
 
     treatment-app-token:
         name: Treatment (setup-* on app-scoped token)
-        runs-on: depot-ubuntu-latest
+        runs-on: ubuntu-latest # free GitHub-hosted runner; note its tool-cache differs from the Depot runners prod CI uses
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
