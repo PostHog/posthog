@@ -1,9 +1,8 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
-
-from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.chartmogul.chartmogul import (
     ChartMogulResumeConfig,
@@ -48,15 +47,16 @@ def _manager(can_resume: bool = False, resume_state: ChartMogulResumeConfig | No
 
 
 class TestFormatStartDate:
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "value,expected",
         [
-            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14"),
-            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14"),
-            ("date_value", date(2026, 3, 4), "2026-03-04"),
-            ("string_passthrough", "2026-03-04", "2026-03-04"),
-        ]
+            (datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14"),
+            (datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14"),
+            (date(2026, 3, 4), "2026-03-04"),
+            ("2026-03-04", "2026-03-04"),
+        ],
     )
-    def test_format_start_date(self, _name: str, value: object, expected: str) -> None:
+    def test_format_start_date(self, value: object, expected: str) -> None:
         assert _format_start_date(value) == expected
 
     def test_no_tz_offset_in_output(self) -> None:
@@ -165,8 +165,8 @@ class TestGetRows:
 
         assert batches == []
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    def test_retryable_status_codes_raise(self, _name: str, status: int) -> None:
+    @pytest.mark.parametrize("status", [429, 503])
+    def test_retryable_status_codes_recover(self, status: int) -> None:
         # A single retryable response then success: the tenacity retry should
         # recover and still yield the data.
         responses = [
@@ -184,8 +184,8 @@ class TestGetRows:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+    @pytest.mark.parametrize("status,expected", [(200, True), (401, False), (403, False)])
+    def test_status_mapping(self, status: int, expected: bool) -> None:
         session = _fake_session([_FakeResponse(status, {})])
         with patch(
             "posthog.temporal.data_imports.sources.chartmogul.chartmogul._get_session",
@@ -204,14 +204,16 @@ class TestValidateCredentials:
 
 
 class TestChartmogulSource:
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "endpoint,primary_keys,partition_key",
         [
             ("customers", ["uuid"], None),
             ("plans", ["uuid"], None),
+            ("plan_groups", ["uuid"], None),
             ("invoices", ["uuid"], "date"),
             ("activities", ["uuid"], "date"),
             ("data_sources", ["uuid"], "created_at"),
-        ]
+        ],
     )
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
         response = chartmogul_source("key", endpoint, MagicMock(), _manager())

@@ -19,14 +19,14 @@ marked incremental.
 
 ## Endpoints
 
-| Schema           | Path                  | Data key        | Primary key | Partition key | Incremental                 |
-| ---------------- | --------------------- | --------------- | ----------- | ------------- | --------------------------- |
-| customers        | `/v1/customers`       | `entries`       | `uuid`      | —             | full refresh (no timestamp) |
-| plans            | `/v1/plans`           | `plans`         | `uuid`      | —             | full refresh                |
-| plan_groups      | `/v1/plan_groups`     | `plan_groups`   | `uuid`      | —             | full refresh                |
-| invoices         | `/v1/invoices`        | `invoices`      | `uuid`      | `date`        | full refresh                |
-| activities       | `/v1/activities`      | `entries`       | `uuid`      | `date`        | `start-date` server filter  |
-| data_sources     | `/v1/data_sources`    | `data_sources`  | `uuid`      | `created_at`  | full refresh (not paginated)|
+| Schema       | Path               | Data key       | Primary key | Partition key | Incremental                  |
+| ------------ | ------------------ | -------------- | ----------- | ------------- | ---------------------------- |
+| customers    | `/v1/customers`    | `entries`      | `uuid`      | —             | full refresh (no timestamp)  |
+| plans        | `/v1/plans`        | `plans`        | `uuid`      | —             | full refresh                 |
+| plan_groups  | `/v1/plan_groups`  | `plan_groups`  | `uuid`      | —             | full refresh                 |
+| invoices     | `/v1/invoices`     | `invoices`     | `uuid`      | `date`        | full refresh                 |
+| activities   | `/v1/activities`   | `entries`      | `uuid`      | `date`        | `start-date` server filter   |
+| data_sources | `/v1/data_sources` | `data_sources` | `uuid`      | `created_at`  | full refresh (not paginated) |
 
 Notes:
 
