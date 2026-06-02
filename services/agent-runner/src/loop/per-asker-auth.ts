@@ -65,6 +65,7 @@ export interface MakePerAskerAuthDeps {
 /** Production factory — closes over the identity store + posthog DB pool. */
 export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverScope {
     return async (conversation, teamId, approverScope, sessionPrincipal) => {
+        const sender = findLastUserSender(conversation)
         // `session_principal` is a pure equality check against the
         // auth-time principal on the session row — no DB roundtrip. Cheap;
         // check first so we don't burn a posthog DB query on every gated
@@ -72,7 +73,6 @@ export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverS
         // `principalsMatch` treats any two anonymous principals as equal, so on
         // a public agent every caller would self-authorise the gate.
         if (approverScope.includes('session_principal') && sessionPrincipal && sessionPrincipal.kind !== 'anonymous') {
-            const sender = findLastUserSender(conversation)
             if (sender && principalsMatch(sessionPrincipal, sender)) {
                 return true
             }
@@ -80,7 +80,6 @@ export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverS
         if (!approverScope.includes('team_admins')) {
             return false
         }
-        const sender = findLastUserSender(conversation)
         if (!sender) {
             return false
         }
