@@ -359,6 +359,49 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_a"])
 
+    @parameterized.expand(
+        [
+            ("ref_substring", "chunk-abc123", ["frontend-chunk-abc123"]),
+            ("release_version", "special", ["set_b"]),
+            ("release_project", "checkout", ["set_c"]),
+            ("release_commit_sha", "feedface", ["set_d"]),
+            ("case_insensitive", "CHECKOUT", ["set_c"]),
+            ("no_match", "zzznope", []),
+        ]
+    )
+    def test_fetching_symbol_sets_search(self, _name: str, search: str, expected_refs: list[str]) -> None:
+        release_b = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="hash_b", version="9.9.9-special", project="proj_b", metadata=None
+        )
+        release_c = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="hash_c", version="1.0.0", project="checkout-service", metadata=None
+        )
+        release_d = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="hash_d",
+            version="2.0.0",
+            project="proj_d",
+            metadata={"git": {"commit_id": "feedface999abc"}},
+        )
+        ErrorTrackingSymbolSet.objects.create(ref="frontend-chunk-abc123", team=self.team, storage_ptr="symbolsets/a")
+        ErrorTrackingSymbolSet.objects.create(
+            ref="set_b", team=self.team, storage_ptr="symbolsets/b", release=release_b
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            ref="set_c", team=self.team, storage_ptr="symbolsets/c", release=release_c
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            ref="set_d", team=self.team, storage_ptr="symbolsets/d", release=release_d
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"search": search},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(symbol_set["ref"] for symbol_set in response.json()["results"]), sorted(expected_refs))
+
     def test_fetching_symbol_set_by_id(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
         symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)

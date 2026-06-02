@@ -5959,6 +5959,13 @@ export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object
             'Sort order for symbol sets. Prefix with `-` for descending order.\n\n* `created_at` - created_at\n* `-created_at` - -created_at\n* `ref` - ref\n* `-ref` - -ref\n* `last_used` - last_used\n* `-last_used` - -last_used'
         ),
     ref: zod.string().min(1).optional().describe('Exact symbol set reference to filter by.'),
+    search: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Case-insensitive substring search across reference, release version, release project, and release commit SHA.'
+        ),
     status: zod
         .enum(['all', 'valid', 'invalid'])
         .default(errorTrackingSymbolSetsListQueryStatusDefault)

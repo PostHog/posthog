@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDialog,
+    LemonInput,
     LemonSegmentedButton,
     LemonTable,
     LemonTableColumns,
@@ -38,8 +39,10 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading } = useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets } = useActions(symbolSetLogic)
+    const { symbolSetStatusFilter, searchQuery, selectedSymbolSetIds, deleteSymbolSetResponseLoading } =
+        useValues(symbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter, setSearchQuery, bulkDeleteSymbolSets } =
+        useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -57,8 +60,15 @@ export function SymbolSets(): JSX.Element {
                 will only apply to all future exceptions ingested.
             </p>
             <div className="space-y-2">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                     <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search by reference, release, version, or commit"
+                            value={searchQuery}
+                            onChange={setSearchQuery}
+                            className="w-80"
+                        />
                         {selectedSymbolSetIds.length > 0 && (
                             <>
                                 <LemonButton
