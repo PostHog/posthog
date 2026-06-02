@@ -66,6 +66,10 @@ export type CyclotronPerson = {
     properties: Record<string, any>
     name: string
     url: string
+    // Populated whenever the manager could resolve a distinct_id for this person.
+    // Always present when looked up by distinct_id; for person_id lookups, present
+    // when the person has at least one distinct_id in the persondistinctid table.
+    distinct_id?: string
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -295,6 +299,17 @@ export type CyclotronJobInvocationHogFunctionContext = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+    // Distinct from `attempts` (fetch-retry counter, reset between runs).
+    // `rerunAttempts` is incremented when an invocation is rehydrated by the
+    // rerun paginator and stays sticky across the entire rerun run. The
+    // lifecycle row producer reads this to drive the `attempts` + `is_retry`
+    // columns in `hog_invocation_results`.
+    rerunAttempts?: number
+    // ISO timestamp of the *original* cyclotron-scheduled time. Carried through
+    // reruns so the lifecycle row producer can populate `first_scheduled_at`
+    // verbatim — ReplacingMergeTree would otherwise collapse retries to the
+    // latest version and lose the original.
+    firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
 
@@ -320,6 +335,14 @@ export type HogFlowInvocationContext = {
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
     }
     variables?: Record<string, any>
+    // Sticky counter incremented by the rerun paginator on rehydration. Lets
+    // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
+    // the same way it does for hog functions, so the `max_attempts` guard on
+    // the rerun filter actually applies to flows.
+    rerunAttempts?: number
+    // Carried verbatim through retries so `first_scheduled_at` survives the
+    // ReplacingMergeTree collapse on the hog_invocation_results table.
+    firstScheduledAt?: string
 }
 
 // Mostly copied from frontend types
@@ -341,6 +364,8 @@ export type HogFunctionInputSchemaType = {
     key: string
     label?: string
     choices?: { value: string; label: string }[]
+    /** For `choice` inputs: render as a searchable select instead of a plain dropdown. */
+    searchable?: boolean
     required?: boolean
     default?: any
     secret?: boolean

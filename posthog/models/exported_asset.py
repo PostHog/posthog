@@ -24,6 +24,8 @@ logger = structlog.get_logger(__name__)
 
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 MAX_AGE_CONTENT = 86400  # 1 day
+EXPORTED_ASSET_PURPOSE_RENDER = "render"
+EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
 
 SEVEN_DAYS = timedelta(days=7)
 SIX_MONTHS = timedelta(days=180)
@@ -68,7 +70,7 @@ class ExportedAsset(models.Model):
     # Relations
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields
     export_format = models.CharField(max_length=100, choices=ExportFormat)
@@ -184,6 +186,10 @@ class ExportedAsset(models.Model):
         token = get_public_access_token(self, expiry_delta)
         return absolute_uri(f"/exporter/{self.filename}?token={token}")
 
+    def get_subscription_delivery_content_url(self, expiry_delta: Optional[timedelta] = None):
+        token = get_subscription_delivery_access_token(self, expiry_delta)
+        return absolute_uri(f"/exporter/{self.filename}?token={token}")
+
     @classmethod
     def delete_expired_assets(cls):
         expired_assets = ExportedAsset.objects_including_ttl_deleted.filter(expires_after__lte=now())
@@ -205,11 +211,30 @@ def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedel
     )
 
 
-def asset_for_token(token: str) -> ExportedAsset:
-    info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
-    asset = ExportedAsset.objects.select_related("dashboard", "insight").get(pk=info["id"])
+def get_render_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if not expiry_delta:
+        expiry_delta = timedelta(minutes=15)
+    return encode_jwt(
+        {"id": asset.id, "purpose": EXPORTED_ASSET_PURPOSE_RENDER},
+        expiry_delta=expiry_delta,
+        audience=PosthogJwtAudience.EXPORTED_ASSET,
+    )
 
-    return asset
+
+def get_subscription_delivery_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if not expiry_delta:
+        expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
+    return encode_jwt(
+        {"id": asset.id, "purpose": EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY},
+        expiry_delta=expiry_delta,
+        audience=PosthogJwtAudience.EXPORTED_ASSET,
+    )
+
+
+def asset_for_token(token: str) -> tuple[ExportedAsset, str | None]:
+    info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
+    asset = ExportedAsset.objects.select_related("dashboard", "insight", "team__organization").get(pk=info["id"])
+    return asset, info.get("purpose")
 
 
 def get_content_response(asset: ExportedAsset, download: bool = False):

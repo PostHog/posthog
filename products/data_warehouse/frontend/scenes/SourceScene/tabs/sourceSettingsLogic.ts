@@ -32,6 +32,18 @@ export interface SourceSettingsLogicProps {
     availableSources?: Record<string, SourceConfig>
 }
 
+export interface CdcStatus {
+    enabled: boolean
+    management_mode?: 'posthog' | 'self_managed'
+    slot_name?: string
+    publication_name?: string
+    lag_warning_threshold_mb?: number
+    lag_critical_threshold_mb?: number
+    slot_exists?: boolean
+    publication_exists?: boolean
+    lag_bytes?: number | null
+}
+
 const REFRESH_INTERVAL = 5000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
 const JOBS_POLL_MAX_BACKOFF_MS = 60000
@@ -322,6 +334,15 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 },
             },
         ],
+        cdcStatus: [
+            null as CdcStatus | null,
+            {
+                // Opens a connection to the customer DB, so it's on-demand (never polled).
+                loadCdcStatus: async () => {
+                    return await api.externalDataSources.cdc_status(values.sourceId)
+                },
+            },
+        ],
     })),
     reducers(({ props }) => ({
         sourceId: [
@@ -389,6 +410,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 submitSourceConfigRequest: () => true,
                 submitSourceConfigSuccess: () => false,
                 submitSourceConfigFailure: () => false,
+            },
+        ],
+        cdcStatusError: [
+            null as string | null,
+            {
+                loadCdcStatus: () => null,
+                loadCdcStatusSuccess: () => null,
+                loadCdcStatusFailure: (_, { error }) => error || 'Could not read CDC status from your database.',
             },
         ],
     })),
@@ -595,6 +624,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
 
+                // Fetch CDC status once per source — here (not a React effect) so team context is set.
+                const ji = (values.source?.job_inputs ?? {}) as Record<string, any>
+                const cdcEnabled = ji.cdc_enabled === true || ji.cdc_enabled === 'True' || ji.cdc_enabled === 'true'
+                if (cdcEnabled && cache.cdcStatusFetchedForSourceId !== values.source?.id) {
+                    cache.cdcStatusFetchedForSourceId = values.source?.id
+                    actions.loadCdcStatus()
+                }
+
                 const breadcrumbName =
                     values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
@@ -636,22 +673,40 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
             refreshSchemas: async () => {
                 try {
-                    const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
+                    const {
+                        added = 0,
+                        deleted = 0,
+                        total_tables_seen = 0,
+                    } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
                     posthog.capture('schemas refreshed', {
                         sourceType: values.source?.source_type,
                         added,
                         deleted,
+                        total_tables_seen,
                     })
-                    const parts = ['Schemas refreshed']
-                    if (added > 0 || deleted > 0) {
-                        parts.push(
-                            [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
-                                .filter(Boolean)
-                                .join(' / ')
+                    // Connected and got an empty table list — almost always a permissions
+                    // or configuration issue on the source. Warn rather than silently succeed.
+                    // If we also just removed previously-tracked schemas, call that out
+                    // explicitly so the user knows their tracking list changed.
+                    if (total_tables_seen === 0) {
+                        const deletedSuffix =
+                            deleted > 0
+                                ? ` ${deleted} previously tracked table(s) were removed from the tracking list.`
+                                : ''
+                        lemonToast.warning(
+                            `No tables found. Check the source credentials, permissions, and configuration.${deletedSuffix}`
                         )
+                        return
                     }
-                    lemonToast.success(parts.join(', '))
+                    if (added === 0 && deleted === 0) {
+                        lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
+                        return
+                    }
+                    const counts = [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                        .filter(Boolean)
+                        .join(' / ')
+                    lemonToast.success(`Schemas refreshed: ${counts}`)
                 } catch (e: any) {
                     if (e.message) {
                         lemonToast.error(e.message)

@@ -6,15 +6,16 @@ from django.utils import timezone
 from posthog.models.utils import UUIDModel
 
 
-def jsonhas_expr(prop: str, param_prefix: str) -> str:
+def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
     """Build a ClickHouse ``JSONHas`` expression for a (possibly nested) property path.
 
     Splits dotted names so ``"sub.prop"`` becomes
-    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
+    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.  Pass ``column`` to
+    target a different JSON column (e.g. ``"person_properties"``).
     """
     parts = prop.split(".")
     args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
-    return f"JSONHas(properties, {args})"
+    return f"JSONHas({column}, {args})"
 
 
 def compile_hogql_predicate(obj) -> tuple[str, dict]:
@@ -39,32 +40,26 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
 
     # Imported lazily: HogQL pulls in the full schema graph, which we don't want
     # to load for every model import (admin registration, migrations, etc.).
-    from posthog.hogql import ast
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.hogql import translate_hogql
     from posthog.hogql.parser import parse_expr
-    from posthog.hogql.visitor import TraversingVisitor
-
-    class _RejectSubqueries(TraversingVisitor):
-        def visit_select_query(self, node: ast.SelectQuery) -> None:
-            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
-
-        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
 
     try:
-        parsed = parse_expr(predicate)
+        parse_expr(predicate)
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not parse HogQL: {exc}"}) from exc
-
-    _RejectSubqueries().visit(parsed)
 
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
+    # Subqueries are allowed (e.g. ``person_id IN (SELECT id FROM persons WHERE …)``).
+    # HogQL's table resolver injects ``team_id`` guards into each referenced table,
+    # so cross-team data cannot leak through a subquery — the team-scoping test
+    # in test_data_deletion_request.py is the regression net for that invariant.
     # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
-    # references — both for regular fields and for materialized-column shortcuts.
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
+    # references for the outer expression so the fragment splices into both the
+    # Distributed ``events`` SELECT and the ``sharded_events`` DELETE mutation.
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:
@@ -153,7 +148,14 @@ class DataDeletionRequest(UUIDModel):
         models.CharField(max_length=1024),
         blank=True,
         default=list,
-        help_text="Property names to remove. Required for property_removal requests.",
+        help_text="Property names to remove from events.properties. Required for property_removal requests when person_properties is empty.",
+    )
+    person_properties = ArrayField(
+        models.CharField(max_length=1024),
+        blank=True,
+        null=True,
+        default=list,
+        help_text="Property names to remove from events.person_properties. Required for property_removal requests when properties is empty.",
     )
     person_uuids = ArrayField(
         models.UUIDField(),
@@ -326,6 +328,8 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"events": "events / delete_all_events are not valid for person_removal."})
         if self.properties:
             raise ValidationError({"properties": "properties are not valid for person_removal."})
+        if self.person_properties:
+            raise ValidationError({"person_properties": "person_properties are not valid for person_removal."})
         if self.hogql_predicate:
             raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for person_removal."})
 

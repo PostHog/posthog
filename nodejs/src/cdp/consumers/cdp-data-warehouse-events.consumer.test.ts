@@ -58,10 +58,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
 
         const mockJobQueue = createMockJobQueue()
 
-        processor = new CdpDatawarehouseEventsConsumer(hub, createCdpConsumerDeps(hub), {
-            hogQueue: mockJobQueue,
-            hogflowQueue: mockJobQueue,
-        })
+        processor = new CdpDatawarehouseEventsConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {

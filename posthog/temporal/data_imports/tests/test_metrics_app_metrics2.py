@@ -10,7 +10,7 @@ from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.temporal.data_imports.metrics import DATA_IMPORT_APP_SOURCE, emit_data_import_app_metrics
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 
 def _make_job(

@@ -1,10 +1,9 @@
-"""Emit the `$recording_observed` event with the lens output to the customer's events table."""
+"""Emit the `$recording_observed` event with the scanner output to the customer's events table."""
 
 from datetime import UTC, datetime
 
 import structlog
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import capture_internal
 from posthog.models.team import Team
@@ -12,7 +11,9 @@ from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
-from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, LensSnapshot
+from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -21,6 +22,7 @@ _EVENT_SOURCE = "replay_vision"
 
 
 @activity.defn
+@track_activity()
 async def emit_observation_event_activity(inputs: EmitObservationEventInputs) -> None:
     """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id."""
     await database_sync_to_async(_emit_event, thread_sensitive=False)(inputs)
@@ -29,28 +31,32 @@ async def emit_observation_event_activity(inputs: EmitObservationEventInputs) ->
 def _emit_event(inputs: EmitObservationEventInputs) -> None:
     observation = ReplayObservation.objects.select_related("team").filter(pk=inputs.observation_id).first()
     if observation is None:
-        raise ApplicationError(f"ReplayObservation {inputs.observation_id} not found", non_retryable=True)
+        raise ScannerFailureError(
+            f"ReplayObservation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
+        )
 
     try:
         team: Team = observation.team
     except Team.DoesNotExist:
-        raise ApplicationError(f"Team for observation {inputs.observation_id} not found", non_retryable=True)
+        raise ScannerFailureError(
+            f"Team for observation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
+        )
 
-    snapshot = LensSnapshot.load_for(inputs.observation_id, observation.lens_snapshot)
+    snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
     properties: dict = {
         # Deterministic id so a worker crash mid-flush doesn't produce a duplicate event row.
         "$insert_id": str(observation.id),
-        "lens_id": str(observation.lens_id),
-        "lens_name": snapshot.name,
-        "lens_type": snapshot.lens_type.value,
-        "lens_version": snapshot.lens_version,
+        "scanner_id": str(observation.scanner_id),
+        "scanner_name": snapshot.name,
+        "scanner_type": snapshot.scanner_type.value,
+        "scanner_version": snapshot.scanner_version,
         "session_id": observation.session_id,
         "triggered_by": str(observation.triggered_by),
         "triggered_by_user_id": observation.triggered_by_user_id,
         "model_used": snapshot.model.value,
         "provider_used": snapshot.provider.value,
         "emits_signals": snapshot.emits_signals,
-        # Flatten lens output so HogQL can query individual fields without a JSON extract.
+        # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
     }
     distinct_id = (

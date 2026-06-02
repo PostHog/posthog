@@ -10,7 +10,7 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { JobQueue } from './job-queue.interface'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer } from './shared'
+import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
@@ -91,6 +91,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
             pendingJobsGauge.set(this.pendingJobs.size)
 
+            observeConsumedBatch({
+                queue,
+                source: 'postgres-v2',
+                batchSize: invocations.length,
+                maxBatchSize: this.consumerBatchSize,
+            })
+
             await consumeBatch(invocations)
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -117,7 +124,10 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         return new HealthCheckResultError('CyclotronV2Worker is not healthy', {})
     }
 
-    public async queueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+    public async queueInvocations(
+        invocations: CyclotronJobInvocation[],
+        options: { overwriteExisting?: boolean } = {}
+    ): Promise<void> {
         if (invocations.length === 0) {
             return
         }
@@ -128,7 +138,10 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
         invocations = this.sanitizer.sanitizeInvocations(invocations)
 
-        const jobs = invocations.map((inv) => invocationToV2JobInit(inv))
+        const jobs = invocations.map((inv) => ({
+            ...invocationToV2JobInit(inv),
+            overwriteExisting: options.overwriteExisting,
+        }))
 
         try {
             const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)

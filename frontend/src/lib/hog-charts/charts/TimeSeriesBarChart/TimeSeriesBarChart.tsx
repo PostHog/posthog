@@ -10,7 +10,7 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
+import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
     useXTickFormatter,
     useYTickFormatter,
@@ -39,6 +39,8 @@ export interface TimeSeriesBarChartConfig {
     showCrosshair?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
+    /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
+    divergingStack?: boolean
 }
 
 export interface TimeSeriesBarChartProps<Meta = unknown> {
@@ -76,6 +78,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         barCornerRadius,
         showCrosshair,
         tooltip: tooltipConfig,
+        divergingStack,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -98,18 +101,29 @@ export function TimeSeriesBarChart<Meta = unknown>({
         [referenceLines, axisOrientation]
     )
 
+    // Extend the value axis to cover goal lines that sit above (or below) the data, so a goal
+    // line off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
+    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
+    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
+
     const barChartConfig: BarChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
+        xAxisLabel: xAxis?.label,
+        yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
         barLayout,
-        barCornerRadius,
         axisOrientation,
         showCrosshair,
         tooltip: tooltipConfig,
+        bars: {
+            cornerRadius: barCornerRadius,
+            divergingStack,
+            valueDomain,
+        },
     }
 
     return (

@@ -1664,10 +1664,7 @@ describe('Hogflow Executor', () => {
                                 email: '',
                                 name: '',
                             },
-                            from: {
-                                email: '',
-                                name: '',
-                            },
+                            from: {},
                             replyTo: '',
                             subject: '',
                             preheader: '',
@@ -1715,7 +1712,6 @@ describe('Hogflow Executor', () => {
                                         },
                                         from: {
                                             integrationId: 1,
-                                            email: 'test@posthog.com',
                                         },
                                         subject: 'Test Email 1',
                                         text: 'Test Text 1',
@@ -1738,7 +1734,6 @@ describe('Hogflow Executor', () => {
                                         },
                                         from: {
                                             integrationId: 1,
-                                            email: 'test@posthog.com',
                                         },
                                         subject: 'Test Email 2',
                                         text: 'Test Text 2',

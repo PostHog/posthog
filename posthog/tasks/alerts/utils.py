@@ -23,10 +23,11 @@ from posthog.schema import (
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck, derive_detector_event_fields
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import get_from_dict_or_attr
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 
 logger = structlog.get_logger(__name__)
 
@@ -137,16 +138,26 @@ def validate_alert_config(
 
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
     match interval:
-        case AlertCalculationInterval.HOURLY:
+        case AlertCalculationInterval.EVERY_15_MINUTES:
             return 0
-        case AlertCalculationInterval.DAILY:
+        case AlertCalculationInterval.HOURLY:
             return 1
-        case _:
+        case AlertCalculationInterval.DAILY:
             return 2
+        case AlertCalculationInterval.WEEKLY:
+            return 3
+        case AlertCalculationInterval.MONTHLY:
+            return 3
+        case None:
+            raise ValueError("Invalid alert calculation interval: None")
+        case _ as unreachable:
+            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
 
 def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
     match alert_calculation_interval:
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return relativedelta(minutes=15)
         case AlertCalculationInterval.HOURLY:
             return relativedelta(hours=1)
         case AlertCalculationInterval.DAILY:
@@ -155,8 +166,8 @@ def alert_calculation_interval_to_relativedelta(alert_calculation_interval: Aler
             return relativedelta(weeks=1)
         case AlertCalculationInterval.MONTHLY:
             return relativedelta(months=1)
-        case _:
-            raise ValueError(f"Invalid alert calculation interval: {alert_calculation_interval}")
+        case _ as unreachable:
+            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
 
 def skip_because_of_weekend(alert: AlertConfiguration) -> bool:
@@ -176,6 +187,8 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
     team_timezone = pytz.timezone(alert.team.timezone)
 
     match alert.calculation_interval:
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return (alert.next_check_at or now) + relativedelta(minutes=15)
         case AlertCalculationInterval.HOURLY:
             return (alert.next_check_at or now) + relativedelta(hours=1)
         case AlertCalculationInterval.DAILY:
@@ -198,8 +211,8 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
             next_month_1am_local = next_month_local.replace(day=1, hour=4)
             # Convert to UTC
             return next_month_1am_local.astimezone(pytz.utc)
-        case _:
-            raise ValueError(f"Invalid alert calculation interval: {alert.calculation_interval}")
+        case _ as unreachable:
+            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:
@@ -395,6 +408,87 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, ta
     alert_check.save(update_fields=["targets_notified"])
     alert.last_notified_at = datetime.now(UTC)
     alert.save(update_fields=["last_notified_at"])
+
+
+def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
+    """Dispatch an alert to the correct insight-kind-specific evaluator.
+
+    If ``detector_config`` is set, uses the detector abstraction; otherwise
+    falls back to threshold-based checking.
+    """
+    # Lazy import breaks the cycle: trends.py and detector.py import from utils.py.
+    from posthog.tasks.alerts.detector import check_trends_alert_with_detector
+    from posthog.tasks.alerts.trends import check_trends_alert
+
+    insight = alert.insight
+
+    with upgrade_query(insight):
+        query = insight.query
+        kind = get_from_dict_or_attr(query, "kind")
+
+        if kind in WRAPPER_NODE_KINDS:
+            query = get_from_dict_or_attr(query, "source")
+            kind = get_from_dict_or_attr(query, "kind")
+
+        match kind:
+            case "TrendsQuery":
+                query = TrendsQuery.model_validate(query)
+                if alert.detector_config:
+                    return check_trends_alert_with_detector(alert, insight, query, alert.detector_config)
+                return check_trends_alert(alert, insight, query)
+            case _:
+                raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
+
+
+def add_alert_check(
+    alert: AlertConfiguration,
+    value: float | None,
+    breaches: list[str] | None,
+    error: dict | None,
+    anomaly_scores: list[float | None] | None = None,
+    triggered_points: list[int] | None = None,
+    triggered_dates: list[str] | None = None,
+    interval: str | None = None,
+    triggered_metadata: dict | None = None,
+) -> tuple[AlertCheck, bool]:
+    """Persist an AlertCheck row and return it plus a decision on whether notification is needed.
+
+    ``targets_notified`` is always created empty; ``notify_alert`` activity fills it on
+    successful delivery and treats a non-empty value as the idempotency sentinel on retry.
+    ``last_notified_at`` is likewise set by the notify activity on success, not here.
+    """
+    notify = False
+
+    if error:
+        alert.state = AlertState.ERRORED
+        notify = True
+    elif breaches:
+        alert.state = AlertState.FIRING
+        notify = True
+    else:
+        alert.state = AlertState.NOT_FIRING  # Threshold no longer met
+
+    alert.last_checked_at = datetime.now(UTC)
+    # Update next_check_at per interval so we don't recheck until the next one is due.
+    alert.next_check_at = next_check_time(alert)
+
+    alert_check = AlertCheck.objects.create(
+        alert_configuration=alert,
+        calculated_value=value,
+        condition=alert.condition,
+        targets_notified={},
+        state=alert.state,
+        triggered_metadata=triggered_metadata,
+        error=error,
+        anomaly_scores=anomaly_scores,
+        triggered_points=triggered_points,
+        triggered_dates=triggered_dates,
+        interval=interval,
+    )
+
+    alert.save(update_fields=["state", "last_checked_at", "next_check_at"])
+
+    return alert_check, notify
 
 
 def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> None:

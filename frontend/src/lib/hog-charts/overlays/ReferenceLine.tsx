@@ -55,12 +55,13 @@ interface ResolvedStyle {
 
 const VARIANT_DEFAULTS: Record<ReferenceLineVariant, ResolvedStyle> = {
     goal: { color: 'rgba(0, 0, 0, 0.4)', stroke: 'dashed', width: 2 },
-    alert: { color: 'var(--danger)', stroke: 'dashed', width: 2 },
+    alert: { color: '#db3707', stroke: 'dashed', width: 2 },
     marker: { color: 'rgba(0, 0, 0, 0.5)', stroke: 'solid', width: 1 },
 }
 
-/** Vertical distance from the line to the top edge of the text label. */
-const LABEL_OFFSET = 18
+/** Approximate rendered height of the label bubble — used only to keep it inside the plot near
+ *  the top/bottom edges. Vertical centering itself is exact via a translateY(-50%) transform. */
+const LABEL_HEIGHT = 20
 /** Padding between the label and the plot edge. */
 const LABEL_PADDING = 4
 
@@ -155,12 +156,16 @@ function HorizontalReferenceLine({
         borderTopStyle: resolved.stroke,
         borderTopColor: resolved.color,
     }
+    // Center the label bubble on the line (translateY(-50%) handles exact centering regardless of
+    // rendered height), but keep its center far enough from the plot edges that an extended-axis
+    // goal line sitting at the very top/bottom isn't clipped.
+    const labelCenterY = Math.max(plotTop + LABEL_HEIGHT / 2, Math.min(y, plotBottom - LABEL_HEIGHT / 2))
     const labelStyle: React.CSSProperties = {
-        top: y - LABEL_OFFSET,
+        top: labelCenterY,
+        transform: 'translateY(-50%)',
         ...(labelPosition === 'end'
             ? { right: containerWidth - plotRight + LABEL_PADDING }
             : { left: plotLeft + LABEL_PADDING }),
-        color: resolved.color,
     }
 
     let fillRect: React.CSSProperties | null = null
@@ -226,7 +231,6 @@ function VerticalStripe({
         ...(labelPosition === 'end'
             ? { bottom: containerHeight - plotBottom + LABEL_PADDING }
             : { top: plotTop + LABEL_PADDING }),
-        color: resolved.color,
     }
 
     let fillRect: React.CSSProperties | null = null
@@ -309,7 +313,7 @@ function ReferenceLineView({
             {label && (
                 <div
                     data-attr="hog-chart-reference-line-label"
-                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px]"
+                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5 bg-[var(--tooltip-bg)] text-white"
                     style={labelStyle}
                 >
                     {label}

@@ -63,8 +63,9 @@ export interface ConfigurationTabProps {
 
 export function ConfigurationTab({ sourceId, schema, source, section }: ConfigurationTabProps): JSX.Element {
     const logic = sourceSettingsLogic({ id: sourceId })
-    const { isProjectTime } = useValues(logic)
-    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable } = useActions(logic)
+    const { isProjectTime, refreshingSchemas } = useValues(logic)
+    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
+        useActions(logic)
 
     switch (section) {
         case 'details':
@@ -86,6 +87,8 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
                     schema={schema}
                     updateSchema={updateSchema}
                     resyncSchema={resyncSchema}
+                    refreshSchemas={refreshSchemas}
+                    refreshingSchemas={refreshingSchemas}
                 />
             )
         case 'schedule':
@@ -415,14 +418,18 @@ function ColumnsSection({
     schema,
     updateSchema,
     resyncSchema,
+    refreshSchemas,
+    refreshingSchemas,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
+    refreshSchemas: () => void
+    refreshingSchemas: boolean
 }): JSX.Element {
-    const isPostgres = source?.source_type === 'Postgres'
     const available = schema.available_columns ?? []
+    const hasAvailableColumns = available.length > 0
     const synced = schema.enabled_columns
 
     const alwaysRetained = new Set<string>([
@@ -497,10 +504,20 @@ function ColumnsSection({
                 description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                {!isPostgres ? (
-                    <span className="text-muted">
-                        Per-column selection is currently available for Postgres sources only.
-                    </span>
+                {!hasAvailableColumns ? (
+                    <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
+                        <span className="text-sm">No columns discovered yet for this schema.</span>
+                        <SourceEditorAction source={source}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                loading={refreshingSchemas}
+                                onClick={() => refreshSchemas()}
+                            >
+                                Pull new schemas
+                            </LemonButton>
+                        </SourceEditorAction>
+                    </div>
                 ) : (
                     <>
                         <span className="text-sm text-secondary">{summaryLine}</span>

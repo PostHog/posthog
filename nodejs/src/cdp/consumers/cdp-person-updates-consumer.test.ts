@@ -38,10 +38,7 @@ describe('CDP Person Updates Consumer', () => {
         team = await getFirstTeam(hub.postgres)
 
         const mockJobQueue = createMockJobQueue()
-        processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub), {
-            hogQueue: mockJobQueue,
-            hogflowQueue: mockJobQueue,
-        })
+        processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
         await processor.start()
 
         hogFunction = createHogFunction({

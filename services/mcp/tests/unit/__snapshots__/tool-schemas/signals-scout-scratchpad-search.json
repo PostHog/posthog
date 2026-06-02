@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Max rows to return (default 20, hard cap 100).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "text": {
+            "description": "ILIKE substring match against `content`. Omit to return the most recent entries.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

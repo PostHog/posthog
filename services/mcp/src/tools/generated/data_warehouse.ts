@@ -16,6 +16,7 @@ import {
     ExternalDataSchemasResyncCreateBody,
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
+    ExternalDataSourcesConnectionsListQueryParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesCreateWebhookCreateBody,
     ExternalDataSourcesCreateWebhookCreateParams,
@@ -388,6 +389,29 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const ExternalDataSourcesConnectionsListSchema = ExternalDataSourcesConnectionsListQueryParams
+
+const externalDataSourcesConnectionsList = (): ToolBase<
+    typeof ExternalDataSourcesConnectionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedExternalDataSourceConnectionOptionList>
+> => ({
+    name: 'external-data-sources-connections-list',
+    schema: ExternalDataSourcesConnectionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesConnectionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExternalDataSourceConnectionOptionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connections/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -813,9 +837,6 @@ const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
     name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
         'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
     ),
-    query: WarehouseSavedQueriesCreateBody.shape['query'].describe(
-        'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-    ),
 })
 
 const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
@@ -1066,9 +1087,6 @@ const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project
         name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
             'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
         ),
-        query: WarehouseSavedQueriesPartialUpdateBody.shape['query'].describe(
-            'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-        ),
         edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
             'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
         ),
@@ -1118,6 +1136,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
+    'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,

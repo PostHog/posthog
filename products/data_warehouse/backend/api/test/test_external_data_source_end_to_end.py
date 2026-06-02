@@ -23,11 +23,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 
@@ -43,7 +44,8 @@ def api_client(user):
             return_value=(True, None),
         ),
         mock.patch(
-            "products.data_warehouse.backend.api.external_data_source.sync_external_data_job_workflow",
+            "products.data_warehouse.backend.api.external_data_source.bulk_create_external_data_job_schedules",
+            return_value=[],
         ) as mock_sync_workflow,
         mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
     ):

@@ -125,7 +125,11 @@ jobs:
             - name: Check for changes in nodejs directory or Dockerfiles
               id: check_changes_nodejs
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^nodejs/|^Dockerfile$|^Dockerfile\.node$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^nodejs/|^Dockerfile$|^Dockerfile\.node$'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_nodejs.outputs.changed == 'true'
@@ -151,7 +155,11 @@ jobs:
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/batch_exports/backend/temporal|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/batch_exports/backend/temporal|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
               if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
@@ -198,7 +206,11 @@ jobs:
             - name: Check for changes that affect Max AI Temporal worker
               id: check_changes_max_ai_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '\.py$|^pyproject\.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '\.py$|^pyproject\.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Max AI Temporal worker cloud deployment
               if: steps.check_changes_max_ai_temporal_worker.outputs.changed == 'true'
@@ -224,7 +236,11 @@ jobs:
             - name: Check for changes that affect Tasks Agent Temporal worker
               id: check_changes_tasks_agent_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Tasks Agent Temporal worker cloud deployment
               if: steps.check_changes_tasks_agent_temporal_worker.outputs.changed == 'true'
@@ -250,48 +266,80 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/llm_analytics|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check for changes that affect billing temporal worker
               id: check_changes_billing_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check for changes that affect replay vision temporal worker
               id: check_changes_replay_vision_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^products/replay_vision/backend/temporal/|^products/replay_vision/backend/models/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/replay_vision/backend/temporal/|^products/replay_vision/backend/models/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/weekly_digest|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/weekly_digest|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check for changes that affect messaging temporal worker
               id: check_changes_messaging_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^products/web_analytics/backend/temporal|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^products/web_analytics/backend/temporal|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Check for config file changes that affect analytics platform temporal worker
               id: check_non_python_changes_analytics_platform_temporal_worker
               run: |
                   # Check for non-Python files that can't be detected via import analysis
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Install uv for dependency analysis
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker
@@ -463,6 +511,7 @@ jobs:
                         - 'products/.*/backend/temporal/health_checks/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
                       logsAlerting:
@@ -470,6 +519,7 @@ jobs:
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
                       dataModeling:
@@ -482,6 +532,7 @@ jobs:
                         - 'products/data_modeling/**'
                         - 'products/data_warehouse/**'
                         - 'posthog/management/commands/**'
+                        - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
 
@@ -509,7 +560,11 @@ jobs:
             - name: Check for changes that affect llm analytics evals temporal worker
               id: check_changes_llm_analytics_evals_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/llm_analytics|^products/llm_analytics|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/(ai_observability|llm_analytics)|^products/(ai_observability|llm_analytics)|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger LLM Analytics Evals Temporal Worker Cloud deployment
               if: steps.check_changes_llm_analytics_evals_temporal_worker.outputs.changed == 'true'
@@ -580,7 +635,11 @@ jobs:
             - name: Check for changes that affect ducklake temporal worker
               id: check_changes_ducklake_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/ducklake|^posthog/ducklake|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/ducklake|^posthog/ducklake|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger DuckLake Temporal Worker Cloud deployment
               if: steps.check_changes_ducklake_temporal_worker.outputs.changed == 'true'
@@ -606,7 +665,11 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
               if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
@@ -632,7 +695,11 @@ jobs:
             - name: Check for changes that affect warehouse-sources-load
               id: check_changes_warehouse_sources_load
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/data_imports/pipelines/pipeline_v3/|^posthog/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/data_imports/pipelines/pipeline_v3/|^posthog/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Trigger Warehouse Sources Load Cloud deployment
               if: steps.check_changes_warehouse_sources_load.outputs.changed == 'true'

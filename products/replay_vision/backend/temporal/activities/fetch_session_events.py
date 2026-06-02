@@ -1,18 +1,20 @@
 import hashlib
+import datetime as dt
 from typing import Any
 
 from asgiref.sync import sync_to_async
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.temporal.constants import (
-    MAX_ACTIVE_SECONDS_FOR_VIDEO_LENS_S,
-    MIN_ACTIVE_SECONDS_FOR_VIDEO_LENS_S,
-    MIN_SESSION_DURATION_FOR_VIDEO_LENS_S,
+    MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
 )
+from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import IneligibleSessionError, IneligibleSessionKind
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     get_redis_state_client,
@@ -21,19 +23,20 @@ from products.replay_vision.backend.temporal.state import (
 from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
-    LensLlmInputs,
+    ScannerLlmInputs,
     SessionMetadata,
 )
 
 # Pagination shape mirrors session_summary's fetcher; without it HogQL applies LimitContext.QUERY's default of 100.
-_EVENTS_PER_PAGE = 3000
-_MAX_EVENT_PAGES = 5  # Hard cap on prompt size for very chatty sessions; sets `events_truncated` when reached.
+_EVENTS_PER_PAGE = 2000
+_MAX_EVENT_PAGES = 1  # Hard cap on prompt size for very chatty sessions; sets `events_truncated` when reached.
 
 # Noisy SDK-internal events that add no signal for the LLM.
 _EVENTS_TO_IGNORE = ["$feature_flag_called"]
 
-# `properties.*` is the HogQL-side prefix for JSON-property fields; bare names refer to top-level columns.
+# `properties.*` is the HogQL prefix for JSON properties; `uuid` is surfaced to the LLM as the `event_uuid` citation handle.
 _EXTRA_FIELDS = [
+    "uuid",
     "elements_chain_ids",
     "properties.$exception_types",
     "properties.$exception_values",
@@ -44,11 +47,12 @@ _URL_PREFIX = "url"
 _WINDOW_PREFIX = "window"
 # Per-value cap to keep one oversized field from blowing the prompt token budget.
 _MAX_FIELD_LEN = 2000
-# 64-bit hex hash for event dedup — 32-bit (8 hex) hits 50% birthday-collision around 77k events.
-_EVENT_ID_BYTES = 8
+# Fixed-size dedup key — keeps `seen_hashes` bounded on chatty sessions where each row can carry ~KB-sized truncated exception text.
+_DEDUP_HASH_BYTES = 8
 
 
 @activity.defn
+@track_activity()
 async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> None:
     """Fetch analytics events for a session and stash in Redis; idempotent — a second call finds the key and returns."""
     redis_client, redis_key = get_redis_state_client(
@@ -60,37 +64,40 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
 
     payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
     if payload is None:
-        raise ApplicationError(
+        raise IneligibleSessionError(
             f"Session {inputs.session_id} has no events to analyze",
-            non_retryable=True,
+            kind=IneligibleSessionKind.NO_EVENTS,
         )
 
     await store_data_in_redis(redis_client, redis_key, payload.model_dump_json())
 
 
-def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
+def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     team = Team.objects.get(pk=team_id)
     events_obj = SessionReplayEvents()
     metadata = events_obj.get_metadata(session_id=session_id, team=team)
     if metadata is None:
-        raise ApplicationError(f"No replay metadata found for session {session_id}", non_retryable=True)
+        raise IneligibleSessionError(
+            f"No replay metadata found for session {session_id}",
+            kind=IneligibleSessionKind.NO_RECORDING,
+        )
     duration_seconds = float(metadata["duration"])
-    if duration_seconds < MIN_SESSION_DURATION_FOR_VIDEO_LENS_S:
-        raise ApplicationError(
-            f"Session {session_id} is only {duration_seconds}s long; min is {MIN_SESSION_DURATION_FOR_VIDEO_LENS_S}s",
-            non_retryable=True,
+    if duration_seconds < MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S:
+        raise IneligibleSessionError(
+            f"Session {session_id} is only {duration_seconds}s long; min is {MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S}s",
+            kind=IneligibleSessionKind.TOO_SHORT,
         )
     # `RecordingMetadata` types this as `int` but it can be missing on sparse fixtures; default to 0.
     active_seconds = metadata.get("active_seconds") or 0
-    if active_seconds < MIN_ACTIVE_SECONDS_FOR_VIDEO_LENS_S:
-        raise ApplicationError(
-            f"Session {session_id} has only {active_seconds}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_LENS_S}s",
-            non_retryable=True,
+    if active_seconds < MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
+        raise IneligibleSessionError(
+            f"Session {session_id} has only {active_seconds}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            kind=IneligibleSessionKind.TOO_INACTIVE,
         )
-    if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_LENS_S:
-        raise ApplicationError(
-            f"Session {session_id} has {active_seconds}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_LENS_S}s",
-            non_retryable=True,
+    if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
+        raise IneligibleSessionError(
+            f"Session {session_id} has {active_seconds}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            kind=IneligibleSessionKind.TOO_LONG,
         )
 
     columns: list[str] | None = None
@@ -120,17 +127,19 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
     if columns is None or not all_rows:
         return None
 
-    processed_columns, processed_rows, url_mapping, window_mapping = _process_events(columns, all_rows)
-    # `RecordingMetadata` doesn't carry inactive_seconds directly; derive from duration minus active.
-    # CH data quality can sporadically yield active > duration (tab visibility, clock skew), so clamp at 0.
+    processed_columns, processed_rows, url_mapping, window_mapping, event_timestamps = _process_events(
+        columns, all_rows, session_start=metadata["start_time"]
+    )
+    # Derive from duration; clamp because CH can yield active > duration (tab visibility, clock skew).
     inactive_seconds = max(0.0, duration_seconds - active_seconds)
 
-    return LensLlmInputs(
+    return ScannerLlmInputs(
         session_id=session_id,
         team_id=team_id,
         events=EventTable(columns=processed_columns, rows=processed_rows),
         url_mapping=url_mapping,
         window_mapping=window_mapping,
+        event_timestamps=event_timestamps,
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             end_time=metadata["end_time"],
@@ -148,39 +157,60 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
 
 
 def _process_events(
-    raw_columns: list[str], raw_rows: list[list[Any]]
-) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str]]:
-    """Dedup by content hash, truncate oversized fields, intern URLs and window IDs; prepend event_id + event_index columns."""
-    url_index = raw_columns.index("$current_url") if "$current_url" in raw_columns else None
-    window_index = raw_columns.index("$window_id") if "$window_id" in raw_columns else None
+    raw_columns: list[str], raw_rows: list[list[Any]], *, session_start: dt.datetime
+) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str], dict[str, int]]:
+    """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, and build the uuid → relative-ms lookup."""
+    uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
+    timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
+    # All other indexes are over the LLM-visible column set (uuid stripped); compute once.
+    visible_columns = [c for i, c in enumerate(raw_columns) if i != uuid_index]
+    url_index = visible_columns.index("$current_url") if "$current_url" in visible_columns else None
+    window_index = visible_columns.index("$window_id") if "$window_id" in visible_columns else None
 
     url_tokens: dict[str, str] = {}  # actual -> token; flipped at the end for the prompt
     window_tokens: dict[str, str] = {}
+    event_timestamps: dict[str, int] = {}
     seen_hashes: set[str] = set()
     processed: list[list[Any]] = []
 
     for row in raw_rows:
-        # Hash the raw row first so duplicate-row rejection short-circuits the more expensive work below.
-        raw_hash = _row_hash(row)
-        if raw_hash in seen_hashes:
+        visible = list(row)
+        uuid_value: Any = None
+        if uuid_index is not None:
+            uuid_value = visible.pop(uuid_index)
+        dedup_key = _row_hash(visible)
+        if dedup_key in seen_hashes:
             continue
-        seen_hashes.add(raw_hash)
+        seen_hashes.add(dedup_key)
 
-        # Intern URLs and window IDs first so the token map keys on the real value, not a truncated prefix;
-        # truncation runs after so any other oversized field still gets clipped.
-        simplified = list(row)
+        uuid_str = str(uuid_value) if uuid_value is not None else ""
+        if uuid_str:
+            event_timestamps[uuid_str] = _relative_ms(
+                row[timestamp_index] if timestamp_index is not None else None, session_start
+            )
+
+        # Intern before truncate so the token map keys on the full value, not a clipped prefix.
         if url_index is not None:
-            simplified[url_index] = _intern(simplified[url_index], url_tokens, _URL_PREFIX)
+            visible[url_index] = _intern(visible[url_index], url_tokens, _URL_PREFIX)
         if window_index is not None:
-            simplified[window_index] = _intern(simplified[window_index], window_tokens, _WINDOW_PREFIX)
-        simplified = [_truncate(v) for v in simplified]
-        # event_index is sequential in the deduplicated output, not the raw input.
-        processed.append([raw_hash, len(processed), *simplified])
+            visible[window_index] = _intern(visible[window_index], window_tokens, _WINDOW_PREFIX)
+        processed.append([uuid_str, *(_truncate(v) for v in visible)])
 
-    output_columns = ["event_id", "event_index", *raw_columns]
+    output_columns = ["event_uuid", *visible_columns]
     url_mapping = {token: actual for actual, token in url_tokens.items()}
     window_mapping = {token: actual for actual, token in window_tokens.items()}
-    return output_columns, processed, url_mapping, window_mapping
+    return output_columns, processed, url_mapping, window_mapping, event_timestamps
+
+
+def _relative_ms(event_timestamp: Any, session_start: dt.datetime) -> int:
+    """Milliseconds since session start; 0 when the timestamp is missing, malformed, earlier than start, or tz-mismatched."""
+    if not isinstance(event_timestamp, dt.datetime):
+        return 0
+    try:
+        return max(0, int((event_timestamp - session_start).total_seconds() * 1000))
+    except TypeError:
+        # Mixed naive/aware datetimes raise here; fall back to 0 like the other defensive branches.
+        return 0
 
 
 def _intern(value: Any, mapping: dict[str, str], prefix: str) -> Any:
@@ -204,7 +234,7 @@ def _truncate(value: Any) -> Any:
 
 
 def _row_hash(row: list[Any]) -> str:
-    """Deterministic 16-char (64-bit) hex of the row contents; identical events collapse to the same id."""
-    # `repr` quotes strings and renders `None` as `None`, so a literal "" and a None column don't collide.
+    """Fixed-size in-process dedup key; bounds `seen_hashes` memory on chatty sessions where each visible row can be KBs."""
+    # `repr` keeps `None` distinct from the literal `"None"` string.
     joined = "\0".join(repr(v) for v in row)
-    return hashlib.sha256(joined.encode()).hexdigest()[: _EVENT_ID_BYTES * 2]
+    return hashlib.sha256(joined.encode()).hexdigest()[: _DEDUP_HASH_BYTES * 2]

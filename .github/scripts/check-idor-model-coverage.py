@@ -166,6 +166,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamDefaultEvaluationContext",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         "TeamJsSnippetConfig",
@@ -290,7 +291,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ConversationCheckpointBlob",  # via ConversationCheckpoint
         "ConversationCheckpointWrite",  # via ConversationCheckpoint
         "DashboardPrivilege",  # via Dashboard
-        "DashboardTile",  # via Dashboard
         "Element",  # via Event/ElementGroup
         "ErrorTrackingExternalReference",  # via ErrorTrackingIssue
         "ErrorTrackingIssueCohort",  # via ErrorTrackingIssue
@@ -327,6 +327,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
         "SlackUserProfileCache",  # via Integration
+        "SlackSettings",  # via Integration
     }
 
     team_scoped: set[str] = set()

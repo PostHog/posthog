@@ -1,3 +1,4 @@
+import { getDefaultAIObservabilityConfig } from '../ai-observability/config'
 import { getDefaultCdpConfig } from '../cdp/config'
 import {
     getDefaultKafkaWarehouseProducerEnvConfig,
@@ -8,7 +9,6 @@ import {
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
-import { getDefaultLlmAnalyticsConfig } from '../llm-analytics/config'
 import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
@@ -27,7 +27,7 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         ...getDefaultCommonConfig(),
         ...getDefaultCdpConfig(),
-        ...getDefaultLlmAnalyticsConfig(),
+        ...getDefaultAIObservabilityConfig(),
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
         ...getDefaultMetricsIngestionConsumerConfig(),

@@ -11,8 +11,13 @@ import type {
     ApiRedactedPersonalApiKey,
     ApiUser,
 } from '@/schema/api'
-import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
-import { ExperimentExposureQuerySchema } from '@/schema/experiments'
+import type {
+    Experiment,
+    ExperimentExposureQuery,
+    ExperimentExposureQueryResponse,
+    ResolvedMetricEntry,
+} from '@/schema/experiments'
+import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/experiments'
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
@@ -64,9 +69,33 @@ export interface SearchResponse {
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
+export interface DataWarehouseSyncWarning {
+    table_name: string
+    schema_name: string
+    source_type: string
+    status: string
+    message: string
+}
+
+export interface QueryEndpointResponse {
+    results: unknown
+    columns?: unknown
+    formatted_results?: string
+    // null (not just absent) when the query response carries no warnings — the backend
+    // serializes the field explicitly rather than omitting it.
+    warnings?: DataWarehouseSyncWarning[] | null
+}
+
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
+    /**
+     * Public-facing base URL used when building links the user clicks (e.g. `_posthogUrl`).
+     * Defaults to `baseUrl` when unset or empty. Distinct from `baseUrl` so deployments can route
+     * API traffic over a cluster-internal hostname while still rendering public links
+     * (e.g. https://us.posthog.com) in tool responses.
+     */
+    publicBaseUrl?: string | undefined
     clientUserAgent?: string | undefined
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
@@ -82,18 +111,22 @@ type Endpoint = Record<string, any>
 export class ApiClient {
     public config: ApiConfig
     public baseUrl: string
+    public publicBaseUrl: string
 
     constructor(config: ApiConfig) {
         this.config = config
         this.baseUrl = config.baseUrl
+        // `||` (not `??`) so an empty string — e.g. the Workers vitest config sets
+        // env vars to '' — falls back to baseUrl instead of yielding relative links.
+        this.publicBaseUrl = config.publicBaseUrl || config.baseUrl
     }
 
     getProjectBaseUrl(projectId: string): string {
         if (projectId === '@current') {
-            return this.baseUrl
+            return this.publicBaseUrl
         }
 
-        return `${this.baseUrl}/project/${projectId}`
+        return `${this.publicBaseUrl}/project/${projectId}`
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
@@ -721,6 +754,8 @@ export class ApiClient {
             }): Promise<
                 Result<{
                     experiment: Experiment
+                    primaryMetricEntries: ResolvedMetricEntry[]
+                    secondaryMetricEntries: ResolvedMetricEntry[]
                     primaryMetricsResults: any[]
                     secondaryMetricsResults: any[]
                     exposures: ExperimentExposureQueryResponse
@@ -766,20 +801,15 @@ export class ApiClient {
 
                 const { exposures } = experimentExposure.data
 
-                // Prepare metrics queries
-                const sharedPrimaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'primary')
-                    .map(({ query }: any) => query)
-                const allPrimaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics]
-
-                const sharedSecondaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'secondary')
-                    .map(({ query }: any) => query)
-                const allSecondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics]
+                // Build the per-position metric entries. Each entry knows whether the metric
+                // was defined inline on the experiment or attached via a shared saved metric, so
+                // the result row can be self-describing to MCP callers.
+                const primaryMetricEntries = buildMetricEntries(experiment, 'primary')
+                const secondaryMetricEntries = buildMetricEntries(experiment, 'secondary')
 
                 // Execute queries for primary metrics
                 const primaryResults = await Promise.all(
-                    allPrimaryMetrics.map(async (metric) => {
+                    primaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -809,7 +839,7 @@ export class ApiClient {
 
                 // Execute queries for secondary metrics
                 const secondaryResults = await Promise.all(
-                    allSecondaryMetrics.map(async (metric) => {
+                    secondaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -841,6 +871,8 @@ export class ApiClient {
                     success: true,
                     data: {
                         experiment,
+                        primaryMetricEntries,
+                        secondaryMetricEntries,
                         primaryMetricsResults: primaryResults,
                         secondaryMetricsResults: secondaryResults,
                         exposures,
@@ -978,14 +1010,10 @@ export class ApiClient {
                 }
             },
 
-            query: async ({
-                query,
-            }: {
-                query: Record<string, any>
-            }): Promise<Result<{ results: unknown; columns?: unknown; formatted_results?: string }>> => {
+            query: async ({ query }: { query: Record<string, any> }): Promise<Result<QueryEndpointResponse>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
+                return this.fetchJson<QueryEndpointResponse>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })

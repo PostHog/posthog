@@ -26,13 +26,15 @@ from posthog.schema import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
 
 from posthog.api.services.query import process_query_model
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestQueryService(APIBaseTest):
@@ -626,7 +628,7 @@ class TestQueryService(APIBaseTest):
         with self.assertRaises(ValidationError) as error:
             process_query_model(self.team, query)
 
-        self.assertEqual(cast(list[str], error.exception.detail)[0], "Invalid connectionId for this team")
+        self.assertEqual(cast(list[str], error.exception.detail)[0], INVALID_CONNECTION_ID_ERROR)
 
     @parameterized.expand(
         [
@@ -661,7 +663,7 @@ class TestQueryService(APIBaseTest):
         with self.assertRaises(ValidationError) as error:
             process_query_model(self.team, query)
 
-        self.assertEqual(cast(list[str], error.exception.detail)[0], "Invalid connectionId for this team")
+        self.assertEqual(cast(list[str], error.exception.detail)[0], INVALID_CONNECTION_ID_ERROR)
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.resolve_database_for_connection")

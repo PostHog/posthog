@@ -1,9 +1,11 @@
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
+    KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
 } from '../config/kafka-topics'
@@ -17,7 +19,10 @@ import {
 } from './outputs/producers'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
-export type CdpConfig = {
+// CdpConfig intersects ClickhouseConfig so any consumer reading
+// `this.config.CLICKHOUSE_HOST` etc. gets typed, defaulted values — fixes the
+// case where `CdpRerunWorkerConsumer` silently fell back to `default` DB.
+export type CdpConfig = ClickhouseConfig & {
     CDP_WATCHER_COST_ERROR: number
     CDP_WATCHER_HOG_COST_TIMING: number
     CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: number
@@ -90,6 +95,13 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: CdpProducerName
+    HOG_INVOCATION_RESULTS_TOPIC: string
+    HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
+    HOG_INVOCATION_RESULTS_ENABLED: boolean
+    HOG_INVOCATION_RERUN_MAX_COUNT: number
+    // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
+    // Kept small by default — each job runs a full ClickHouse query per page.
+    CDP_RERUN_WORKER_BATCH_SIZE: number
     CDP_PREFILTERED_EVENTS_TOPIC: string
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
@@ -129,6 +141,7 @@ export type CdpConfig = {
 
 export function getDefaultCdpConfig(): CdpConfig {
     return {
+        ...getDefaultClickhouseConfig(),
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,
@@ -191,6 +204,20 @@ export function getDefaultCdpConfig(): CdpConfig {
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        HOG_INVOCATION_RESULTS_TOPIC: KAFKA_HOG_INVOCATION_RESULTS,
+        // Cyclotron Warpstream cluster — ClickHouse consumes hog_invocation_results
+        // from the warpstream_cyclotron named collection, so the producer must
+        // target the same cluster.
+        HOG_INVOCATION_RESULTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        // Off by default — flip to true once the table is migrated and we want to start writing.
+        // Per-team rollout still happens at the call site.
+        HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
+        // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
+        HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
+        // Small by default — rerun jobs are heavy (a full ClickHouse query per
+        // page), so a replica drains one wrapper job at a time unless tuned up.
+        CDP_RERUN_WORKER_BATCH_SIZE: 1,
         CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,

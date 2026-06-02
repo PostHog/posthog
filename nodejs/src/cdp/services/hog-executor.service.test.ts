@@ -1482,7 +1482,7 @@ describe('Hog Executor', () => {
                 queueParameters: {
                     type: 'email',
                     to: { email: 'user@example.com' },
-                    from: { email: 'noreply@posthog.com', integrationId: 1 },
+                    from: { integrationId: 1 },
                     subject: 'Test',
                     text: 'Hello',
                     html: '<p>Hello</p>',
@@ -1510,7 +1510,7 @@ describe('Hog Executor', () => {
                 queueParameters: {
                     type: 'email',
                     to: { email: 'user@example.com' },
-                    from: { email: 'noreply@posthog.com', integrationId: 1 },
+                    from: { integrationId: 1 },
                     subject: 'Test',
                     text: 'Hello',
                     html: '<p>Hello</p>',
@@ -1533,7 +1533,7 @@ describe('Hog Executor', () => {
                 queueParameters: {
                     type: 'email',
                     to: { email: 'user@example.com' },
-                    from: { email: 'noreply@posthog.com', integrationId: 1 },
+                    from: { integrationId: 1 },
                     subject: 'Test',
                     text: 'Hello',
                     html: '<p>Hello</p>',

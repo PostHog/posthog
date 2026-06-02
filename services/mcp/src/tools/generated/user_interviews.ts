@@ -16,6 +16,7 @@ import {
     UserInterviewTopicsIntervieweesListQueryParams,
     UserInterviewTopicsIntervieweesPartialUpdateBody,
     UserInterviewTopicsIntervieweesPartialUpdateParams,
+    UserInterviewTopicsLinksCsvCreateParams,
     UserInterviewTopicsListQueryParams,
     UserInterviewTopicsPartialUpdateBody,
     UserInterviewTopicsPartialUpdateParams,
@@ -49,7 +50,7 @@ const userInterviewTopicsAddInterviewee = (): ToolBase<
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/add_interviewee/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/add_interviewee/`,
             body,
         })
         return result
@@ -81,7 +82,7 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
             body,
         })
         return result
@@ -100,7 +101,7 @@ const userInterviewTopicsGenerateLinks = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedInterviewLinkList>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/generate_links/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/generate_links/`,
         })
         return result
     },
@@ -124,7 +125,7 @@ const userInterviewTopicsIntervieweesBulkCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.BulkIntervieweeContextResponse>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/bulk/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/bulk/`,
             body,
         })
         return result
@@ -152,7 +153,7 @@ const userInterviewTopicsIntervieweesCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.IntervieweeContext>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/`,
             body,
         })
         return result
@@ -173,7 +174,7 @@ const userInterviewTopicsIntervieweesDestroy = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -193,7 +194,7 @@ const userInterviewTopicsIntervieweesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedIntervieweeContextList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -221,8 +222,23 @@ const userInterviewTopicsIntervieweesPartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.IntervieweeContext>({
             method: 'PATCH',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/${encodeURIComponent(String(params.id))}/`,
             body,
+        })
+        return result
+    },
+})
+
+const UserInterviewTopicsLinksCsvSchema = UserInterviewTopicsLinksCsvCreateParams.omit({ project_id: true })
+
+const userInterviewTopicsLinksCsv = (): ToolBase<typeof UserInterviewTopicsLinksCsvSchema, unknown> => ({
+    name: 'user-interview-topics-links-csv',
+    schema: UserInterviewTopicsLinksCsvSchema,
+    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsLinksCsvSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/links_csv/`,
         })
         return result
     },
@@ -240,7 +256,7 @@ const userInterviewTopicsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedUserInterviewTopicList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -281,7 +297,7 @@ const userInterviewTopicsPartialUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'PATCH',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -306,7 +322,7 @@ const userInterviewTopicsRemoveInterviewee = (): ToolBase<
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/remove_interviewee/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/remove_interviewee/`,
             body,
         })
         return result
@@ -325,7 +341,7 @@ const userInterviewTopicsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -355,7 +371,7 @@ const userInterviewTopicsSendInvites = (): ToolBase<
         }
         const result = await context.api.request<Schemas.PaginatedInterviewInviteResultList>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/send_invites/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/send_invites/`,
             body,
         })
         return result
@@ -374,7 +390,7 @@ const userInterviewsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedUserInterviewList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interviews/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interviews/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -394,7 +410,7 @@ const userInterviewsRetrieve = (): ToolBase<typeof UserInterviewsRetrieveSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UserInterview>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interviews/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interviews/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -422,7 +438,7 @@ const userInterviewsSearch = (): ToolBase<typeof UserInterviewsSearchSchema, Sch
         }
         const result = await context.api.request<Schemas.UserInterviewSearchResult[]>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interviews/search/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interviews/search/`,
             body,
         })
         return result
@@ -438,6 +454,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'user-interview-topics-interviewees-destroy': userInterviewTopicsIntervieweesDestroy,
     'user-interview-topics-interviewees-list': userInterviewTopicsIntervieweesList,
     'user-interview-topics-interviewees-partial-update': userInterviewTopicsIntervieweesPartialUpdate,
+    'user-interview-topics-links-csv': userInterviewTopicsLinksCsv,
     'user-interview-topics-list': userInterviewTopicsList,
     'user-interview-topics-partial-update': userInterviewTopicsPartialUpdate,
     'user-interview-topics-remove-interviewee': userInterviewTopicsRemoveInterviewee,

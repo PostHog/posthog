@@ -12,7 +12,6 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import request, response, serializers, status, viewsets
@@ -28,7 +27,6 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.full_text_search import build_rank
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_organization_from_view
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
@@ -36,9 +34,6 @@ from posthog.utils import str_to_bool
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)
-
-# Keep in sync with frontend `FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING`
-CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG = "customer-dashboard-template-authoring"
 
 # arbitary limit, just to prevent abuse
 MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION = 100
@@ -81,30 +76,13 @@ def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
 class CustomerDashboardTemplateWritePermission(BasePermission):
     """
     Staff: any unsafe method (delegates object rules to has_object_permission).
-    Non-staff: org-level authoring feature flag (see CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG).
-    Project RBAC for this resource is enforced separately by AccessControlPermission (editor on `dashboard_template`).
+    Non-staff: team-scoped templates only (see has_object_permission); global / feature-flag rows forbidden.
+    Project RBAC is enforced separately by AccessControlPermission (editor on `dashboard_template`).
     """
 
     message = "You don't have edit permissions for this dashboard template."
 
     def has_permission(self, request: Request, view) -> bool:
-        if request.method in SAFE_METHODS:
-            return True
-        user = request.user
-        if getattr(user, "is_staff", False):
-            return True
-        organization = get_organization_from_view(view)
-        org_id = str(organization.id)
-        user_orm = cast(User, user)
-        distinct_id = user_orm.distinct_id or str(user_orm.uuid)
-        if not posthoganalytics.feature_enabled(
-            CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING_FLAG,
-            distinct_id,
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=False,
-        ):
-            return False
         return True
 
     def has_object_permission(self, request: Request, view, obj: Any) -> bool:
@@ -338,7 +316,6 @@ def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> N
         ],
     ),
 )
-@extend_schema(tags=["core"])
 class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "dashboard_template"
     permission_classes = [CustomerDashboardTemplateWritePermission]

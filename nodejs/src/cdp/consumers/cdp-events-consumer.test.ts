@@ -22,25 +22,17 @@ import {
     insertHogFunction as _insertHogFunction,
     createHogExecutionGlobals,
     createIncomingEvent,
-    createInternalEvent,
     createKafkaMessage,
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer } from './cdp-events.consumer'
-import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 jest.setTimeout(1000)
 
-/**
- * NOTE: The internal and normal events consumers are very similar so we can test them together
- */
-describe.each([
-    [CdpEventsConsumer.name, CdpEventsConsumer, 'destination' as const],
-    [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal_destination' as const],
-])('%s', (_name, Consumer, hogType) => {
-    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+describe('CdpEventsConsumer', () => {
+    let processor: CdpEventsConsumer
     let hub: Hub
     let team: Team
     let team2: Team
@@ -50,7 +42,7 @@ describe.each([
         const teamId = hogFunction.team_id ?? team.id
         const item = await _insertHogFunction(hub.postgres, teamId, {
             ...hogFunction,
-            type: hogType,
+            type: 'destination',
         })
         // Trigger the reload that django would do
         processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
@@ -72,7 +64,7 @@ describe.each([
 
         const mockJobQueue = createMockJobQueue()
 
-        processor = new Consumer(hub, createCdpConsumerDeps(hub), {
+        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
             hogQueue: mockJobQueue,
             hogflowQueue: mockJobQueue,
         })
@@ -108,16 +100,10 @@ describe.each([
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const events =
-                processor instanceof CdpInternalEventsConsumer
-                    ? [
-                          createKafkaMessage(createInternalEvent(team.id, {})),
-                          createKafkaMessage(createInternalEvent(team2.id, {})),
-                      ]
-                    : [
-                          createKafkaMessage(createIncomingEvent(team.id, {})),
-                          createKafkaMessage(createIncomingEvent(team2.id, {})),
-                      ]
+            const events = [
+                createKafkaMessage(createIncomingEvent(team.id, {})),
+                createKafkaMessage(createIncomingEvent(team2.id, {})),
+            ]
             const invocations = await processor._parseKafkaBatch(events)
             expect(invocations).toHaveLength(1)
             expect(invocations[0].project.id).toBe(team.id)
@@ -230,7 +216,7 @@ describe.each([
                 )
 
                 // Billing is per-event, not per-destination: 1 event → 2 destinations = 1 billable_invocation
-                if (hogType === 'destination') {
+                {
                     const billingMetrics = metrics.filter((m: any) => m.value.metric_name === 'billable_invocation')
                     expect(billingMetrics).toHaveLength(1)
                     expect(billingMetrics[0].value).toMatchObject({
@@ -286,24 +272,20 @@ describe.each([
                         },
                     },
                     // Billing is per-event: 1 event → 1 destination = 1 billable_invocation
-                    ...(hogType !== 'destination'
-                        ? []
-                        : [
-                              {
-                                  key: null,
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'hog_function',
-                                      app_source_id: '_event_trigger',
-                                      instance_id: globals.event.uuid,
-                                      count: 1,
-                                      metric_kind: 'billing',
-                                      metric_name: 'billable_invocation',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                          ]),
+                    {
+                        key: null,
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: '_event_trigger',
+                            instance_id: globals.event.uuid,
+                            count: 1,
+                            metric_kind: 'billing',
+                            metric_name: 'billable_invocation',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
                 ])
             })
 
@@ -342,7 +324,7 @@ describe.each([
                 ])
             })
 
-            if (hogType === 'destination') {
+            {
                 it('should bill once per event, not per destination (multiple events)', async () => {
                     // Create a second event with different UUID
                     const globals2 = createHogExecutionGlobals({
@@ -569,7 +551,7 @@ describe.each([
 })
 
 describe('hog flow processing', () => {
-    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+    let processor: CdpEventsConsumer
     let hub: Hub
     let team: Team
 
@@ -637,7 +619,7 @@ describe('hog flow processing', () => {
             hogFlow.trigger = {} as any
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -654,7 +636,7 @@ describe('hog flow processing', () => {
                 .build()
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -671,7 +653,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const noInvocations = await processor['createHogFlowInvocations']([
+            const noInvocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([
                 {
                     ...globals,
                     event: {
@@ -683,7 +665,7 @@ describe('hog flow processing', () => {
 
             expect(noInvocations).toHaveLength(0)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({
                 functionId: hogFlow.id,
@@ -714,7 +696,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            await processor['createHogFlowInvocations']([globals])
+            await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             const producedMetrics =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
@@ -791,7 +773,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should have no invocations returned due to quota limiting
             expect(invocations).toHaveLength(0)
@@ -868,7 +850,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(0)
             expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
@@ -915,7 +897,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should process the workflow since it doesn't have email or destination actions
             expect(invocations).toHaveLength(1)
@@ -965,7 +947,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({

@@ -29,11 +29,13 @@ from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
+    BASH_ENV_SCRIPT,
     ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
     build_exec_prefix,
     build_setup_script,
+    generate_bash_env_script,
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
@@ -53,6 +55,7 @@ from products.tasks.backend.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    redact_sandbox_command,
     wait_for_health_check,
 )
 from products.tasks.backend.temporal.exceptions import (
@@ -74,6 +77,7 @@ SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
@@ -92,6 +96,7 @@ LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
+LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
@@ -244,6 +249,12 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_dockerfile_path = context_dir / dockerfile_relative_path
     destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
+
+    # Both base and notebook Dockerfiles COPY the git guard, so include it in
+    # every local build context.
+    destination_git_guard_path = context_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT
+    destination_git_guard_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT, destination_git_guard_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -412,6 +423,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
             process.wait()
@@ -436,12 +448,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
     def execute_stream(
@@ -460,6 +475,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
         except TimeoutError as e:
             capture_exception(e)
@@ -469,12 +485,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
         class _ModalExecutionStream:
@@ -589,6 +608,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -596,12 +616,18 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            event_ingest_token=event_ingest_token,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        # Scope BASH_ENV to the agent-server process (not the container env) so only the
+        # agent's per-command tool shells re-source the refreshed token. Backend maintenance
+        # execs (clone/checkout/token injection) must not source it — the script could be
+        # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
         server_cmd = (
+            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
@@ -615,7 +641,7 @@ class ModalSandbox(SandboxBase):
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         result = self.execute(command, timeout_seconds=30)
@@ -639,6 +665,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -649,10 +676,17 @@ class ModalSandbox(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
+        if self._agent_server_is_healthy():
+            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
+            return
+        self._free_agent_server_port()
+
         repo_path: str | None = None
         if repository:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
@@ -676,6 +710,7 @@ class ModalSandbox(SandboxBase):
             reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            event_ingest_token=event_ingest_token,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -735,9 +770,22 @@ class ModalSandbox(SandboxBase):
 
         logger.info("agentsh daemon started and session created in sandbox %s", self.id)
 
-    def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
+    def _wait_for_health_check(
+        self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
+    ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+
+    def _agent_server_is_healthy(self) -> bool:
+        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
+
+    def _free_agent_server_port(self) -> None:
+        self.execute(
+            "pkill -TERM -f agent-server 2>/dev/null || true; "
+            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
+            "pkill -KILL -f agent-server 2>/dev/null || true",
+            timeout_seconds=15,
+        )
 
     def create_snapshot(self) -> str:
         if not self.is_running():

@@ -113,6 +113,7 @@ jobs:
                       "personhog-router": 38,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
+                      "property-vals-rs": 5,
                       "serve-metrics": 14,
                   }
 
@@ -186,12 +187,19 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-ci'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
 
             - name: Run cargo build
               env:
@@ -246,7 +254,7 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
@@ -263,9 +271,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -358,13 +366,20 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-ci'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
 
             - name: Check format
               run: cargo fmt -- --check
@@ -385,7 +400,11 @@ jobs:
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
-              run: cargo binstall --no-confirm cargo-shear@1.1.12
+              # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
+              # (which records cargo-shear as installed) but not the binary itself, so
+              # without --force binstall short-circuits ("already installed") and the
+              # next step fails with `error: no such command: shear`.
+              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
 
             - name: Run cargo shear
               run: cargo shear

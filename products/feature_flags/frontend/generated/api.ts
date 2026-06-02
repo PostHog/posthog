@@ -10,6 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivityLogPaginatedResponseApi,
+    BulkDeleteRequestApi,
+    BulkDeleteResponseApi,
+    BulkKeysRequestApi,
+    BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CopyFlagsRequestApi,
@@ -27,6 +31,8 @@ import type {
     FeatureFlagsListParams,
     FeatureFlagsLocalEvaluationRetrieveParams,
     FeatureFlagsMyFlagsRetrieveParams,
+    FlagValueResponseApi,
+    FlagValueValuesRetrieveParams,
     LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
@@ -485,18 +491,18 @@ invalidation happens once at the end rather than per-flag.
  */
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    bulkDeleteRequestApi?: BulkDeleteRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+): Promise<BulkDeleteResponseApi> => {
+    return apiMutator<BulkDeleteResponseApi>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(bulkDeleteRequestApi),
     })
 }
 
-export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
+export const getFeatureFlagsBulkKeysRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_keys/`
 }
 
@@ -504,16 +510,16 @@ export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const featureFlagsBulkKeysCreate = async (
+export const featureFlagsBulkKeysRetrieve = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    bulkKeysRequestApi?: BulkKeysRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
+): Promise<BulkKeysResponseApi> => {
+    return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysRetrieveUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(bulkKeysRequestApi),
     })
 }
 
@@ -523,6 +529,14 @@ export const getFeatureFlagsBulkUpdateTagsCreateUrl = (projectId: string) => {
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -682,6 +696,42 @@ export const featureFlagsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userBlastRadiusRequestApi),
+    })
+}
+
+export const getFlagValueValuesRetrieveUrl = (projectId: string, params?: FlagValueValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/flag_value/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/flag_value/values/`
+}
+
+/**
+ * Get possible values for a feature flag.
+
+Query parameters:
+- key: The flag ID (required)
+Returns:
+
+- Array of objects with 'name' field containing possible values
+ */
+export const flagValueValuesRetrieve = async (
+    projectId: string,
+    params?: FlagValueValuesRetrieveParams,
+    options?: RequestInit
+): Promise<FlagValueResponseApi> => {
+    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
