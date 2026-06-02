@@ -39739,6 +39739,11 @@ export namespace Schemas {
       detail: string;
     }
 
+    export interface _HasSpansResponse {
+      /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+      hasSpans: boolean;
+    }
+
     export interface _LogAttributeEntry {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
