@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -36,7 +36,7 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error")
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=cast(requests.Response, self))
 
 
 class FakeSession:
@@ -70,7 +70,7 @@ def _list_response(results: list[dict[str, Any]], has_more: bool, next_cursor: s
     return FakeResponse({"results": results, "has_more": has_more, "next_cursor": next_cursor})
 
 
-def _patch_session(session: FakeSession):  # type: ignore[no-untyped-def]
+def _patch_session(session: FakeSession) -> Any:
     return mock.patch(f"{MODULE}.make_tracked_session", return_value=session)
 
 
