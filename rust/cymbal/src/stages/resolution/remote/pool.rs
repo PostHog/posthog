@@ -409,9 +409,6 @@ impl EndpointPool {
         if routing_key.is_empty() {
             return self.select(exclude).await;
         }
-        if should_jitter_route(self.config.routing_jitter) {
-            return self.select(exclude).await;
-        }
         self.select_inner(SelectionStrategy::ByKey { routing_key }, exclude)
             .await
     }
@@ -503,17 +500,32 @@ impl EndpointPool {
         }
 
         let chosen = match strategy {
-            SelectionStrategy::Random => candidates
-                .choose(&mut rand::thread_rng())
-                .expect("non-empty candidates")
-                .clone(),
+            SelectionStrategy::Random => match candidates.choose(&mut rand::thread_rng()) {
+                Some(candidate) => candidate.clone(),
+                None => {
+                    return Err(EndpointPoolError::Empty(classify_empty_reason(
+                        active_endpoint_count,
+                        ejected_endpoint_count,
+                        saw_missing_or_stale_snapshot,
+                    )));
+                }
+            },
             SelectionStrategy::ByKey { routing_key } => {
                 candidates.sort_by(|a, b| {
                     rendezvous_score(routing_key, b.addr)
                         .cmp(&rendezvous_score(routing_key, a.addr))
                         .then(a.addr.cmp(&b.addr))
                 });
-                candidates.into_iter().next().expect("non-empty candidates")
+                match choose_ranked_candidate(candidates, self.config.routing_jitter) {
+                    Some(candidate) => candidate,
+                    None => {
+                        return Err(EndpointPoolError::Empty(classify_empty_reason(
+                            active_endpoint_count,
+                            ejected_endpoint_count,
+                            saw_missing_or_stale_snapshot,
+                        )));
+                    }
+                }
             }
         };
 
@@ -766,14 +778,48 @@ fn record_endpoint_states(inner: &PoolInner, now: Instant, stale_after: Duration
     }
 }
 
-fn should_jitter_route(routing_jitter: f64) -> bool {
-    if routing_jitter <= 0.0 {
-        return false;
+fn choose_ranked_candidate(candidates: Vec<Candidate>, routing_jitter: f64) -> Option<Candidate> {
+    let top_ranked = candidates.first()?.clone();
+    if routing_jitter <= 0.0 || candidates.len() == 1 {
+        return Some(top_ranked);
     }
     if routing_jitter >= 1.0 {
-        return true;
+        return candidates.choose(&mut rand::thread_rng()).cloned();
     }
-    rand::thread_rng().gen_bool(routing_jitter)
+
+    let weights = (0..candidates.len())
+        .map(|rank| routing_jitter.powi(rank as i32))
+        .collect::<Vec<_>>();
+    let total_weight = weights.iter().sum::<f64>();
+    let mut draw = rand::thread_rng().gen_range(0.0..total_weight);
+
+    for (candidate, weight) in candidates.into_iter().zip(weights) {
+        if draw < weight {
+            return Some(candidate);
+        }
+        draw -= weight;
+    }
+
+    Some(top_ranked)
+}
+
+#[cfg(test)]
+fn ranked_selection_probability(rank: usize, candidate_count: usize, routing_jitter: f64) -> f64 {
+    if candidate_count == 0 || rank >= candidate_count {
+        return 0.0;
+    }
+    if routing_jitter <= 0.0 {
+        return if rank == 0 { 1.0 } else { 0.0 };
+    }
+    if routing_jitter >= 1.0 {
+        return 1.0 / candidate_count as f64;
+    }
+
+    let rank_weight = routing_jitter.powi(rank as i32);
+    let total_weight = (0..candidate_count)
+        .map(|candidate_rank| routing_jitter.powi(candidate_rank as i32))
+        .sum::<f64>();
+    rank_weight / total_weight
 }
 
 /// Start a background task that periodically calls [`EndpointPool::refresh`].
@@ -1091,6 +1137,22 @@ mod test {
             picks.len() > 1,
             "full routing jitter should not stay sticky to one endpoint"
         );
+    }
+
+    #[test]
+    fn routing_jitter_probability_decays_by_rank() {
+        assert_eq!(ranked_selection_probability(0, 4, 0.0), 1.0);
+        assert_eq!(ranked_selection_probability(1, 4, 0.0), 0.0);
+
+        for rank in 0..4 {
+            assert!((ranked_selection_probability(rank, 4, 1.0) - 0.25).abs() < f64::EPSILON);
+        }
+
+        let total_weight = 1.0 + 0.5 + 0.25 + 0.125;
+        assert!((ranked_selection_probability(0, 4, 0.5) - (1.0 / total_weight)).abs() < 1e-12);
+        assert!((ranked_selection_probability(1, 4, 0.5) - (0.5 / total_weight)).abs() < 1e-12);
+        assert!((ranked_selection_probability(2, 4, 0.5) - (0.25 / total_weight)).abs() < 1e-12);
+        assert!((ranked_selection_probability(3, 4, 0.5) - (0.125 / total_weight)).abs() < 1e-12);
     }
 
     #[tokio::test]

@@ -11,6 +11,7 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
+from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster
 from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
 
@@ -20,3 +21,4 @@ os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
 start_continuous_profiling()
 initialize_otel()
 application = get_wsgi_application()
+prewarm_query_cache_cluster()
