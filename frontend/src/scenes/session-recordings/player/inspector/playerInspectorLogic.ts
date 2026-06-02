@@ -437,6 +437,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const skipToEarliestEvent = (matchingEvents: MatchedRecordingEvent[]): void => {
+                        // The matching events request can resolve after the recording switched (or the
+                        // filtered list reloaded), by which point the recording-keyed player logic has
+                        // unmounted. Reading its values or dispatching its actions then throws a
+                        // "Can not find path … in the store" kea error, so bail if it's already gone.
+                        if (!sessionRecordingPlayerLogic.findMounted(props)) {
+                            return
+                        }
                         if (values.skipToFirstMatchingEvent && matchingEvents.length > 0) {
                             const earliestMatchingEvent = matchingEvents.reduce((previous, current) =>
                                 previous.timestamp < current.timestamp ? previous : current
