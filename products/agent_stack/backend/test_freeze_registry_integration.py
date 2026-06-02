@@ -89,8 +89,15 @@ class TestFreezeRegistryIntegration(APIBaseTest):
         res = self.client.post(f"{self.freeze_url_base}/{revision.id}/freeze/")
 
         assert res.status_code == status.HTTP_200_OK, res.content
-        # Bundle copies happened via the proxy.
-        mock_janitor.return_value.put_file.assert_any_call(str(revision.id), "skills/research.md", "# Research body")
+        # Bundle copies happened via the proxy. The SKILL.md is assembled
+        # (frontmatter + body) and lives inside the skill's own directory.
+        skill_md = next(
+            c.args[2]
+            for c in mock_janitor.return_value.put_file.call_args_list
+            if c.args[1] == "skills/research/SKILL.md"
+        )
+        assert "name: research" in skill_md
+        assert "# Research body" in skill_md
         mock_janitor.return_value.put_file.assert_any_call(str(revision.id), "skills/research/examples/one.md", "ex 1")
         # Final freeze step ran.
         mock_janitor.return_value.freeze.assert_called_once_with(str(revision.id))
@@ -101,6 +108,61 @@ class TestFreezeRegistryIntegration(APIBaseTest):
         # Spec carries the resolved version.
         revision.refresh_from_db()
         assert revision.spec["skills"][0]["version"] == 1
+
+    @patch("products.agent_stack.backend.api._janitor")
+    def test_authoring_a_from_template_pin_through_the_api_then_freeze_assembles(self, mock_janitor: MagicMock) -> None:
+        # End-to-end through the *validated* authoring API (not the ORM): the
+        # spec schema must accept the `from_template` registry-pin shape, and
+        # freeze must assemble the SKILL.md from the template's structured
+        # columns. Guards the gap where the freeze pipeline read a shape the
+        # spec write-schema rejected.
+        skill = AgentSkillTemplate.objects.create(
+            team=self.team,
+            name="acct-flow",
+            description="Account flow.",
+            body="# Account flow\nDo X.",
+            license="MIT",
+            metadata={"version": "2"},
+            version=1,
+            is_latest=True,
+        )
+        AgentSkillTemplateFile.objects.create(template=skill, path="references/deep.md", content="DEEP")
+
+        spec = {
+            "model": "anthropic/claude-haiku-4-5",
+            "auth": {"modes": [{"type": "public"}]},
+            "skills": [
+                {
+                    "id": "acct-flow",
+                    "path": "skills/acct-flow/SKILL.md",
+                    "from_template": str(skill.id),
+                    "alias": "acct-flow",
+                }
+            ],
+        }
+        create_res = self.client.post(
+            f"{self.freeze_url_base}/", {"bundle_uri": "fs://test/", "spec": spec}, format="json"
+        )
+        # 201 here is the fix: the validated serializer accepts `from_template`.
+        assert create_res.status_code == status.HTTP_201_CREATED, create_res.content
+        revision_id = create_res.json()["id"]
+
+        mock_janitor.return_value.freeze.return_value = {"ok": True, "state": "ready", "bundle_sha256": "abc"}
+        freeze_res = self.client.post(f"{self.freeze_url_base}/{revision_id}/freeze/")
+        assert freeze_res.status_code == status.HTTP_200_OK, freeze_res.content
+
+        skill_md = next(
+            c.args[2]
+            for c in mock_janitor.return_value.put_file.call_args_list
+            if c.args[1] == "skills/acct-flow/SKILL.md"
+        )
+        # Frontmatter assembled from the template's structured columns.
+        assert "name: acct-flow" in skill_md
+        assert "license: MIT" in skill_md
+        assert "version: '2'" in skill_md
+        assert "# Account flow" in skill_md
+        # Companion file rode along under the skill directory.
+        mock_janitor.return_value.put_file.assert_any_call(revision_id, "skills/acct-flow/references/deep.md", "DEEP")
 
     @patch("products.agent_stack.backend.api._janitor")
     def test_freeze_resolves_custom_tool_and_native(self, mock_janitor: MagicMock) -> None:

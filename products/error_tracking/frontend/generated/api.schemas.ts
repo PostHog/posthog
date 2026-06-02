@@ -1012,10 +1012,10 @@ export interface ErrorTrackingIssueEventsResponseApi {
  * `suppressed` - suppressed
  * `all` - all
  */
-export type ErrorTrackingIssuesListQueryRequestStatusEnumApi =
-    (typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi)[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi]
+export type ErrorTrackingIssueStatusEnumApi =
+    (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
 
-export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
+export const ErrorTrackingIssueStatusEnumApi = {
     Archived: 'archived',
     Active: 'active',
     Resolved: 'resolved',
@@ -1063,7 +1063,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
   * `pending_release` - pending_release
   * `suppressed` - suppressed
   * `all` - all */
-    status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
+    status?: ErrorTrackingIssueStatusEnumApi
     /** Filter by issue assignee. Omit to include all assignees. */
     assignee?: ErrorTrackingAssigneeApi | null
     /** When true, exclude internal/test account data from results. Defaults to true. */

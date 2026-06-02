@@ -25,8 +25,8 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-the-infant-version) below.
 | Fetches runbook URLs                      | `@posthog/web-fetch`                                                                     |
 | Posts in-thread analysis                  | `@posthog/slack-post-message`                                                            |
 | Quick acknowledgement                     | `@posthog/slack-react`                                                                   |
-| Follows a structured triage flow          | `skills/triage-playbook.md`                                                              |
-| Follows a consistent Slack message format | `skills/slack-thread-protocol.md`                                                        |
+| Follows a structured triage flow          | `skills/triage-playbook/SKILL.md`                                                        |
+| Follows a consistent Slack message format | `skills/slack-thread-protocol/SKILL.md`                                                  |
 
 ## What it cannot do
 
@@ -46,8 +46,8 @@ sre-slack-bot/
 ├── spec.json                            # AgentSpec — triggers, tools, skills, limits
 ├── agent.md                             # system prompt
 └── skills/
-    ├── triage-playbook.md               # how to investigate
-    └── slack-thread-protocol.md         # how to reply in Slack
+    ├── triage-playbook/SKILL.md         # how to investigate
+    └── slack-thread-protocol/SKILL.md   # how to reply in Slack
 ```
 
 ## Prerequisites for deploying

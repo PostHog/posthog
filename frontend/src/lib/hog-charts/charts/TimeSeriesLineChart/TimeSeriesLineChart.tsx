@@ -10,7 +10,7 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
+import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
     useXTickFormatter,
     useYTickFormatter,
@@ -105,6 +105,11 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, finalSeries), [goalLines, finalSeries])
 
+    // Extend the value axis to cover goal lines that sit outside the data range, so a goal line
+    // off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
+    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
+    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
+
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
@@ -117,6 +122,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
+        valueDomain,
     }
 
     return (

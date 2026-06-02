@@ -3,9 +3,12 @@
  *
  * The runner / ingress / janitor each `PlatformConfigSchema.extend(...)`
  * inside their own `src/config.ts`, then call `loadServiceConfig()` once
- * at boot. This keeps cross-service defaults (`bundleRoot`, the two PG
- * URLs, `REDIS_URL`, etc.) in one place — if they ever drift, the
- * services see different DBs / bundles, which we've already hit once.
+ * at boot. This keeps cross-service defaults (the two PG URLs,
+ * `REDIS_URL`, encryption keys, etc.) in one place — if they ever
+ * drift, the services see different DBs / bundles, which we've already
+ * hit once. Bundle and memory S3 settings are service-specific (only
+ * runner + janitor speak to those buckets) and live on each service's
+ * own config schema.
  *
  * See `docs/agent-platform/plans/typed-config-loader.md` for context.
  *
@@ -61,13 +64,6 @@ export const PlatformConfigSchema = z.object({
         .url()
         .default('postgres://posthog:posthog@localhost:5432/agent_runtime_queue')
         .describe('Queue + sandbox-instances DB — runtime data, owned by the node side.'),
-    bundleRoot: z
-        .string()
-        .min(1)
-        .default(`${process.env.HOME ?? '/tmp'}/.posthog/agent-bundles`)
-        .describe(
-            'Filesystem root for agent bundles. Auto-created on boot. Production sets this to a mounted volume shared across runner + janitor.'
-        ),
     redisUrl: z
         .string()
         .url()
@@ -108,7 +104,6 @@ export type PlatformConfig = z.infer<typeof PlatformConfigSchema>
 export const PLATFORM_ENV_KEY_MAP: Record<string, keyof PlatformConfig> = {
     POSTHOG_DB_URL: 'posthogDbUrl',
     AGENT_DB_URL: 'agentDbUrl',
-    AGENT_BUNDLE_ROOT: 'bundleRoot',
     REDIS_URL: 'redisUrl',
     ENCRYPTION_SALT_KEYS: 'encryptionSaltKeys',
     POSTHOG_API_BASE_URL: 'posthogApiBaseUrl',

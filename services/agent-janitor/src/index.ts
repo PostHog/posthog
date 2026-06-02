@@ -8,13 +8,14 @@
  *   - agentDb (AGENT_DB_URL): queue + sandbox-instances; janitor sweep
  *     reaps stuck rows here.
  *
- * Bundle storage: filesystem at AGENT_BUNDLE_ROOT in dev, swappable to S3
- * in prod once the S3 BundleStore impl is wired.
+ * Bundle storage: S3-backed via `S3BundleStore` (AGENT_BUNDLE_S3_BUCKET +
+ * endpoint required at boot). Dev runs MinIO; prod uses real S3 with the
+ * pod's IRSA role for credentials. `FsBundleStore` is kept around for the
+ * agent-tests harness only.
  *
  * Run via `tsx src/index.ts` (no precompile).
  */
 
-import { mkdir } from 'node:fs/promises'
 import pg from 'pg'
 const { Pool } = pg
 
@@ -23,11 +24,11 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { migrate } from '@posthog/agent-migrations'
 import {
     createLogger,
-    FsBundleStore,
     installProcessHandlers,
     MemoryStore,
     PgRevisionStore,
     PgSessionQueue,
+    S3BundleStore,
     S3MemoryStore,
 } from '@posthog/agent-shared'
 
@@ -41,7 +42,34 @@ const log = createLogger('agent-janitor')
 async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentJanitorConfig()
-    await mkdir(config.bundleRoot, { recursive: true })
+
+    // S3 bundle storage is required — the authoring API publishes new
+    // revisions through this store. Fail-fast at boot rather than 503-ing
+    // every bundle CRUD call individually. Endpoint is optional — unset
+    // means "use the AWS SDK's regional default" (prod path); MinIO in dev
+    // sets it explicitly.
+    if (!config.bundleS3Bucket) {
+        throw new Error(
+            'AGENT_BUNDLE_S3_BUCKET must be set — the janitor cannot serve bundle endpoints without storage.'
+        )
+    }
+    const bundleS3 = new S3Client({
+        endpoint: config.bundleS3Endpoint,
+        region: config.bundleS3Region,
+        forcePathStyle: config.bundleS3Endpoint ? config.bundleS3ForcePathStyle : false,
+        credentials:
+            config.bundleS3AccessKeyId && config.bundleS3SecretAccessKey
+                ? {
+                      accessKeyId: config.bundleS3AccessKeyId,
+                      secretAccessKey: config.bundleS3SecretAccessKey,
+                  }
+                : undefined,
+    })
+    const bundles = new S3BundleStore({
+        client: bundleS3,
+        bucket: config.bundleS3Bucket,
+        bucketPrefix: config.bundleS3Prefix,
+    })
 
     const posthogDb = new Pool({ connectionString: config.posthogDbUrl })
     const agentDb = new Pool({ connectionString: config.agentDbUrl })
@@ -52,7 +80,6 @@ async function main(): Promise<void> {
 
     const queue = new PgSessionQueue(agentDb)
     const revisions = new PgRevisionStore(posthogDb)
-    const bundles = new FsBundleStore(config.bundleRoot)
 
     const sweep = {
         queue,

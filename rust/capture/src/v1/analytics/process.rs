@@ -391,14 +391,14 @@ async fn apply_restrictions(
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || !event.destination.is_analytics_pipeline() {
+        if event.result != EventResult::Ok {
             continue;
         }
 
-        // v1 hasn't classified events into `DataType` yet, so derive the
-        // pipeline directly from the event name. `historical_migration` is
-        // irrelevant for pipeline lookup — `AnalyticsMain` and
-        // `AnalyticsHistorical` both map to `Pipeline::Analytics`.
+        // Derive the pipeline from the event name so each event is matched
+        // against the correct restriction slice (Analytics vs ErrorTracking).
+        // `pipeline() == None` for heatmaps / ingestion warnings / snapshots
+        // → they pass through unrestricted, exactly as v0 does.
         let Some(pipeline) = DataType::from_event_name(&event.event.event, false).pipeline() else {
             continue;
         };
@@ -1029,10 +1029,18 @@ mod tests {
         token: &str,
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
-        let service =
-            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
+        restriction_service_for_pipeline(Pipeline::Analytics, token, restrictions).await
+    }
+
+    async fn restriction_service_for_pipeline(
+        pipeline: Pipeline,
+        token: &str,
+        restrictions: Vec<Restriction>,
+    ) -> EventRestrictionService {
+        let pipelines = Pipeline::for_capture_mode(crate::config::CaptureMode::Events);
+        let service = EventRestrictionService::new(pipelines, StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.insert_restrictions(Pipeline::Analytics, token, restrictions);
+        manager.insert_restrictions(pipeline, token, restrictions);
         service.update(manager).await;
         service
     }
@@ -1270,14 +1278,16 @@ mod tests {
         assert_eq!(destination_for_event_name(event_name), expected);
     }
 
-    // --- restrictions bypass non-analytics events ---
+    // --- restrictions bypass pipeline-less events ---
+    // Events whose name maps to DataType::pipeline() == None (heatmaps,
+    // ingestion warnings) pass through unrestricted regardless of what
+    // restrictions are configured.
 
     #[rstest::rstest]
-    #[case("$exception", Destination::ExceptionErrorTracking)]
     #[case("$$heatmap", Destination::HeatmapMain)]
     #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
     #[tokio::test]
-    async fn restrictions_skip_non_analytics_events(
+    async fn restrictions_skip_pipeline_less_events(
         #[case] event_name: &str,
         #[case] expected_dest: Destination,
     ) {
@@ -1298,13 +1308,14 @@ mod tests {
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        // Non-analytics events are untouched by restrictions
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, expected_dest);
     }
 
+    // --- pipeline isolation: analytics drop doesn't cross into errortracking ---
+
     #[tokio::test]
-    async fn restrictions_still_apply_to_analytics_events() {
+    async fn restrictions_analytics_drop_does_not_cross_into_errortracking() {
         let service = restriction_service(
             "phc_token",
             vec![Restriction {
@@ -1319,18 +1330,184 @@ mod tests {
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$exception", "user-2"),
         ];
-        // Simulate what validate_events does
         events[1].destination = Destination::ExceptionErrorTracking;
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        // Analytics event gets dropped by restriction
+        // Analytics event gets dropped by analytics-pipeline restriction
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].destination, Destination::Drop);
-        // Non-analytics event bypasses restriction
+        // Exception event is untouched — it's on the ErrorTracking pipeline,
+        // which has no restrictions configured here.
         assert_eq!(events[1].result, EventResult::Ok);
         assert_eq!(events[1].destination, Destination::ExceptionErrorTracking);
+    }
+
+    // --- errortracking pipeline restrictions ---
+    // Mirrors v0's test_process_events_errortracking_drop_only_affects_exceptions
+    // and _analytics_drop_does_not_cross_into_errortracking.
+
+    #[tokio::test]
+    async fn restrictions_errortracking_drop_only_affects_exceptions() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![
+            wrapped_event("$exception", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(
+            events[0].result,
+            EventResult::Drop,
+            "exception should be dropped"
+        );
+        assert_eq!(events[0].destination, Destination::Drop);
+        assert_eq!(events[1].result, EventResult::Ok, "pageview should be kept");
+        assert_eq!(events[1].destination, Destination::AnalyticsMain);
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_force_overflow_ignored() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(
+            events[0].destination,
+            Destination::ExceptionErrorTracking,
+            "ForceOverflow is gated to AnalyticsMain; exception stays on its own lane"
+        );
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_skip_person_processing() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, Destination::ExceptionErrorTracking);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_redirect_to_dlq() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToDlq,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, Destination::Dlq);
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_redirect_to_custom_topic() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToTopic,
+                scope: RestrictionScope::AllEvents,
+                args: Some(serde_json::json!({"topic": "custom_exceptions"})),
+            }],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(
+            events[0].destination,
+            Destination::Custom("custom_exceptions".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn restrictions_exception_dlq_wins_over_custom_topic() {
+        let service = restriction_service_for_pipeline(
+            Pipeline::ErrorTracking,
+            "phc_token",
+            vec![
+                Restriction {
+                    restriction_type: RestrictionType::RedirectToTopic,
+                    scope: RestrictionScope::AllEvents,
+                    args: Some(serde_json::json!({"topic": "custom_exceptions"})),
+                },
+                Restriction {
+                    restriction_type: RestrictionType::RedirectToDlq,
+                    scope: RestrictionScope::AllEvents,
+                    args: None,
+                },
+            ],
+        )
+        .await;
+
+        let mut events = vec![wrapped_event("$exception", "user-1")];
+        events[0].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, Destination::Dlq);
     }
 
     // --- apply_token_distinct_id_limits ---

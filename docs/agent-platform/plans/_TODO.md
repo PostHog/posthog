@@ -41,6 +41,18 @@ For the consolidated, sequenced view of how these plans relate, see
 New bullets land here as freeform reminders; move them into their own plan
 file (and out of this list) once the design lands.
 
+- [ ] **Self-hosted tool runners (customer-hosted MCP via outbound poll)**
+      — see [`self-hosted-tool-runners.md`](self-hosted-tool-runners.md).
+      Solves the not-publicly-reachable case (Grafana, k8s, internal
+      Zendesk) that `runtime-mcps.md` doesn't. Customer deploys a runner
+      (Helm chart), it long-polls PostHog for invocations, executes
+      locally (MCP-proxy or shell-command), posts result back. New
+      `kind: 'self-hosted'` `McpRef`; transport is hidden behind the
+      `McpClient` abstraction so the dispatcher doesn't branch on it.
+      Composes with existing approval + principal threading — PostHog
+      gates auth at the platform layer so the runner only ever sees
+      pre-approved work.
+
 - [ ] **Cron trigger scheduler** (Dylan — picking up after runtime-mcps
       PR 7) — see
       [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
@@ -50,7 +62,7 @@ file (and out of this list) once the design lands.
       coalesce into long-running sessions via `external_key_reuse`.
       Plan was checked off prematurely — the most recent commit on the
       plan file is `078ce5bb89 wip — cron plan, auth refresh, hogli
-  ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
+ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
       the codebase yet.
 
 - [x] ~~**Streaming deltas + unified reasoning knob**~~ — see

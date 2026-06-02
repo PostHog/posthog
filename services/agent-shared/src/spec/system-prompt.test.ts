@@ -20,13 +20,13 @@ describe('buildSystemPrompt', () => {
     it('reads agent.md and emits a skill INDEX (not bodies)', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'You are a helpful agent.')
-        await bundle.write('rev1', 'skills/research.md', 'Be thorough.')
-        await bundle.write('rev1', 'skills/cite.md', 'Cite sources.')
+        await bundle.write('rev1', 'skills/research/SKILL.md', 'Be thorough.')
+        await bundle.write('rev1', 'skills/cite/SKILL.md', 'Cite sources.')
         const spec = AgentSpecSchema.parse({
             model: 'x',
             skills: [
-                { id: 'research', path: 'skills/research.md', description: 'How to research a question' },
-                { id: 'cite', path: 'skills/cite.md', description: 'Citation formatting' },
+                { id: 'research', path: 'skills/research/SKILL.md', description: 'How to research a question' },
+                { id: 'cite', path: 'skills/cite/SKILL.md', description: 'Citation formatting' },
             ],
         })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
@@ -47,7 +47,7 @@ describe('buildSystemPrompt', () => {
         await bundle.write('rev1', 'agent.md', 'top')
         const spec = AgentSpecSchema.parse({
             model: 'x',
-            skills: [{ id: 'mystery', path: 'skills/mystery.md' }],
+            skills: [{ id: 'mystery', path: 'skills/mystery/SKILL.md' }],
         })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
         expect(prompt).toContain('`mystery`: (no description)')

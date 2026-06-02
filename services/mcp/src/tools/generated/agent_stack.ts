@@ -1048,6 +1048,12 @@ const agentSkillTemplatesCreate = (): ToolBase<
         if (params.body !== undefined) {
             body['body'] = params.body
         }
+        if (params.license !== undefined) {
+            body['license'] = params.license
+        }
+        if (params.compatibility !== undefined) {
+            body['compatibility'] = params.compatibility
+        }
         if (params.files !== undefined) {
             body['files'] = params.files
         }
@@ -1100,6 +1106,12 @@ const agentSkillTemplatesNameArchiveCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof AgentSkillTemplatesNameArchiveCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.license !== undefined) {
+            body['license'] = params.license
+        }
+        if (params.compatibility !== undefined) {
+            body['compatibility'] = params.compatibility
+        }
         if (params.body !== undefined) {
             body['body'] = params.body
         }
@@ -1238,6 +1250,12 @@ const agentSkillTemplatesNamePublishCreate = (): ToolBase<
         }
         if (params.edits !== undefined) {
             body['edits'] = params.edits
+        }
+        if (params.license !== undefined) {
+            body['license'] = params.license
+        }
+        if (params.compatibility !== undefined) {
+            body['compatibility'] = params.compatibility
         }
         if (params.metadata !== undefined) {
             body['metadata'] = params.metadata

@@ -31,15 +31,19 @@ export const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 export interface LogsViewerFiltersLogicProps {
     id: string
     initialFilters?: Partial<LogsViewerFilters>
-    // Filters enforced by the embedding scene. Merged into filterGroup and rendered
-    // without an X — users can't accidentally clear the scope (e.g. the person profile
-    // Logs tab pins a distinct_id filter so the tab can't fall back to project-wide logs).
+    // Filters enforced by the embedding scene (e.g. the person profile Logs tab pins
+    // a distinct_id filter so the tab can't fall back to project-wide logs). Kept
+    // entirely separate from the user-editable `filterGroup` — combined with it only
+    // at query-build time via `queryFilterGroup` so the chips never see them and
+    // can't drift when the pinned shape changes (e.g. `logs_distinct_id_attribute_key`
+    // resolves to a non-default key after mount).
     pinnedFilters?: UniversalFiltersGroup
 }
 
-// Returns a filterGroup with pinned values prepended to the nested group, deduplicated
-// by deep equality against existing user filters.
-export function mergePinnedFilters(
+// Combines the user-editable filterGroup with pinned filters (prepended to the inner
+// AND group). Used at query-build time and for taxonomic value suggestions so the
+// query and suggestion stay scoped, without putting pinned filters into editable state.
+export function combineWithPinnedFilters(
     filterGroup: UniversalFiltersGroup,
     pinnedFilters: UniversalFiltersGroup | undefined
 ): UniversalFiltersGroup {
@@ -48,13 +52,12 @@ export function mergePinnedFilters(
     }
     const inner = filterGroup.values[0] as UniversalFiltersGroup | undefined
     const innerValues = inner?.values ?? []
-    const existingNonPinned = innerValues.filter((v) => !pinnedFilters.values.some((pv) => equal(v, pv)))
     return {
         ...filterGroup,
         values: [
             {
                 type: FilterLogicalOperator.And,
-                values: [...pinnedFilters.values, ...existingNonPinned],
+                values: [...pinnedFilters.values, ...innerValues],
             } as UniversalFiltersGroup,
             ...filterGroup.values.slice(1),
         ],
@@ -167,6 +170,15 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 filterGroup: UniversalFiltersGroup
             ): LogsViewerFilters => ({ dateRange, searchTerm, severityLevels, serviceNames, filterGroup }),
         ],
+        // Combined view used for query payloads and taxonomic value suggestions —
+        // user-editable `filterGroup` with pinned filters prepended. Pinned filters
+        // intentionally never enter `filterGroup` itself so chips and saved views
+        // can't pick them up.
+        queryFilterGroup: [
+            (s) => [s.filterGroup, s.pinnedFilters],
+            (filterGroup: UniversalFiltersGroup, pinnedFilters: UniversalFiltersGroup | undefined) =>
+                combineWithPinnedFilters(filterGroup, pinnedFilters),
+        ],
         utcDateRange: [
             (s) => [s.dateRange],
             (dateRange: DateRange) => ({
@@ -210,7 +222,7 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         },
     })),
 
-    propsChanged(({ actions, values, props: logicProps }, oldProps) => {
+    propsChanged(({ actions, props: logicProps }, oldProps) => {
         if (logicProps.initialFilters && logicProps.initialFilters !== oldProps.initialFilters) {
             actions.setFilters(logicProps.initialFilters, false)
         } else if (!logicProps.initialFilters && oldProps.initialFilters) {
@@ -223,22 +235,20 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 false
             )
         }
-        // Re-merge pinned filters when the embedding scene changes them (e.g. switching
-        // between people on the person profile). Deep-equal check avoids re-merging on
-        // every render when the parent reconstructs the prop object identically.
+        // Mirror the prop into state when content changes (e.g. switching between
+        // people on the person profile, or the team's pinned attribute key resolving
+        // after mount). Deep-equal check avoids redundant updates on identical re-renders.
         if (!equal(logicProps.pinnedFilters, oldProps.pinnedFilters)) {
             actions.setPinnedFilters(logicProps.pinnedFilters)
-            actions.setFilterGroup(mergePinnedFilters(values.filterGroup, logicProps.pinnedFilters), false)
         }
     }),
 
-    afterMount(({ actions, values, props: logicProps }) => {
+    afterMount(({ actions, props: logicProps }) => {
         if (logicProps.initialFilters) {
             actions.setFilters(logicProps.initialFilters, false)
         }
         if (logicProps.pinnedFilters) {
             actions.setPinnedFilters(logicProps.pinnedFilters)
-            actions.setFilterGroup(mergePinnedFilters(values.filterGroup, logicProps.pinnedFilters), false)
         }
     }),
 ])

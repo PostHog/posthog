@@ -80,6 +80,27 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .default('1')
         .transform((v) => v === '1' || v === 'true')
         .describe('forcePathStyle for the S3 client. Default true (MinIO needs it).'),
+    bundleS3Endpoint: z
+        .string()
+        .url()
+        .optional()
+        .describe('S3 / MinIO endpoint for agent-bundle storage. Unset disables the bundle CRUD endpoints.'),
+    bundleS3Region: z.string().default('us-east-1').describe('Region for the bundle bucket.'),
+    bundleS3Bucket: z
+        .string()
+        .optional()
+        .describe('Bucket holding agent bundles (per-revision compiled code + spec + skills).'),
+    bundleS3Prefix: z.string().default('agent_bundles').describe('Per-deployment key prefix inside the bucket.'),
+    bundleS3AccessKeyId: z
+        .string()
+        .optional()
+        .describe('Optional explicit access key id; falls back to SDK default chain.'),
+    bundleS3SecretAccessKey: z.string().optional().describe('Optional explicit secret access key.'),
+    bundleS3ForcePathStyle: z
+        .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
+        .default('1')
+        .transform((v) => v === '1' || v === 'true')
+        .describe('forcePathStyle for the S3 client. Default true (MinIO needs it).'),
 })
 
 export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>
@@ -100,6 +121,13 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_MEMORY_S3_ACCESS_KEY_ID: 'memoryS3AccessKeyId',
     AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'memoryS3SecretAccessKey',
     AGENT_MEMORY_S3_FORCE_PATH_STYLE: 'memoryS3ForcePathStyle',
+    AGENT_BUNDLE_S3_ENDPOINT: 'bundleS3Endpoint',
+    AGENT_BUNDLE_S3_REGION: 'bundleS3Region',
+    AGENT_BUNDLE_S3_BUCKET: 'bundleS3Bucket',
+    AGENT_BUNDLE_S3_PREFIX: 'bundleS3Prefix',
+    AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'bundleS3AccessKeyId',
+    AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'bundleS3SecretAccessKey',
+    AGENT_BUNDLE_S3_FORCE_PATH_STYLE: 'bundleS3ForcePathStyle',
 })
 
 export function loadAgentJanitorConfig(env: NodeJS.ProcessEnv = process.env): AgentJanitorConfig {
