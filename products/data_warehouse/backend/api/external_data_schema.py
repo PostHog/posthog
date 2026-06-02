@@ -884,12 +884,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        if not schemas:
+        # Match by name rather than taking schemas[0]: some sources (e.g. Slack) ignore the `names`
+        # filter and return every schema, so the first element is an unrelated table — which made the
+        # webhook option vanish and reported the wrong incremental/append/column metadata.
+        schema = next((s for s in schemas if s.name == instance.name), None)
+        if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
-
-        schema = schemas[0]
 
         source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
