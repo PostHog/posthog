@@ -10,7 +10,7 @@ def _udf_sql(template: str) -> str:
     return template.format(dict=f"{settings.CLICKHOUSE_DATABASE}.{BOT_DEFINITION_DICTIONARY_NAME}")
 
 
-# UDFs land on the same node roles as the underlying dictionary — see migration 0267 for the
+# UDFs land on the same node roles as the underlying dictionary — see migration 0269 for the
 # rationale. Without this, queries that call botName/isBot/etc from anywhere outside DATA
 # would error out with `Unknown function`.
 NODE_ROLES = [NodeRole.DATA, NodeRole.AUX, NodeRole.SESSIONS]
