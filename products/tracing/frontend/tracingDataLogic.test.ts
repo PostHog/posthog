@@ -1,8 +1,22 @@
+import posthog from 'posthog-js'
+
+import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
+
+const createMockAggregatedRow = (name: string): AggregatedSpanRow => ({
+    service_name: 'svc',
+    name,
+    count: 1,
+    total_duration_nano: 1000,
+    avg_duration_nano: 1000,
+    p50_duration_nano: 1000,
+    p95_duration_nano: 1000,
+    error_count: 0,
+})
 
 const TEST_TAB = 'test-tab'
 
@@ -122,6 +136,48 @@ describe('tracingDataLogic', () => {
             logic.actions.clearSpans()
             expect(logic.values.visibleRowRange).toBeNull()
             expect(logic.values.visibleRowDateRange).toBeNull()
+        })
+    })
+
+    describe('results tracking', () => {
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            logic = mountWithSpans([])
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+        })
+
+        it('captures results returned for spans with a count', () => {
+            logic.actions.fetchSpansSuccess(mockSpans)
+            expect(captureSpy).toHaveBeenCalledWith('tracing results returned', {
+                count: mockSpans.length,
+                query_type: 'spans',
+            })
+        })
+
+        it('captures no results returned for empty spans', () => {
+            logic.actions.fetchSpansSuccess([])
+            expect(captureSpy).toHaveBeenCalledWith('tracing no results returned', { query_type: 'spans' })
+        })
+
+        it('captures results returned for aggregation with a count', () => {
+            logic.actions.fetchAggregationSuccess({
+                current: [createMockAggregatedRow('op-1'), createMockAggregatedRow('op-2')],
+                previous: null,
+            })
+            expect(captureSpy).toHaveBeenCalledWith('tracing results returned', {
+                count: 2,
+                query_type: 'aggregation',
+            })
+        })
+
+        it('captures no results returned for empty aggregation', () => {
+            logic.actions.fetchAggregationSuccess({ current: [], previous: null })
+            expect(captureSpy).toHaveBeenCalledWith('tracing no results returned', { query_type: 'aggregation' })
         })
     })
 })

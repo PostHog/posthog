@@ -502,9 +502,17 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchSpansSuccess: () => {
             const tracesCount = values.rootSpans.length
             if (tracesCount === 0) {
-                posthog.capture('tracing no results returned')
+                posthog.capture('tracing no results returned', { query_type: 'spans' })
             } else {
-                posthog.capture('tracing results returned', { count: tracesCount })
+                posthog.capture('tracing results returned', { count: tracesCount, query_type: 'spans' })
+            }
+        },
+        fetchAggregationSuccess: ({ aggregation }) => {
+            const resultsCount = aggregation.current.length
+            if (resultsCount === 0) {
+                posthog.capture('tracing no results returned', { query_type: 'aggregation' })
+            } else {
+                posthog.capture('tracing results returned', { count: resultsCount, query_type: 'aggregation' })
             }
         },
         fetchSpansFailure: ({ error }) => {
