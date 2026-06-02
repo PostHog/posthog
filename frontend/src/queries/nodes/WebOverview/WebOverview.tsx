@@ -12,6 +12,7 @@ import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/q
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { WebOverviewMetricGrid } from './WebOverviewMetricGrid'
 
 let uniqueNode = 0
 
@@ -26,13 +27,14 @@ export function WebOverview(props: {
     const { featureFlags } = useValues(featureFlagLogic)
     const [_key] = useState(() => `WebOverview.${uniqueNode++}`)
     const key = props.uniqueKey ? String(props.uniqueKey) : _key
+    const collectionId = dataNodeCollectionId ?? key
     const logic = dataNodeLogic({
         query: props.query,
         key,
         cachedResults: props.cachedResults,
         loadPriority,
         onData,
-        dataNodeCollectionId: dataNodeCollectionId ?? key,
+        dataNodeCollectionId: collectionId,
     })
     const { response, responseLoading } = useValues(logic)
     useAttachedLogic(logic, props.attachTo)
@@ -67,6 +69,22 @@ export function WebOverview(props: {
                 : undefined,
             warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
         })) || []
+
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_METRIC_TILES]) {
+        return (
+            <WebOverviewMetricGrid
+                query={props.query}
+                items={overviewItems}
+                loading={responseLoading}
+                numSkeletons={numSkeletons}
+                labelFromKey={labelFromKey}
+                useScreen={!!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]}
+                attachTo={props.attachTo}
+                uniqueKey={props.uniqueKey}
+                dataNodeCollectionId={collectionId}
+            />
+        )
+    }
 
     return (
         <OverviewGrid

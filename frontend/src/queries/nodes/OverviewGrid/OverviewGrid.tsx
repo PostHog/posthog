@@ -295,7 +295,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
+export const formatItem = (
     value: number | string | undefined,
     kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }
