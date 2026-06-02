@@ -19,6 +19,7 @@ describe('VisualReviewClient retry logic', () => {
     let client: VisualReviewClient
 
     beforeEach(() => {
+        mockFetch.mockReset()
         vi.useFakeTimers()
         client = new VisualReviewClient({
             apiUrl: 'https://vr.example.com',
