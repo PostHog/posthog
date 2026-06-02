@@ -19,7 +19,7 @@ import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnel
 
 const STEP_WIDTH_PX = 240
 const BAND_PADDING = 0.04
-const STEP_BAR_WIDTH_PX = STEP_WIDTH_PX * (1 - BAND_PADDING)
+const STEP_BAND_WIDTH_PX = STEP_WIDTH_PX * (1 - BAND_PADDING)
 
 const baseChartConfig: BarChartConfig = {
     barLayout: 'grouped',
@@ -134,7 +134,7 @@ export function FunnelStepsBarChart({
                                 className={`flex min-w-0 flex-1 ${stepIndex === 0 ? 'justify-start' : 'justify-center'}`}
                             >
                                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <div className="min-w-0 overflow-hidden" style={{ width: STEP_BAR_WIDTH_PX }}>
+                                <div className="min-w-0 overflow-hidden" style={{ width: STEP_BAND_WIDTH_PX }}>
                                     <StepLegend
                                         step={step}
                                         stepIndex={stepIndex}
