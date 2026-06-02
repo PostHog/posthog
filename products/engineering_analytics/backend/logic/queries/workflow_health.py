@@ -53,8 +53,6 @@ def query_workflow_health(
         query_type="engineering_analytics.workflow_health",
         placeholders=placeholders,
     )
-    if response is None:
-        return []
     return [
         WorkflowHealthItem(
             workflow_name=workflow_name,

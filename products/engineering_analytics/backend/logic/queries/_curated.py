@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 
 
@@ -69,14 +70,13 @@ def run_query(
     team: Team,
     query_type: str,
     placeholders: dict[str, ast.Expr] | None = None,
-) -> HogQLQueryResponse | None:
+) -> HogQLQueryResponse:
     """Parse + execute a curated HogQL query.
 
-    Returns ``None`` when the team has no GitHub warehouse source yet: the curated
-    subqueries reference ``github_*`` tables that aren't in the catalog, so the
-    resolver raises ``Unknown table``. Callers map ``None`` to an empty result, so
-    the surface degrades to a "connect a source" state instead of erroring. Any
-    other query error is a real bug and propagates.
+    Raises ``GitHubSourceNotConnectedError`` when the team has no GitHub warehouse
+    source: the curated subqueries reference ``github_*`` tables that aren't in the
+    catalog, so the resolver raises ``Unknown table``. The presentation layer turns
+    that into a clear 4xx. Any other query error is a real bug and propagates.
     """
     try:
         return execute_hogql_query(
@@ -86,5 +86,5 @@ def run_query(
         )
     except QueryError as err:
         if "Unknown table" in str(err):
-            return None
+            raise GitHubSourceNotConnectedError() from err
         raise

@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
     PRLifecycleSerializer,
@@ -66,6 +67,12 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "engineering_analytics"
     scope_object_read_actions = ["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"]
     scope_object_write_actions: list[str] = []
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # No GitHub warehouse source connected — every action degrades the same way.
+        if isinstance(exc, GitHubSourceNotConnectedError):
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return super().handle_exception(exc)
 
     @extend_schema(
         operation_id="engineering_analytics_ci_cards",

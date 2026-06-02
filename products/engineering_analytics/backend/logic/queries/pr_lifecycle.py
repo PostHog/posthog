@@ -66,7 +66,7 @@ def query_pr_lifecycle(
         query_type="engineering_analytics.pr_lifecycle.header",
         placeholders=placeholders,
     )
-    if header is None or not header.results:
+    if not header.results:
         return None
 
     (

@@ -13,15 +13,23 @@ from django.utils import timezone
 import pandas as pd
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
+from products.engineering_analytics.backend.facade.contracts import (
+    GitHubSourceNotConnectedError,
+    MetricQuality,
+    PRLifecycleEventKind,
+    PRState,
+)
 from products.engineering_analytics.backend.logic import (
     build_ci_cards,
     build_pr_lifecycle,
     build_pull_request_list,
     build_workflow_health,
 )
+from products.engineering_analytics.backend.logic.queries import _curated
 from products.engineering_analytics.backend.tests.test_views import (
     _PULL_REQUESTS_COLUMNS,
     _WORKFLOW_RUNS_COLUMNS,
@@ -155,18 +163,13 @@ class TestPRLifecycleMapping(BaseTest):
 
 
 class TestEndpointMapping(BaseTest):
-    """Row mapping for the aggregate endpoints, with the query helper mocked so no
-    warehouse is needed. A ``None`` response (no GitHub source) maps to empty."""
+    """Row mapping for the aggregate endpoints (query helper mocked, no warehouse),
+    plus the no-source error path."""
 
     def test_ci_cards_maps_counts(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([(5, 2, 1, 1)])):
             cards = build_ci_cards(team=self.team)
         assert (cards.open_prs, cards.repos, cards.stuck, cards.failing_ci) == (5, 2, 1, 1)
-
-    def test_ci_cards_empty_when_no_source(self) -> None:
-        with mock.patch(_RUN_QUERY, return_value=None):
-            cards = build_ci_cards(team=self.team)
-        assert (cards.open_prs, cards.repos, cards.stuck, cards.failing_ci) == (0, 0, 0, 0)
 
     def test_pull_request_list_maps_row(self) -> None:
         row = (
@@ -201,10 +204,6 @@ class TestEndpointMapping(BaseTest):
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
 
-    def test_pull_request_list_empty_when_no_source(self) -> None:
-        with mock.patch(_RUN_QUERY, return_value=None):
-            assert build_pull_request_list(team=self.team) == []
-
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         rows = [
             ("CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00")),
@@ -220,9 +219,18 @@ class TestEndpointMapping(BaseTest):
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
 
-    def test_workflow_health_empty_when_no_source(self) -> None:
-        with mock.patch(_RUN_QUERY, return_value=None):
-            assert build_workflow_health(team=self.team) == []
+    def test_run_query_translates_unknown_table_to_source_error(self) -> None:
+        with mock.patch(
+            "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query",
+            side_effect=QueryError("Unknown table `github_pull_requests`."),
+        ):
+            with self.assertRaises(GitHubSourceNotConnectedError):
+                _curated.run_query("SELECT 1", team=self.team, query_type="engineering_analytics.test")
+
+    def test_build_propagates_source_error(self) -> None:
+        with mock.patch(_RUN_QUERY, side_effect=GitHubSourceNotConnectedError()):
+            with self.assertRaises(GitHubSourceNotConnectedError):
+                build_pull_request_list(team=self.team)
 
 
 class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):

@@ -50,8 +50,6 @@ def query_pull_request_list(*, team: Team, date_from: datetime) -> list[PullRequ
         query_type="engineering_analytics.pull_request_list",
         placeholders={"date_from": ast.Constant(value=date_from)},
     )
-    if response is None:
-        return []
     return [_map_row(row) for row in response.results]
 
 

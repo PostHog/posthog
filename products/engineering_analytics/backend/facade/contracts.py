@@ -27,6 +27,20 @@ from enum import StrEnum
 from pydantic.dataclasses import dataclass
 
 
+class GitHubSourceNotConnectedError(Exception):
+    """Raised when a team has no GitHub warehouse source — the curated queries
+    reference ``github_*`` tables that aren't in the catalog. Surfaces as a clear
+    4xx so the UI prompts to connect a source and an agent gets an actionable
+    error instead of a misleading empty result. Framework-free; the presentation
+    layer translates it to an HTTP response.
+    """
+
+    DEFAULT_MESSAGE = "Connect a GitHub data warehouse source to use engineering analytics."
+
+    def __init__(self, message: str = DEFAULT_MESSAGE) -> None:
+        super().__init__(message)
+
+
 class PRState(StrEnum):
     OPEN = "open"
     CLOSED = "closed"

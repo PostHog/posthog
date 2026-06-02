@@ -72,6 +72,13 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["open_prs"] == 5
 
+    def test_no_github_source_returns_400(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_ci_cards", side_effect=contracts.GitHubSourceNotConnectedError()):
+            response = self.client.get(self._url("ci_cards"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "GitHub" in response.json()["detail"]
+
     def test_pull_requests_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_pull_requests", return_value=[_pr_list_item()]) as listing:
             response = self.client.get(self._url("pull_requests"), {"date_from": "-7d"})
