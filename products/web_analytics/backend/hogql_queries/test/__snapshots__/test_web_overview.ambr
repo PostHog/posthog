@@ -29,7 +29,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -46,7 +54,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), 0))
   LIMIT 100 SETTINGS readonly=2,
@@ -80,7 +88,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -97,7 +113,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -177,7 +193,17 @@
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts))) AS conversion_count,
             any(if(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts)), if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), NULL)) AS conversion_person_id
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.elements_chain_texts AS elements_chain_texts,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -192,7 +218,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts))), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -223,7 +249,15 @@
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'custom_event')) AS conversion_count,
             any(if(equals(events.event, 'custom_event'), if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), NULL)) AS conversion_person_id
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -238,7 +272,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -269,7 +303,15 @@
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'custom_event')) AS conversion_count,
             any(if(equals(events.event, 'custom_event'), if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), NULL)) AS conversion_person_id
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -284,7 +326,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -416,7 +458,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'America/Los_Angeles') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
@@ -433,7 +483,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles'))), 0)), 0))
   LIMIT 100 SETTINGS readonly=2,
@@ -467,7 +517,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.timestamp AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(raw_sessions.min_timestamp) AS `$start_timestamp`,
@@ -484,7 +542,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0)), 0))
   LIMIT 100 SETTINGS readonly=2,
@@ -518,7 +576,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'America/Los_Angeles') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
@@ -535,7 +601,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles'))), 0)), 0))
   LIMIT 100 SETTINGS readonly=2,
@@ -569,7 +635,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.timestamp AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(raw_sessions.min_timestamp) AS `$start_timestamp`,
@@ -586,7 +660,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0)), 0))
   LIMIT 100 SETTINGS readonly=2,
@@ -620,7 +694,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -637,7 +719,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -671,7 +753,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -688,7 +778,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -722,7 +812,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -739,12 +837,12 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -778,7 +876,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -805,7 +911,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -839,7 +945,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -856,7 +970,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -890,7 +1004,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -907,7 +1029,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -941,7 +1063,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -958,7 +1088,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -992,7 +1122,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -1009,7 +1147,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,
@@ -1043,7 +1181,15 @@
             any(events__session.`$session_duration`) AS session_duration,
             countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
             any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.`$session_id_uuid` AS `$session_id_uuid`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))))) AS events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
@@ -1060,7 +1206,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
+     WHERE and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1)
      GROUP BY session_id
      HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))))
   LIMIT 100 SETTINGS readonly=2,

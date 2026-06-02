@@ -1,0 +1,1536 @@
+import json
+from typing import Any
+from uuid import uuid4
+
+import pytest
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    materialized,
+)
+
+from parameterized import parameterized
+
+from posthog.schema import PropertyGroupsMode
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, StringDatabaseField, TableNode
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
+from posthog.hogql.modifiers import HogQLQueryModifiers
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.transforms.events_predicate_pushdown import (
+    EventsFieldCollector,
+    EventsPredicatePushdownTransform,
+    LazyTypeDetector,
+)
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models.utils import uuid7
+
+from products.event_definitions.backend.models.property_definition import PropertyType
+
+
+class TestEventsPredicatePushdownTransform(BaseTest):
+    snapshot: Any
+    maxDiff = None
+
+    def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
+        expr = parse_select(select)
+        query, _ = prepare_and_print_ast(
+            expr,
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(pushDownPredicates=True),
+            ),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_with_session_join_and_timestamp_filter(self):
+        """Pushes timestamp filter into subquery when events table has lazy session join."""
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_with_alias_and_session_join(self):
+        """Preserves events table alias in the subquery wrapper."""
+        printed = self._print_select(
+            "SELECT e.event, session.$session_duration FROM events AS e WHERE e.timestamp >= '2024-01-01'"
+        )
+        assert printed == self.snapshot
+
+    def test_aliased_events_pushdown_does_not_reference_outer_alias_in_subquery(self):
+        # Regression for the aliased-events pushdown bug.
+        #
+        # When the events table is aliased (FROM events AS e), the predicate pushed into
+        # the wrapping subquery must be scoped to the inner `events` table, not to the
+        # outer subquery alias `e`. The alias `e` only exists in the outer query's scope;
+        # inside `FROM events` it is an unknown identifier, so a leaked reference like
+        # `e.timestamp` produces SQL that ClickHouse rejects at runtime ("Unknown
+        # identifier e.timestamp"). The printer renders a field from its resolved type,
+        # not its chain, so stripping the chain prefix alone is not enough.
+        printed = self._print_select(
+            "SELECT e.event, session.$session_duration FROM events AS e WHERE e.timestamp >= '2024-01-01'"
+        )
+
+        # Isolate the pushed-down events subquery: `FROM ( <subquery> ) AS e LEFT JOIN ...`
+        assert "FROM (" in printed and ") AS e LEFT JOIN" in printed, printed
+        events_subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
+
+        # The timestamp predicate was pushed into this subquery; it must reference the
+        # inner `events` table, never the outer alias `e`.
+        assert "e.timestamp" not in events_subquery, (
+            "predicate pushdown leaked the outer table alias `e` into the events subquery "
+            "(`e` is out of scope inside `FROM events`):\n" + events_subquery
+        )
+        assert "events.timestamp" in events_subquery, (
+            "expected the pushed-down predicate to reference the inner `events` table:\n" + events_subquery
+        )
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_without_join_no_pushdown(self):
+        """No pushdown when there are no lazy joins."""
+        printed = self._print_select("SELECT event FROM events WHERE timestamp >= '2024-01-01'")
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_without_where_no_pushdown(self):
+        """No pushdown when there is no WHERE clause."""
+        printed = self._print_select("SELECT event, session.$session_duration FROM events")
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_session_duration_filter_stays_in_outer_where(self):
+        """Session duration filters cannot be pushed down and stay in outer WHERE."""
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_multiple_pushable_predicates(self):
+        """Multiple events-table predicates can be pushed down together."""
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND event = '$pageview'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_subquery_with_pushdown(self):
+        """Subquery pushdown"""
+        printed = self._print_select(
+            "SELECT event, avg($session_duration) FROM ("
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND (event = '$pageview' OR event = '$pageleave')"
+            ") GROUP BY event"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_simple_events_with_person_join(self):
+        printed = self._print_select(
+            "SELECT event, person.id FROM events WHERE timestamp > '2024-01-01'",
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_poe_properties_with_session_join(self):
+        """VirtualTable field poe.properties is included in subquery as person_properties."""
+        printed = self._print_select(
+            "SELECT event, poe.properties FROM events WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_poe_id_with_session_join(self):
+        """VirtualTable field poe.id is included in subquery as person_id."""
+        printed = self._print_select(
+            "SELECT poe.id, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_poe_created_at_with_session_join(self):
+        """VirtualTable field poe.created_at is included in subquery as person_created_at."""
+        printed = self._print_select(
+            "SELECT event, poe.created_at FROM events WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_multiple_poe_fields_with_session_join(self):
+        """Multiple VirtualTable fields are all included in the subquery."""
+        printed = self._print_select(
+            "SELECT event, poe.id, poe.properties, poe.created_at FROM events "
+            "WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_explicit_join_sessions_pushes_timestamp_down(self):
+        """Explicit JOIN sessions pushes events.timestamp predicate into the subquery."""
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_inner_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events INNER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_left_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events LEFT JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_left_outer_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events LEFT OUTER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_cross_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events CROSS JOIN sessions "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_right_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events RIGHT JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_right_outer_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events RIGHT OUTER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_full_outer_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events FULL OUTER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_full_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events FULL JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_bare_timestamp_with_select_alias_pushes_down(self):
+        printed = self._print_select(
+            "SELECT event, toTimeZone(timestamp, 'UTC') as timestamp, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp <= today()"
+        )
+        assert printed == self.snapshot
+
+    def test_non_pushable_prewhere_bails(self):
+        # A PREWHERE with a non-events (joined) predicate can't be pushed, and can't stay on the outer query
+        # either: after pushdown the outer FROM is a subquery, where PREWHERE is invalid. So the transform
+        # bails entirely rather than emit an invalid PREWHERE on a subquery. (Such a query is already invalid
+        # ClickHouse — PREWHERE can't reference a joined column — so this just guarantees we don't make it worse.)
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events "
+            "PREWHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert ") AS events LEFT JOIN" not in printed, (
+            "expected pushdown to bail on a non-pushable PREWHERE:\n" + printed
+        )
+
+    def test_pushable_prewhere_and_where_both_pushed(self):
+        # An events-only PREWHERE and an events-only WHERE are both pushable. The PREWHERE stays a PREWHERE on
+        # the inner events scan (honoring intent), the WHERE goes to the inner WHERE, and no PREWHERE remains
+        # on the outer subquery-based query (where it would be invalid).
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events PREWHERE event = '$pageview' WHERE timestamp >= '2024-01-01'"
+        )
+        # Compact all whitespace: the pretty-printer can wrap the PREWHERE keyword across lines.
+        compact = "".join(printed.split())
+        assert ")ASeventsLEFTJOIN" in compact, "expected pushdown to fire:\n" + printed
+        subquery = compact.split("FROM(", 1)[1].split(")ASeventsLEFTJOIN", 1)[0]
+        assert "PREWHERE" in subquery, "pushed PREWHERE should stay a PREWHERE on the inner events scan:\n" + printed
+        assert "equals(events.event" in subquery, "PREWHERE predicate should be on the inner scan:\n" + printed
+        assert "greaterOrEquals(events.timestamp" in subquery, (
+            "WHERE predicate should be pushed into the subquery:\n" + printed
+        )
+        assert "PREWHERE" not in compact.split(")ASeventsLEFTJOIN", 1)[1], (
+            "no PREWHERE should remain on the subquery-based outer query:\n" + printed
+        )
+
+
+class TestOuterWhereAssignment:
+    """Verify that _apply_pushdown assigns outer_where back to node.where."""
+
+    def test_extractor_correctly_splits_mixed_predicates(self):
+        timestamp_pred = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        session_pred = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Field(chain=["events__session", "duration"]),
+            right=ast.Constant(value=0),
+        )
+        where = ast.And(exprs=[timestamp_pred, session_pred])
+
+        extractor = EventsPredicatePushdownExtractor(joined_table_aliases={"events__session"})
+        inner_where, outer_where = extractor.get_pushdown_predicates(where)
+
+        assert inner_where is not None
+        assert outer_where is not None
+
+
+class TestEventsPredicatePushdownTransformUnit:
+    """Unit tests for helper methods that don't require database/context."""
+
+    def _make_events_select_with_join(
+        self, where_clause: ast.Expr | None = None, alias: str | None = None, sample: ast.SampleExpr | None = None
+    ) -> ast.SelectQuery:
+        """Create a minimal SELECT query from events with a join for testing."""
+        events_field = ast.Field(chain=["events"])
+
+        mock_join = ast.JoinExpr(
+            join_type="LEFT JOIN",
+            table=ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+            ),
+            alias="events__session",
+        )
+
+        select_from = ast.JoinExpr(
+            table=events_field,
+            alias=alias,
+            next_join=mock_join,
+            sample=sample,
+            # _should_apply_pushdown now keys off the resolved table type (it runs post-resolution),
+            # so the FROM must carry the events TableType for these unit tests.
+            type=ast.TableType(table=EventsTable()),
+        )
+
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["event"])],
+            select_from=select_from,
+            where=where_clause,
+        )
+
+    def test_should_apply_pushdown_with_valid_query(self):
+        where_clause = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        node = self._make_events_select_with_join(where_clause=where_clause)
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is True
+
+    def test_should_not_apply_pushdown_without_where(self):
+        node = self._make_events_select_with_join(where_clause=None)
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_not_apply_pushdown_without_joins(self):
+        events_field = ast.Field(chain=["events"])
+        select_from = ast.JoinExpr(table=events_field, next_join=None)
+        node = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])],
+            select_from=select_from,
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value="2024-01-01"),
+            ),
+        )
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_not_apply_pushdown_for_non_events_table(self):
+        persons_field = ast.Field(chain=["persons"])
+        mock_join = ast.JoinExpr(
+            join_type="LEFT JOIN",
+            table=ast.Field(chain=["other"]),
+            alias="other_alias",
+        )
+        select_from = ast.JoinExpr(table=persons_field, next_join=mock_join)
+        node = ast.SelectQuery(
+            select=[ast.Field(chain=["id"])],
+            select_from=select_from,
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["created_at"]),
+                right=ast.Constant(value="2024-01-01"),
+            ),
+        )
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_apply_pushdown_with_prewhere_instead_of_where(self):
+        """Bug: queries with PREWHERE but no WHERE skip pushdown entirely."""
+        prewhere = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        node = self._make_events_select_with_join(where_clause=None)
+        node.prewhere = prewhere
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is True
+
+    def test_should_not_apply_pushdown_with_sample_clause(self):
+        sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=10)))
+        where_clause = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        node = self._make_events_select_with_join(where_clause=where_clause, sample=sample)
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_collect_joined_aliases_single_join(self):
+        node = self._make_events_select_with_join(where_clause=ast.Constant(value=True))
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        aliases = transform._collect_joined_aliases(node)
+
+        assert aliases == {"events__session"}
+
+    def test_collect_joined_aliases_multiple_joins(self):
+        events_field = ast.Field(chain=["events"])
+        third_join = ast.JoinExpr(
+            join_type="LEFT JOIN",
+            table=ast.Field(chain=["cohorts"]),
+            alias="events__cohort",
+        )
+        second_join = ast.JoinExpr(
+            join_type="LEFT JOIN",
+            table=ast.Field(chain=["persons"]),
+            alias="events__person",
+            next_join=third_join,
+        )
+        first_join = ast.JoinExpr(
+            join_type="LEFT JOIN",
+            table=ast.Field(chain=["sessions"]),
+            alias="events__session",
+            next_join=second_join,
+        )
+        select_from = ast.JoinExpr(table=events_field, next_join=first_join)
+        node = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])],
+            select_from=select_from,
+            where=ast.Constant(value=True),
+        )
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        aliases = transform._collect_joined_aliases(node)
+
+        assert aliases == {"events__session", "events__person", "events__cohort"}
+
+    @pytest.mark.parametrize(
+        "join_type",
+        ["RIGHT JOIN", "RIGHT OUTER JOIN", "FULL JOIN", "FULL OUTER JOIN"],
+    )
+    def test_collect_joined_aliases_empty_for_unsafe_join_type(self, join_type: str):
+        events_field = ast.Field(chain=["events"])
+        mock_join = ast.JoinExpr(
+            join_type=join_type,
+            table=ast.Field(chain=["sessions"]),
+            alias="events__session",
+        )
+        select_from = ast.JoinExpr(table=events_field, next_join=mock_join)
+        node = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])],
+            select_from=select_from,
+            where=ast.Constant(value=True),
+        )
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._collect_joined_aliases(node) == set()
+
+    def test_collect_joined_aliases_empty_when_no_joins(self):
+        events_field = ast.Field(chain=["events"])
+        select_from = ast.JoinExpr(table=events_field, next_join=None)
+        node = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])],
+            select_from=select_from,
+            where=ast.Constant(value=True),
+        )
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        aliases = transform._collect_joined_aliases(node)
+        assert aliases == set()
+
+
+class TestLazyTypeDetector(BaseTest):
+    """Tests for LazyTypeDetector using real HogQL queries.
+
+    LazyTypeDetector finds LazyJoinType/LazyTableType in the AST which indicates
+    that lazy join resolution hasn't completed - predicate pushdown should be skipped.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.database = Database.create_for(team=self.team)
+        self.context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
+
+    def _resolve_query(self, query: str) -> ast.SelectQuery:
+        """Parse and resolve types for a query (without lazy table resolution)."""
+        parsed = parse_select(query)
+        resolved = resolve_types(parsed, self.context, dialect="clickhouse")
+        assert isinstance(resolved, ast.SelectQuery)
+        return resolved
+
+    def test_detects_lazy_join_from_session_field(self):
+        """Query accessing session.$session_duration has LazyJoinType before lazy resolution."""
+        # session is a LazyJoin on events - produces LazyJoinType after resolve_types
+        node = self._resolve_query("SELECT session.$session_duration FROM events")
+
+        detector = LazyTypeDetector()
+        detector.visit(node)
+
+        assert detector.found_lazy_type is True
+
+    def test_detects_lazy_join_from_person_field(self):
+        """Query accessing person.id has LazyJoinType before lazy resolution."""
+        node = self._resolve_query("SELECT person.id FROM events")
+
+        detector = LazyTypeDetector()
+        detector.visit(node)
+
+        assert detector.found_lazy_type is True
+
+    def test_no_lazy_type_for_direct_events_columns(self):
+        """Query with only direct events columns has no lazy types."""
+        node = self._resolve_query("SELECT event, timestamp, distinct_id FROM events")
+
+        detector = LazyTypeDetector()
+        detector.visit(node)
+
+        assert detector.found_lazy_type is False
+
+    def test_no_lazy_type_after_lazy_table_resolution(self):
+        """After resolve_lazy_tables, there should be no lazy types in the main query fields."""
+        resolved = self._resolve_query(
+            "SELECT event, session.$session_duration FROM events WHERE timestamp > '2024-01-01'"
+        )
+        resolve_lazy_tables(resolved, "clickhouse", [], self.context)
+
+        # Check only the SELECT fields (not the joined subqueries which may have their own structure)
+        detector = LazyTypeDetector()
+        for field in resolved.select:
+            detector.visit(field)
+
+        assert detector.found_lazy_type is False
+
+
+class TestEventsFieldCollector(BaseTest):
+    """Tests for EventsFieldCollector using real HogQL queries.
+
+    EventsFieldCollector walks the AST to collect database columns needed from events table
+    and detects non-direct fields (PropertyType, LazyJoinType) that prevent safe pushdown.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.database = Database.create_for(team=self.team)
+        self.context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
+
+    def _resolve_query(self, query: str) -> tuple[ast.SelectQuery, ast.TableType | ast.TableAliasType]:
+        """Parse, resolve types, and return query with events table type."""
+        parsed = parse_select(query)
+        resolved = resolve_types(parsed, self.context, dialect="clickhouse")
+        assert isinstance(resolved, ast.SelectQuery)
+        assert resolved.select_from is not None
+        events_table_type = resolved.select_from.type
+        assert isinstance(events_table_type, (ast.TableType, ast.TableAliasType))
+        return resolved, events_table_type
+
+    def test_collects_direct_database_columns(self):
+        """Direct events columns like event, timestamp are collected."""
+        node, events_table_type = self._resolve_query("SELECT event, timestamp FROM events WHERE distinct_id = 'user1'")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "event" in collector.collected_fields
+        assert "timestamp" in collector.collected_fields
+        assert "distinct_id" in collector.collected_fields
+        assert collector.has_non_direct_fields is False
+
+    def test_property_access_collects_base_column(self):
+        # Accessing properties.$browser collects the base `properties` column so the property filter
+        # can be pushed and re-typed to the inner events table, rather than flagging it as non-direct.
+        node, events_table_type = self._resolve_query("SELECT properties.$browser FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "properties" in collector.collected_fields
+        assert collector.has_non_direct_fields is False
+
+    def test_lazy_join_field_triggers_non_direct_flag(self):
+        """Accessing session.$session_duration (lazy join) triggers has_non_direct_fields."""
+        node, events_table_type = self._resolve_query("SELECT session.$session_duration FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert collector.has_non_direct_fields is True
+
+    def test_session_id_from_events_is_direct_column(self):
+        """$session_id on events is a direct column (not a property access)."""
+        node, events_table_type = self._resolve_query("SELECT `$session_id` FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        # $session_id is a direct column on events table
+        assert "$session_id" in collector.collected_fields
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_properties_collected_as_person_properties(self):
+        """poe.properties (VirtualTable) resolves to database column person_properties."""
+        node, events_table_type = self._resolve_query("SELECT poe.properties FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "person_properties" in collector.collected_fields
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_id_collected_as_person_id(self):
+        """poe.id (VirtualTable) resolves to database column person_id."""
+        node, events_table_type = self._resolve_query("SELECT poe.id FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "person_id" in collector.collected_fields
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_created_at_collected_as_person_created_at(self):
+        """poe.created_at (VirtualTable) resolves to database column person_created_at."""
+        node, events_table_type = self._resolve_query("SELECT poe.created_at FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "person_created_at" in collector.collected_fields
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_field_type_has_virtual_table_type(self):
+        """Collected poe field has VirtualTableType as its table_type."""
+        node, events_table_type = self._resolve_query("SELECT poe.properties FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        field_type = collector.collected_fields["person_properties"]
+        assert isinstance(field_type.table_type, ast.VirtualTableType)
+
+    def test_poe_mixed_with_direct_columns(self):
+        """VirtualTable fields and direct columns are both collected."""
+        node, events_table_type = self._resolve_query("SELECT event, poe.id, timestamp FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "event" in collector.collected_fields
+        assert "person_id" in collector.collected_fields
+        assert "timestamp" in collector.collected_fields
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_revenue_analytics_lazy_join_triggers_non_direct(self):
+        """poe.revenue_analytics is a LazyJoin inside VirtualTable — triggers non-direct flag."""
+        node, events_table_type = self._resolve_query("SELECT poe.revenue_analytics.revenue FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert collector.has_non_direct_fields is True
+
+
+class TestSavedQueryWithLazyJoins(BaseTest):
+    """Tests for predicate pushdown with SavedQuery views that contain lazy joins.
+
+    SavedQuery views (e.g., revenue_analytics) may contain queries with lazy joins
+    (like events.person.distinct_id). When these views are expanded during resolve_types,
+    the lazy joins should be fully resolved before predicate pushdown runs.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.database = Database.create_for(team=self.team)
+
+        # Create a SavedQuery that contains a query with lazy joins
+        # This simulates what revenue_analytics views do
+        self.saved_query = SavedQuery(
+            id="test_view",
+            name="test_events_with_person",
+            query="SELECT event, person.id AS person_id, session.$session_duration AS session_duration FROM events WHERE timestamp > '2024-01-01'",
+            fields={
+                "event": StringDatabaseField(name="event"),
+                "person_id": StringDatabaseField(name="person_id"),
+                "session_duration": IntegerDatabaseField(name="session_duration"),
+            },
+        )
+
+        # Add the saved query to the database using the proper table structure
+        self.database.tables.add_child(TableNode(name="test_events_with_person", table=self.saved_query))
+
+        self.context = HogQLContext(
+            team_id=self.team.pk,
+            database=self.database,
+            enable_select_queries=True,
+        )
+
+    def test_saved_query_with_lazy_joins_and_session_join(self):
+        """Query from SavedQuery that internally uses lazy joins should resolve properly."""
+
+        # Need to set team on context for persons table join to work
+        self.context.team = self.team
+
+        query_str = "SELECT event, person_id, session_duration FROM test_events_with_person"
+
+        # Use the full pipeline
+        query, prepared_ast = prepare_and_print_ast(
+            parse_select(query_str),
+            self.context,
+            "clickhouse",
+        )
+
+        # Should complete without error - verifies lazy joins are fully resolved
+        assert "SELECT" in query
+
+
+# Result-equivalence tests that run real ClickHouse queries. Unlike the printer tests above (which only
+# assert on the generated SQL string), these create events, execute the query with pushDownPredicates on
+# and off, and assert identical results: pushdown is a pure optimization, and executing the query surfaces
+# any SQL ClickHouse rejects (e.g. an outer-alias leak), which string snapshots cannot catch.
+class TestEventsPredicatePushdownExecution(ClickhouseTestMixin, APIBaseTest):
+    snapshot: Any
+
+    def _print_pushdown_sql(self, select: str) -> str:
+        query, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
+            ),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    def _results(self, select: str, *, push_down: bool):
+        return execute_hogql_query(
+            select,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
+        ).results
+
+    def _create_session(self, when_iso: str, distinct_id: str, tier: str, *event_timestamps: str) -> None:
+        # session_id is a uuid7 whose embedded time must line up with the events so the session join matches
+        session_id = str(uuid7(when_iso))
+        for ts in event_timestamps:
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id=distinct_id,
+                timestamp=ts,
+                properties={"$session_id": session_id, "tier": tier},
+            )
+
+    def _create_data(self) -> None:
+        # Two in-range sessions (Jan 2024) plus one out-of-range session (2023) the timestamp filter must drop
+        self._create_session("2024-01-02T00:00:00", "u1", "pro", "2024-01-02T10:00:00", "2024-01-02T10:05:00")
+        self._create_session("2024-01-05T00:00:00", "u2", "free", "2024-01-05T09:00:00")
+        self._create_session("2023-06-01T00:00:00", "u3", "pro", "2023-06-01T09:00:00")
+        flush_persons_and_events()
+
+    def _assert_pushdown_equivalent(self, select: str, *, expected_rows: int) -> None:
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        assert len(with_pushdown or []) == expected_rows, f"expected {expected_rows} rows, got {with_pushdown}"
+
+    def test_exec_array_join_predicate_not_pushed_stays_equivalent(self):
+        # arrayJoin is row-multiplying: pushing the predicate into the events subquery would expand rows in
+        # a different scope than the SELECT's arrayJoin, changing the result count (6 off vs 12 on without
+        # the fix). The arrayJoin predicate must stay in the outer WHERE; the timestamp filter still pushes.
+        self._create_data()
+        select = (
+            f"SELECT arrayJoin([1, 2]) AS n, session.$session_duration AS d FROM events "
+            f"WHERE {self._RANGE} AND arrayJoin([1, 2]) > 0 ORDER BY n"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert "FROM (" in printed, f"expected the timestamp filter to still push down:\n{printed}"
+        subquery = printed.split("FROM (", 1)[1].split(") AS ", 1)[0]
+        assert "arrayJoin" not in subquery, f"arrayJoin predicate must NOT be pushed into the subquery:\n{printed}"
+        # 3 in-range events x arrayJoin([1, 2]) = 6 rows, identical on vs off.
+        self._assert_pushdown_equivalent(select, expected_rows=6)
+
+    def test_exec_array_join_via_aliased_events_column_not_pushed(self):
+        # The arrayJoin is hidden behind a SELECT alias that shadows the `event` column and is referenced in
+        # the WHERE. The bare-alias predicate must NOT be classified pushable: SelectAliasInliner would
+        # otherwise expand the arrayJoin into the subquery, multiplying rows in a scope independent of the
+        # outer SELECT's same arrayJoin (on != off). Regression for the alias-indirection hole in the
+        # row-multiplying-function guard.
+        self._create_data()
+        select = (
+            f"SELECT arrayJoin([event, 'extra']) AS event, session.$session_duration AS d FROM events "
+            f"WHERE {self._RANGE} AND event = 'watched movie' ORDER BY event"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert "FROM (" in printed, f"expected the timestamp filter to still push down:\n{printed}"
+        subquery = printed.split("FROM (", 1)[1].split(") AS ", 1)[0]
+        assert "arrayJoin" not in subquery, f"arrayJoin reached the subquery via an events-shadowing alias:\n{printed}"
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_exec_timestamp_filter_with_session_join(self):
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' ORDER BY timestamp"
+        )
+        assert self._print_pushdown_sql(select) == self.snapshot
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_exec_aliased_events_timestamp_filter_with_session_join(self):
+        self._create_data()
+        select = (
+            "SELECT e.event, session.$session_duration FROM events AS e "
+            "WHERE e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-08' ORDER BY e.timestamp"
+        )
+        assert self._print_pushdown_sql(select) == self.snapshot
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_exec_property_filter_with_session_join(self):
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' AND properties.tier = 'pro' "
+            "ORDER BY timestamp"
+        )
+        printed = self._print_pushdown_sql(select)
+        # the property filter must be pushed into the events subquery, not bailed on
+        assert ") AS events LEFT JOIN" in printed, (
+            "expected property filter pushed into an events subquery:\n" + printed
+        )
+        assert printed == self.snapshot
+        self._assert_pushdown_equivalent(select, expected_rows=2)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_exec_aliased_property_filter_with_session_join(self):
+        self._create_data()
+        select = (
+            "SELECT e.event, session.$session_duration FROM events AS e "
+            "WHERE e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-08' AND e.properties.tier = 'pro' "
+            "ORDER BY e.timestamp"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert ") AS e LEFT JOIN" in printed, "expected property filter pushed into an events subquery:\n" + printed
+        # the property predicate must reference the inner events table, never the outer alias `e`
+        events_subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
+        assert "e.properties" not in events_subquery, "leaked outer alias into property predicate:\n" + events_subquery
+        assert printed == self.snapshot
+        self._assert_pushdown_equivalent(select, expected_rows=2)
+
+    def test_exec_alias_shadowing_constant_predicate_stays_correct(self):
+        # A SELECT alias whose name collides with an events column but whose expression is a constant
+        # must not be pushed by name: `WHERE event = 'x'` means `'x' = 'x'` (true), not events.event = 'x'.
+        self._create_data()
+        select = (
+            "SELECT 'x' AS event, session.$session_duration FROM events "
+            "WHERE event = 'x' AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' ORDER BY timestamp"
+        )
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    def test_exec_alias_shadowing_joined_predicate_stays_correct(self):
+        # A SELECT alias whose name collides with an events column but whose expression references the
+        # joined session table must not be pushed into the events subquery.
+        self._create_data()
+        select = (
+            "SELECT ifNull(session.$session_duration, 0) AS event FROM events "
+            "WHERE event >= 0 AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' ORDER BY timestamp"
+        )
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    def test_exec_events_prewhere_with_session_join_stays_correct(self):
+        # A pushable events-column PREWHERE plus a session join must stay result-equivalent on/off, and the
+        # PREWHERE must stay a PREWHERE on the inner events scan (not be demoted to WHERE).
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "PREWHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' "
+            "WHERE event = 'watched movie' ORDER BY timestamp"
+        )
+        printed = self._print_pushdown_sql(select)
+        subquery = "".join(printed.split()).split("FROM(", 1)[1].split(")ASeventsLEFTJOIN", 1)[0]
+        assert "PREWHERE" in subquery, "pushed PREWHERE should stay a PREWHERE on the inner scan:\n" + printed
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    def test_exec_prewhere_only_with_session_join_stays_correct(self):
+        # A PREWHERE-only events query (no WHERE) still pushes: the subquery keeps the PREWHERE and the
+        # printer injects the team_id guard as the subquery's WHERE. Exercises the where=None subquery path.
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "PREWHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' ORDER BY timestamp"
+        )
+        printed = self._print_pushdown_sql(select)
+        subquery = "".join(printed.split()).split("FROM(", 1)[1].split(")ASeventsLEFTJOIN", 1)[0]
+        assert "PREWHERE" in subquery, "pushed PREWHERE should stay a PREWHERE on the inner scan:\n" + printed
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    def test_exec_non_pushable_prewhere_bails(self):
+        # A PREWHERE referencing a non-events (joined) column can't be pushed and can't stay on the outer
+        # query either: after pushdown the outer FROM is a subquery, where PREWHERE is invalid. Pushdown
+        # must bail so we never emit a PREWHERE on a subquery. (The query is already invalid CH regardless,
+        # so this is a print-level check that we don't make it worse, not an execution one.)
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "PREWHERE session.$session_duration > 0 AND timestamp >= '2024-01-01' "
+            "WHERE event = 'watched movie'"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert ") AS events LEFT JOIN" not in printed, (
+            f"pushdown must bail when a PREWHERE predicate isn't fully pushable (no PREWHERE on a subquery):\n{printed}"
+        )
+
+    def test_exec_aliased_function_shadowing_column_pushes_full_expression(self):
+        # A non-identity function aliased back to its own column name (upper(event) AS event) and filtered
+        # on must push the full expression, not re-bind the bare name to the raw column (which would drop
+        # upper() and filter case-sensitively). Events are lowercase, so re-binding would return 0 rows.
+        self._create_data()
+        select = (
+            "SELECT upper(event) AS event, session.$session_duration FROM events "
+            "WHERE event = 'WATCHED MOVIE' AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' "
+            "ORDER BY timestamp"
+        )
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    def test_exec_events_only_or_predicate_stays_correct(self):
+        # An OR predicate referencing only events columns is pushed atomically and must stay equivalent.
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE (event = 'watched movie' OR event = 'nonexistent') "
+            "AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' ORDER BY timestamp"
+        )
+        self._assert_pushdown_equivalent(select, expected_rows=3)
+
+    def _create_diverse_data(self) -> None:
+        # A second event name (so event filters actually discriminate) and a row whose `$session_id` is
+        # invalid (so its LEFT JOIN finds no session and the duration is NULL — an unmatched-join row).
+        s1, s2 = str(uuid7("2024-01-02T00:00:00")), str(uuid7("2024-01-03T00:00:00"))
+        rows = [
+            ("u1", "watched movie", s1, "2024-01-02T10:00:00"),
+            ("u1", "watched movie", s1, "2024-01-02T10:05:00"),
+            ("u2", "added to cart", s2, "2024-01-03T09:00:00"),
+            ("u3", "watched movie", "", "2024-01-04T09:00:00"),  # invalid session_id → unmatched LEFT JOIN
+        ]
+        for distinct_id, event, session_id, ts in rows:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=ts,
+                properties={"$session_id": session_id, "tier": "pro"},
+            )
+        flush_persons_and_events()
+
+    def test_exec_event_filter_discriminates_and_stays_equivalent(self):
+        # With two event names, an event-name filter must return fewer rows than the unfiltered baseline
+        # (otherwise the shape doesn't actually test the predicate), and stay pushdown-equivalent.
+        self._create_diverse_data()
+        baseline = f"SELECT event, session.$session_duration FROM events WHERE {self._RANGE} ORDER BY timestamp"
+        filtered = f"SELECT event, session.$session_duration FROM events WHERE {self._RANGE} AND event = 'watched movie' ORDER BY timestamp"
+        self._assert_pushdown_equivalent(baseline, expected_rows=4)
+        self._assert_pushdown_equivalent(filtered, expected_rows=3)
+
+    def test_exec_unmatched_left_join_null_duration_stays_equivalent(self):
+        # The row with an invalid `$session_id` has a NULL session duration (LEFT JOIN miss). Pushdown must
+        # not change which rows survive or their NULL durations.
+        self._create_diverse_data()
+        select = (
+            f"SELECT event, session.$session_duration AS d FROM events WHERE {self._RANGE} ORDER BY timestamp, event"
+        )
+        self._assert_pushdown_equivalent(select, expected_rows=4)
+        # the unmatched row must actually be present with a NULL/zero duration in both modes
+        results = self._results(select, push_down=True)
+        assert any(row[1] in (None, 0) for row in results), f"expected an unmatched-join NULL/0 duration row: {results}"
+
+    # Each shape has a session join and a pushable timestamp filter, so pushdown fires; the test asserts
+    # the events subquery was created AND that results are identical with pushdown on vs off. This is the
+    # core "pure optimization" invariant exercised against real ClickHouse across many query shapes.
+    _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
+    EQUIVALENCE_SHAPES = [
+        ("baseline", f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} ORDER BY timestamp"),
+        (
+            "event_equals",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND event = 'watched movie' ORDER BY timestamp",
+        ),
+        (
+            "event_or",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND (event = 'watched movie' OR event = 'other') ORDER BY timestamp",
+        ),
+        (
+            "event_not",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND NOT (event = 'nope') ORDER BY timestamp",
+        ),
+        (
+            "event_in",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND event IN ('watched movie', 'other') ORDER BY timestamp",
+        ),
+        (
+            "property_equals",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND properties.tier = 'pro' ORDER BY timestamp",
+        ),
+        (
+            "property_in",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND properties.tier IN ('pro', 'free') ORDER BY timestamp",
+        ),
+        (
+            "comparison_ops",
+            f"SELECT event, session.$session_duration FROM events WHERE timestamp > '2024-01-01' AND timestamp <= '2024-01-08' ORDER BY timestamp",
+        ),
+        (
+            "group_by_aggregation",
+            f"SELECT event, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY event ORDER BY event",
+        ),
+        (
+            "group_by_having",
+            f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY t HAVING count() > 0 ORDER BY t",
+        ),
+        (
+            "limit",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} ORDER BY timestamp, event LIMIT 2",
+        ),
+        (
+            "distinct",
+            f"SELECT DISTINCT properties.tier AS t, session.$session_duration AS d FROM events WHERE {_RANGE} ORDER BY t, d",
+        ),
+        (
+            "order_by_joined_column",
+            f"SELECT event, session.$session_duration AS d FROM events WHERE {_RANGE} ORDER BY d, timestamp",
+        ),
+        (
+            "mixed_events_and_joined_predicate",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND session.$session_duration >= 0 ORDER BY timestamp",
+        ),
+        (
+            "aliased_table",
+            f"SELECT e.event, session.$session_duration FROM events AS e WHERE e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-08' AND e.event = 'watched movie' ORDER BY e.timestamp",
+        ),
+        (
+            "aliased_function_shadowing",
+            f"SELECT upper(event) AS event, session.$session_duration FROM events WHERE {_RANGE} AND event = 'WATCHED MOVIE' ORDER BY timestamp",
+        ),
+    ]
+
+    @parameterized.expand(EQUIVALENCE_SHAPES)
+    def test_exec_pushdown_result_equivalence(self, _name: str, select: str):
+        self._create_data()
+        printed = self._print_pushdown_sql(select)
+        assert ") AS events LEFT JOIN" in printed or ") AS e LEFT JOIN" in printed, (
+            f"{_name}: expected pushdown to wrap events in a subquery, but it bailed:\n{printed}"
+        )
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, (
+            f"{_name}: pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        )
+
+
+class TestEventsPredicatePushdownMaterializedExecution(ClickhouseTestMixin, APIBaseTest):
+    """Pushdown must stay a pure optimization on teams that have materialized columns.
+
+    The test ClickHouse has no materialized columns by default, so the rest of the suite never prints
+    `events.mat_*`. These tests materialize a property first, so the printer reads the physical column and
+    the pushdown subquery must expose it; without that exposure a property referenced outside the pushed
+    predicate (SELECT / GROUP BY / ORDER BY / HAVING) prints `events.mat_tier` against a subquery alias that
+    doesn't have it → `Unknown identifier`. Every assertion checks pushdown-on == pushdown-off.
+    """
+
+    def _print_pushdown_sql(self, select: str) -> str:
+        query, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
+            ),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    def _results(self, select: str, *, push_down: bool):
+        return execute_hogql_query(
+            select,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
+        ).results
+
+    def _create_data(self) -> None:
+        # Same shape as the non-materialized suite; called inside a materialized() block so the physical
+        # column is computed at insert time (ClickHouse MATERIALIZED columns are evaluated on INSERT).
+        for distinct_id, tier, timestamps in [
+            ("u1", "pro", ["2024-01-02T10:00:00", "2024-01-02T10:05:00"]),
+            ("u2", "free", ["2024-01-05T09:00:00"]),
+            ("u3", "pro", ["2023-06-01T09:00:00"]),
+        ]:
+            session_id = str(uuid7(timestamps[0]))
+            for ts in timestamps:
+                _create_event(
+                    team=self.team,
+                    event="watched movie",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={"$session_id": session_id, "tier": tier},
+                )
+        flush_persons_and_events()
+
+    def _assert_equivalent(self, select: str, *, expected_rows: int) -> None:
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        assert len(with_pushdown or []) == expected_rows, f"expected {expected_rows} rows, got {with_pushdown}"
+
+    def _events_subquery(self, printed: str) -> str:
+        assert ") AS events LEFT JOIN" in printed, f"expected pushdown to wrap events in a subquery:\n{printed}"
+        return printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
+
+    _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
+
+    def test_exec_materialized_property_in_select_and_group_by(self):
+        # The CRITICAL repro: a materialized property in the outer SELECT/GROUP BY. The subquery must
+        # expose `mat_tier` or the outer `events.mat_tier` is an Unknown identifier.
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            select = (
+                f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
+                f"WHERE {self._RANGE} GROUP BY t ORDER BY t"
+            )
+            printed = self._print_pushdown_sql(select)
+            subquery = self._events_subquery(printed)
+            assert mat_col.name in subquery, f"expected the materialized column exposed in the subquery:\n{printed}"
+            # The materialized property must NOT also drag the raw `properties` blob into the subquery
+            # projection (over-projection would force a ~100x-slower full-Map read). Guards drift on the
+            # plain-materialized PropertyType path, mirroring the JSONHas blob-projection guard.
+            assert "properties AS properties" not in subquery, (
+                f"materialized property over-projected the blob:\n{printed}"
+            )
+            self._assert_equivalent(select, expected_rows=2)
+
+    def test_exec_materialized_property_in_order_by(self):
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            select = f"SELECT event, session.$session_duration FROM events WHERE {self._RANGE} ORDER BY properties.tier, timestamp"
+            printed = self._print_pushdown_sql(select)
+            assert mat_col.name in self._events_subquery(printed)
+            self._assert_equivalent(select, expected_rows=3)
+
+    def test_exec_materialized_property_in_having(self):
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            select = (
+                f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
+                f"WHERE {self._RANGE} GROUP BY t HAVING max(properties.tier) != 'nope' ORDER BY t"
+            )
+            printed = self._print_pushdown_sql(select)
+            assert mat_col.name in self._events_subquery(printed)
+            self._assert_equivalent(select, expected_rows=2)
+
+    def test_exec_materialized_property_filter_pushed_uses_mat_column(self):
+        # Property in the pushed predicate: the subquery WHERE must use the materialized column, not the
+        # JSONExtract blob path, and results must match pushdown-off.
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            select = f"SELECT event, session.$session_duration FROM events WHERE {self._RANGE} AND properties.tier = 'pro' ORDER BY timestamp"
+            printed = self._print_pushdown_sql(select)
+            subquery = self._events_subquery(printed)
+            assert mat_col.name in subquery, (
+                f"expected the materialized column used in the pushed predicate:\n{printed}"
+            )
+            assert "JSONExtract" not in subquery, (
+                f"materialized column should avoid the JSONExtract blob path:\n{printed}"
+            )
+            self._assert_equivalent(select, expected_rows=2)
+
+    def test_exec_materialized_property_not_referenced_outside_predicate(self):
+        # Property only in the pushed predicate (not the outer query): still equivalent, and the subquery
+        # reads the materialized column rather than the properties blob.
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            select = f"SELECT event, session.$session_duration FROM events WHERE {self._RANGE} AND properties.tier IN ('pro', 'free') ORDER BY timestamp"
+            printed = self._print_pushdown_sql(select)
+            assert mat_col.name in self._events_subquery(printed)
+            self._assert_equivalent(select, expected_rows=3)
+
+    MATERIALIZED_SHAPES = [
+        (
+            "select_group_by",
+            f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY t ORDER BY t",
+        ),
+        (
+            "distinct",
+            f"SELECT DISTINCT properties.tier AS t, session.$session_duration AS d FROM events WHERE {_RANGE} ORDER BY t, d",
+        ),
+        (
+            "property_equals",
+            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND properties.tier = 'pro' ORDER BY timestamp",
+        ),
+        (
+            "property_in_select_and_filter",
+            f"SELECT properties.tier AS t, session.$session_duration FROM events WHERE {_RANGE} AND properties.tier = 'pro' ORDER BY timestamp",
+        ),
+    ]
+
+    @parameterized.expand(MATERIALIZED_SHAPES)
+    def test_exec_materialized_pushdown_result_equivalence(self, _name: str, select: str):
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            printed = self._print_pushdown_sql(select)
+            assert mat_col.name in self._events_subquery(printed), (
+                f"{_name}: materialized column not exposed:\n{printed}"
+            )
+            with_pushdown = self._results(select, push_down=True)
+            without_pushdown = self._results(select, push_down=False)
+            assert with_pushdown == without_pushdown, (
+                f"{_name}: pushdown changed results: on={with_pushdown} off={without_pushdown}"
+            )
+
+
+class TestEventsPredicatePushdownPropertyGroupsExecution(ClickhouseTestMixin, APIBaseTest):
+    """Pushdown must stay a pure optimization under propertyGroupsMode=OPTIMIZED (the PostHog Cloud default).
+
+    In OPTIMIZED mode the printer rewrites `JSONHas(properties, 'k')` into `has(events.properties_group_*,
+    'k')`, referencing a property-group Map column. JSONHas's argument is the bare `properties` column (not
+    a `properties.k` PropertyType), so the subquery must still expose that Map column or an outer-scope
+    JSONHas resolves against a column the subquery alias doesn't carry → `Unknown identifier`.
+    """
+
+    def _print_pushdown_sql(self, select: str) -> str:
+        query, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(pushDownPredicates=True, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+            ),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    def _results(self, select: str, *, push_down: bool):
+        return execute_hogql_query(
+            select,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(
+                pushDownPredicates=push_down, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED
+            ),
+        ).results
+
+    def _create_data(self) -> None:
+        # Two events that have the `tier` property and one that doesn't, so JSONHas(properties, 'tier')
+        # discriminates (2 true, 1 false). All in range with a valid session for the lazy join.
+        for distinct_id, props, timestamps in [
+            ("u1", {"tier": "pro"}, ["2024-01-02T10:00:00", "2024-01-02T10:05:00"]),
+            ("u2", {}, ["2024-01-05T09:00:00"]),
+        ]:
+            session_id = str(uuid7(timestamps[0]))
+            for ts in timestamps:
+                _create_event(
+                    team=self.team,
+                    event="watched movie",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={"$session_id": session_id, **props},
+                )
+        flush_persons_and_events()
+
+    def _events_subquery(self, printed: str) -> str:
+        assert ") AS events LEFT JOIN" in printed, f"expected pushdown to wrap events in a subquery:\n{printed}"
+        return printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
+
+    _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
+
+    def test_exec_outer_json_has_exposes_property_group_column(self):
+        # The reproduced break: JSONHas in ORDER BY → printer emits has(events.properties_group_*), which
+        # the subquery must expose.
+        self._create_data()
+        select = (
+            f"SELECT event, session.$session_duration FROM events "
+            f"WHERE {self._RANGE} ORDER BY JSONHas(properties, 'tier'), timestamp"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert "properties_group" in self._events_subquery(printed), (
+            f"expected the property-group Map column exposed in the subquery:\n{printed}"
+        )
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        assert len(with_pushdown or []) == 3
+
+    def test_exec_json_has_does_not_project_properties_blob(self):
+        # Under OPTIMIZED the printer reads only the property-group Map column for JSONHas, never the
+        # `properties` blob. When JSONHas is the sole `properties` reference, the subquery must expose the
+        # Map column and NOT project the full blob (which would force a ~100x Map read for nothing).
+        self._create_data()
+        select = (
+            f"SELECT event, session.$session_duration FROM events "
+            f"WHERE {self._RANGE} ORDER BY JSONHas(properties, 'tier'), timestamp"
+        )
+        subquery = self._events_subquery(self._print_pushdown_sql(select))
+        assert "properties_group" in subquery, f"expected the group Map column exposed:\n{subquery}"
+        assert "properties AS properties" not in subquery, (
+            f"the raw properties blob must NOT be projected when only JSONHas reads it:\n{subquery}"
+        )
+
+    def test_exec_json_has_in_select_stays_equivalent(self):
+        self._create_data()
+        select = (
+            f"SELECT JSONHas(properties, 'tier') AS h, session.$session_duration FROM events "
+            f"WHERE {self._RANGE} ORDER BY h, timestamp"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert "properties_group" in self._events_subquery(printed), printed
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+
+    def test_exec_json_has_in_group_by_stays_equivalent(self):
+        self._create_data()
+        select = (
+            f"SELECT JSONHas(properties, 'tier') AS h, count() AS c, max(session.$session_duration) AS d FROM events "
+            f"WHERE {self._RANGE} GROUP BY h ORDER BY h"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert "properties_group" in self._events_subquery(printed), printed
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        assert len(with_pushdown or []) == 2  # one group with tier present, one without
+
+    def test_exec_json_has_property_filter_pushed_stays_equivalent(self):
+        # JSONHas in the pushed predicate (WHERE): goes into the subquery, which can reference the group
+        # column directly. Must stay equivalent.
+        self._create_data()
+        select = (
+            f"SELECT event, session.$session_duration FROM events "
+            f"WHERE {self._RANGE} AND JSONHas(properties, 'tier') ORDER BY timestamp"
+        )
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        assert len(with_pushdown or []) == 2  # only u1's two events have the tier property
+
+    def test_exec_property_type_uses_property_group_column(self):
+        # `properties.tier` (a PropertyType, not JSONHas) under OPTIMIZED is read from the property-group
+        # Map column by the printer; the collector's PropertyType path must expose it too. Distinct code
+        # path from the JSONHas tests above (visit_field/_collect_materialized_column, not visit_call).
+        self._create_data()
+        select = (
+            f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
+            f"WHERE {self._RANGE} GROUP BY t ORDER BY t"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert "properties_group" in self._events_subquery(printed), printed
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        assert len(with_pushdown or []) == 2  # tier='pro' group and the no-tier group
+
+    def test_exec_is_not_null_uses_property_group_column(self):
+        # Under OPTIMIZED the printer rewrites isNull/isNotNull(properties.k) to the property-group has()
+        # expression, so the Map column must be exposed. The arg is a PropertyType (visit_field path), so
+        # the group column is exposed by _collect_materialized_column — pin that equivalence here.
+        self._create_data()
+        select = (
+            f"SELECT isNotNull(properties.tier) AS has_tier, count() AS c, max(session.$session_duration) AS d "
+            f"FROM events WHERE {self._RANGE} GROUP BY has_tier ORDER BY has_tier"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert "properties_group" in self._events_subquery(printed), printed
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        assert len(with_pushdown or []) == 2  # has-tier (u1) and no-tier (u2) groups
+
+
+class TestEventsPredicatePushdownDmatExecution(ClickhouseTestMixin, APIBaseTest):
+    """Pushdown must expose dmat (dynamic materialized) columns in the subquery too.
+
+    A property with a READY MaterializedColumnSlot is read from `dmat_string_<n>` by the printer, so an
+    outer reference to that property after pushdown must resolve against the subquery alias. The test DB
+    has the physical dmat columns but `_create_event` doesn't populate them, so events are inserted with
+    the column pre-filled (same approach as test_property_types_dmat.py).
+    """
+
+    _SLOT_INDEX = 0
+
+    def _print_pushdown_sql(self, select: str) -> str:
+        query, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(
+                team_id=self.team.pk,
+                team=self.team,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
+            ),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    def _results(self, select: str, *, push_down: bool):
+        return execute_hogql_query(
+            select, team=self.team, modifiers=HogQLQueryModifiers(pushDownPredicates=push_down)
+        ).results
+
+    def _setup_dmat_events(self) -> None:
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="tier",
+            property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        MaterializedColumnSlot.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            slot_index=self._SLOT_INDEX,
+            state=MaterializedColumnSlotState.READY,
+        )
+        for distinct_id, tier in [("u1", "pro"), ("u2", "free")]:
+            sync_execute(
+                f"""
+                INSERT INTO sharded_events (uuid, team_id, event, distinct_id, timestamp, properties, dmat_string_{self._SLOT_INDEX})
+                SELECT %(uuid)s, %(team_id)s, 'watched movie', %(distinct_id)s, now(), %(properties)s, %(dmat)s
+                """,
+                {
+                    "uuid": str(uuid4()),
+                    "team_id": self.team.pk,
+                    "distinct_id": distinct_id,
+                    "properties": json.dumps({"tier": tier}),
+                    "dmat": tier,
+                },
+                flush=False,
+            )
+
+    def _events_subquery(self, printed: str) -> str:
+        assert ") AS events LEFT JOIN" in printed, f"expected pushdown to wrap events in a subquery:\n{printed}"
+        return printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
+
+    def test_exec_dmat_property_in_select_stays_equivalent(self):
+        self._setup_dmat_events()
+        select = "SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE timestamp >= '2020-01-01' ORDER BY t"
+        printed = self._print_pushdown_sql(select)
+        assert f"dmat_string_{self._SLOT_INDEX}" in self._events_subquery(printed), printed
+        on = self._results(select, push_down=True)
+        off = self._results(select, push_down=False)
+        assert on == off, f"pushdown changed results: on={on} off={off}"
+        assert len(on or []) == 2
+
+    def test_exec_dmat_property_in_group_by_stays_equivalent(self):
+        self._setup_dmat_events()
+        select = (
+            "SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
+            "WHERE timestamp >= '2020-01-01' GROUP BY t ORDER BY t"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert f"dmat_string_{self._SLOT_INDEX}" in self._events_subquery(printed), printed
+        on = self._results(select, push_down=True)
+        off = self._results(select, push_down=False)
+        assert on == off, f"pushdown changed results: on={on} off={off}"
+        assert len(on or []) == 2
