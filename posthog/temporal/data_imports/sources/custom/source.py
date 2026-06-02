@@ -32,7 +32,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
-INLINE_SECRET_KEYS = ("token", "api_key", "password")
+INLINE_SECRET_KEYS = ("token", "api_key", "password", "client_secret", "refresh_token", "access_token")
 
 
 def is_custom_source_available_for_team(team_id: int | None) -> bool:
@@ -57,10 +57,19 @@ class _ManifestAuth(BaseModel):
     # engine's `create_auth` with an unexpected-kwarg TypeError at sync time.
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["bearer", "api_key", "http_basic"]
+    type: Literal["bearer", "api_key", "http_basic", "oauth2"]
     name: str | None = None
     location: Literal["header", "query", "param", "cookie"] | None = None
     username: str | None = None
+    # OAuth2 (non-secret) fields. The secrets — client_secret, refresh_token —
+    # live in the dedicated `auth_*` config fields and are injected at sync time.
+    token_url: str | None = None
+    client_id: str | None = None
+    grant_type: Literal["client_credentials", "refresh_token"] | None = None
+    scopes: list[str] | str | None = None
+    access_token_name: str | None = None
+    expires_in_name: str | None = None
+    header_prefix: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -74,6 +83,14 @@ class _ManifestAuth(BaseModel):
                     f"Credentials ({', '.join(inline)}) must not be embedded — use the dedicated auth fields"
                 )
         return data
+
+    @model_validator(mode="after")
+    def _oauth2_requires_token_url(self) -> "_ManifestAuth":
+        # token_url is the endpoint the credential is POSTed to — it must be
+        # present (and is SSRF-vetted by validate_manifest_urls) for oauth2.
+        if self.type == "oauth2" and not self.token_url:
+            raise ValueError("oauth2 auth requires a token_url")
+        return self
 
 
 class _ManifestClient(BaseModel):
@@ -157,10 +174,21 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     the host check via :func:`_is_host_safe` (which is itself a no-op
     outside of cloud).
     """
-    base_url = manifest["client"]["base_url"]
+    client = manifest["client"]
+    base_url = client["base_url"]
     ok, err = _check_url(base_url, team_id)
     if not ok:
         return False, f"Invalid base_url: {err}"
+
+    # The OAuth2 token endpoint is a user-supplied URL the server POSTs the
+    # credential to, so it gets the same host-safety + https-on-cloud vetting.
+    auth = client.get("auth")
+    if isinstance(auth, dict) and auth.get("type") == "oauth2":
+        token_url = auth.get("token_url")
+        if isinstance(token_url, str) and token_url:
+            ok, err = _check_url(token_url, team_id)
+            if not ok:
+                return False, f"Invalid token_url: {err}"
 
     base_host = _url_hostname(base_url)
     for resource in manifest["resources"]:
@@ -255,6 +283,15 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     base_for_resolve = base_url if isinstance(base_url, str) else ""
 
     urls: list[str] = [base_url] if isinstance(base_url, str) else []
+
+    # The OAuth2 token endpoint also receives the credential, so a change to it
+    # must trip the retarget guard and force the secret to be re-entered.
+    auth = client.get("auth") if isinstance(client, dict) else None
+    if isinstance(auth, dict) and auth.get("type") == "oauth2":
+        token_url = auth.get("token_url")
+        if isinstance(token_url, str):
+            urls.append(token_url)
+
     resources = manifest.get("resources")
     if isinstance(resources, list):
         for resource in resources:
@@ -350,6 +387,25 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                     SourceFieldInputConfig(
                         name="auth_password",
                         label="Auth password",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    # OAuth2 secrets — used when the manifest's client.auth.type is
+                    # "oauth2". client_id / token_url are non-secret and live in the
+                    # manifest; these credentials are injected at sync time.
+                    SourceFieldInputConfig(
+                        name="auth_client_secret",
+                        label="OAuth client secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="auth_refresh_token",
+                        label="OAuth refresh token",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
@@ -577,6 +633,11 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
         auth["api_key"] = config.auth_api_key
     elif auth_type == "http_basic" and config.auth_password:
         auth["password"] = config.auth_password
+    elif auth_type == "oauth2":
+        if config.auth_client_secret:
+            auth["client_secret"] = config.auth_client_secret
+        if config.auth_refresh_token:
+            auth["refresh_token"] = config.auth_refresh_token
 
 
 def _incremental_field_type(raw: Any) -> IncrementalFieldType:

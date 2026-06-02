@@ -8,7 +8,7 @@ from typing import Any, NamedTuple, Optional, cast
 
 from requests import Response
 
-from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth
+from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, OAuth2Auth
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import find_values
 from .paginators import (
@@ -51,6 +51,7 @@ AUTH_MAP: dict[AuthType, type[AuthConfigBase]] = {
     "bearer": BearerTokenAuth,
     "api_key": APIKeyAuth,
     "http_basic": HttpBasicAuth,
+    "oauth2": OAuth2Auth,
 }
 
 

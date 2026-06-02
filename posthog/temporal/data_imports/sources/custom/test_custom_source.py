@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 from unittest.mock import MagicMock, patch
 
@@ -6,7 +7,13 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth, BearerTokenAuth, HttpBasicAuth
+from posthog.temporal.data_imports.sources.common.rest_source.auth import (
+    APIKeyAuth,
+    BearerTokenAuth,
+    HttpBasicAuth,
+    OAuth2Auth,
+    OAuth2TokenError,
+)
 from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
@@ -111,11 +118,37 @@ class TestValidateManifest(SimpleTestCase):
             validate_manifest(manifest)
         assert field in str(ctx.exception)
 
+    def test_accepts_oauth2_auth(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "token_url": "https://auth.example.com/token",
+            "client_id": "abc",
+            "grant_type": "client_credentials",
+            "scopes": ["read"],
+        }
+        validate_manifest(manifest)
+
+    def test_rejects_oauth2_without_token_url(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "oauth2", "client_id": "abc"}
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "token_url" in str(ctx.exception)
+
     @parameterized.expand(
         [
             ("token", {"type": "bearer", "token": "leaked"}),
             ("api_key", {"type": "api_key", "api_key": "leaked"}),
             ("password", {"type": "http_basic", "username": "alice", "password": "leaked"}),
+            (
+                "client_secret",
+                {"type": "oauth2", "token_url": "https://auth.example.com/token", "client_secret": "leaked"},
+            ),
+            (
+                "refresh_token",
+                {"type": "oauth2", "token_url": "https://auth.example.com/token", "refresh_token": "leaked"},
+            ),
         ]
     )
     def test_rejects_inline_credentials(self, _name, auth):
@@ -185,6 +218,41 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert ok, err
 
+    @parameterized.expand(
+        [
+            ("loopback", "https://127.0.0.1/token"),
+            ("imds", "https://169.254.169.254/token"),
+            ("http_on_cloud", "http://auth.example.com/token"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (
+            host not in ("127.0.0.1", "169.254.169.254"),
+            None if host not in ("127.0.0.1", "169.254.169.254") else "blocked",
+        ),
+    )
+    def test_rejects_unsafe_oauth2_token_url(self, _name: str, token_url: str, _mock):
+        # The token endpoint receives the credential, so it must pass the same
+        # host-safety + https-on-cloud gate as base_url and resource URLs.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "oauth2", "token_url": token_url}
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "token_url" in (err or "")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (True, None),
+    )
+    def test_accepts_safe_oauth2_token_url(self, _mock):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "oauth2", "token_url": "https://auth.example.com/token"}
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert ok, err
+
 
 class TestCustomSourceAssembleManifest(SimpleTestCase):
     def test_rejects_invalid_json(self):
@@ -216,6 +284,20 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
                 "password",
                 "hunter2",
             ),
+            (
+                "oauth2_client_secret",
+                {"type": "oauth2", "token_url": "https://auth.example.com/token", "grant_type": "client_credentials"},
+                {"auth_client_secret": "cs_secret"},
+                "client_secret",
+                "cs_secret",
+            ),
+            (
+                "oauth2_refresh_token",
+                {"type": "oauth2", "token_url": "https://auth.example.com/token", "grant_type": "refresh_token"},
+                {"auth_refresh_token": "rt_secret"},
+                "refresh_token",
+                "rt_secret",
+            ),
         ]
     )
     def test_injects_auth_secret_for_type(self, _name, auth, secret_kwargs, expected_key, expected_value):
@@ -225,6 +307,27 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), **secret_kwargs)
         assembled = source._assemble_manifest(config)
         assert assembled["client"]["auth"][expected_key] == expected_value
+
+    def test_injects_both_oauth2_secrets(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "token_url": "https://auth.example.com/token",
+            "client_id": "abc",
+            "grant_type": "refresh_token",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(manifest),
+            auth_client_secret="cs_secret",
+            auth_refresh_token="rt_secret",
+        )
+        assembled = source._assemble_manifest(config)
+        auth = assembled["client"]["auth"]
+        assert auth["client_secret"] == "cs_secret"
+        assert auth["refresh_token"] == "rt_secret"
+        # client_id stays in the (non-secret) manifest, untouched.
+        assert auth["client_id"] == "abc"
 
     def test_leaves_auth_alone_when_no_secret_provided(self):
         source = CustomSource()
@@ -514,6 +617,20 @@ class TestManifestRequestHosts(SimpleTestCase):
         manifest = self._manifest("https://api.example.com", ["/users", "https://cdn.other.net/data"])
         assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "cdn.other.net"})
 
+    def test_oauth2_token_url_host_is_collected(self):
+        # The token endpoint also receives the credential, so a change to it must
+        # trip the retarget guard — its host has to be in the tracked set.
+        manifest = json.dumps(
+            {
+                "client": {
+                    "base_url": "https://api.example.com",
+                    "auth": {"type": "oauth2", "token_url": "https://auth.other.net/token"},
+                },
+                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "auth.other.net"})
+
     def test_path_param_absolute_url_is_collected(self):
         # A scalar param bound into a "{placeholder}" becomes the request URL at sync time
         # (_bind_path_params), so its host must be tracked even though the literal path is relative.
@@ -752,3 +869,140 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
 
         threaded_incremental = mock_resource.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
+
+
+def _oauth2_session(payload: dict, status_code: int = 200):
+    """A fake tracked session whose .post returns the given token response."""
+    response = MagicMock(status_code=status_code, text=json.dumps(payload))
+    response.json.return_value = payload
+    session = MagicMock()
+    session.post.return_value = response
+    return session, response
+
+
+class TestOAuth2Auth(SimpleTestCase):
+    _PATCH = "posthog.temporal.data_imports.sources.common.http.make_tracked_session"
+
+    def test_client_credentials_grant_sets_bearer_header(self):
+        session, _ = _oauth2_session({"access_token": "tok", "expires_in": 3600})
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            client_id="cid",
+            client_secret="csecret",
+            grant_type="client_credentials",
+        )
+        with patch(self._PATCH, return_value=session):
+            request = MagicMock(headers={})
+            auth(request)
+
+        body = session.post.call_args.kwargs["data"]
+        assert body == {"grant_type": "client_credentials", "client_id": "cid", "client_secret": "csecret"}
+        assert request.headers["Authorization"] == "Bearer tok"
+
+    def test_refresh_token_grant_includes_refresh_token(self):
+        session, _ = _oauth2_session({"access_token": "tok", "expires_in": 3600})
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            client_id="cid",
+            client_secret="csecret",
+            grant_type="refresh_token",
+            refresh_token="rtok",
+            scopes=["read", "write"],
+        )
+        with patch(self._PATCH, return_value=session):
+            auth(MagicMock(headers={}))
+
+        body = session.post.call_args.kwargs["data"]
+        assert body["grant_type"] == "refresh_token"
+        assert body["refresh_token"] == "rtok"
+        assert body["scope"] == "read write"
+
+    def test_token_cached_until_expiry_then_refreshed(self):
+        session, _ = _oauth2_session({"access_token": "tok", "expires_in": 3600})
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="client_credentials")
+        with patch(self._PATCH, return_value=session):
+            auth(MagicMock(headers={}))
+            auth(MagicMock(headers={}))
+            # Second call reuses the cached token — no second token POST.
+            assert session.post.call_count == 1
+            # Force expiry; the next call re-mints.
+            auth._expires_at = datetime(2000, 1, 1, tzinfo=UTC)
+            auth(MagicMock(headers={}))
+            assert session.post.call_count == 2
+
+    def test_custom_token_and_expiry_field_names_and_prefix(self):
+        session, _ = _oauth2_session({"my_token": "tok", "ttl": 60})
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            grant_type="client_credentials",
+            access_token_name="my_token",
+            expires_in_name="ttl",
+            header_prefix="Zoho-oauthtoken",
+        )
+        with patch(self._PATCH, return_value=session):
+            request = MagicMock(headers={})
+            auth(request)
+        assert request.headers["Authorization"] == "Zoho-oauthtoken tok"
+
+    def test_missing_expires_in_falls_back_to_default(self):
+        session, _ = _oauth2_session({"access_token": "tok"})
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="client_credentials")
+        with patch(self._PATCH, return_value=session):
+            auth(MagicMock(headers={}))
+        assert auth._expires_at is not None
+        assert not auth._is_expired()
+
+    def test_refresh_token_grant_without_token_raises(self):
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="refresh_token")
+        with patch(self._PATCH, return_value=_oauth2_session({})[0]):
+            with self.assertRaises(OAuth2TokenError):
+                auth(MagicMock(headers={}))
+
+    @parameterized.expand([401, 403, 500])
+    def test_error_status_raises(self, status_code):
+        session, _ = _oauth2_session({"error": "nope"}, status_code=status_code)
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="client_credentials")
+        with patch(self._PATCH, return_value=session):
+            with self.assertRaises(OAuth2TokenError):
+                auth(MagicMock(headers={}))
+
+    def test_missing_access_token_in_response_raises(self):
+        session, _ = _oauth2_session({"expires_in": 3600})
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="client_credentials")
+        with patch(self._PATCH, return_value=session):
+            with self.assertRaises(OAuth2TokenError):
+                auth(MagicMock(headers={}))
+
+    def test_secret_values_for_redaction(self):
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            client_secret="csecret",
+            refresh_token="rtok",
+            grant_type="refresh_token",
+        )
+        # Before minting: client_secret + refresh_token. After: the access token too.
+        assert set(auth.secret_values()) == {"csecret", "rtok"}
+        auth._access_token = "tok"
+        assert set(auth.secret_values()) == {"csecret", "rtok", "tok"}
+
+
+class TestCustomSourceValidateCredentialsOAuth2(SimpleTestCase):
+    @patch("posthog.temporal.data_imports.sources.common.http.make_tracked_session")
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_mints_token_then_succeeds(self, probe_session, token_session):
+        # The probe builds OAuth2Auth via create_auth; on the first probe request the
+        # auth callable mints a token from the token endpoint, then the resource probe runs.
+        probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        token_session.return_value, _ = _oauth2_session({"access_token": "tok", "expires_in": 3600})
+
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "token_url": "https://auth.example.com/token",
+            "client_id": "cid",
+            "grant_type": "client_credentials",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_client_secret="csecret")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err

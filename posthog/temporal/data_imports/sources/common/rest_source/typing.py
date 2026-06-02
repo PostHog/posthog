@@ -2,7 +2,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional, TypedDict
 
-from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, TApiKeyLocation
+from .auth import (
+    APIKeyAuth,
+    AuthConfigBase,
+    BearerTokenAuth,
+    HttpBasicAuth,
+    OAuth2Auth,
+    TApiKeyLocation,
+    TOAuth2GrantType,
+)
 from .jsonpath_utils import TJsonPath, compile_path
 from .paginators import (
     BasePaginator,
@@ -85,7 +93,7 @@ PaginatorConfig = (
 )
 
 
-AuthType = Literal["bearer", "api_key", "http_basic"]
+AuthType = Literal["bearer", "api_key", "http_basic", "oauth2"]
 
 
 class AuthTypeConfig(TypedDict, total=True):
@@ -108,15 +116,29 @@ class HttpBasicAuthConfig(AuthTypeConfig, total=True):
     password: str
 
 
+class OAuth2AuthConfig(AuthTypeConfig, total=False):
+    token_url: str
+    client_id: Optional[str]
+    client_secret: Optional[str]
+    grant_type: Optional[TOAuth2GrantType]
+    refresh_token: Optional[str]
+    scopes: Optional[list[str] | str]
+    access_token_name: Optional[str]
+    expires_in_name: Optional[str]
+    header_prefix: Optional[str]
+
+
 AuthConfig = (
     AuthConfigBase
     | AuthType
     | BearerTokenAuthConfig
     | ApiKeyAuthConfig
     | HttpBasicAuthConfig
+    | OAuth2AuthConfig
     | BearerTokenAuth
     | APIKeyAuth
     | HttpBasicAuth
+    | OAuth2Auth
 )
 
 
