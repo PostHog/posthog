@@ -206,6 +206,19 @@ export interface TooltipConfig {
     placement?: 'follow-data' | 'top' | 'cursor'
 }
 
+/** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
+ *  bars). The two modes are mutually exclusive by construction — pick one. Omit the option
+ *  entirely for the default: a data-derived range with `d3.nice()`. */
+export type ValueDomain =
+    /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
+     *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
+     *  `barLayout: 'percent'` / `percentStackView`. */
+    | readonly [number, number]
+    /** Keep data-derived auto-scaling, but stretch the domain to always cover these values
+     *  (e.g. goal-line targets that sit outside the data). Folded into the range before
+     *  `d3.nice()`. */
+    | { include: readonly number[] }
+
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
 export interface BarsConfig {
@@ -232,9 +245,8 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
-    /** Fix the value-axis domain (no data-derived range, no `d3.nice()`) so independent charts
-     *  sharing a logical scale stay comparable. Takes precedence over `barLayout: 'percent'`. */
-    valueDomain?: [number, number]
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
@@ -253,6 +265,8 @@ export interface BarChartConfig extends ChartConfig {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Arguments passed to a chart type's canvas draw function. */

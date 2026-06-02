@@ -17,8 +17,8 @@ from django.views.decorators.csrf import csrf_exempt
 
 import requests
 import structlog
-import posthoganalytics
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
@@ -48,7 +48,6 @@ from posthog.temporal.ai.posthog_code_slack_mention_command import (
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_instance_region
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, load_integrations
@@ -62,8 +61,6 @@ HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 # a dedicated `slack-posthog-code` install, but the notifications Slack app (`slack`) carries
 # every scope the coding agent needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
-
-POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
 
 # Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
 # per install, so tenants who connected the Slack integration before the full scope set
@@ -515,7 +512,9 @@ def resolve_slack_user(
 #  - hit US, local match           -> handle locally
 #  - hit US, no local match        -> proxy to EU (loop header set)
 #  - hit EU, US says "I have it"   -> proxy to US (loop header set)
-#  - hit EU, US says "no" / errs   -> handle locally if found, else drop
+#  - hit EU, US says "no"          -> handle locally if found, else drop
+#  - hit EU, probe errs / unknown  -> assume US claims and proxy (optimistic); US drops if it
+#                                     also has nothing, which is the same outcome as before
 #  - hit either with loop header   -> never proxy again; handle locally or drop
 #
 # This keeps the slack manifest endpoint swappable between us.posthog.com and eu.posthog.com
@@ -524,8 +523,12 @@ REGION_PROXY_HEADER = "X-PostHog-Region-Proxied"
 REGION_PROXY_TIMEOUT_SECONDS = 3
 # Tight budget: the workspace_claims endpoint is just a DB .exists(), and EU calls it inline
 # before deciding whether to proxy. Slack's webhook ack deadline is 3s total, so we want this
-# call to fail fast (and fall back to local handling) rather than eat into the proxy budget.
+# call to fail fast (and fall back to optimistic proxy) rather than eat into the proxy budget.
 WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
+# Cache definitive (True/False) claim answers per workspace so a single probe flake does not
+# re-flap routing for every subsequent event. Short TTL keeps us responsive when an integration
+# moves between regions; None answers are never cached.
+WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
 
 
 def _us_region_domain() -> str:
@@ -602,13 +605,28 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
 
 
+def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
+    kinds_token = ",".join(sorted(kinds))
+    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
+
+
 def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
 
     Returns True/False on a definitive answer, or None on transport failure or bad response.
-    Callers must treat None as "unknown" — typically by falling back to local handling so the
-    event is not silently dropped.
+    Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
+    flake does not reroute the next event. None is never cached so the next event re-probes.
     """
+    cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
+    cached = cache.get(cache_key)
+    if isinstance(cached, bool):
+        logger.info(
+            "slack_app_workspace_claims_cache_hit",
+            slack_team_id=slack_team_id,
+            claimed=cached,
+        )
+        return cached
+
     target_domain = _other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
@@ -651,6 +669,8 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     if not isinstance(claimed, bool):
         logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
         return None
+
+    cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
     return claimed
 
 
@@ -949,7 +969,9 @@ def _collect_thread_messages(
     slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
 ) -> list[dict[str, str]]:
     """Fetch thread messages, strip bot mentions, and resolve user display names."""
-    thread_response = slack.client.conversations_replies(channel=channel, ts=thread_ts)
+    client = slack.client
+    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
+    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
     raw_messages: list[dict] = thread_response.get("messages", [])
 
     user_cache: dict[str, str] = {}
@@ -1281,29 +1303,6 @@ def classify_task_needs_repo(
         return True
 
 
-def _posthog_code_flag_subject(integration: Integration) -> User | None:
-    """Resolve a person to evaluate the coding-agent rollout flag against.
-
-    Prefer the installer (created_by), since that's the user who opted the org
-    into the feature and usually matches the dogfood cohort. Integration.created_by
-    is SET_NULL on user deletion, which would otherwise silently disable the coding
-    agent for the whole workspace — fall back to any organization admin/owner so the
-    feature keeps working after installer cleanup.
-    """
-    if integration.created_by:
-        return integration.created_by
-    fallback = (
-        OrganizationMembership.objects.filter(
-            organization_id=integration.team.organization_id,
-            level__gte=OrganizationMembership.Level.ADMIN,
-        )
-        .select_related("user")
-        .order_by("joined_at")
-        .first()
-    )
-    return fallback.user if fallback else None
-
-
 def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
@@ -1325,40 +1324,6 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     ):
         return "bot_author"
     return None
-
-
-def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
-    """Runtime gate for the coding agent on app_mention events.
-
-    Why: the approved Slack app is installed by many orgs for notifications; the
-    coding agent should only fire for orgs in the posthog-code-slack-availability
-    rollout. Evaluated against the installing user (or an org admin fallback) so
-    we reuse the same cohort the rest of the codebase uses to gate the feature.
-
-    Latency: `posthoganalytics.feature_enabled` evaluates locally from polled flag
-    definitions (see `posthog/apps.py`: `personal_api_key` + `poll_interval=90`),
-    so this is effectively a dict lookup — safe within Slack's 3s webhook budget.
-    """
-    subject = _posthog_code_flag_subject(integration)
-    if not subject:
-        logger.warning(
-            "posthog_code_slack_flag_no_subject",
-            integration_id=integration.id,
-            organization_id=str(integration.team.organization_id),
-        )
-        return False
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                POSTHOG_CODE_SLACK_AVAILABILITY_FLAG,
-                str(subject.distinct_id),
-                groups={"organization": str(integration.team.organization_id)},
-                person_properties={"region": get_instance_region() or "unknown"},
-            )
-        )
-    except Exception:
-        logger.exception("posthog_code_slack_flag_check_failed", integration_id=integration.id)
-        return False
 
 
 def _notify_missing_slack_scopes(
@@ -1544,20 +1509,8 @@ def route_posthog_code_event_to_relevant_region(
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        # Gate the entire @PostHog surface on the rollout flag at the candidate
-        # level so command workflows, pick-a-project hints, and mention workflows
-        # are all covered. Per-candidate filter so a workspace with several
-        # PostHog projects can have some on-rollout and some off-rollout cleanly.
-        enabled = [c for c in result.candidates if _posthog_code_enabled_for_integration(c)]
-        if not enabled:
-            logger.info(
-                "posthog_code_event_flag_off",
-                slack_team_id=slack_team_id,
-                candidate_count=len(result.candidates),
-            )
-            return ROUTE_HANDLED_LOCALLY
-        candidates = enabled
-        target = result.integration if result.integration in enabled else None
+        candidates = result.candidates
+        target = result.integration if result.integration in candidates else None
 
         if _parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id)
@@ -1592,19 +1545,25 @@ def route_posthog_code_event_to_relevant_region(
 def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str) -> bool:
     """US-precedence guard. EU yields to US when both claim a workspace.
 
-    Skipped when we're already US (we win), when we were proxied to (the other region already
-    deferred), or when the lookup transport fails (None) — in that last case the caller should
-    prefer handling locally over dropping.
+    Skipped when we're already US (we win) or when we were proxied to (the other region already
+    deferred). When the probe transport itself fails (None), bias toward proxying to US: during
+    a region cutover both regions hold a row for the same workspace and US is the rightful owner,
+    so a single probe flake should not pin the event to EU. If US in fact has no row, it sees the
+    proxied event with the loop header set and drops it — the same outcome the caller would have
+    reached by handling locally.
     """
     if not can_defer:
         return False
     claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    decision = True if claimed is None else claimed
     logger.info(
         "posthog_code_route_us_probe_result",
         slack_team_id=slack_team_id,
         claimed=claimed,
+        decision=decision,
+        optimistic_proxy=claimed is None,
     )
-    return bool(claimed)
+    return decision
 
 
 def _route_to_other_region_or_drop(
