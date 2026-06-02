@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
@@ -40,7 +40,7 @@ export const scene: SceneExport<ReplayObservationSceneLogicProps> = {
     productKey: ProductKey.REPLAY_VISION,
 }
 
-/** Subscribes to the player's data and fires `seekToTime` the moment metadata is available. */
+/** Subscribes to the player's data and fires `seekToTime` once per `trigger` increment after metadata is available. */
 function AutoSeekToTime({
     playerKey,
     sessionRecordingId,
@@ -52,13 +52,19 @@ function AutoSeekToTime({
     ms: number
     trigger: number
 }): null {
+    // `sessionPlayerData.start`/`.end` are fresh Dayjs objects on every snapshot batch — compare epochs so deps stay stable.
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic({ playerKey, sessionRecordingId }))
+    const startMs = sessionPlayerData?.start?.valueOf() ?? null
+    const endMs = sessionPlayerData?.end?.valueOf() ?? null
+    // Latch per-trigger so a repeat click re-fires but snapshot-batch arrivals don't re-seek and fight playback.
+    const seekedForTrigger = useRef<number | null>(null)
     useEffect(() => {
-        if (sessionPlayerData?.start && sessionPlayerData?.end) {
-            sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(ms)
+        if (seekedForTrigger.current === trigger || startMs == null || endMs == null) {
+            return
         }
-        // `trigger` lets a repeat click on the same citation re-fire the seek.
-    }, [sessionPlayerData?.start, sessionPlayerData?.end, ms, trigger, playerKey, sessionRecordingId])
+        sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(ms)
+        seekedForTrigger.current = trigger
+    }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId])
     return null
 }
 
