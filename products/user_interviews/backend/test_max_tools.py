@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from products.user_interviews.backend.models import UserInterviewTopic
 
-from .max_tools import CreateUserInterviewTopicTool
+from .max_tools import CreateUserInterviewTopicTool, PreviewUserInterviewInviteTool
 
 
 class TestCreateUserInterviewTopicTool(BaseTest):
@@ -177,3 +177,62 @@ class TestCreateUserInterviewTopicTool(BaseTest):
         assert artifact["error"] == "validation_failed"
         assert "invite" in content.lower()
         assert not await sync_to_async(UserInterviewTopic.objects.filter(team=self.team).exists)()
+
+
+class TestPreviewUserInterviewInviteTool(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self._config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+
+    def _tool(self) -> PreviewUserInterviewInviteTool:
+        return PreviewUserInterviewInviteTool(team=self.team, user=self.user, config=self._config)
+
+    async def _create_topic(self, **overrides) -> UserInterviewTopic:
+        defaults: dict = {
+            "team": self.team,
+            "created_by": self.user,
+            "topic": "Session replay adoption",
+            "interviewee_emails": ["Alex <alex@example.com>"],
+            "interviewee_distinct_ids": [],
+            "invite_subject": "Quick chat?",
+            "invite_message": "Hey, got a sec?",
+        }
+        defaults.update(overrides)
+        return await UserInterviewTopic.objects.acreate(**defaults)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_previews_invite(self):
+        topic = await self._create_topic()
+        content, artifact = await self._tool()._arun_impl(topic_id=str(topic.id))
+        assert "Quick chat?" in content
+        assert artifact["subject"] == "Quick chat?"
+        assert artifact["emailable"] is True
+        assert "Hey, got a sec?" in artifact["html"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_distinct_id_only_is_not_emailable(self):
+        topic = await self._create_topic(interviewee_emails=[], interviewee_distinct_ids=["distinct-1"])
+        _content, artifact = await self._tool()._arun_impl(topic_id=str(topic.id))
+        assert artifact["emailable"] is False
+        assert artifact["email"] is None
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @parameterized.expand(
+        [
+            ("missing_topic_id", {"topic_id": "  "}, "validation_failed"),
+            ("unknown_topic_id", {"topic_id": "01890000-0000-0000-0000-000000000000"}, "not_found"),
+        ]
+    )
+    async def test_arun_impl_rejects_bad_topic(self, _name, kwargs, expected_error):
+        _content, artifact = await self._tool()._arun_impl(**kwargs)
+        assert artifact["error"] == expected_error
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_no_interviewees(self):
+        topic = await self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
+        _content, artifact = await self._tool()._arun_impl(topic_id=str(topic.id))
+        assert artifact["error"] == "no_interviewees"

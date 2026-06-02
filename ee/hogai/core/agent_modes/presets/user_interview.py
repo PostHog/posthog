@@ -84,9 +84,17 @@ class UserInterviewAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.user_interviews.backend.facade.api import AnalyzeUserInterviewsTool, CreateUserInterviewTopicTool
+        from products.user_interviews.backend.facade.api import (
+            AnalyzeUserInterviewsTool,
+            CreateUserInterviewTopicTool,
+            PreviewUserInterviewInviteTool,
+        )
 
-        tools: list[type[MaxTool]] = [CreateUserInterviewTopicTool, AnalyzeUserInterviewsTool]
+        tools: list[type[MaxTool]] = [
+            CreateUserInterviewTopicTool,
+            AnalyzeUserInterviewsTool,
+            PreviewUserInterviewInviteTool,
+        ]
         return tools
 
 
@@ -98,13 +106,16 @@ user_interview_agent = AgentModeDefinition(
 
 
 class ReadOnlyUserInterviewAgentToolkit(AgentToolkit):
-    """User interview toolkit for subagents — only includes AnalyzeUserInterviewsTool (read-only)."""
+    """User interview toolkit for subagents — only includes read-only tools."""
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.user_interviews.backend.facade.api import AnalyzeUserInterviewsTool
+        from products.user_interviews.backend.facade.api import (
+            AnalyzeUserInterviewsTool,
+            PreviewUserInterviewInviteTool,
+        )
 
-        return [AnalyzeUserInterviewsTool]
+        return [AnalyzeUserInterviewsTool, PreviewUserInterviewInviteTool]
 
 
 READ_ONLY_USER_INTERVIEW_MODE_DESCRIPTION = (

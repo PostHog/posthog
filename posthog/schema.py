@@ -749,6 +749,7 @@ class AssistantTool(StrEnum):
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
+    PREVIEW_USER_INTERVIEW_INVITE = "preview_user_interview_invite"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"

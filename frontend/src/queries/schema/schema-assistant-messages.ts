@@ -455,6 +455,7 @@ export type AssistantTool =
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_user_interview_topic'
+    | 'preview_user_interview_invite'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'

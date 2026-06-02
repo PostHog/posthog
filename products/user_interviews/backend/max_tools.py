@@ -4,6 +4,7 @@ from typing import Any
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 
+from asgiref.sync import sync_to_async
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.serializers import ValidationError as DRFValidationError
@@ -14,7 +15,7 @@ from posthog.scopes import APIScopeObject
 
 from ee.hogai.tool import MaxTool
 
-from .invite_email import validate_invite_message, validate_invite_subject
+from .invite_email import resolve_invite_preview, validate_invite_message, validate_invite_subject
 from .models import EmailWithDisplayNameValidator, UserInterview, UserInterviewTopic
 
 
@@ -317,3 +318,79 @@ class CreateUserInterviewTopicTool(MaxTool):
             "interviewee_distinct_id_count": len(distinct_ids),
             "question_count": len(questions),
         }
+
+
+class PreviewUserInterviewInviteArgs(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    topic_id: str = Field(
+        description="The ID of the user interview topic to preview an invitation email for.",
+    )
+    interviewee_identifier: str = Field(
+        default="",
+        description=(
+            "Optional email address or PostHog distinct ID of a targeted interviewee to render the "
+            "preview for. Leave empty to preview for the first targeted interviewee on the topic."
+        ),
+    )
+
+
+class PreviewUserInterviewInviteTool(MaxTool):
+    name: str = "preview_user_interview_invite"
+    description: str = (
+        "Preview the invitation email a specific interviewee would receive for a user interview topic "
+        "— the personalized subject and body — without sending anything or creating any links."
+    )
+    context_prompt_template: str = (
+        "When the user wants to see, check, or proofread what the interview invitation email looks "
+        "like for a topic (or for a particular person), use `preview_user_interview_invite`."
+    )
+    args_schema: type[BaseModel] = PreviewUserInterviewInviteArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("user_interview", "viewer")]
+
+    async def _arun_impl(self, topic_id: str = "", interviewee_identifier: str = "") -> tuple[str, Any]:
+        topic_id = (topic_id or "").strip()
+        if not topic_id:
+            return "A topic_id is required to preview an invite.", {
+                "error": "validation_failed",
+                "error_message": "Provide the topic_id of the user interview topic to preview.",
+            }
+
+        try:
+            topic = await UserInterviewTopic.objects.aget(team=self._team, id=topic_id)
+        except (UserInterviewTopic.DoesNotExist, ValueError):
+            return "No user interview topic found with that ID.", {
+                "error": "not_found",
+                "error_message": f"No user interview topic {topic_id} exists for this team.",
+            }
+
+        payload = await sync_to_async(resolve_invite_preview)(
+            topic=topic,
+            team=self._team,
+            interviewee_identifier=interviewee_identifier,
+        )
+        if payload is None:
+            return "This topic has no interviewees to preview yet.", {
+                "error": "no_interviewees",
+                "error_message": (
+                    "Add interviewee_emails or interviewee_distinct_ids to the topic before previewing an invite."
+                ),
+            }
+
+        emailable_note = (
+            "" if payload["emailable"] else " This interviewee has no email address, so they can't be emailed."
+        )
+        link_note = (
+            " The link shown is an illustrative placeholder — a real per-recipient link is created when invites are sent."
+            if payload["is_preview_link"]
+            else ""
+        )
+        content = (
+            f"Invite preview for **{payload['interviewee_identifier']}** "
+            f"(greeting addressed to {payload['user_name']}):\n\n"
+            f"**Subject:** {payload['subject']}\n\n"
+            f"The full rendered email is shown below.{emailable_note}{link_note}"
+        )
+        return content, payload
