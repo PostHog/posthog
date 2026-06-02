@@ -1,9 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.temporal.data_imports.sources.common.webhook_s3 import (
-    WebhookSourceManager,
-    is_webhook_feature_flag_enabled,
-)
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -275,8 +272,7 @@ If automatic creation failed due to a permissions error and you're using a restr
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                supports_webhooks=is_webhook_feature_flag_enabled(team_id)
-                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_webhooks=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
