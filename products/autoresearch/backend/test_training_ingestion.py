@@ -2,6 +2,8 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone as django_timezone
 
+from parameterized import parameterized
+
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -130,3 +132,33 @@ class TestHandleTaskRunCompleted(BaseTest):
         assert training_run.status == AutoresearchTrainingRun.Status.FAILED
         assert "no iterations" in training_run.error.lower()
         assert AutoresearchModel.objects.filter(pipeline=pipeline).count() == 0
+
+    def test_promotion_takes_bootstrapping_pipeline_live(self) -> None:
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.BOOTSTRAPPING)
+        training_run = self._make_training_run(pipeline)
+        self._record_iteration(training_run, number=0, status="kept", holdout=0.82)
+
+        handle_task_run_completed(_task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
+
+        AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        pipeline.refresh_from_db()
+        assert pipeline.status == AutoresearchPipeline.Status.RUNNING
+
+    @parameterized.expand(
+        [
+            (AutoresearchPipeline.Status.BOOTSTRAPPING, AutoresearchPipeline.Status.DRAFT),
+            (AutoresearchPipeline.Status.RUNNING, AutoresearchPipeline.Status.RUNNING),
+            (AutoresearchPipeline.Status.PAUSED, AutoresearchPipeline.Status.PAUSED),
+        ]
+    )
+    def test_failed_run_reverts_only_bootstrapping(self, start_status: str, expected_status: str) -> None:
+        pipeline = self._make_pipeline(status=start_status)
+        training_run = self._make_training_run(pipeline)
+        tr = _task_run(status="failed", state={"autoresearch_training_run_id": str(training_run.id)})
+
+        handle_task_run_completed(tr)
+
+        training_run.refresh_from_db()
+        pipeline.refresh_from_db()
+        assert training_run.status == AutoresearchTrainingRun.Status.FAILED
+        assert pipeline.status == expected_status

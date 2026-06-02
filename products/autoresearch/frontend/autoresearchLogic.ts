@@ -5,7 +5,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { autoresearchLogicType } from './autoresearchLogicType'
-import { autoresearchDestroy, autoresearchList } from './generated/api'
+import {
+    autoresearchDestroy,
+    autoresearchList,
+    autoresearchPauseCreate,
+    autoresearchResumeCreate,
+} from './generated/api'
 import { AutoresearchPipelineApi } from './generated/api.schemas'
 
 export const autoresearchLogic = kea<autoresearchLogicType>([
@@ -15,6 +20,8 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
     }),
     actions({
         deletePipeline: (id: string, name: string) => ({ id, name }),
+        pausePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
+        resumePipeline: (pipeline: AutoresearchPipelineApi) => ({ pipeline }),
     }),
     loaders(({ values }) => ({
         pipelines: [
@@ -41,6 +48,31 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 actions.loadPipelines()
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to delete pipeline')
+            }
+        },
+        pausePipeline: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
+            if (!values.currentTeamId) {
+                return
+            }
+            try {
+                // The endpoint only flips status, but the generated client types a body — pass the record.
+                await autoresearchPauseCreate(String(values.currentTeamId), pipeline.id, pipeline)
+                lemonToast.success(`Paused "${pipeline.name}" — daily scoring is on hold`)
+                actions.loadPipelines()
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to pause pipeline')
+            }
+        },
+        resumePipeline: async ({ pipeline }: { pipeline: AutoresearchPipelineApi }) => {
+            if (!values.currentTeamId) {
+                return
+            }
+            try {
+                await autoresearchResumeCreate(String(values.currentTeamId), pipeline.id, pipeline)
+                lemonToast.success(`Resumed "${pipeline.name}"`)
+                actions.loadPipelines()
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to resume pipeline')
             }
         },
     })),

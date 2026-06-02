@@ -426,6 +426,14 @@ def run_training(
         started_at=now,
     )
 
+    # Surface the inaugural training run in the pipeline badge. A DRAFT pipeline has no
+    # promoted champion yet, so flip it to BOOTSTRAPPING while the first agent run is in
+    # flight — otherwise the badge reads "Draft" the whole time the agent is working.
+    # Promotion flips BOOTSTRAPPING -> RUNNING; a failed run reverts it to DRAFT.
+    if pipeline.status == AutoresearchPipeline.Status.DRAFT:
+        pipeline.status = AutoresearchPipeline.Status.BOOTSTRAPPING
+        pipeline.save(update_fields=["status", "updated_at"])
+
     try:
         pending_suggestions = list(
             AutoresearchSuggestion.objects.filter(
@@ -491,5 +499,10 @@ def run_training(
         training_run.completed_at = django_timezone.now()
         training_run.error = "Failed to launch training task"
         training_run.save(update_fields=["status", "completed_at", "error"])
+        # The bootstrap never got off the ground — drop back to DRAFT so the pipeline
+        # doesn't sit in BOOTSTRAPPING forever with no run behind it.
+        if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
+            pipeline.status = AutoresearchPipeline.Status.DRAFT
+            pipeline.save(update_fields=["status", "updated_at"])
         logger.exception("autoresearch_training_launch_failed", pipeline_id=str(pipeline.pk))
         raise

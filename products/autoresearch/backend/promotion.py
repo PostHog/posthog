@@ -220,10 +220,14 @@ def complete_training_run(
     )
     training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "summary", "completed_at"])
 
-    # A pipeline with its first champion goes live: flip Draft -> Running so the daily
-    # coordinator starts scoring it. Mirrors the stub path (stub_training); pause/resume
-    # handle the rest. Guarded on DRAFT so re-promotions on an already-live pipeline are no-ops.
-    if promoted and pipeline.status == AutoresearchPipeline.Status.DRAFT:
+    # A pipeline with its first champion goes live: flip Draft/Bootstrapping -> Running so the
+    # daily coordinator starts scoring it. Mirrors the stub path (stub_training); pause/resume
+    # handle the rest. Guarded on the pre-live statuses so re-promotions on an already-live
+    # (Running/Converged/Paused) pipeline are no-ops.
+    if promoted and pipeline.status in (
+        AutoresearchPipeline.Status.DRAFT,
+        AutoresearchPipeline.Status.BOOTSTRAPPING,
+    ):
         pipeline.status = AutoresearchPipeline.Status.RUNNING
         pipeline.save(update_fields=["status", "updated_at"])
 

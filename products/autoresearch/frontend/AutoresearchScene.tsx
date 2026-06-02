@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTableColumn, LemonTag } from '@posthog/lemon-ui'
+import { IconPause, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { dayjs } from 'lib/dayjs'
@@ -46,9 +46,18 @@ const STATUS_LABEL: Record<AutoresearchPipelineStatusEnumApi, string> = {
     archived: 'Archived',
 }
 
+export const STATUS_DESCRIPTION: Record<AutoresearchPipelineStatusEnumApi, string> = {
+    draft: 'Created but never trained. Start a training run to find a first champion.',
+    bootstrapping: 'First training run in progress — no champion has been promoted yet.',
+    running: 'Live: a champion is promoted and the population is scored on schedule.',
+    converged: 'Champion is stable (budget spent or improvement plateaued); still scoring on schedule.',
+    paused: 'Scheduled scoring is on hold. Resume to continue scoring.',
+    archived: 'Retired. No training or scoring runs.',
+}
+
 export function AutoresearchScene(): JSX.Element {
     const { pipelines, pipelinesLoading } = useValues(autoresearchLogic)
-    const { deletePipeline } = useActions(autoresearchLogic)
+    const { deletePipeline, pausePipeline, resumePipeline } = useActions(autoresearchLogic)
     const isEmpty = pipelines.length === 0 && !pipelinesLoading
 
     const columns: LemonTableColumn<AutoresearchPipelineApi, keyof AutoresearchPipelineApi | undefined>[] = [
@@ -76,7 +85,9 @@ export function AutoresearchScene(): JSX.Element {
             title: 'Status',
             dataIndex: 'status',
             render: (status: AutoresearchPipelineApi['status']) => (
-                <LemonTag type={STATUS_TAG_TYPE[status]}>{STATUS_LABEL[status]}</LemonTag>
+                <Tooltip title={STATUS_DESCRIPTION[status]}>
+                    <LemonTag type={STATUS_TAG_TYPE[status]}>{STATUS_LABEL[status]}</LemonTag>
+                </Tooltip>
             ),
         },
         createdByColumn<AutoresearchPipelineApi>() as LemonTableColumn<
@@ -104,28 +115,56 @@ export function AutoresearchScene(): JSX.Element {
         {
             title: '',
             width: 0,
-            render: (_: unknown, record: AutoresearchPipelineApi) => (
-                <LemonButton
-                    size="small"
-                    icon={<IconTrash />}
-                    status="danger"
-                    tooltip="Delete pipeline"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        LemonDialog.open({
-                            title: `Delete "${record.name}"?`,
-                            description:
-                                'The pipeline, its training runs, models, and predictions metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
-                            primaryButton: {
-                                children: 'Delete',
-                                status: 'danger',
-                                onClick: () => deletePipeline(record.id, record.name),
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
-                />
-            ),
+            render: (_: unknown, record: AutoresearchPipelineApi) => {
+                const canPause = record.status === 'running' || record.status === 'bootstrapping'
+                const canResume = record.status === 'paused'
+                return (
+                    <div className="flex items-center gap-1">
+                        {canPause && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconPause />}
+                                tooltip="Pause — put daily scoring on hold"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    pausePipeline(record)
+                                }}
+                            />
+                        )}
+                        {canResume && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconPlay />}
+                                tooltip="Resume daily scoring"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    resumePipeline(record)
+                                }}
+                            />
+                        )}
+                        <LemonButton
+                            size="small"
+                            icon={<IconTrash />}
+                            status="danger"
+                            tooltip="Delete pipeline"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                LemonDialog.open({
+                                    title: `Delete "${record.name}"?`,
+                                    description:
+                                        'The pipeline, its training runs, models, and predictions metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => deletePipeline(record.id, record.name),
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }}
+                        />
+                    </div>
+                )
+            },
         },
     ]
 

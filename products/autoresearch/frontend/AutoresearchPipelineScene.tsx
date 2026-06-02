@@ -12,6 +12,7 @@ import {
     LemonTextArea,
     Link,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -67,7 +68,19 @@ function StatusBadge({ status }: { status: AutoresearchPipelineStatusEnumApi }):
         paused: 'Paused',
         archived: 'Archived',
     }
-    return <LemonTag type={typeMap[status]}>{labelMap[status]}</LemonTag>
+    const descriptionMap: Record<AutoresearchPipelineStatusEnumApi, string> = {
+        draft: 'Created but never trained. Start a training run to find a first champion.',
+        bootstrapping: 'First training run in progress — no champion has been promoted yet.',
+        running: 'Live: a champion is promoted and the population is scored on schedule.',
+        converged: 'Champion is stable (budget spent or improvement plateaued); still scoring on schedule.',
+        paused: 'Scheduled scoring is on hold. Resume to continue scoring.',
+        archived: 'Retired. No training or scoring runs.',
+    }
+    return (
+        <Tooltip title={descriptionMap[status]}>
+            <LemonTag type={typeMap[status]}>{labelMap[status]}</LemonTag>
+        </Tooltip>
+    )
 }
 
 /** Shared empty-state block: an icon, a headline, supporting copy, and an optional CTA. */

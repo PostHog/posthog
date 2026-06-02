@@ -21,7 +21,7 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
-from products.autoresearch.backend.models import AutoresearchIteration, AutoresearchTrainingRun
+from products.autoresearch.backend.models import AutoresearchIteration, AutoresearchPipeline, AutoresearchTrainingRun
 from products.autoresearch.backend.promotion import complete_training_run
 
 logger = structlog.get_logger(__name__)
@@ -89,6 +89,12 @@ def _mark_failed(training_run: AutoresearchTrainingRun, error: str) -> None:
     training_run.completed_at = django_timezone.now()
     training_run.error = error[:2000]
     training_run.save(update_fields=["status", "completed_at", "error"])
+    # If this was the inaugural run, the pipeline is sitting in BOOTSTRAPPING with no
+    # champion behind it — drop it back to DRAFT so it doesn't look "live" after a failure.
+    pipeline = training_run.pipeline
+    if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
+        pipeline.status = AutoresearchPipeline.Status.DRAFT
+        pipeline.save(update_fields=["status", "updated_at"])
     logger.warning(
         "autoresearch_training_failed",
         training_run_id=str(training_run.pk),
