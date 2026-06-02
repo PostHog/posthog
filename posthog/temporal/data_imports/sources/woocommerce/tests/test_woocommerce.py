@@ -8,12 +8,14 @@ from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
 
+from posthog.temporal.data_imports.sources.common.http import TrackedHTTPAdapter
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.woocommerce.settings import ENDPOINT_PATHS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.woocommerce.woocommerce import (
     DEFAULT_PER_PAGE,
     WooCommercePaginator,
     WooCommerceResumeConfig,
+    _HostGuardedAdapter,
     _to_woocommerce_datetime,
     get_resource,
     normalize_store_url,
@@ -188,7 +190,7 @@ class TestWooCommerceSourceResumeBehavior:
             return next(response_iter)
 
         with patch(
-            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            "posthog.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
@@ -277,12 +279,16 @@ class TestWooCommerceSourceResumeBehavior:
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 404])
     def test_returns_status_code(self, status_code: int) -> None:
-        with patch("posthog.temporal.data_imports.sources.woocommerce.woocommerce.make_tracked_session") as MockSession:
+        with patch(
+            "posthog.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"
+        ) as MockSession:
             MockSession.return_value.get.return_value = MagicMock(status_code=status_code)
             assert validate_credentials("https://example.com", "ck", "cs", 123) == status_code
 
     def test_returns_none_on_connection_error(self) -> None:
-        with patch("posthog.temporal.data_imports.sources.woocommerce.woocommerce.make_tracked_session") as MockSession:
+        with patch(
+            "posthog.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"
+        ) as MockSession:
             MockSession.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("https://example.com", "ck", "cs", 123) is None
 
@@ -292,10 +298,45 @@ class TestValidateCredentials:
                 "posthog.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
                 return_value=(False, "blocked"),
             ),
-            patch("posthog.temporal.data_imports.sources.woocommerce.woocommerce.make_tracked_session") as MockSession,
+            patch(
+                "posthog.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"
+            ) as MockSession,
         ):
             assert validate_credentials("https://169.254.169.254", "ck", "cs", 123) is None
             MockSession.return_value.get.assert_not_called()
+
+
+class TestHostGuardedAdapter:
+    def _prepared(self, url: str) -> Any:
+        request = MagicMock()
+        request.url = url
+        return request
+
+    def test_blocks_redirect_to_internal_host(self) -> None:
+        adapter = _HostGuardedAdapter(team_id=123)
+        with patch(
+            "posthog.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
+            return_value=(False, "Hosts with internal IP addresses are not allowed"),
+        ):
+            # `requests` calls `send` again for the redirect hop, so a 30x toward an
+            # internal address is caught here even though the original host was safe.
+            with pytest.raises(ValueError, match="internal IP"):
+                adapter.send(self._prepared("https://169.254.169.254/wp-json/wc/v3/products"))
+
+    def test_allows_safe_host_and_delegates(self) -> None:
+        adapter = _HostGuardedAdapter(team_id=123)
+        sentinel = MagicMock()
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
+                return_value=(True, None),
+            ),
+            patch.object(TrackedHTTPAdapter, "send", return_value=sentinel) as mock_super_send,
+        ):
+            result = adapter.send(self._prepared("https://example.com/wp-json/wc/v3/products"))
+
+        assert result is sentinel
+        mock_super_send.assert_called_once()
 
 
 class TestSourceHostGuard:

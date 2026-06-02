@@ -1,11 +1,12 @@
 import dataclasses
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from requests import Request, Response
+from requests import PreparedRequest, Request, Response, Session
 
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
 from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
@@ -54,6 +55,45 @@ def _assert_host_safe(store_url: str, team_id: int) -> None:
     is_safe, error = _is_host_safe(host, team_id)
     if not is_safe:
         raise ValueError(error or "WooCommerce store host is not allowed")
+
+
+class _HostGuardedAdapter(TrackedHTTPAdapter):
+    """Re-validate the destination host on every dispatched request, redirects included.
+
+    The up-front `_assert_host_safe` check only vets the URL the user typed.
+    `requests` invokes `send` once per hop, so an attacker who passes that check
+    and then 30x-redirects the worker toward an internal address (the classic
+    open-redirect SSRF bypass) is blocked here instead. Legitimate cross-host
+    redirects to public hosts — e.g. apex→www canonicalization — still resolve.
+    """
+
+    def __init__(self, team_id: int, **kwargs: Any) -> None:
+        self._team_id = team_id
+        super().__init__(**kwargs)
+
+    def send(
+        self,
+        request: PreparedRequest,
+        stream: bool = False,
+        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
+        verify: bool | str = True,
+        cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
+        proxies: Mapping[str, str] | None = None,
+    ) -> Response:
+        host = urlparse(request.url or "").hostname or ""
+        is_safe, error = _is_host_safe(host, self._team_id)
+        if not is_safe:
+            raise ValueError(error or "WooCommerce store host is not allowed")
+        return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
+
+
+def _make_guarded_session(team_id: int, redact_values: tuple[str, ...] = ()) -> Session:
+    """A tracked `requests.Session` that re-checks every hop's host against SSRF rules."""
+    session = Session()
+    adapter = _HostGuardedAdapter(team_id, max_retries=DEFAULT_RETRY, redact_values=redact_values)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 def _to_woocommerce_datetime(value: Any) -> Optional[str]:
@@ -182,6 +222,9 @@ def woocommerce_source(
                 "password": consumer_secret,
             },
             "paginator": WooCommercePaginator(),
+            # Re-vet every hop (redirects included) so a redirect to an internal host can't
+            # smuggle the credential past the up-front `_assert_host_safe` check.
+            "session": _make_guarded_session(team_id, redact_values=(consumer_key, consumer_secret)),
         },
         # write_disposition is set per-resource by get_resource, so no defaults are needed.
         "resource_defaults": {},
@@ -221,7 +264,9 @@ def validate_credentials(store_url: str, consumer_key: str, consumer_secret: str
         return None
 
     try:
-        response = make_tracked_session().get(
+        # The guarded session re-checks the host on any redirect hop, so a public store that
+        # 30x-redirects to an internal address can't slip the probe past the up-front check.
+        response = _make_guarded_session(team_id, redact_values=(consumer_key, consumer_secret)).get(
             f"{_base_url(store_url)}/products",
             params={"per_page": 1},
             auth=(consumer_key, consumer_secret),
