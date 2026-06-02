@@ -2557,7 +2557,7 @@ async fn test_db_rate_limit_allowlist() {
         .unwrap();
 }
 
-/// Verifies the synchronous billing path writes (or, when `skip_writes=true`,
+/// Verifies the billing path writes (or, when `skip_writes=true`,
 /// suppresses) the FlagDefinitions counter for `/flags/definitions`. The
 /// `/flags` endpoint is covered by tests in `test_flags.rs`; this test is
 /// the equivalent for the FlagDefinitions code path so a regression that
@@ -2624,19 +2624,19 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
         response.text().await.unwrap()
     );
 
-    // Synchronous path writes inline before the response returns, so we can
-    // read back without polling.
-    let counter = redis.hget(billing_key, bucket_field).await;
-
     if skip_writes {
+        // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
+        // an erroneous `record()` behind a delayed first tick.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let counter = redis.hget(billing_key, bucket_field).await;
         assert!(
             counter.is_err(),
-            "FlagDefinitions billing counter should NOT be incremented when skip_writes=true"
+            "FlagDefinitions billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
         );
     } else {
+        let counter = common::poll_for_billing_counter(&redis, &billing_key, &bucket_field).await;
         assert_eq!(
-            counter.unwrap(),
-            "1",
+            counter, "1",
             "FlagDefinitions billing counter should be incremented once"
         );
     }

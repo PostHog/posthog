@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, Rng};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify};
@@ -16,7 +16,10 @@ use super::config::RemoteResolutionConfig;
 use super::dns::DnsResolver;
 use super::mux::ResolveMux;
 use super::subscription::{spawn_subscription, LoadCell, LoadSnapshot, SubscriptionHandle};
-use crate::metric_consts::{REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT, REMOTE_RESOLUTION_POOL_SIZE};
+use crate::metric_consts::{
+    REMOTE_RESOLUTION_ENDPOINTS_BY_STATE, REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT,
+    REMOTE_RESOLUTION_POOL_SIZE,
+};
 
 const RESOLVE_MUX_QUEUE_CAPACITY: usize = 64;
 
@@ -25,6 +28,7 @@ pub enum EndpointPoolEmptyReason {
     NoEndpoints,
     NoFreshLoadSnapshots,
     AllEndpointsDraining,
+    AllEndpointsEjected,
 }
 
 impl EndpointPoolEmptyReason {
@@ -33,6 +37,7 @@ impl EndpointPoolEmptyReason {
             Self::NoEndpoints => "no_endpoints",
             Self::NoFreshLoadSnapshots => "no_fresh_load_snapshots",
             Self::AllEndpointsDraining => "all_endpoints_draining",
+            Self::AllEndpointsEjected => "all_endpoints_ejected",
         }
     }
 }
@@ -43,6 +48,7 @@ impl fmt::Display for EndpointPoolEmptyReason {
             Self::NoEndpoints => "no DNS endpoints",
             Self::NoFreshLoadSnapshots => "no fresh load snapshots",
             Self::AllEndpointsDraining => "all endpoints draining",
+            Self::AllEndpointsEjected => "all endpoints ejected after overload",
         })
     }
 }
@@ -78,6 +84,14 @@ struct EndpointState {
     /// Latest server-reported load snapshot. Updated by the subscription task
     /// when one is attached; reads on the routing path are cheap.
     load: LoadCell,
+    /// Deadline until which this endpoint is temporarily excluded after an
+    /// overload outcome. This is local to this cymbal process.
+    overload_ejected_until: Option<Instant>,
+    /// Current adaptive ejection duration. Repeated overloads double this up to
+    /// config.overload_ejection_max; a quiet window resets it to the initial duration.
+    overload_ejection_cooldown: Duration,
+    /// Last time this endpoint reported overload in this cymbal process.
+    overload_last_seen: Option<Instant>,
     /// Background task subscribing to this endpoint's freshness/draining stream. `None`
     /// when subscriptions are disabled (test pools constructed via
     /// [`EndpointPool::from_addrs_without_subscriptions`]).
@@ -212,6 +226,11 @@ impl EndpointPool {
             inner.endpoints.insert(*addr, state);
         }
         metrics::gauge!(REMOTE_RESOLUTION_POOL_SIZE).set(inner.endpoints.len() as f64);
+        record_endpoint_states(
+            &inner,
+            Instant::now(),
+            config.subscribe_tick_hint.saturating_mul(2),
+        );
         drop(inner);
         Ok(pool)
     }
@@ -312,6 +331,11 @@ impl EndpointPool {
             .filter(|state| !state.draining)
             .count();
         metrics::gauge!(REMOTE_RESOLUTION_POOL_SIZE).set(healthy_count as f64);
+        record_endpoint_states(
+            &inner,
+            Instant::now(),
+            self.config.subscribe_tick_hint.saturating_mul(2),
+        );
 
         Ok(())
     }
@@ -330,6 +354,46 @@ impl EndpointPool {
         self.select_inner(SelectionStrategy::Random, exclude).await
     }
 
+    /// Temporarily remove an endpoint from routing after it returned a
+    /// per-item overload outcome. The ejection is process-local, doubles on
+    /// repeated overloads up to the configured max, and expires automatically
+    /// on the selection path.
+    pub async fn eject_overloaded(&self, addr: SocketAddr) {
+        if self.config.overload_ejection_initial.is_zero() {
+            return;
+        }
+        let now = Instant::now();
+        let mut inner = self.inner.lock().await;
+        if let Some(state) = inner.endpoints.get_mut(&addr) {
+            let quiet = state
+                .overload_last_seen
+                .and_then(|last_seen| now.checked_duration_since(last_seen))
+                .is_none_or(|elapsed| elapsed >= self.config.overload_ejection_decay);
+            let cooldown = if quiet || state.overload_ejection_cooldown.is_zero() {
+                self.config.overload_ejection_initial
+            } else {
+                state
+                    .overload_ejection_cooldown
+                    .saturating_mul(2)
+                    .min(self.config.overload_ejection_max)
+            };
+            let until = now + cooldown;
+            state.overload_last_seen = Some(now);
+            state.overload_ejection_cooldown = cooldown;
+            state.overload_ejected_until = Some(until);
+            warn!(
+                endpoint = %addr,
+                ejection_ms = cooldown.as_millis() as u64,
+                "temporarily ejected overloaded remote resolution endpoint"
+            );
+            record_endpoint_states(
+                &inner,
+                now,
+                self.config.subscribe_tick_hint.saturating_mul(2),
+            );
+        }
+    }
+
     /// Select an endpoint using rendezvous hashing for the supplied routing
     /// key. This keeps events that need the same symbol set sticky to one
     /// cymbal-resolution pod, improving warm-cache locality while still
@@ -345,6 +409,9 @@ impl EndpointPool {
         if routing_key.is_empty() {
             return self.select(exclude).await;
         }
+        if should_jitter_route(self.config.routing_jitter) {
+            return self.select(exclude).await;
+        }
         self.select_inner(SelectionStrategy::ByKey { routing_key }, exclude)
             .await
     }
@@ -354,7 +421,7 @@ impl EndpointPool {
         strategy: SelectionStrategy<'_>,
         exclude: &[SocketAddr],
     ) -> Result<EndpointPoolHandle, EndpointPoolError> {
-        let inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().await;
         if inner.endpoints.is_empty() {
             return Err(EndpointPoolError::Empty(
                 EndpointPoolEmptyReason::NoEndpoints,
@@ -379,12 +446,21 @@ impl EndpointPool {
         // begins.
         let mut candidates: Vec<Candidate> = Vec::with_capacity(inner.endpoints.len());
         let mut active_endpoint_count = 0usize;
+        let mut ejected_endpoint_count = 0usize;
         let mut saw_missing_or_stale_snapshot = false;
-        for (addr, state) in inner.endpoints.iter() {
+        for (addr, state) in inner.endpoints.iter_mut() {
             if state.draining {
                 continue;
             }
             active_endpoint_count += 1;
+            if state
+                .overload_ejected_until
+                .is_some_and(|ejected_until| ejected_until > now)
+            {
+                ejected_endpoint_count += 1;
+                continue;
+            }
+            state.overload_ejected_until = None;
             let Some(snapshot) = state.load.lock().ok().and_then(|guard| guard.clone()) else {
                 saw_missing_or_stale_snapshot = true;
                 continue;
@@ -404,9 +480,12 @@ impl EndpointPool {
             });
         }
 
+        record_endpoint_states(&inner, now, stale_after);
+
         if candidates.is_empty() {
             return Err(EndpointPoolError::Empty(classify_empty_reason(
                 active_endpoint_count,
+                ejected_endpoint_count,
                 saw_missing_or_stale_snapshot,
             )));
         }
@@ -481,6 +560,7 @@ impl EndpointPool {
             return Err(EndpointPoolEmptyReason::NoEndpoints);
         }
         let mut active_endpoint_count = 0usize;
+        let mut ejected_endpoint_count = 0usize;
         let mut saw_missing_or_stale_snapshot = false;
         let now = Instant::now();
         let stale_after = self.config.subscribe_tick_hint.saturating_mul(2);
@@ -489,6 +569,13 @@ impl EndpointPool {
                 continue;
             }
             active_endpoint_count += 1;
+            if state
+                .overload_ejected_until
+                .is_some_and(|ejected_until| ejected_until > now)
+            {
+                ejected_endpoint_count += 1;
+                continue;
+            }
             let Some(snapshot) = state.load.lock().ok().and_then(|guard| guard.clone()) else {
                 saw_missing_or_stale_snapshot = true;
                 continue;
@@ -503,6 +590,7 @@ impl EndpointPool {
         }
         Err(classify_empty_reason(
             active_endpoint_count,
+            ejected_endpoint_count,
             saw_missing_or_stale_snapshot,
         ))
     }
@@ -543,6 +631,25 @@ impl EndpointPool {
         }
         false
     }
+
+    #[cfg(test)]
+    async fn expire_overload_ejection_for_test(&self, addr: SocketAddr) -> bool {
+        let mut inner = self.inner.lock().await;
+        let Some(state) = inner.endpoints.get_mut(&addr) else {
+            return false;
+        };
+        state.overload_ejected_until = Some(Instant::now() - Duration::from_millis(1));
+        true
+    }
+
+    #[cfg(test)]
+    async fn overload_ejection_cooldown_for_test(&self, addr: SocketAddr) -> Option<Duration> {
+        let inner = self.inner.lock().await;
+        inner
+            .endpoints
+            .get(&addr)
+            .map(|state| state.overload_ejection_cooldown)
+    }
 }
 
 #[derive(Clone)]
@@ -560,10 +667,13 @@ enum SelectionStrategy<'a> {
 
 fn classify_empty_reason(
     active_endpoint_count: usize,
+    ejected_endpoint_count: usize,
     saw_missing_or_stale_snapshot: bool,
 ) -> EndpointPoolEmptyReason {
     if active_endpoint_count == 0 {
         EndpointPoolEmptyReason::AllEndpointsDraining
+    } else if ejected_endpoint_count == active_endpoint_count {
+        EndpointPoolEmptyReason::AllEndpointsEjected
     } else if saw_missing_or_stale_snapshot {
         EndpointPoolEmptyReason::NoFreshLoadSnapshots
     } else {
@@ -578,6 +688,92 @@ fn rendezvous_score(routing_key: &str, addr: SocketAddr) -> u64 {
     hasher.update(addr.to_string().as_bytes());
     let digest = hasher.finalize();
     u64::from_be_bytes(digest[0..8].try_into().expect("sha256 digest has 8 bytes"))
+}
+
+#[derive(Clone, Copy)]
+enum EndpointRoutingState {
+    Routable,
+    Ejected,
+    Draining,
+    Stale,
+    MissingSnapshot,
+}
+
+impl EndpointRoutingState {
+    const ALL: [Self; 5] = [
+        Self::Routable,
+        Self::Ejected,
+        Self::Draining,
+        Self::Stale,
+        Self::MissingSnapshot,
+    ];
+
+    fn as_metric_tag(self) -> &'static str {
+        match self {
+            Self::Routable => "routable",
+            Self::Ejected => "ejected",
+            Self::Draining => "draining",
+            Self::Stale => "stale",
+            Self::MissingSnapshot => "missing_snapshot",
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Routable => 0,
+            Self::Ejected => 1,
+            Self::Draining => 2,
+            Self::Stale => 3,
+            Self::MissingSnapshot => 4,
+        }
+    }
+}
+
+fn endpoint_routing_state(
+    state: &EndpointState,
+    now: Instant,
+    stale_after: Duration,
+) -> EndpointRoutingState {
+    if state.draining {
+        return EndpointRoutingState::Draining;
+    }
+    if state
+        .overload_ejected_until
+        .is_some_and(|ejected_until| ejected_until > now)
+    {
+        return EndpointRoutingState::Ejected;
+    }
+    let Some(snapshot) = state.load.lock().ok().and_then(|guard| guard.clone()) else {
+        return EndpointRoutingState::MissingSnapshot;
+    };
+    if !snapshot.is_fresh(now, stale_after) {
+        return EndpointRoutingState::Stale;
+    }
+    if snapshot.draining {
+        return EndpointRoutingState::Draining;
+    }
+    EndpointRoutingState::Routable
+}
+
+fn record_endpoint_states(inner: &PoolInner, now: Instant, stale_after: Duration) {
+    let mut counts = [0usize; EndpointRoutingState::ALL.len()];
+    for state in inner.endpoints.values() {
+        counts[endpoint_routing_state(state, now, stale_after).index()] += 1;
+    }
+    for state in EndpointRoutingState::ALL {
+        metrics::gauge!(REMOTE_RESOLUTION_ENDPOINTS_BY_STATE, "state" => state.as_metric_tag())
+            .set(counts[state.index()] as f64);
+    }
+}
+
+fn should_jitter_route(routing_jitter: f64) -> bool {
+    if routing_jitter <= 0.0 {
+        return false;
+    }
+    if routing_jitter >= 1.0 {
+        return true;
+    }
+    rand::thread_rng().gen_bool(routing_jitter)
 }
 
 /// Start a background task that periodically calls [`EndpointPool::refresh`].
@@ -623,6 +819,9 @@ fn build_endpoint_state(
         in_flight: Arc::new(AtomicUsize::new(0)),
         draining: false,
         load: Arc::new(StdMutex::new(None)),
+        overload_ejected_until: None,
+        overload_ejection_cooldown: Duration::ZERO,
+        overload_last_seen: None,
         subscription: None,
     })
 }
@@ -648,6 +847,10 @@ mod test {
             retry_backoff: Duration::from_millis(1),
             retry_max_backoff: Duration::from_millis(2),
             sample_rate: 1.0,
+            routing_jitter: 0.0,
+            overload_ejection_initial: Duration::ZERO,
+            overload_ejection_max: Duration::ZERO,
+            overload_ejection_decay: Duration::from_secs(30),
             subscribe_tick_hint: Duration::from_millis(50),
             subscribe_reconnect_backoff: Duration::from_millis(50),
         }
@@ -863,6 +1066,34 @@ mod test {
     }
 
     #[tokio::test]
+    async fn select_for_key_uses_random_routing_when_jitter_is_full() {
+        let addrs = [
+            addr("10.0.0.1:50061"),
+            addr("10.0.0.2:50061"),
+            addr("10.0.0.3:50061"),
+        ];
+        let mut config = mock_config();
+        config.routing_jitter = 1.0;
+        let pool = EndpointPool::from_addrs_without_subscriptions(config, &addrs).unwrap();
+        inject_uniform_fresh_snapshots(&pool, &addrs).await;
+
+        let mut picks = std::collections::HashSet::new();
+        for _ in 0..200 {
+            picks.insert(
+                pool.select_for_key("team:1:symbol:bundle-a", &[])
+                    .await
+                    .unwrap()
+                    .addr,
+            );
+        }
+
+        assert!(
+            picks.len() > 1,
+            "full routing jitter should not stay sticky to one endpoint"
+        );
+    }
+
+    #[tokio::test]
     async fn select_for_key_spreads_distinct_keys_across_endpoints() {
         let addrs = [
             addr("10.0.0.1:50061"),
@@ -919,6 +1150,87 @@ mod test {
             .addr;
         assert_ne!(third, first);
         assert_ne!(third, retry);
+    }
+
+    #[tokio::test]
+    async fn overload_ejection_excludes_endpoint_across_requests_until_expiry() {
+        let addrs = [
+            addr("10.0.0.1:50061"),
+            addr("10.0.0.2:50061"),
+            addr("10.0.0.3:50061"),
+        ];
+        let mut config = mock_config();
+        config.overload_ejection_initial = Duration::from_millis(25);
+        config.overload_ejection_max = Duration::from_millis(100);
+        let pool = EndpointPool::from_addrs_without_subscriptions(config, &addrs).unwrap();
+        inject_uniform_fresh_snapshots(&pool, &addrs).await;
+
+        let first = pool
+            .select_for_key("team:1:symbol:bundle-a", &[])
+            .await
+            .unwrap()
+            .addr;
+        pool.eject_overloaded(first).await;
+
+        let while_ejected = pool
+            .select_for_key("team:1:symbol:bundle-a", &[])
+            .await
+            .unwrap()
+            .addr;
+        assert_ne!(while_ejected, first);
+
+        assert_eq!(
+            pool.overload_ejection_cooldown_for_test(first).await,
+            Some(Duration::from_millis(25))
+        );
+        assert!(pool.expire_overload_ejection_for_test(first).await);
+        let after_expiry = pool
+            .select_for_key("team:1:symbol:bundle-a", &[])
+            .await
+            .unwrap()
+            .addr;
+        assert_eq!(after_expiry, first);
+
+        pool.eject_overloaded(first).await;
+        assert_eq!(
+            pool.overload_ejection_cooldown_for_test(first).await,
+            Some(Duration::from_millis(50))
+        );
+        let after_initial_duration = pool
+            .select_for_key("team:1:symbol:bundle-a", &[])
+            .await
+            .unwrap()
+            .addr;
+        assert_ne!(after_initial_duration, first);
+
+        assert!(pool.expire_overload_ejection_for_test(first).await);
+        let after_doubled_duration = pool
+            .select_for_key("team:1:symbol:bundle-a", &[])
+            .await
+            .unwrap()
+            .addr;
+        assert_eq!(after_doubled_duration, first);
+    }
+
+    #[tokio::test]
+    async fn select_reports_all_ejected_when_every_endpoint_is_in_cooldown() {
+        let addrs = [addr("10.0.0.1:50061"), addr("10.0.0.2:50061")];
+        let mut config = mock_config();
+        config.overload_ejection_initial = Duration::from_secs(1);
+        config.overload_ejection_max = Duration::from_secs(1);
+        let pool = EndpointPool::from_addrs_without_subscriptions(config, &addrs).unwrap();
+        inject_uniform_fresh_snapshots(&pool, &addrs).await;
+
+        for addr in addrs {
+            pool.eject_overloaded(addr).await;
+        }
+
+        assert!(matches!(
+            pool.select(&[]).await,
+            Err(EndpointPoolError::Empty(
+                EndpointPoolEmptyReason::AllEndpointsEjected
+            ))
+        ));
     }
 
     #[tokio::test]

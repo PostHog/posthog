@@ -74,6 +74,13 @@ class Relation:
     replica_identity: int  # 0=default, 1=nothing, 2=full, 3=index
     columns: list[RelationColumn] = field(default_factory=list)
 
+    @property
+    def qualified_name(self) -> str:
+        """`schema.table` — matches the qualified `ExternalDataSchema.name` the CDC
+        extraction activity keys on. Emitting the bare table name silently dropped
+        every change for qualified (multi-schema-era) schemas."""
+        return f"{self.schema_name}.{self.table_name}"
+
 
 class PgOutputDecoder:
     """Stateful decoder for pgoutput binary messages.
@@ -231,7 +238,7 @@ class PgOutputDecoder:
         self._tx_buffer.append(
             ChangeEvent(
                 operation="I",
-                table_name=relation.table_name,
+                table_name=relation.qualified_name,
                 position_serialized=lsn,
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
@@ -268,7 +275,7 @@ class PgOutputDecoder:
         self._tx_buffer.append(
             ChangeEvent(
                 operation="U",
-                table_name=relation.table_name,
+                table_name=relation.qualified_name,
                 position_serialized=lsn,
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
@@ -298,7 +305,7 @@ class PgOutputDecoder:
         self._tx_buffer.append(
             ChangeEvent(
                 operation="D",
-                table_name=relation.table_name,
+                table_name=relation.qualified_name,
                 position_serialized=lsn,
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
@@ -321,7 +328,7 @@ class PgOutputDecoder:
                     relation.schema_name,
                     relation.table_name,
                 )
-                self._truncated_tables.append(relation.table_name)
+                self._truncated_tables.append(relation.qualified_name)
 
     # --- Helpers ---
 

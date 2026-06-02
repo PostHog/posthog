@@ -456,6 +456,8 @@ export namespace Schemas {
       message: string;
       /** Name of the ExternalDataSchema responsible for syncing the table */
       schema_name: string;
+      /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+      source_id?: string | null;
       /** Source type, e.g. "Stripe", "Hubspot" */
       source_type: string;
       /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -3756,5159 +3758,124 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface AddOptOutRequest {
-      /**
-         * The recipient identifier to opt out (e.g. email address).
-         * @maxLength 512
-         */
-      identifier: string;
-      /** Optional message category key. If omitted, the recipient is opted out of all marketing messages. */
-      category_key?: string;
-    }
-
-    export type AddSnapshotsInputBaselineHashes = {[key: string]: string};
-
-    export type SnapshotManifestItemMetadata = { [key: string]: unknown };
-
-    export interface SnapshotManifestItem {
-      identifier: string;
-      content_hash: string;
-      /** @nullable */
-      width?: number | null;
-      /** @nullable */
-      height?: number | null;
-      metadata?: SnapshotManifestItemMetadata;
-    }
-
-    export interface AddSnapshotsInput {
-      snapshots: SnapshotManifestItem[];
-      baseline_hashes?: AddSnapshotsInputBaselineHashes;
-    }
-
-    export type UploadTargetFields = {[key: string]: string};
-
-    export interface UploadTarget {
-      content_hash: string;
-      url: string;
-      fields: UploadTargetFields;
-    }
-
-    export interface AddSnapshotsResult {
-      added: number;
-      uploads: UploadTarget[];
-    }
-
     /**
-     * * `product_analytics` - product_analytics
-    * `sql` - sql
-    * `session_replay` - session_replay
-    * `error_tracking` - error_tracking
-    * `plan` - plan
-    * `execution` - execution
-    * `survey` - survey
-    * `research` - research
-    * `flags` - flags
-    * `llm_analytics` - llm_analytics
-    * `sandbox` - sandbox
-    * `user_interview` - user_interview
+     * * `last_seen` - last_seen
+    * `first_seen` - first_seen
+    * `occurrences` - occurrences
+    * `users` - users
+    * `sessions` - sessions
      */
-    export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
+    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
 
 
-    export const AgentModeEnum = {
-      ProductAnalytics: 'product_analytics',
-      Sql: 'sql',
-      SessionReplay: 'session_replay',
-      ErrorTracking: 'error_tracking',
-      Plan: 'plan',
-      Execution: 'execution',
-      Survey: 'survey',
-      Research: 'research',
-      Flags: 'flags',
-      LlmAnalytics: 'llm_analytics',
-      Sandbox: 'sandbox',
-      UserInterview: 'user_interview',
-    } as const;
-
-    export interface AggregatedSpanRow {
-      avg_duration_nano: number;
-      count: number;
-      error_count: number;
-      name: string;
-      p50_duration_nano: number;
-      p95_duration_nano: number;
-      service_name: string;
-      total_duration_nano: number;
-    }
-
-    /**
-     * * `sum` - sum
-    * `avg` - avg
-    * `count` - count
-    * `p95` - p95
-     */
-    export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
-
-
-    export const AggregationEnum = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      P95: 'p95',
-    } as const;
-
-    export interface InsightsThresholdBounds {
-      /** Alert fires when the value drops below this number. */
-      lower?: number | null;
-      /** Alert fires when the value exceeds this number. */
-      upper?: number | null;
-    }
-
-    export type InsightThresholdType = typeof InsightThresholdType[keyof typeof InsightThresholdType];
-
-
-    export const InsightThresholdType = {
-      Absolute: 'absolute',
-      Percentage: 'percentage',
-    } as const;
-
-    export interface InsightThreshold {
-      bounds?: InsightsThresholdBounds | null;
-      /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
-      type: InsightThresholdType;
-    }
-
-    export interface Threshold {
-      readonly id: string;
-      readonly created_at: string;
-      /** Optional name for the threshold. */
-      name?: string;
-      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
-      configuration: InsightThreshold;
-    }
-
-    export type AlertConditionType = typeof AlertConditionType[keyof typeof AlertConditionType];
-
-
-    export const AlertConditionType = {
-      AbsoluteValue: 'absolute_value',
-      RelativeIncrease: 'relative_increase',
-      RelativeDecrease: 'relative_decrease',
-    } as const;
-
-    export interface AlertCondition {
-      type: AlertConditionType;
-    }
-
-    /**
-     * * `Firing` - Firing
-    * `Not firing` - Not firing
-    * `Errored` - Errored
-    * `Snoozed` - Snoozed
-     */
-    export type AlertCheckStateEnum = typeof AlertCheckStateEnum[keyof typeof AlertCheckStateEnum];
-
-
-    export const AlertCheckStateEnum = {
-      Firing: 'Firing',
-      NotFiring: 'Not firing',
-      Errored: 'Errored',
-      Snoozed: 'Snoozed',
-    } as const;
-
-    /**
-     * * `pending` - pending
-    * `running` - running
-    * `done` - done
-    * `failed` - failed
-    * `skipped` - skipped
-     */
-    export type InvestigationStatusEnum = typeof InvestigationStatusEnum[keyof typeof InvestigationStatusEnum];
-
-
-    export const InvestigationStatusEnum = {
-      Pending: 'pending',
-      Running: 'running',
-      Done: 'done',
-      Failed: 'failed',
-      Skipped: 'skipped',
-    } as const;
-
-    /**
-     * * `true_positive` - true_positive
-    * `false_positive` - false_positive
-    * `inconclusive` - inconclusive
-     */
-    export type InvestigationVerdictEnum = typeof InvestigationVerdictEnum[keyof typeof InvestigationVerdictEnum];
-
-
-    export const InvestigationVerdictEnum = {
-      TruePositive: 'true_positive',
-      FalsePositive: 'false_positive',
-      Inconclusive: 'inconclusive',
-    } as const;
-
-    export interface AlertCheck {
-      readonly id: string;
-      readonly created_at: string;
-      /** @nullable */
-      readonly calculated_value: number | null;
-      readonly state: AlertCheckStateEnum;
-      readonly targets_notified: boolean;
-      readonly anomaly_scores: unknown;
-      readonly triggered_points: unknown;
-      readonly triggered_dates: unknown;
-      /** @nullable */
-      readonly interval: string | null;
-      readonly triggered_metadata: unknown;
-      readonly investigation_status: InvestigationStatusEnum | null;
-      readonly investigation_verdict: InvestigationVerdictEnum | null;
-      /** @nullable */
-      readonly investigation_summary: string | null;
-      /**
-         * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
-         * @nullable
-         */
-      readonly investigation_notebook_short_id: string | null;
-      /** @nullable */
-      readonly notification_sent_at: string | null;
-      readonly notification_suppressed_by_agent: boolean;
-    }
-
-    export interface TrendsAlertConfig {
-      /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
-      check_ongoing_interval?: boolean | null;
-      /** Zero-based index of the series in the insight's query to monitor. */
-      series_index: number;
-      type?: 'TrendsAlertConfig';
-    }
-
-    export interface PreprocessingConfig {
-      /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
-      diffs_n?: number | null;
-      /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
-      lags_n?: number | null;
-      /** Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0) */
-      smooth_n?: number | null;
-    }
-
-    export interface ZScoreDetectorConfig {
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
-      threshold?: number | null;
-      type?: 'zscore';
-      /** Rolling window size for calculating mean/std (default: 30) */
-      window?: number | null;
-    }
-
-    export interface MADDetectorConfig {
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
-      threshold?: number | null;
-      type?: 'mad';
-      /** Rolling window size for calculating median/MAD (default: 30) */
-      window?: number | null;
-    }
-
-    export interface IQRDetectorConfig {
-      /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
-      multiplier?: number | null;
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      type?: 'iqr';
-      /** Rolling window size for calculating quartiles (default: 30) */
-      window?: number | null;
-    }
-
-    export interface ThresholdDetectorConfig {
-      /** Lower bound - values below this are anomalies */
-      lower_bound?: number | null;
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      type?: 'threshold';
-      /** Upper bound - values above this are anomalies */
-      upper_bound?: number | null;
-    }
-
-    export interface ECODDetectorConfig {
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'ecod';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export interface COPODDetectorConfig {
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'copod';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export interface IsolationForestDetectorConfig {
-      /** Number of trees in the forest (default: 100) */
-      n_estimators?: number | null;
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'isolation_forest';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export type Method = typeof Method[keyof typeof Method];
-
-
-    export const Method = {
-      Largest: 'largest',
-      Mean: 'mean',
-      Median: 'median',
-    } as const;
-
-    export interface KNNDetectorConfig {
-      /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
-      method?: Method | null;
-      /** Number of neighbors to consider (default: 5) */
-      n_neighbors?: number | null;
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'knn';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export interface HBOSDetectorConfig {
-      /** Number of histogram bins (default: 10) */
-      n_bins?: number | null;
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'hbos';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export interface LOFDetectorConfig {
-      /** Number of neighbors for LOF (default: 20) */
-      n_neighbors?: number | null;
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'lof';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export interface OCSVMDetectorConfig {
-      /** SVM kernel type (default: "rbf") */
-      kernel?: string | null;
-      /** Upper bound on training errors fraction (default: 0.1) */
-      nu?: number | null;
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'ocsvm';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export interface PCADetectorConfig {
-      /** Preprocessing transforms applied before detection */
-      preprocessing?: PreprocessingConfig | null;
-      /** Anomaly probability threshold (default: 0.9) */
-      threshold?: number | null;
-      type?: 'pca';
-      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
-      window?: number | null;
-    }
-
-    export type EnsembleOperator = typeof EnsembleOperator[keyof typeof EnsembleOperator];
-
-
-    export const EnsembleOperator = {
-      And: 'and',
-      Or: 'or',
-    } as const;
-
-    export interface EnsembleDetectorConfig {
-      /** Sub-detector configurations (minimum 2) */
-      detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
-      /** How to combine sub-detector results */
-      operator: EnsembleOperator;
-      type?: 'ensemble';
-    }
-
-    /**
-     * Detector configuration types
-     */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
-
-    /**
-     * * `every_15_minutes` - every_15_minutes
-    * `hourly` - hourly
-    * `daily` - daily
-    * `weekly` - weekly
-    * `monthly` - monthly
-     */
-    export type CalculationIntervalEnum = typeof CalculationIntervalEnum[keyof typeof CalculationIntervalEnum];
-
-
-    export const CalculationIntervalEnum = {
-      Every15Minutes: 'every_15_minutes',
-      Hourly: 'hourly',
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-    } as const;
-
-    export interface AlertScheduleRestrictionWindow {
-      /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
-      start: string;
-      /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
-      end: string;
-    }
-
-    export interface AlertScheduleRestriction {
-      /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
-      blocked_windows: AlertScheduleRestrictionWindow[];
-    }
-
-    /**
-     * * `notify` - Notify
-    * `suppress` - Suppress
-     */
-    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
-
-
-    export const InvestigationInconclusiveActionEnum = {
-      Notify: 'notify',
-      Suppress: 'suppress',
-    } as const;
-
-    export interface Alert {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
-      insight: number;
-      /** Human-readable name for the alert. */
-      name?: string;
-      /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
-      subscribed_users: number[];
-      /** Threshold configuration with bounds and type for evaluating the alert. */
-      threshold: Threshold;
-      /** Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease. */
-      condition?: AlertCondition | null;
-      /** Current alert state: Firing, Not firing, Errored, or Snoozed. */
-      readonly state: string;
-      /** Whether the alert is actively being evaluated. */
-      enabled?: boolean;
-      /** @nullable */
-      readonly last_notified_at: string | null;
-      /** @nullable */
-      readonly last_checked_at: string | null;
-      /** @nullable */
-      readonly next_check_at: string | null;
-      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
-      readonly checks: readonly AlertCheck[];
-      /**
-         * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
-         * @nullable
-         */
-      readonly checks_total: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
-      detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
-
-      * `every_15_minutes` - every_15_minutes
-      * `hourly` - hourly
-      * `daily` - daily
-      * `weekly` - weekly
-      * `monthly` - monthly */
-      calculation_interval?: CalculationIntervalEnum;
-      /**
-         * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
-         * @nullable
-         */
-      snoozed_until?: string | null;
-      /**
-         * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
-         * @nullable
-         */
-      skip_weekend?: boolean | null;
-      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
-      schedule_restriction?: AlertScheduleRestriction | null;
-      /**
-         * The last calculated value from the most recent alert check.
-         * @nullable
-         */
-      readonly last_value: number | null;
-      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
-      investigation_agent_enabled?: boolean;
-      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
-      investigation_gates_notifications?: boolean;
-      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
-
-      * `notify` - Notify
-      * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
-    }
-
-    export interface AlertSimulate {
-      /** Insight ID to simulate the detector on. */
-      insight: number;
-      /** Detector configuration to simulate. */
-      detector_config: DetectorConfig;
-      /** Zero-based index of the series to analyze. */
-      series_index?: number;
-      /**
-         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
-         * @nullable
-         */
-      date_from?: string | null;
-    }
-
-    export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
-
-    export type BreakdownSimulationResultSubDetectorScoresItem = { [key: string]: unknown };
-
-    export interface BreakdownSimulationResult {
-      /** Breakdown value label. */
-      label: string;
-      /** Data values for each point. */
-      data: number[];
-      /** Date labels for each point. */
-      dates: string[];
-      /** Anomaly score for each point. */
-      scores: (number | null)[];
-      /** Indices of points flagged as anomalies. */
-      triggered_indices: number[];
-      /** Dates of points flagged as anomalies. */
-      triggered_dates: string[];
-      /** Total number of data points analyzed. */
-      total_points: number;
-      /** Number of anomalies detected. */
-      anomaly_count: number;
-      /** Per-sub-detector scores for ensemble detectors. */
-      sub_detector_scores?: BreakdownSimulationResultSubDetectorScoresItem[];
-    }
-
-    export interface AlertSimulateResponse {
-      /** Data values for each point. */
-      data: number[];
-      /** Date labels for each point. */
-      dates: string[];
-      /** Anomaly score for each point (null if insufficient data). */
-      scores: (number | null)[];
-      /** Indices of points flagged as anomalies. */
-      triggered_indices: number[];
-      /** Dates of points flagged as anomalies. */
-      triggered_dates: string[];
-      /**
-         * Interval of the trends query (hour, day, week, month).
-         * @nullable
-         */
-      interval: string | null;
-      /** Total number of data points analyzed. */
-      total_points: number;
-      /** Number of anomalies detected. */
-      anomaly_count: number;
-      /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
-      sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
-      /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
-      breakdown_results?: BreakdownSimulationResult[];
-    }
-
-    /**
-     * * `USR` - user
-    * `GIT` - GitHub
-     */
-    export type CreationTypeEnum = typeof CreationTypeEnum[keyof typeof CreationTypeEnum];
-
-
-    export const CreationTypeEnum = {
-      Usr: 'USR',
-      Git: 'GIT',
-    } as const;
-
-    /**
-     * * `dashboard_item` - insight
-    * `dashboard` - dashboard
-    * `project` - project
-    * `organization` - organization
-    * `recording` - recording
-     */
-    export type AnnotationScopeEnum = typeof AnnotationScopeEnum[keyof typeof AnnotationScopeEnum];
-
-
-    export const AnnotationScopeEnum = {
-      DashboardItem: 'dashboard_item',
-      Dashboard: 'dashboard',
-      Project: 'project',
-      Organization: 'organization',
-      Recording: 'recording',
-    } as const;
-
-    export interface Annotation {
-      readonly id: number;
-      /**
-         * Annotation text shown on charts to describe the change, release, or incident.
-         * @maxLength 8192
-         * @nullable
-         */
-      content?: string | null;
-      /**
-         * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
-         * @nullable
-         */
-      date_marker?: string | null;
-      /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
-
-      * `USR` - user
-      * `GIT` - GitHub */
-      creation_type?: CreationTypeEnum;
-      /** @nullable */
-      dashboard_item?: number | null;
-      /** @nullable */
-      dashboard_id?: number | null;
-      /** @nullable */
-      readonly dashboard_name: string | null;
-      /** @nullable */
-      readonly insight_short_id: string | null;
-      /** @nullable */
-      readonly insight_name: string | null;
-      /** @nullable */
-      readonly insight_derived_name: string | null;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly created_at: string | null;
-      readonly updated_at: string;
-      /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
-      deleted?: boolean;
-      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
-
-      * `dashboard_item` - insight
-      * `dashboard` - dashboard
-      * `project` - project
-      * `organization` - organization
-      * `recording` - recording */
-      scope?: AnnotationScopeEnum;
-    }
-
-    export interface AppMetricSeries {
-      name: string;
-      values: number[];
-    }
-
-    export interface AppMetricsResponse {
-      labels: string[];
-      series: AppMetricSeries[];
-    }
-
-    export type AppMetricsTotalsResponseTotals = {[key: string]: number};
-
-    export interface AppMetricsTotalsResponse {
-      totals: AppMetricsTotalsResponseTotals;
-    }
-
-    /**
-     * Serializer for individual transcript segments from AssemblyAI
-     */
-    export interface TranscriptSegment {
-      /**
-         * Milliseconds from recording start
-         * @nullable
-         */
-      timestamp?: number | null;
-      /** @nullable */
-      speaker?: string | null;
-      text: string;
-      /**
-         * Transcription confidence score
-         * @nullable
-         */
-      confidence?: number | null;
-      /**
-         * Whether this is the final version
-         * @nullable
-         */
-      is_final?: boolean | null;
-    }
-
-    /**
-     * Serializer for appending transcript segments (supports batched real-time uploads)
-     */
-    export interface AppendSegments {
-      /** @minItems 1 */
-      segments: TranscriptSegment[];
-    }
-
-    export interface ApprovalPolicy {
-      readonly id: string;
-      /** @maxLength 128 */
-      action_key: string;
-      conditions?: unknown;
-      approver_config: unknown;
-      allow_self_approve?: boolean;
-      bypass_org_membership_levels?: unknown;
-      bypass_roles?: string[];
-      /** Auto-expire change requests after this duration */
-      expires_after?: string;
-      enabled?: boolean;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
-    export interface ApproveSnapshotInput {
-      /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
-      identifier: string;
-      /** The content hash of the new baseline image to record for this identifier. */
-      new_hash: string;
-    }
-
-    export interface ApproveRunRequestInput {
-      /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
-      snapshots?: ApproveSnapshotInput[];
-      /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
-      approve_all?: boolean;
-      /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
-      commit_to_github?: boolean;
-    }
-
-    export interface Artifact {
-      id: string;
-      content_hash: string;
-      /** @nullable */
-      width: number | null;
-      /** @nullable */
-      height: number | null;
-      /** @nullable */
-      download_url: string | null;
-    }
-
-    /**
-     * * `user` - user
-    * `role` - role
-     */
-    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
-
-
-    export const AssigneeTypeEnum = {
-      User: 'user',
-      Role: 'role',
-    } as const;
-
-    export interface AsyncDeletionStatus {
-      /** The UUID of the person whose events are queued for deletion. */
-      person_uuid: string;
-      /** When the deletion was requested. */
-      created_at: string;
-      /** Current status: 'pending' or 'completed'. */
-      readonly status: string;
-      /**
-         * When the deletion was verified complete. Null if still pending.
-         * @nullable
-         */
-      delete_verified_at: string | null;
-    }
-
-    /**
-     * * `first_touch` - First Touch
-    * `last_touch` - Last Touch
-    * `linear` - Linear
-    * `time_decay` - Time Decay
-    * `position_based` - Position Based
-     */
-    export type AttributionModeEnum = typeof AttributionModeEnum[keyof typeof AttributionModeEnum];
-
-
-    export const AttributionModeEnum = {
-      FirstTouch: 'first_touch',
-      LastTouch: 'last_touch',
-      Linear: 'linear',
-      TimeDecay: 'time_decay',
-      PositionBased: 'position_based',
-    } as const;
-
-    export interface UserBasicInfo {
-      id: number;
-      first_name: string;
-      email: string;
-    }
-
-    export interface RunSummary {
-      total: number;
-      changed: number;
-      new: number;
-      removed: number;
-      unchanged: number;
-      unresolved?: number;
-      tolerated_matched?: number;
-    }
-
-    export type RunMetadata = { [key: string]: unknown };
-
-    export interface Run {
-      approved_by?: UserBasicInfo | null;
-      id: string;
-      repo_id: string;
-      status: string;
-      run_type: string;
-      commit_sha: string;
-      branch: string;
-      /** @nullable */
-      pr_number: number | null;
-      approved: boolean;
-      /** @nullable */
-      approved_at: string | null;
-      summary: RunSummary;
-      /** @nullable */
-      error_message: string | null;
-      created_at: string;
-      /** @nullable */
-      completed_at: string | null;
-      is_stale?: boolean;
-      /** @nullable */
-      superseded_by_id?: string | null;
-      metadata?: RunMetadata;
-    }
-
-    export interface AutoApproveResult {
-      run: Run;
-      baseline_content: string;
-    }
-
-    export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
-
-
-    export const AutocompleteCompletionItemKind = {
-      Method: 'Method',
-      Function: 'Function',
-      Constructor: 'Constructor',
-      Field: 'Field',
-      Variable: 'Variable',
-      Class: 'Class',
-      Struct: 'Struct',
-      Interface: 'Interface',
-      Module: 'Module',
-      Property: 'Property',
-      Event: 'Event',
-      Operator: 'Operator',
-      Unit: 'Unit',
-      Value: 'Value',
-      Constant: 'Constant',
-      Enum: 'Enum',
-      EnumMember: 'EnumMember',
-      Keyword: 'Keyword',
-      Text: 'Text',
-      Color: 'Color',
-      File: 'File',
-      Reference: 'Reference',
-      Customcolor: 'Customcolor',
-      Folder: 'Folder',
-      TypeParameter: 'TypeParameter',
-      User: 'User',
-      Issue: 'Issue',
-      Snippet: 'Snippet',
-    } as const;
-
-    export interface AutocompleteCompletionItem {
-      /** A human-readable string with additional information about this item, like type or symbol information. */
-      detail?: string | null;
-      /** A human-readable string that represents a doc-comment. */
-      documentation?: string | null;
-      /** A string or snippet that should be inserted in a document when selecting this completion. */
-      insertText: string;
-      /** The kind of this completion item. Based on the kind an icon is chosen by the editor. */
-      kind: AutocompleteCompletionItemKind;
-      /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
-      label: string;
-    }
-
-    /**
-     * * `P0` - P0
-    * `P1` - P1
-    * `P2` - P2
-    * `P3` - P3
-    * `P4` - P4
-     */
-    export type AutonomyPriorityEnum = typeof AutonomyPriorityEnum[keyof typeof AutonomyPriorityEnum];
-
-
-    export const AutonomyPriorityEnum = {
-      P0: 'P0',
-      P1: 'P1',
-      P2: 'P2',
-      P3: 'P3',
-      P4: 'P4',
-    } as const;
-
-    /**
-     * Discovered detail fields and their value distributions.
-     */
-    export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
-
-    export type StaticFiltersUsersItem = { [key: string]: unknown };
-
-    export type StaticFiltersScopesItem = { [key: string]: unknown };
-
-    export type StaticFiltersActivitiesItem = { [key: string]: unknown };
-
-    export type StaticFiltersClientsItem = { [key: string]: unknown };
-
-    export interface StaticFilters {
-      /** Users who have logged activity. */
-      users: StaticFiltersUsersItem[];
-      /** Available activity scopes. */
-      scopes: StaticFiltersScopesItem[];
-      /** Available activity types. */
-      activities: StaticFiltersActivitiesItem[];
-      /** API clients that have generated activity (from x-posthog-client header). */
-      clients: StaticFiltersClientsItem[];
-    }
-
-    export interface AvailableFiltersResponse {
-      /** Pre-computed filter options for scopes, activities, and users. */
-      static_filters: StaticFilters;
-      /** Discovered detail fields and their value distributions. */
-      detail_fields: AvailableFiltersResponseDetailFields;
-    }
-
-    /**
-     * * `ingest_first_event` - ingest_first_event
-    * `set_up_reverse_proxy` - set_up_reverse_proxy
-    * `create_first_insight` - create_first_insight
-    * `create_first_dashboard` - create_first_dashboard
-    * `track_custom_events` - track_custom_events
-    * `define_actions` - define_actions
-    * `set_up_cohorts` - set_up_cohorts
-    * `explore_trends_insight` - explore_trends_insight
-    * `create_funnel` - create_funnel
-    * `explore_retention_insight` - explore_retention_insight
-    * `explore_paths_insight` - explore_paths_insight
-    * `explore_stickiness_insight` - explore_stickiness_insight
-    * `explore_lifecycle_insight` - explore_lifecycle_insight
-    * `add_authorized_domain` - add_authorized_domain
-    * `set_up_web_vitals` - set_up_web_vitals
-    * `review_web_analytics_dashboard` - review_web_analytics_dashboard
-    * `filter_web_analytics` - filter_web_analytics
-    * `set_up_web_analytics_conversion_goals` - set_up_web_analytics_conversion_goals
-    * `visit_web_vitals_dashboard` - visit_web_vitals_dashboard
-    * `setup_session_recordings` - setup_session_recordings
-    * `watch_session_recording` - watch_session_recording
-    * `configure_recording_settings` - configure_recording_settings
-    * `create_recording_playlist` - create_recording_playlist
-    * `enable_console_logs` - enable_console_logs
-    * `create_feature_flag` - create_feature_flag
-    * `implement_flag_in_code` - implement_flag_in_code
-    * `update_feature_flag_release_conditions` - update_feature_flag_release_conditions
-    * `create_multivariate_flag` - create_multivariate_flag
-    * `set_up_flag_payloads` - set_up_flag_payloads
-    * `set_up_flag_evaluation_runtimes` - set_up_flag_evaluation_runtimes
-    * `create_experiment` - create_experiment
-    * `implement_experiment_variants` - implement_experiment_variants
-    * `launch_experiment` - launch_experiment
-    * `review_experiment_results` - review_experiment_results
-    * `create_survey` - create_survey
-    * `launch_survey` - launch_survey
-    * `collect_survey_responses` - collect_survey_responses
-    * `connect_source` - connect_source
-    * `run_first_query` - run_first_query
-    * `join_external_data` - join_external_data
-    * `create_saved_view` - create_saved_view
-    * `enable_error_tracking` - enable_error_tracking
-    * `upload_source_maps` - upload_source_maps
-    * `view_first_error` - view_first_error
-    * `resolve_first_error` - resolve_first_error
-    * `ingest_first_llm_event` - ingest_first_llm_event
-    * `view_first_trace` - view_first_trace
-    * `track_costs` - track_costs
-    * `set_up_llm_evaluation` - set_up_llm_evaluation
-    * `run_ai_playground` - run_ai_playground
-    * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
-    * `connect_revenue_source` - connect_revenue_source
-    * `set_up_revenue_goal` - set_up_revenue_goal
-    * `enable_log_capture` - enable_log_capture
-    * `view_first_logs` - view_first_logs
-    * `create_first_workflow` - create_first_workflow
-    * `set_up_first_workflow_channel` - set_up_first_workflow_channel
-    * `configure_workflow_trigger` - configure_workflow_trigger
-    * `add_workflow_action` - add_workflow_action
-    * `launch_workflow` - launch_workflow
-    * `create_first_endpoint` - create_first_endpoint
-    * `configure_endpoint` - configure_endpoint
-    * `test_endpoint` - test_endpoint
-    * `create_early_access_feature` - create_early_access_feature
-    * `update_feature_stage` - update_feature_stage
-     */
-    export type AvailableSetupTaskIdsEnum = typeof AvailableSetupTaskIdsEnum[keyof typeof AvailableSetupTaskIdsEnum];
-
-
-    export const AvailableSetupTaskIdsEnum = {
-      IngestFirstEvent: 'ingest_first_event',
-      SetUpReverseProxy: 'set_up_reverse_proxy',
-      CreateFirstInsight: 'create_first_insight',
-      CreateFirstDashboard: 'create_first_dashboard',
-      TrackCustomEvents: 'track_custom_events',
-      DefineActions: 'define_actions',
-      SetUpCohorts: 'set_up_cohorts',
-      ExploreTrendsInsight: 'explore_trends_insight',
-      CreateFunnel: 'create_funnel',
-      ExploreRetentionInsight: 'explore_retention_insight',
-      ExplorePathsInsight: 'explore_paths_insight',
-      ExploreStickinessInsight: 'explore_stickiness_insight',
-      ExploreLifecycleInsight: 'explore_lifecycle_insight',
-      AddAuthorizedDomain: 'add_authorized_domain',
-      SetUpWebVitals: 'set_up_web_vitals',
-      ReviewWebAnalyticsDashboard: 'review_web_analytics_dashboard',
-      FilterWebAnalytics: 'filter_web_analytics',
-      SetUpWebAnalyticsConversionGoals: 'set_up_web_analytics_conversion_goals',
-      VisitWebVitalsDashboard: 'visit_web_vitals_dashboard',
-      SetupSessionRecordings: 'setup_session_recordings',
-      WatchSessionRecording: 'watch_session_recording',
-      ConfigureRecordingSettings: 'configure_recording_settings',
-      CreateRecordingPlaylist: 'create_recording_playlist',
-      EnableConsoleLogs: 'enable_console_logs',
-      CreateFeatureFlag: 'create_feature_flag',
-      ImplementFlagInCode: 'implement_flag_in_code',
-      UpdateFeatureFlagReleaseConditions: 'update_feature_flag_release_conditions',
-      CreateMultivariateFlag: 'create_multivariate_flag',
-      SetUpFlagPayloads: 'set_up_flag_payloads',
-      SetUpFlagEvaluationRuntimes: 'set_up_flag_evaluation_runtimes',
-      CreateExperiment: 'create_experiment',
-      ImplementExperimentVariants: 'implement_experiment_variants',
-      LaunchExperiment: 'launch_experiment',
-      ReviewExperimentResults: 'review_experiment_results',
-      CreateSurvey: 'create_survey',
-      LaunchSurvey: 'launch_survey',
-      CollectSurveyResponses: 'collect_survey_responses',
-      ConnectSource: 'connect_source',
-      RunFirstQuery: 'run_first_query',
-      JoinExternalData: 'join_external_data',
-      CreateSavedView: 'create_saved_view',
-      EnableErrorTracking: 'enable_error_tracking',
-      UploadSourceMaps: 'upload_source_maps',
-      ViewFirstError: 'view_first_error',
-      ResolveFirstError: 'resolve_first_error',
-      IngestFirstLlmEvent: 'ingest_first_llm_event',
-      ViewFirstTrace: 'view_first_trace',
-      TrackCosts: 'track_costs',
-      SetUpLlmEvaluation: 'set_up_llm_evaluation',
-      RunAiPlayground: 'run_ai_playground',
-      EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
-      ConnectRevenueSource: 'connect_revenue_source',
-      SetUpRevenueGoal: 'set_up_revenue_goal',
-      EnableLogCapture: 'enable_log_capture',
-      ViewFirstLogs: 'view_first_logs',
-      CreateFirstWorkflow: 'create_first_workflow',
-      SetUpFirstWorkflowChannel: 'set_up_first_workflow_channel',
-      ConfigureWorkflowTrigger: 'configure_workflow_trigger',
-      AddWorkflowAction: 'add_workflow_action',
-      LaunchWorkflow: 'launch_workflow',
-      CreateFirstEndpoint: 'create_first_endpoint',
-      ConfigureEndpoint: 'configure_endpoint',
-      TestEndpoint: 'test_endpoint',
-      CreateEarlyAccessFeature: 'create_early_access_feature',
-      UpdateFeatureStage: 'update_feature_stage',
-    } as const;
-
-    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
-
-
-    export const AzureBlobDestinationConfigType = {
-      AzureBlob: 'AzureBlob',
-    } as const;
-
-    /**
-     * * `brotli` - brotli
-    * `gzip` - gzip
-    * `lz4` - lz4
-    * `snappy` - snappy
-    * `zstd` - zstd
-     */
-    export type CompressionEnum = typeof CompressionEnum[keyof typeof CompressionEnum];
-
-
-    export const CompressionEnum = {
-      Brotli: 'brotli',
-      Gzip: 'gzip',
-      Lz4: 'lz4',
-      Snappy: 'snappy',
-      Zstd: 'zstd',
-    } as const;
-
-    /**
-     * * `JSONLines` - JSONLines
-    * `Parquet` - Parquet
-     */
-    export type FileFormatEnum = typeof FileFormatEnum[keyof typeof FileFormatEnum];
-
-
-    export const FileFormatEnum = {
-      JSONLines: 'JSONLines',
-      Parquet: 'Parquet',
-    } as const;
-
-    /**
-     * Typed configuration for an Azure Blob Storage batch-export destination.
-
-    Credentials live in the linked Integration, not in this config. Mirrors
-    `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
-     */
-    export interface AzureBlobDestinationConfig {
-      /** Azure Blob Storage container name. */
-      container_name: string;
-      /** Object key prefix applied to every exported file. */
-      prefix?: string;
-      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
-
-      * `brotli` - brotli
-      * `gzip` - gzip
-      * `lz4` - lz4
-      * `snappy` - snappy
-      * `zstd` - zstd */
-      compression?: CompressionEnum | null;
-      /** File format used for exported objects.
-
-      * `JSONLines` - JSONLines
-      * `Parquet` - Parquet */
-      file_format?: FileFormatEnum;
-      /**
-         * If set, rolls to a new file once the current file exceeds this size in MB.
-         * @nullable
-         */
-      max_file_size_mb?: number | null;
-      type: AzureBlobDestinationConfigType;
-    }
-
-    export type AzureBlobDestinationRequestType = typeof AzureBlobDestinationRequestType[keyof typeof AzureBlobDestinationRequestType];
-
-
-    export const AzureBlobDestinationRequestType = {
-      AzureBlob: 'AzureBlob',
-    } as const;
-
-    /**
-     * Request shape for creating or updating an Azure Blob Storage batch-export destination.
-     */
-    export interface AzureBlobDestinationRequest {
-      type: AzureBlobDestinationRequestType;
-      /** ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one. */
-      integration_id: number;
-      config: AzureBlobDestinationConfig;
-    }
-
-    /**
-     * * `AzureBlob` - AzureBlob
-     */
-    export type AzureBlobDestinationRequestTypeEnum = typeof AzureBlobDestinationRequestTypeEnum[keyof typeof AzureBlobDestinationRequestTypeEnum];
-
-
-    export const AzureBlobDestinationRequestTypeEnum = {
-      AzureBlob: 'AzureBlob',
-    } as const;
-
-    /**
-     * * `AED` - AED
-    * `AFN` - AFN
-    * `ALL` - ALL
-    * `AMD` - AMD
-    * `ANG` - ANG
-    * `AOA` - AOA
-    * `ARS` - ARS
-    * `AUD` - AUD
-    * `AWG` - AWG
-    * `AZN` - AZN
-    * `BAM` - BAM
-    * `BBD` - BBD
-    * `BDT` - BDT
-    * `BGN` - BGN
-    * `BHD` - BHD
-    * `BIF` - BIF
-    * `BMD` - BMD
-    * `BND` - BND
-    * `BOB` - BOB
-    * `BRL` - BRL
-    * `BSD` - BSD
-    * `BTC` - BTC
-    * `BTN` - BTN
-    * `BWP` - BWP
-    * `BYN` - BYN
-    * `BZD` - BZD
-    * `CAD` - CAD
-    * `CDF` - CDF
-    * `CHF` - CHF
-    * `CLP` - CLP
-    * `CNY` - CNY
-    * `COP` - COP
-    * `CRC` - CRC
-    * `CVE` - CVE
-    * `CZK` - CZK
-    * `DJF` - DJF
-    * `DKK` - DKK
-    * `DOP` - DOP
-    * `DZD` - DZD
-    * `EGP` - EGP
-    * `ERN` - ERN
-    * `ETB` - ETB
-    * `EUR` - EUR
-    * `FJD` - FJD
-    * `GBP` - GBP
-    * `GEL` - GEL
-    * `GHS` - GHS
-    * `GIP` - GIP
-    * `GMD` - GMD
-    * `GNF` - GNF
-    * `GTQ` - GTQ
-    * `GYD` - GYD
-    * `HKD` - HKD
-    * `HNL` - HNL
-    * `HRK` - HRK
-    * `HTG` - HTG
-    * `HUF` - HUF
-    * `IDR` - IDR
-    * `ILS` - ILS
-    * `INR` - INR
-    * `IQD` - IQD
-    * `IRR` - IRR
-    * `ISK` - ISK
-    * `JMD` - JMD
-    * `JOD` - JOD
-    * `JPY` - JPY
-    * `KES` - KES
-    * `KGS` - KGS
-    * `KHR` - KHR
-    * `KMF` - KMF
-    * `KRW` - KRW
-    * `KWD` - KWD
-    * `KYD` - KYD
-    * `KZT` - KZT
-    * `LAK` - LAK
-    * `LBP` - LBP
-    * `LKR` - LKR
-    * `LRD` - LRD
-    * `LTL` - LTL
-    * `LVL` - LVL
-    * `LSL` - LSL
-    * `LYD` - LYD
-    * `MAD` - MAD
-    * `MDL` - MDL
-    * `MGA` - MGA
-    * `MKD` - MKD
-    * `MMK` - MMK
-    * `MNT` - MNT
-    * `MOP` - MOP
-    * `MRU` - MRU
-    * `MTL` - MTL
-    * `MUR` - MUR
-    * `MVR` - MVR
-    * `MWK` - MWK
-    * `MXN` - MXN
-    * `MYR` - MYR
-    * `MZN` - MZN
-    * `NAD` - NAD
-    * `NGN` - NGN
-    * `NIO` - NIO
-    * `NOK` - NOK
-    * `NPR` - NPR
-    * `NZD` - NZD
-    * `OMR` - OMR
-    * `PAB` - PAB
-    * `PEN` - PEN
-    * `PGK` - PGK
-    * `PHP` - PHP
-    * `PKR` - PKR
-    * `PLN` - PLN
-    * `PYG` - PYG
-    * `QAR` - QAR
-    * `RON` - RON
-    * `RSD` - RSD
-    * `RUB` - RUB
-    * `RWF` - RWF
-    * `SAR` - SAR
-    * `SBD` - SBD
-    * `SCR` - SCR
-    * `SDG` - SDG
-    * `SEK` - SEK
-    * `SGD` - SGD
-    * `SRD` - SRD
-    * `SSP` - SSP
-    * `STN` - STN
-    * `SYP` - SYP
-    * `SZL` - SZL
-    * `THB` - THB
-    * `TJS` - TJS
-    * `TMT` - TMT
-    * `TND` - TND
-    * `TOP` - TOP
-    * `TRY` - TRY
-    * `TTD` - TTD
-    * `TWD` - TWD
-    * `TZS` - TZS
-    * `UAH` - UAH
-    * `UGX` - UGX
-    * `USD` - USD
-    * `UYU` - UYU
-    * `UZS` - UZS
-    * `VES` - VES
-    * `VND` - VND
-    * `VUV` - VUV
-    * `WST` - WST
-    * `XAF` - XAF
-    * `XCD` - XCD
-    * `XOF` - XOF
-    * `XPF` - XPF
-    * `YER` - YER
-    * `ZAR` - ZAR
-    * `ZMW` - ZMW
-     */
-    export type BaseCurrencyEnum = typeof BaseCurrencyEnum[keyof typeof BaseCurrencyEnum];
-
-
-    export const BaseCurrencyEnum = {
-      Aed: 'AED',
-      Afn: 'AFN',
-      All: 'ALL',
-      Amd: 'AMD',
-      Ang: 'ANG',
-      Aoa: 'AOA',
-      Ars: 'ARS',
-      Aud: 'AUD',
-      Awg: 'AWG',
-      Azn: 'AZN',
-      Bam: 'BAM',
-      Bbd: 'BBD',
-      Bdt: 'BDT',
-      Bgn: 'BGN',
-      Bhd: 'BHD',
-      Bif: 'BIF',
-      Bmd: 'BMD',
-      Bnd: 'BND',
-      Bob: 'BOB',
-      Brl: 'BRL',
-      Bsd: 'BSD',
-      Btc: 'BTC',
-      Btn: 'BTN',
-      Bwp: 'BWP',
-      Byn: 'BYN',
-      Bzd: 'BZD',
-      Cad: 'CAD',
-      Cdf: 'CDF',
-      Chf: 'CHF',
-      Clp: 'CLP',
-      Cny: 'CNY',
-      Cop: 'COP',
-      Crc: 'CRC',
-      Cve: 'CVE',
-      Czk: 'CZK',
-      Djf: 'DJF',
-      Dkk: 'DKK',
-      Dop: 'DOP',
-      Dzd: 'DZD',
-      Egp: 'EGP',
-      Ern: 'ERN',
-      Etb: 'ETB',
-      Eur: 'EUR',
-      Fjd: 'FJD',
-      Gbp: 'GBP',
-      Gel: 'GEL',
-      Ghs: 'GHS',
-      Gip: 'GIP',
-      Gmd: 'GMD',
-      Gnf: 'GNF',
-      Gtq: 'GTQ',
-      Gyd: 'GYD',
-      Hkd: 'HKD',
-      Hnl: 'HNL',
-      Hrk: 'HRK',
-      Htg: 'HTG',
-      Huf: 'HUF',
-      Idr: 'IDR',
-      Ils: 'ILS',
-      Inr: 'INR',
-      Iqd: 'IQD',
-      Irr: 'IRR',
-      Isk: 'ISK',
-      Jmd: 'JMD',
-      Jod: 'JOD',
-      Jpy: 'JPY',
-      Kes: 'KES',
-      Kgs: 'KGS',
-      Khr: 'KHR',
-      Kmf: 'KMF',
-      Krw: 'KRW',
-      Kwd: 'KWD',
-      Kyd: 'KYD',
-      Kzt: 'KZT',
-      Lak: 'LAK',
-      Lbp: 'LBP',
-      Lkr: 'LKR',
-      Lrd: 'LRD',
-      Ltl: 'LTL',
-      Lvl: 'LVL',
-      Lsl: 'LSL',
-      Lyd: 'LYD',
-      Mad: 'MAD',
-      Mdl: 'MDL',
-      Mga: 'MGA',
-      Mkd: 'MKD',
-      Mmk: 'MMK',
-      Mnt: 'MNT',
-      Mop: 'MOP',
-      Mru: 'MRU',
-      Mtl: 'MTL',
-      Mur: 'MUR',
-      Mvr: 'MVR',
-      Mwk: 'MWK',
-      Mxn: 'MXN',
-      Myr: 'MYR',
-      Mzn: 'MZN',
-      Nad: 'NAD',
-      Ngn: 'NGN',
-      Nio: 'NIO',
-      Nok: 'NOK',
-      Npr: 'NPR',
-      Nzd: 'NZD',
-      Omr: 'OMR',
-      Pab: 'PAB',
-      Pen: 'PEN',
-      Pgk: 'PGK',
-      Php: 'PHP',
-      Pkr: 'PKR',
-      Pln: 'PLN',
-      Pyg: 'PYG',
-      Qar: 'QAR',
-      Ron: 'RON',
-      Rsd: 'RSD',
-      Rub: 'RUB',
-      Rwf: 'RWF',
-      Sar: 'SAR',
-      Sbd: 'SBD',
-      Scr: 'SCR',
-      Sdg: 'SDG',
-      Sek: 'SEK',
-      Sgd: 'SGD',
-      Srd: 'SRD',
-      Ssp: 'SSP',
-      Stn: 'STN',
-      Syp: 'SYP',
-      Szl: 'SZL',
-      Thb: 'THB',
-      Tjs: 'TJS',
-      Tmt: 'TMT',
-      Tnd: 'TND',
-      Top: 'TOP',
-      Try: 'TRY',
-      Ttd: 'TTD',
-      Twd: 'TWD',
-      Tzs: 'TZS',
-      Uah: 'UAH',
-      Ugx: 'UGX',
-      Usd: 'USD',
-      Uyu: 'UYU',
-      Uzs: 'UZS',
-      Ves: 'VES',
-      Vnd: 'VND',
-      Vuv: 'VUV',
-      Wst: 'WST',
-      Xaf: 'XAF',
-      Xcd: 'XCD',
-      Xof: 'XOF',
-      Xpf: 'XPF',
-      Yer: 'YER',
-      Zar: 'ZAR',
-      Zmw: 'ZMW',
-    } as const;
-
-    export interface QuarantineSourceRun {
-      id: string;
-      branch: string;
-      commit_sha: string;
-      created_at: string;
-      /** @nullable */
-      pr_number?: number | null;
-    }
-
-    export interface BaselineQuarantineSummary {
-      created_by?: UserBasicInfo | null;
-      source_run?: QuarantineSourceRun | null;
-      id: string;
-      reason: string;
-      /** @nullable */
-      expires_at: string | null;
-      created_at: string;
-    }
-
-    export interface BaselineEntry {
-      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
-      quarantine?: BaselineQuarantineSummary | null;
-      identifier: string;
-      run_type: string;
-      /** @nullable */
-      browser: string | null;
-      /** @nullable */
-      thumbnail_hash: string | null;
-      /** @nullable */
-      width: number | null;
-      /** @nullable */
-      height: number | null;
-      tolerate_count_30d: number;
-      tolerate_count_90d: number;
-      is_quarantined: boolean;
-      last_run_at: string;
-      baseline_change_count: number;
-      /** @nullable */
-      recent_drift_avg: number | null;
-    }
-
-    export type BaselineTotalsByRunType = {[key: string]: number};
-
-    export interface BaselineTotals {
-      by_run_type: BaselineTotalsByRunType;
-      all_snapshots: number;
-      recently_tolerated: number;
-      frequently_tolerated: number;
-      currently_quarantined: number;
-    }
-
-    export interface BaselineOverview {
-      entries: BaselineEntry[];
-      totals: BaselineTotals;
-      truncated: boolean;
-      generated_at: string;
-    }
-
-    /**
-     * * `minimal` - minimal
-    * `detailed` - detailed
-     */
-    export type DetailModeValueEnum = typeof DetailModeValueEnum[keyof typeof DetailModeValueEnum];
-
-
-    export const DetailModeValueEnum = {
-      Minimal: 'minimal',
-      Detailed: 'detailed',
-    } as const;
-
-    export interface BatchCheckRequest {
-      /**
-         * List of trace IDs to check for cached summaries
-         * @maxItems 100
-         */
-      trace_ids: string[];
-      /** Summary detail level to check for
-
-      * `minimal` - minimal
-      * `detailed` - detailed */
-      mode?: DetailModeValueEnum;
-      /**
-         * LLM model used for cached summaries
-         * @nullable
-         */
-      model?: string | null;
-    }
-
-    export interface CachedSummary {
-      trace_id: string;
-      title: string;
-      cached?: boolean;
-    }
-
-    export interface BatchCheckResponse {
-      summaries: CachedSummary[];
-    }
-
-    /**
-     * * `events` - Events
-    * `persons` - Persons
-    * `sessions` - Sessions
-     */
-    export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
-
-
-    export const ModelEnum = {
-      Events: 'events',
-      Persons: 'persons',
+    export const ErrorTrackingIssueOrderByEnum = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
       Sessions: 'sessions',
     } as const;
 
     /**
-     * * `S3` - S3
-    * `Snowflake` - Snowflake
-    * `Postgres` - Postgres
-    * `Redshift` - Redshift
-    * `BigQuery` - Bigquery
-    * `Databricks` - Databricks
-    * `AzureBlob` - Azure Blob
-    * `Workflows` - Workflows
-    * `HTTP` - Http
-    * `NoOp` - Noop
-    * `FileDownload` - File Download
+     * * `ASC` - ASC
+    * `DESC` - DESC
      */
-    export type BatchExportDestinationTypeEnum = typeof BatchExportDestinationTypeEnum[keyof typeof BatchExportDestinationTypeEnum];
+    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
 
 
-    export const BatchExportDestinationTypeEnum = {
-      S3: 'S3',
-      Snowflake: 'Snowflake',
-      Postgres: 'Postgres',
-      Redshift: 'Redshift',
-      BigQuery: 'BigQuery',
-      Databricks: 'Databricks',
-      AzureBlob: 'AzureBlob',
-      Workflows: 'Workflows',
-      Http: 'HTTP',
-      NoOp: 'NoOp',
-      FileDownload: 'FileDownload',
-    } as const;
-
-    export type DatabricksDestinationConfigType = typeof DatabricksDestinationConfigType[keyof typeof DatabricksDestinationConfigType];
-
-
-    export const DatabricksDestinationConfigType = {
-      Databricks: 'Databricks',
+    export const OrderDirectionEnum = {
+      Asc: 'ASC',
+      Desc: 'DESC',
     } as const;
 
     /**
-     * Typed configuration for a Databricks batch-export destination.
-
-    Credentials live in the linked Integration, not in this config. Mirrors
-    `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     * * `archived` - archived
+    * `active` - active
+    * `resolved` - resolved
+    * `pending_release` - pending_release
+    * `suppressed` - suppressed
+    * `all` - all
      */
-    export interface DatabricksDestinationConfig {
-      /** Databricks SQL warehouse HTTP path. */
-      http_path: string;
-      /** Unity Catalog name. */
-      catalog: string;
-      /** Schema (database) name inside the catalog. */
-      schema: string;
-      /** Destination table name. */
-      table_name: string;
-      /** Whether to use the Databricks VARIANT type for JSON-like columns. */
-      use_variant_type?: boolean;
-      /** Whether to let Databricks evolve the destination table schema automatically. */
-      use_automatic_schema_evolution?: boolean;
-      type: DatabricksDestinationConfigType;
-    }
-
-    export type BigQueryDestinationConfigType = typeof BigQueryDestinationConfigType[keyof typeof BigQueryDestinationConfigType];
-
-
-    export const BigQueryDestinationConfigType = {
-      BigQuery: 'BigQuery',
-    } as const;
-
-    /**
-     * Typed configuration for a BigQuery batch-export destination.
-
-    Credentials live in the linked Integration, not in this config. Mirrors the
-    non-credential fields of `BigQueryBatchExportInputs` in
-    `products/batch_exports/backend/service.py`.
-     */
-    export interface BigQueryDestinationConfig {
-      /** BigQuery dataset ID to write to. */
-      dataset_id: string;
-      /** BigQuery table ID inside the dataset. */
-      table_id?: string;
-      /** Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created. */
-      use_json_type?: boolean;
-      type: BigQueryDestinationConfigType;
-    }
-
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig;
-
-    /**
-     * Serializer for an BatchExportDestination model.
-
-    The `config` field is polymorphic and typed only for destinations that keep
-    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
-    Other destination types accept the same JSON shape but without a typed
-    OpenAPI schema. Secret fields are stripped from `config` on read.
-     */
-    export interface BatchExportDestination {
-      /** A choice of supported BatchExportDestination types.
-
-      * `S3` - S3
-      * `Snowflake` - Snowflake
-      * `Postgres` - Postgres
-      * `Redshift` - Redshift
-      * `BigQuery` - Bigquery
-      * `Databricks` - Databricks
-      * `AzureBlob` - Azure Blob
-      * `Workflows` - Workflows
-      * `HTTP` - Http
-      * `NoOp` - Noop
-      * `FileDownload` - File Download */
-      type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
-      config: BatchExportDestinationConfig;
-      /**
-         * The integration for this destination.
-         * @nullable
-         */
-      integration?: number | null;
-      /**
-         * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
-         * @nullable
-         */
-      integration_id?: number | null;
-    }
-
-    /**
-     * * `hour` - hour
-    * `day` - day
-    * `week` - week
-    * `every 5 minutes` - every 5 minutes
-    * `every 15 minutes` - every 15 minutes
-     */
-    export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
-
-
-    export const IntervalEnum = {
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Every5Minutes: 'every 5 minutes',
-      Every15Minutes: 'every 15 minutes',
-    } as const;
-
-    /**
-     * * `Cancelled` - Cancelled
-    * `Completed` - Completed
-    * `ContinuedAsNew` - Continued As New
-    * `Failed` - Failed
-    * `FailedRetryable` - Failed Retryable
-    * `FailedBilling` - Failed Billing
-    * `Terminated` - Terminated
-    * `TimedOut` - Timedout
-    * `Running` - Running
-    * `Starting` - Starting
-     */
-    export type BatchExportRunStatusEnum = typeof BatchExportRunStatusEnum[keyof typeof BatchExportRunStatusEnum];
-
-
-    export const BatchExportRunStatusEnum = {
-      Cancelled: 'Cancelled',
-      Completed: 'Completed',
-      ContinuedAsNew: 'ContinuedAsNew',
-      Failed: 'Failed',
-      FailedRetryable: 'FailedRetryable',
-      FailedBilling: 'FailedBilling',
-      Terminated: 'Terminated',
-      TimedOut: 'TimedOut',
-      Running: 'Running',
-      Starting: 'Starting',
-    } as const;
-
-    /**
-     * Serializer for a BatchExportRun model.
-     */
-    export interface BatchExportRun {
-      readonly id: string;
-      /** The status of this run.
-
-      * `Cancelled` - Cancelled
-      * `Completed` - Completed
-      * `ContinuedAsNew` - Continued As New
-      * `Failed` - Failed
-      * `FailedRetryable` - Failed Retryable
-      * `FailedBilling` - Failed Billing
-      * `Terminated` - Terminated
-      * `TimedOut` - Timedout
-      * `Running` - Running
-      * `Starting` - Starting */
-      status: BatchExportRunStatusEnum;
-      /**
-         * The number of records that have been exported.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      records_completed?: number | null;
-      /**
-         * The number of records that failed downstream processing (e.g. hog function execution errors).
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      records_failed?: number | null;
-      /**
-         * The latest error that occurred during this run.
-         * @nullable
-         */
-      latest_error?: string | null;
-      /**
-         * The start of the data interval.
-         * @nullable
-         */
-      data_interval_start?: string | null;
-      /** The end of the data interval. */
-      data_interval_end: string;
-      /**
-         * An opaque cursor that may be used to resume.
-         * @nullable
-         */
-      cursor?: string | null;
-      /** The timestamp at which this BatchExportRun was created. */
-      readonly created_at: string;
-      /**
-         * The timestamp at which this BatchExportRun finished, successfully or not.
-         * @nullable
-         */
-      finished_at?: string | null;
-      /** The timestamp at which this BatchExportRun was last updated. */
-      readonly last_updated_at: string;
-      /**
-         * The total count of records that should be exported in this BatchExportRun.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      records_total_count?: number | null;
-      /**
-         * The number of bytes that have been exported in this BatchExportRun.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      bytes_exported?: number | null;
-      /**
-         * The `BatchExport` this run belongs to.
-         * @nullable
-         */
-      readonly batch_export: string | null;
-      /**
-         * The `BatchExportOnDemand` this run belongs to.
-         * @nullable
-         */
-      batch_export_on_demand?: string | null;
-      /**
-         * The backfill this run belongs to.
-         * @nullable
-         */
-      backfill?: string | null;
-    }
-
-    /**
-     * Serializer for a BatchExport model.
-     */
-    export interface BatchExport {
-      readonly id: string;
-      /** The team this belongs to. */
-      readonly team_id: number;
-      /** A human-readable name for this BatchExport. */
-      name: string;
-      /** Which model this BatchExport is exporting.
-
-      * `events` - Events
-      * `persons` - Persons
-      * `sessions` - Sessions */
-      model?: ModelEnum | BlankEnum | null;
-      /** Destination configuration (type, config, and optional integration). */
-      destination: BatchExportDestination;
-      /** How often the batch export should run.
-
-      * `hour` - hour
-      * `day` - day
-      * `week` - week
-      * `every 5 minutes` - every 5 minutes
-      * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
-      /** Whether this BatchExport is paused or not. */
-      paused?: boolean;
-      /** The timestamp at which this BatchExport was created. */
-      readonly created_at: string;
-      /** The timestamp at which this BatchExport was last updated. */
-      readonly last_updated_at: string;
-      /**
-         * The timestamp at which this BatchExport was last paused.
-         * @nullable
-         */
-      last_paused_at?: string | null;
-      /**
-         * Time before which any Batch Export runs won't be triggered.
-         * @nullable
-         */
-      start_at?: string | null;
-      /**
-         * Time after which any Batch Export runs won't be triggered.
-         * @nullable
-         */
-      end_at?: string | null;
-      /** The 10 most recent runs of this batch export, ordered newest first. */
-      readonly latest_runs: readonly BatchExportRun[];
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
-      /** A schema of custom fields to select when exporting data. */
-      readonly schema: unknown;
-      filters?: unknown;
-      /** IANA timezone name controlling daily and weekly interval boundaries. Defaults to UTC.
-
-      * `Africa/Abidjan` - Africa/Abidjan
-      * `Africa/Accra` - Africa/Accra
-      * `Africa/Addis_Ababa` - Africa/Addis_Ababa
-      * `Africa/Algiers` - Africa/Algiers
-      * `Africa/Asmara` - Africa/Asmara
-      * `Africa/Asmera` - Africa/Asmera
-      * `Africa/Bamako` - Africa/Bamako
-      * `Africa/Bangui` - Africa/Bangui
-      * `Africa/Banjul` - Africa/Banjul
-      * `Africa/Bissau` - Africa/Bissau
-      * `Africa/Blantyre` - Africa/Blantyre
-      * `Africa/Brazzaville` - Africa/Brazzaville
-      * `Africa/Bujumbura` - Africa/Bujumbura
-      * `Africa/Cairo` - Africa/Cairo
-      * `Africa/Casablanca` - Africa/Casablanca
-      * `Africa/Ceuta` - Africa/Ceuta
-      * `Africa/Conakry` - Africa/Conakry
-      * `Africa/Dakar` - Africa/Dakar
-      * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
-      * `Africa/Djibouti` - Africa/Djibouti
-      * `Africa/Douala` - Africa/Douala
-      * `Africa/El_Aaiun` - Africa/El_Aaiun
-      * `Africa/Freetown` - Africa/Freetown
-      * `Africa/Gaborone` - Africa/Gaborone
-      * `Africa/Harare` - Africa/Harare
-      * `Africa/Johannesburg` - Africa/Johannesburg
-      * `Africa/Juba` - Africa/Juba
-      * `Africa/Kampala` - Africa/Kampala
-      * `Africa/Khartoum` - Africa/Khartoum
-      * `Africa/Kigali` - Africa/Kigali
-      * `Africa/Kinshasa` - Africa/Kinshasa
-      * `Africa/Lagos` - Africa/Lagos
-      * `Africa/Libreville` - Africa/Libreville
-      * `Africa/Lome` - Africa/Lome
-      * `Africa/Luanda` - Africa/Luanda
-      * `Africa/Lubumbashi` - Africa/Lubumbashi
-      * `Africa/Lusaka` - Africa/Lusaka
-      * `Africa/Malabo` - Africa/Malabo
-      * `Africa/Maputo` - Africa/Maputo
-      * `Africa/Maseru` - Africa/Maseru
-      * `Africa/Mbabane` - Africa/Mbabane
-      * `Africa/Mogadishu` - Africa/Mogadishu
-      * `Africa/Monrovia` - Africa/Monrovia
-      * `Africa/Nairobi` - Africa/Nairobi
-      * `Africa/Ndjamena` - Africa/Ndjamena
-      * `Africa/Niamey` - Africa/Niamey
-      * `Africa/Nouakchott` - Africa/Nouakchott
-      * `Africa/Ouagadougou` - Africa/Ouagadougou
-      * `Africa/Porto-Novo` - Africa/Porto-Novo
-      * `Africa/Sao_Tome` - Africa/Sao_Tome
-      * `Africa/Timbuktu` - Africa/Timbuktu
-      * `Africa/Tripoli` - Africa/Tripoli
-      * `Africa/Tunis` - Africa/Tunis
-      * `Africa/Windhoek` - Africa/Windhoek
-      * `America/Adak` - America/Adak
-      * `America/Anchorage` - America/Anchorage
-      * `America/Anguilla` - America/Anguilla
-      * `America/Antigua` - America/Antigua
-      * `America/Araguaina` - America/Araguaina
-      * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
-      * `America/Argentina/Catamarca` - America/Argentina/Catamarca
-      * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
-      * `America/Argentina/Cordoba` - America/Argentina/Cordoba
-      * `America/Argentina/Jujuy` - America/Argentina/Jujuy
-      * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
-      * `America/Argentina/Mendoza` - America/Argentina/Mendoza
-      * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
-      * `America/Argentina/Salta` - America/Argentina/Salta
-      * `America/Argentina/San_Juan` - America/Argentina/San_Juan
-      * `America/Argentina/San_Luis` - America/Argentina/San_Luis
-      * `America/Argentina/Tucuman` - America/Argentina/Tucuman
-      * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
-      * `America/Aruba` - America/Aruba
-      * `America/Asuncion` - America/Asuncion
-      * `America/Atikokan` - America/Atikokan
-      * `America/Atka` - America/Atka
-      * `America/Bahia` - America/Bahia
-      * `America/Bahia_Banderas` - America/Bahia_Banderas
-      * `America/Barbados` - America/Barbados
-      * `America/Belem` - America/Belem
-      * `America/Belize` - America/Belize
-      * `America/Blanc-Sablon` - America/Blanc-Sablon
-      * `America/Boa_Vista` - America/Boa_Vista
-      * `America/Bogota` - America/Bogota
-      * `America/Boise` - America/Boise
-      * `America/Buenos_Aires` - America/Buenos_Aires
-      * `America/Cambridge_Bay` - America/Cambridge_Bay
-      * `America/Campo_Grande` - America/Campo_Grande
-      * `America/Cancun` - America/Cancun
-      * `America/Caracas` - America/Caracas
-      * `America/Catamarca` - America/Catamarca
-      * `America/Cayenne` - America/Cayenne
-      * `America/Cayman` - America/Cayman
-      * `America/Chicago` - America/Chicago
-      * `America/Chihuahua` - America/Chihuahua
-      * `America/Ciudad_Juarez` - America/Ciudad_Juarez
-      * `America/Coral_Harbour` - America/Coral_Harbour
-      * `America/Cordoba` - America/Cordoba
-      * `America/Costa_Rica` - America/Costa_Rica
-      * `America/Creston` - America/Creston
-      * `America/Cuiaba` - America/Cuiaba
-      * `America/Curacao` - America/Curacao
-      * `America/Danmarkshavn` - America/Danmarkshavn
-      * `America/Dawson` - America/Dawson
-      * `America/Dawson_Creek` - America/Dawson_Creek
-      * `America/Denver` - America/Denver
-      * `America/Detroit` - America/Detroit
-      * `America/Dominica` - America/Dominica
-      * `America/Edmonton` - America/Edmonton
-      * `America/Eirunepe` - America/Eirunepe
-      * `America/El_Salvador` - America/El_Salvador
-      * `America/Ensenada` - America/Ensenada
-      * `America/Fort_Nelson` - America/Fort_Nelson
-      * `America/Fort_Wayne` - America/Fort_Wayne
-      * `America/Fortaleza` - America/Fortaleza
-      * `America/Glace_Bay` - America/Glace_Bay
-      * `America/Godthab` - America/Godthab
-      * `America/Goose_Bay` - America/Goose_Bay
-      * `America/Grand_Turk` - America/Grand_Turk
-      * `America/Grenada` - America/Grenada
-      * `America/Guadeloupe` - America/Guadeloupe
-      * `America/Guatemala` - America/Guatemala
-      * `America/Guayaquil` - America/Guayaquil
-      * `America/Guyana` - America/Guyana
-      * `America/Halifax` - America/Halifax
-      * `America/Havana` - America/Havana
-      * `America/Hermosillo` - America/Hermosillo
-      * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
-      * `America/Indiana/Knox` - America/Indiana/Knox
-      * `America/Indiana/Marengo` - America/Indiana/Marengo
-      * `America/Indiana/Petersburg` - America/Indiana/Petersburg
-      * `America/Indiana/Tell_City` - America/Indiana/Tell_City
-      * `America/Indiana/Vevay` - America/Indiana/Vevay
-      * `America/Indiana/Vincennes` - America/Indiana/Vincennes
-      * `America/Indiana/Winamac` - America/Indiana/Winamac
-      * `America/Indianapolis` - America/Indianapolis
-      * `America/Inuvik` - America/Inuvik
-      * `America/Iqaluit` - America/Iqaluit
-      * `America/Jamaica` - America/Jamaica
-      * `America/Jujuy` - America/Jujuy
-      * `America/Juneau` - America/Juneau
-      * `America/Kentucky/Louisville` - America/Kentucky/Louisville
-      * `America/Kentucky/Monticello` - America/Kentucky/Monticello
-      * `America/Knox_IN` - America/Knox_IN
-      * `America/Kralendijk` - America/Kralendijk
-      * `America/La_Paz` - America/La_Paz
-      * `America/Lima` - America/Lima
-      * `America/Los_Angeles` - America/Los_Angeles
-      * `America/Louisville` - America/Louisville
-      * `America/Lower_Princes` - America/Lower_Princes
-      * `America/Maceio` - America/Maceio
-      * `America/Managua` - America/Managua
-      * `America/Manaus` - America/Manaus
-      * `America/Marigot` - America/Marigot
-      * `America/Martinique` - America/Martinique
-      * `America/Matamoros` - America/Matamoros
-      * `America/Mazatlan` - America/Mazatlan
-      * `America/Mendoza` - America/Mendoza
-      * `America/Menominee` - America/Menominee
-      * `America/Merida` - America/Merida
-      * `America/Metlakatla` - America/Metlakatla
-      * `America/Mexico_City` - America/Mexico_City
-      * `America/Miquelon` - America/Miquelon
-      * `America/Moncton` - America/Moncton
-      * `America/Monterrey` - America/Monterrey
-      * `America/Montevideo` - America/Montevideo
-      * `America/Montreal` - America/Montreal
-      * `America/Montserrat` - America/Montserrat
-      * `America/Nassau` - America/Nassau
-      * `America/New_York` - America/New_York
-      * `America/Nipigon` - America/Nipigon
-      * `America/Nome` - America/Nome
-      * `America/Noronha` - America/Noronha
-      * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
-      * `America/North_Dakota/Center` - America/North_Dakota/Center
-      * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
-      * `America/Nuuk` - America/Nuuk
-      * `America/Ojinaga` - America/Ojinaga
-      * `America/Panama` - America/Panama
-      * `America/Pangnirtung` - America/Pangnirtung
-      * `America/Paramaribo` - America/Paramaribo
-      * `America/Phoenix` - America/Phoenix
-      * `America/Port-au-Prince` - America/Port-au-Prince
-      * `America/Port_of_Spain` - America/Port_of_Spain
-      * `America/Porto_Acre` - America/Porto_Acre
-      * `America/Porto_Velho` - America/Porto_Velho
-      * `America/Puerto_Rico` - America/Puerto_Rico
-      * `America/Punta_Arenas` - America/Punta_Arenas
-      * `America/Rainy_River` - America/Rainy_River
-      * `America/Rankin_Inlet` - America/Rankin_Inlet
-      * `America/Recife` - America/Recife
-      * `America/Regina` - America/Regina
-      * `America/Resolute` - America/Resolute
-      * `America/Rio_Branco` - America/Rio_Branco
-      * `America/Rosario` - America/Rosario
-      * `America/Santa_Isabel` - America/Santa_Isabel
-      * `America/Santarem` - America/Santarem
-      * `America/Santiago` - America/Santiago
-      * `America/Santo_Domingo` - America/Santo_Domingo
-      * `America/Sao_Paulo` - America/Sao_Paulo
-      * `America/Scoresbysund` - America/Scoresbysund
-      * `America/Shiprock` - America/Shiprock
-      * `America/Sitka` - America/Sitka
-      * `America/St_Barthelemy` - America/St_Barthelemy
-      * `America/St_Johns` - America/St_Johns
-      * `America/St_Kitts` - America/St_Kitts
-      * `America/St_Lucia` - America/St_Lucia
-      * `America/St_Thomas` - America/St_Thomas
-      * `America/St_Vincent` - America/St_Vincent
-      * `America/Swift_Current` - America/Swift_Current
-      * `America/Tegucigalpa` - America/Tegucigalpa
-      * `America/Thule` - America/Thule
-      * `America/Thunder_Bay` - America/Thunder_Bay
-      * `America/Tijuana` - America/Tijuana
-      * `America/Toronto` - America/Toronto
-      * `America/Tortola` - America/Tortola
-      * `America/Vancouver` - America/Vancouver
-      * `America/Virgin` - America/Virgin
-      * `America/Whitehorse` - America/Whitehorse
-      * `America/Winnipeg` - America/Winnipeg
-      * `America/Yakutat` - America/Yakutat
-      * `America/Yellowknife` - America/Yellowknife
-      * `Antarctica/Casey` - Antarctica/Casey
-      * `Antarctica/Davis` - Antarctica/Davis
-      * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
-      * `Antarctica/Macquarie` - Antarctica/Macquarie
-      * `Antarctica/Mawson` - Antarctica/Mawson
-      * `Antarctica/McMurdo` - Antarctica/McMurdo
-      * `Antarctica/Palmer` - Antarctica/Palmer
-      * `Antarctica/Rothera` - Antarctica/Rothera
-      * `Antarctica/South_Pole` - Antarctica/South_Pole
-      * `Antarctica/Syowa` - Antarctica/Syowa
-      * `Antarctica/Troll` - Antarctica/Troll
-      * `Antarctica/Vostok` - Antarctica/Vostok
-      * `Arctic/Longyearbyen` - Arctic/Longyearbyen
-      * `Asia/Aden` - Asia/Aden
-      * `Asia/Almaty` - Asia/Almaty
-      * `Asia/Amman` - Asia/Amman
-      * `Asia/Anadyr` - Asia/Anadyr
-      * `Asia/Aqtau` - Asia/Aqtau
-      * `Asia/Aqtobe` - Asia/Aqtobe
-      * `Asia/Ashgabat` - Asia/Ashgabat
-      * `Asia/Ashkhabad` - Asia/Ashkhabad
-      * `Asia/Atyrau` - Asia/Atyrau
-      * `Asia/Baghdad` - Asia/Baghdad
-      * `Asia/Bahrain` - Asia/Bahrain
-      * `Asia/Baku` - Asia/Baku
-      * `Asia/Bangkok` - Asia/Bangkok
-      * `Asia/Barnaul` - Asia/Barnaul
-      * `Asia/Beirut` - Asia/Beirut
-      * `Asia/Bishkek` - Asia/Bishkek
-      * `Asia/Brunei` - Asia/Brunei
-      * `Asia/Calcutta` - Asia/Calcutta
-      * `Asia/Chita` - Asia/Chita
-      * `Asia/Choibalsan` - Asia/Choibalsan
-      * `Asia/Chongqing` - Asia/Chongqing
-      * `Asia/Chungking` - Asia/Chungking
-      * `Asia/Colombo` - Asia/Colombo
-      * `Asia/Dacca` - Asia/Dacca
-      * `Asia/Damascus` - Asia/Damascus
-      * `Asia/Dhaka` - Asia/Dhaka
-      * `Asia/Dili` - Asia/Dili
-      * `Asia/Dubai` - Asia/Dubai
-      * `Asia/Dushanbe` - Asia/Dushanbe
-      * `Asia/Famagusta` - Asia/Famagusta
-      * `Asia/Gaza` - Asia/Gaza
-      * `Asia/Harbin` - Asia/Harbin
-      * `Asia/Hebron` - Asia/Hebron
-      * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
-      * `Asia/Hong_Kong` - Asia/Hong_Kong
-      * `Asia/Hovd` - Asia/Hovd
-      * `Asia/Irkutsk` - Asia/Irkutsk
-      * `Asia/Istanbul` - Asia/Istanbul
-      * `Asia/Jakarta` - Asia/Jakarta
-      * `Asia/Jayapura` - Asia/Jayapura
-      * `Asia/Jerusalem` - Asia/Jerusalem
-      * `Asia/Kabul` - Asia/Kabul
-      * `Asia/Kamchatka` - Asia/Kamchatka
-      * `Asia/Karachi` - Asia/Karachi
-      * `Asia/Kashgar` - Asia/Kashgar
-      * `Asia/Kathmandu` - Asia/Kathmandu
-      * `Asia/Katmandu` - Asia/Katmandu
-      * `Asia/Khandyga` - Asia/Khandyga
-      * `Asia/Kolkata` - Asia/Kolkata
-      * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
-      * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
-      * `Asia/Kuching` - Asia/Kuching
-      * `Asia/Kuwait` - Asia/Kuwait
-      * `Asia/Macao` - Asia/Macao
-      * `Asia/Macau` - Asia/Macau
-      * `Asia/Magadan` - Asia/Magadan
-      * `Asia/Makassar` - Asia/Makassar
-      * `Asia/Manila` - Asia/Manila
-      * `Asia/Muscat` - Asia/Muscat
-      * `Asia/Nicosia` - Asia/Nicosia
-      * `Asia/Novokuznetsk` - Asia/Novokuznetsk
-      * `Asia/Novosibirsk` - Asia/Novosibirsk
-      * `Asia/Omsk` - Asia/Omsk
-      * `Asia/Oral` - Asia/Oral
-      * `Asia/Phnom_Penh` - Asia/Phnom_Penh
-      * `Asia/Pontianak` - Asia/Pontianak
-      * `Asia/Pyongyang` - Asia/Pyongyang
-      * `Asia/Qatar` - Asia/Qatar
-      * `Asia/Qostanay` - Asia/Qostanay
-      * `Asia/Qyzylorda` - Asia/Qyzylorda
-      * `Asia/Rangoon` - Asia/Rangoon
-      * `Asia/Riyadh` - Asia/Riyadh
-      * `Asia/Saigon` - Asia/Saigon
-      * `Asia/Sakhalin` - Asia/Sakhalin
-      * `Asia/Samarkand` - Asia/Samarkand
-      * `Asia/Seoul` - Asia/Seoul
-      * `Asia/Shanghai` - Asia/Shanghai
-      * `Asia/Singapore` - Asia/Singapore
-      * `Asia/Srednekolymsk` - Asia/Srednekolymsk
-      * `Asia/Taipei` - Asia/Taipei
-      * `Asia/Tashkent` - Asia/Tashkent
-      * `Asia/Tbilisi` - Asia/Tbilisi
-      * `Asia/Tehran` - Asia/Tehran
-      * `Asia/Tel_Aviv` - Asia/Tel_Aviv
-      * `Asia/Thimbu` - Asia/Thimbu
-      * `Asia/Thimphu` - Asia/Thimphu
-      * `Asia/Tokyo` - Asia/Tokyo
-      * `Asia/Tomsk` - Asia/Tomsk
-      * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
-      * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
-      * `Asia/Ulan_Bator` - Asia/Ulan_Bator
-      * `Asia/Urumqi` - Asia/Urumqi
-      * `Asia/Ust-Nera` - Asia/Ust-Nera
-      * `Asia/Vientiane` - Asia/Vientiane
-      * `Asia/Vladivostok` - Asia/Vladivostok
-      * `Asia/Yakutsk` - Asia/Yakutsk
-      * `Asia/Yangon` - Asia/Yangon
-      * `Asia/Yekaterinburg` - Asia/Yekaterinburg
-      * `Asia/Yerevan` - Asia/Yerevan
-      * `Atlantic/Azores` - Atlantic/Azores
-      * `Atlantic/Bermuda` - Atlantic/Bermuda
-      * `Atlantic/Canary` - Atlantic/Canary
-      * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
-      * `Atlantic/Faeroe` - Atlantic/Faeroe
-      * `Atlantic/Faroe` - Atlantic/Faroe
-      * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
-      * `Atlantic/Madeira` - Atlantic/Madeira
-      * `Atlantic/Reykjavik` - Atlantic/Reykjavik
-      * `Atlantic/South_Georgia` - Atlantic/South_Georgia
-      * `Atlantic/St_Helena` - Atlantic/St_Helena
-      * `Atlantic/Stanley` - Atlantic/Stanley
-      * `Australia/ACT` - Australia/ACT
-      * `Australia/Adelaide` - Australia/Adelaide
-      * `Australia/Brisbane` - Australia/Brisbane
-      * `Australia/Broken_Hill` - Australia/Broken_Hill
-      * `Australia/Canberra` - Australia/Canberra
-      * `Australia/Currie` - Australia/Currie
-      * `Australia/Darwin` - Australia/Darwin
-      * `Australia/Eucla` - Australia/Eucla
-      * `Australia/Hobart` - Australia/Hobart
-      * `Australia/LHI` - Australia/LHI
-      * `Australia/Lindeman` - Australia/Lindeman
-      * `Australia/Lord_Howe` - Australia/Lord_Howe
-      * `Australia/Melbourne` - Australia/Melbourne
-      * `Australia/NSW` - Australia/NSW
-      * `Australia/North` - Australia/North
-      * `Australia/Perth` - Australia/Perth
-      * `Australia/Queensland` - Australia/Queensland
-      * `Australia/South` - Australia/South
-      * `Australia/Sydney` - Australia/Sydney
-      * `Australia/Tasmania` - Australia/Tasmania
-      * `Australia/Victoria` - Australia/Victoria
-      * `Australia/West` - Australia/West
-      * `Australia/Yancowinna` - Australia/Yancowinna
-      * `Brazil/Acre` - Brazil/Acre
-      * `Brazil/DeNoronha` - Brazil/DeNoronha
-      * `Brazil/East` - Brazil/East
-      * `Brazil/West` - Brazil/West
-      * `CET` - CET
-      * `CST6CDT` - CST6CDT
-      * `Canada/Atlantic` - Canada/Atlantic
-      * `Canada/Central` - Canada/Central
-      * `Canada/Eastern` - Canada/Eastern
-      * `Canada/Mountain` - Canada/Mountain
-      * `Canada/Newfoundland` - Canada/Newfoundland
-      * `Canada/Pacific` - Canada/Pacific
-      * `Canada/Saskatchewan` - Canada/Saskatchewan
-      * `Canada/Yukon` - Canada/Yukon
-      * `Chile/Continental` - Chile/Continental
-      * `Chile/EasterIsland` - Chile/EasterIsland
-      * `Cuba` - Cuba
-      * `EET` - EET
-      * `EST` - EST
-      * `EST5EDT` - EST5EDT
-      * `Egypt` - Egypt
-      * `Eire` - Eire
-      * `Etc/GMT` - Etc/GMT
-      * `Etc/GMT+0` - Etc/GMT+0
-      * `Etc/GMT+1` - Etc/GMT+1
-      * `Etc/GMT+10` - Etc/GMT+10
-      * `Etc/GMT+11` - Etc/GMT+11
-      * `Etc/GMT+12` - Etc/GMT+12
-      * `Etc/GMT+2` - Etc/GMT+2
-      * `Etc/GMT+3` - Etc/GMT+3
-      * `Etc/GMT+4` - Etc/GMT+4
-      * `Etc/GMT+5` - Etc/GMT+5
-      * `Etc/GMT+6` - Etc/GMT+6
-      * `Etc/GMT+7` - Etc/GMT+7
-      * `Etc/GMT+8` - Etc/GMT+8
-      * `Etc/GMT+9` - Etc/GMT+9
-      * `Etc/GMT-0` - Etc/GMT-0
-      * `Etc/GMT-1` - Etc/GMT-1
-      * `Etc/GMT-10` - Etc/GMT-10
-      * `Etc/GMT-11` - Etc/GMT-11
-      * `Etc/GMT-12` - Etc/GMT-12
-      * `Etc/GMT-13` - Etc/GMT-13
-      * `Etc/GMT-14` - Etc/GMT-14
-      * `Etc/GMT-2` - Etc/GMT-2
-      * `Etc/GMT-3` - Etc/GMT-3
-      * `Etc/GMT-4` - Etc/GMT-4
-      * `Etc/GMT-5` - Etc/GMT-5
-      * `Etc/GMT-6` - Etc/GMT-6
-      * `Etc/GMT-7` - Etc/GMT-7
-      * `Etc/GMT-8` - Etc/GMT-8
-      * `Etc/GMT-9` - Etc/GMT-9
-      * `Etc/GMT0` - Etc/GMT0
-      * `Etc/Greenwich` - Etc/Greenwich
-      * `Etc/UCT` - Etc/UCT
-      * `Etc/UTC` - Etc/UTC
-      * `Etc/Universal` - Etc/Universal
-      * `Etc/Zulu` - Etc/Zulu
-      * `Europe/Amsterdam` - Europe/Amsterdam
-      * `Europe/Andorra` - Europe/Andorra
-      * `Europe/Astrakhan` - Europe/Astrakhan
-      * `Europe/Athens` - Europe/Athens
-      * `Europe/Belfast` - Europe/Belfast
-      * `Europe/Belgrade` - Europe/Belgrade
-      * `Europe/Berlin` - Europe/Berlin
-      * `Europe/Bratislava` - Europe/Bratislava
-      * `Europe/Brussels` - Europe/Brussels
-      * `Europe/Bucharest` - Europe/Bucharest
-      * `Europe/Budapest` - Europe/Budapest
-      * `Europe/Busingen` - Europe/Busingen
-      * `Europe/Chisinau` - Europe/Chisinau
-      * `Europe/Copenhagen` - Europe/Copenhagen
-      * `Europe/Dublin` - Europe/Dublin
-      * `Europe/Gibraltar` - Europe/Gibraltar
-      * `Europe/Guernsey` - Europe/Guernsey
-      * `Europe/Helsinki` - Europe/Helsinki
-      * `Europe/Isle_of_Man` - Europe/Isle_of_Man
-      * `Europe/Istanbul` - Europe/Istanbul
-      * `Europe/Jersey` - Europe/Jersey
-      * `Europe/Kaliningrad` - Europe/Kaliningrad
-      * `Europe/Kiev` - Europe/Kiev
-      * `Europe/Kirov` - Europe/Kirov
-      * `Europe/Kyiv` - Europe/Kyiv
-      * `Europe/Lisbon` - Europe/Lisbon
-      * `Europe/Ljubljana` - Europe/Ljubljana
-      * `Europe/London` - Europe/London
-      * `Europe/Luxembourg` - Europe/Luxembourg
-      * `Europe/Madrid` - Europe/Madrid
-      * `Europe/Malta` - Europe/Malta
-      * `Europe/Mariehamn` - Europe/Mariehamn
-      * `Europe/Minsk` - Europe/Minsk
-      * `Europe/Monaco` - Europe/Monaco
-      * `Europe/Moscow` - Europe/Moscow
-      * `Europe/Nicosia` - Europe/Nicosia
-      * `Europe/Oslo` - Europe/Oslo
-      * `Europe/Paris` - Europe/Paris
-      * `Europe/Podgorica` - Europe/Podgorica
-      * `Europe/Prague` - Europe/Prague
-      * `Europe/Riga` - Europe/Riga
-      * `Europe/Rome` - Europe/Rome
-      * `Europe/Samara` - Europe/Samara
-      * `Europe/San_Marino` - Europe/San_Marino
-      * `Europe/Sarajevo` - Europe/Sarajevo
-      * `Europe/Saratov` - Europe/Saratov
-      * `Europe/Simferopol` - Europe/Simferopol
-      * `Europe/Skopje` - Europe/Skopje
-      * `Europe/Sofia` - Europe/Sofia
-      * `Europe/Stockholm` - Europe/Stockholm
-      * `Europe/Tallinn` - Europe/Tallinn
-      * `Europe/Tirane` - Europe/Tirane
-      * `Europe/Tiraspol` - Europe/Tiraspol
-      * `Europe/Ulyanovsk` - Europe/Ulyanovsk
-      * `Europe/Uzhgorod` - Europe/Uzhgorod
-      * `Europe/Vaduz` - Europe/Vaduz
-      * `Europe/Vatican` - Europe/Vatican
-      * `Europe/Vienna` - Europe/Vienna
-      * `Europe/Vilnius` - Europe/Vilnius
-      * `Europe/Volgograd` - Europe/Volgograd
-      * `Europe/Warsaw` - Europe/Warsaw
-      * `Europe/Zagreb` - Europe/Zagreb
-      * `Europe/Zaporozhye` - Europe/Zaporozhye
-      * `Europe/Zurich` - Europe/Zurich
-      * `GB` - GB
-      * `GB-Eire` - GB-Eire
-      * `GMT` - GMT
-      * `GMT+0` - GMT+0
-      * `GMT-0` - GMT-0
-      * `GMT0` - GMT0
-      * `Greenwich` - Greenwich
-      * `HST` - HST
-      * `Hongkong` - Hongkong
-      * `Iceland` - Iceland
-      * `Indian/Antananarivo` - Indian/Antananarivo
-      * `Indian/Chagos` - Indian/Chagos
-      * `Indian/Christmas` - Indian/Christmas
-      * `Indian/Cocos` - Indian/Cocos
-      * `Indian/Comoro` - Indian/Comoro
-      * `Indian/Kerguelen` - Indian/Kerguelen
-      * `Indian/Mahe` - Indian/Mahe
-      * `Indian/Maldives` - Indian/Maldives
-      * `Indian/Mauritius` - Indian/Mauritius
-      * `Indian/Mayotte` - Indian/Mayotte
-      * `Indian/Reunion` - Indian/Reunion
-      * `Iran` - Iran
-      * `Israel` - Israel
-      * `Jamaica` - Jamaica
-      * `Japan` - Japan
-      * `Kwajalein` - Kwajalein
-      * `Libya` - Libya
-      * `MET` - MET
-      * `MST` - MST
-      * `MST7MDT` - MST7MDT
-      * `Mexico/BajaNorte` - Mexico/BajaNorte
-      * `Mexico/BajaSur` - Mexico/BajaSur
-      * `Mexico/General` - Mexico/General
-      * `NZ` - NZ
-      * `NZ-CHAT` - NZ-CHAT
-      * `Navajo` - Navajo
-      * `PRC` - PRC
-      * `PST8PDT` - PST8PDT
-      * `Pacific/Apia` - Pacific/Apia
-      * `Pacific/Auckland` - Pacific/Auckland
-      * `Pacific/Bougainville` - Pacific/Bougainville
-      * `Pacific/Chatham` - Pacific/Chatham
-      * `Pacific/Chuuk` - Pacific/Chuuk
-      * `Pacific/Easter` - Pacific/Easter
-      * `Pacific/Efate` - Pacific/Efate
-      * `Pacific/Enderbury` - Pacific/Enderbury
-      * `Pacific/Fakaofo` - Pacific/Fakaofo
-      * `Pacific/Fiji` - Pacific/Fiji
-      * `Pacific/Funafuti` - Pacific/Funafuti
-      * `Pacific/Galapagos` - Pacific/Galapagos
-      * `Pacific/Gambier` - Pacific/Gambier
-      * `Pacific/Guadalcanal` - Pacific/Guadalcanal
-      * `Pacific/Guam` - Pacific/Guam
-      * `Pacific/Honolulu` - Pacific/Honolulu
-      * `Pacific/Johnston` - Pacific/Johnston
-      * `Pacific/Kanton` - Pacific/Kanton
-      * `Pacific/Kiritimati` - Pacific/Kiritimati
-      * `Pacific/Kosrae` - Pacific/Kosrae
-      * `Pacific/Kwajalein` - Pacific/Kwajalein
-      * `Pacific/Majuro` - Pacific/Majuro
-      * `Pacific/Marquesas` - Pacific/Marquesas
-      * `Pacific/Midway` - Pacific/Midway
-      * `Pacific/Nauru` - Pacific/Nauru
-      * `Pacific/Niue` - Pacific/Niue
-      * `Pacific/Norfolk` - Pacific/Norfolk
-      * `Pacific/Noumea` - Pacific/Noumea
-      * `Pacific/Pago_Pago` - Pacific/Pago_Pago
-      * `Pacific/Palau` - Pacific/Palau
-      * `Pacific/Pitcairn` - Pacific/Pitcairn
-      * `Pacific/Pohnpei` - Pacific/Pohnpei
-      * `Pacific/Ponape` - Pacific/Ponape
-      * `Pacific/Port_Moresby` - Pacific/Port_Moresby
-      * `Pacific/Rarotonga` - Pacific/Rarotonga
-      * `Pacific/Saipan` - Pacific/Saipan
-      * `Pacific/Samoa` - Pacific/Samoa
-      * `Pacific/Tahiti` - Pacific/Tahiti
-      * `Pacific/Tarawa` - Pacific/Tarawa
-      * `Pacific/Tongatapu` - Pacific/Tongatapu
-      * `Pacific/Truk` - Pacific/Truk
-      * `Pacific/Wake` - Pacific/Wake
-      * `Pacific/Wallis` - Pacific/Wallis
-      * `Pacific/Yap` - Pacific/Yap
-      * `Poland` - Poland
-      * `Portugal` - Portugal
-      * `ROC` - ROC
-      * `ROK` - ROK
-      * `Singapore` - Singapore
-      * `Turkey` - Turkey
-      * `UCT` - UCT
-      * `US/Alaska` - US/Alaska
-      * `US/Aleutian` - US/Aleutian
-      * `US/Arizona` - US/Arizona
-      * `US/Central` - US/Central
-      * `US/East-Indiana` - US/East-Indiana
-      * `US/Eastern` - US/Eastern
-      * `US/Hawaii` - US/Hawaii
-      * `US/Indiana-Starke` - US/Indiana-Starke
-      * `US/Michigan` - US/Michigan
-      * `US/Mountain` - US/Mountain
-      * `US/Pacific` - US/Pacific
-      * `US/Samoa` - US/Samoa
-      * `UTC` - UTC
-      * `Universal` - Universal
-      * `W-SU` - W-SU
-      * `WET` - WET
-      * `Zulu` - Zulu */
-      timezone?: string | null;
-      /**
-         * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.
-         * @minimum 0
-         * @maximum 6
-         * @nullable
-         */
-      offset_day?: number | null;
-      /**
-         * Hour-of-day offset (0-23) for daily and weekly intervals. Only valid when interval is 'day' or 'week'.
-         * @minimum 0
-         * @maximum 23
-         * @nullable
-         */
-      offset_hour?: number | null;
-    }
-
-    /**
-     * @nullable
-     */
-    export type BatchExportBackfillProgress = {
-      /** @nullable */
-      readonly total_runs?: number | null;
-      /** @nullable */
-      readonly finished_runs?: number | null;
-      /** @nullable */
-      readonly progress?: number | null;
-    } | null;
-
-    /**
-     * * `Cancelled` - Cancelled
-    * `Completed` - Completed
-    * `ContinuedAsNew` - Continued As New
-    * `Failed` - Failed
-    * `FailedRetryable` - Failed Retryable
-    * `Terminated` - Terminated
-    * `TimedOut` - Timedout
-    * `Running` - Running
-    * `Starting` - Starting
-     */
-    export type BatchExportBackfillStatusEnum = typeof BatchExportBackfillStatusEnum[keyof typeof BatchExportBackfillStatusEnum];
-
-
-    export const BatchExportBackfillStatusEnum = {
-      Cancelled: 'Cancelled',
-      Completed: 'Completed',
-      ContinuedAsNew: 'ContinuedAsNew',
-      Failed: 'Failed',
-      FailedRetryable: 'FailedRetryable',
-      Terminated: 'Terminated',
-      TimedOut: 'TimedOut',
-      Running: 'Running',
-      Starting: 'Starting',
-    } as const;
-
-    export interface BatchExportBackfill {
-      readonly id: string;
-      /** @nullable */
-      readonly progress: BatchExportBackfillProgress;
-      /**
-         * The start of the data interval.
-         * @nullable
-         */
-      start_at?: string | null;
-      /**
-         * The end of the data interval.
-         * @nullable
-         */
-      end_at?: string | null;
-      /** The status of this backfill.
-
-      * `Cancelled` - Cancelled
-      * `Completed` - Completed
-      * `ContinuedAsNew` - Continued As New
-      * `Failed` - Failed
-      * `FailedRetryable` - Failed Retryable
-      * `Terminated` - Terminated
-      * `TimedOut` - Timedout
-      * `Running` - Running
-      * `Starting` - Starting */
-      status: BatchExportBackfillStatusEnum;
-      /** The timestamp at which this BatchExportBackfill was created. */
-      readonly created_at: string;
-      /**
-         * The timestamp at which this BatchExportBackfill finished, successfully or not.
-         * @nullable
-         */
-      finished_at?: string | null;
-      /** The timestamp at which this BatchExportBackfill was last updated. */
-      readonly last_updated_at: string;
-      /**
-         * The total number of records to export. Initially estimated, updated with actual count after completion.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      total_records_count?: number | null;
-      /**
-         * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
-         * @nullable
-         */
-      adjusted_start_at?: string | null;
-      /** The team this belongs to. */
-      team: number;
-      /** The BatchExport this backfill belongs to. */
-      batch_export: string;
-    }
-
-    export type DatabricksDestinationRequestType = typeof DatabricksDestinationRequestType[keyof typeof DatabricksDestinationRequestType];
-
-
-    export const DatabricksDestinationRequestType = {
-      Databricks: 'Databricks',
-    } as const;
-
-    /**
-     * Request shape for creating or updating a Databricks batch-export destination.
-     */
-    export interface DatabricksDestinationRequest {
-      type: DatabricksDestinationRequestType;
-      /** ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one. */
-      integration_id: number;
-      config: DatabricksDestinationConfig;
-    }
-
-    export type BigQueryDestinationRequestType = typeof BigQueryDestinationRequestType[keyof typeof BigQueryDestinationRequestType];
-
-
-    export const BigQueryDestinationRequestType = {
-      BigQuery: 'BigQuery',
-    } as const;
-
-    /**
-     * Request shape for creating or updating a BigQuery batch-export destination.
-     */
-    export interface BigQueryDestinationRequest {
-      type: BigQueryDestinationRequestType;
-      /** ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one. */
-      integration_id: number;
-      config: BigQueryDestinationConfig;
-    }
-
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest;
-
-    /**
-     * Request body for create/partial_update on BatchExportViewSet.
-
-    Mirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic
-    `destination` schema so integration_id is marked required on the types that need
-    it. Responses continue to use `BatchExportSerializer`.
-     */
-    export interface BatchExportRequest {
-      /** Human-readable name for the batch export. */
-      name: string;
-      /** Which data model to export (events, persons, sessions).
-
-      * `events` - Events
-      * `persons` - Persons
-      * `sessions` - Sessions */
-      model?: ModelEnum;
-      /** Destination configuration. Required integration_id is enforced per destination type. */
-      destination: BatchExportDestinationRequest;
-      /** How often the batch export should run.
-
-      * `hour` - hour
-      * `day` - day
-      * `week` - week
-      * `every 5 minutes` - every 5 minutes
-      * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
-      /** Whether the batch export is paused. */
-      paused?: boolean;
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
-      filters?: unknown;
-      /**
-         * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
-         * @nullable
-         */
-      timezone?: string | null;
-      /**
-         * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
-         * @minimum 0
-         * @maximum 6
-         * @nullable
-         */
-      offset_day?: number | null;
-      /**
-         * Hour-of-day offset (0-23) for daily and weekly intervals.
-         * @minimum 0
-         * @maximum 23
-         * @nullable
-         */
-      offset_hour?: number | null;
-    }
-
-    /**
-     * @nullable
-     */
-    export type BatchImportCreatedBy = { [key: string]: unknown } | null;
-
-    /**
-     * * `completed` - Completed
-    * `failed` - Failed
-    * `paused` - Paused
-    * `running` - Running
-     */
-    export type BatchImportStatusEnum = typeof BatchImportStatusEnum[keyof typeof BatchImportStatusEnum];
-
-
-    export const BatchImportStatusEnum = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Paused: 'paused',
-      Running: 'running',
-    } as const;
-
-    /**
-     * Serializer for BatchImport model
-     */
-    export interface BatchImport {
-      readonly id: string;
-      readonly team_id: number;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly state: unknown;
-      /** @nullable */
-      readonly created_by: BatchImportCreatedBy;
-      readonly status: BatchImportStatusEnum;
-      /** @nullable */
-      readonly display_status_message: string | null;
-      readonly import_config: unknown;
-    }
-
-    export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
-
-
-    export const EventPropFilterTypeEnum = {
-      Event: 'event',
-      Element: 'element',
-    } as const;
-
-    export interface EventPropFilter {
-      type: EventPropFilterTypeEnum;
-      key: string;
-      value: unknown;
-      operator?: string | null;
-    }
-
-    export interface HogQLFilter {
-      type: 'hogql';
-      key: string;
-      value?: unknown;
-    }
-
-    export interface BehavioralFilter {
-      bytecode?: unknown[] | null;
-      bytecode_error?: string | null;
-      conditionHash?: string | null;
-      type: 'behavioral';
-      key: string | number;
-      value: string;
-      event_type: string;
-      time_value?: number | null;
-      time_interval?: string | null;
-      negation?: boolean;
-      operator?: string | null;
-      operator_value?: number | null;
-      seq_time_interval?: string | null;
-      seq_time_value?: number | null;
-      seq_event?: string | number | null;
-      seq_event_type?: string | null;
-      total_periods?: number | null;
-      min_periods?: number | null;
-      event_filters?: (EventPropFilter | HogQLFilter)[] | null;
-      explicit_datetime?: string | null;
-      explicit_datetime_to?: string | null;
-    }
-
-    export interface BiasRisk {
-      /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
-      multiple_variant_percentage: number;
-    }
-
-    /**
-     * * `BigQuery` - BigQuery
-     */
-    export type BigQueryDestinationRequestTypeEnum = typeof BigQueryDestinationRequestTypeEnum[keyof typeof BigQueryDestinationRequestTypeEnum];
-
-
-    export const BigQueryDestinationRequestTypeEnum = {
-      BigQuery: 'BigQuery',
-    } as const;
-
-    export interface BlastRadius {
-      /** Number of users matching the filters */
-      affected: number;
-      /** Total number of users */
-      total: number;
-    }
-
-    /**
-     * Property filters to apply
-     */
-    export type BlastRadiusRequestFilters = { [key: string]: unknown };
-
-    export interface BlastRadiusRequest {
-      /** Property filters to apply */
-      filters: BlastRadiusRequestFilters;
-      /**
-         * Group type index for group-based targeting
-         * @nullable
-         */
-      group_type_index?: number | null;
-    }
-
-    export interface BooleanScoreDefinitionConfig {
-      /** Optional label for a true value. */
-      true_label?: string;
-      /** Optional label for a false value. */
-      false_label?: string;
-    }
-
-    export interface BreakdownItem {
-      label: string;
-      value: string | number;
-    }
-
-    export interface BreakdownValue {
-      count: number;
-      value: string;
-    }
-
-    /**
-     * Local variables at the time of the hit
-     */
-    export type BreakpointHitVariables = { [key: string]: unknown };
-
-    /**
-     * Schema for a single breakpoint hit event
-     */
-    export interface BreakpointHit {
-      /** Unique identifier for the hit event */
-      id: string;
-      /** Line number where the breakpoint was hit */
-      lineNumber: number;
-      /** Name of the function where breakpoint was hit */
-      functionName: string;
-      /** When the breakpoint was hit */
-      timestamp: string;
-      /** Local variables at the time of the hit */
-      variables: BreakpointHitVariables;
-      /** Stack trace at the time of the hit */
-      stackTrace: unknown[];
-      /** ID of the breakpoint that was hit */
-      breakpoint_id: string;
-      /** Filename where the breakpoint was hit */
-      filename: string;
-    }
-
-    /**
-     * Response schema for breakpoint hits endpoint
-     */
-    export interface BreakpointHitsResponse {
-      /** List of breakpoint hit events */
-      results: BreakpointHit[];
-      /** Number of results returned */
-      count: number;
-      /** Whether there are more results available */
-      has_more: boolean;
-    }
-
-    /**
-     * * `distinct_id` - User ID (default)
-    * `device_id` - Device ID
-     */
-    export type BucketingIdentifierEnum = typeof BucketingIdentifierEnum[keyof typeof BucketingIdentifierEnum];
-
-
-    export const BucketingIdentifierEnum = {
-      DistinctId: 'distinct_id',
-      DeviceId: 'device_id',
-    } as const;
-
-    /**
-     * * `fully_rolled_out` - fully_rolled_out
-    * `not_rolled_out` - not_rolled_out
-    * `partial` - partial
-     */
-    export type RolloutStateEnum = typeof RolloutStateEnum[keyof typeof RolloutStateEnum];
-
-
-    export const RolloutStateEnum = {
-      FullyRolledOut: 'fully_rolled_out',
-      NotRolledOut: 'not_rolled_out',
-      Partial: 'partial',
-    } as const;
-
-    export interface BulkDeleteDeletedItem {
-      /** ID of the soft-deleted flag. */
-      id: number;
-      /** The flag key at the time of deletion. */
-      key: string;
-      /** Rollout state captured before deletion.
-
-      * `fully_rolled_out` - fully_rolled_out
-      * `not_rolled_out` - not_rolled_out
-      * `partial` - partial */
-      rollout_state: RolloutStateEnum;
-      /**
-         * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
-         * @nullable
-         */
-      active_variant: string | null;
-    }
-
-    export interface BulkDeleteErrorItem {
-      /** Feature flag ID — integer for valid inputs; the original raw value for invalid inputs. */
-      id: unknown;
-      /** The flag key, when known. */
-      key?: string;
-      /** Human-readable reason the flag could not be deleted. */
-      reason: string;
-    }
-
-    /**
-     * * `boolean` - boolean
-    * `multivariant` - multivariant
-    * `experiment` - experiment
-    * `remote_config` - remote_config
-     */
-    export type BulkDeleteFiltersTypeEnum = typeof BulkDeleteFiltersTypeEnum[keyof typeof BulkDeleteFiltersTypeEnum];
-
-
-    export const BulkDeleteFiltersTypeEnum = {
-      Boolean: 'boolean',
-      Multivariant: 'multivariant',
-      Experiment: 'experiment',
-      RemoteConfig: 'remote_config',
-    } as const;
-
-    /**
-     * * `server` - Server
-    * `client` - Client
-    * `all` - All
-     */
-    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
-
-
-    export const EvaluationRuntimeEnum = {
-      Server: 'server',
-      Client: 'client',
+    export type ErrorTrackingIssueStatusEnum = typeof ErrorTrackingIssueStatusEnum[keyof typeof ErrorTrackingIssueStatusEnum];
+
+
+    export const ErrorTrackingIssueStatusEnum = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
       All: 'all',
     } as const;
 
     /**
-     * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
+     * * `-14d` - -14d
+    * `-1h` - -1h
+    * `-24h` - -24h
+    * `-30d` - -30d
+    * `-3h` - -3h
+    * `-7d` - -7d
+    * `-90d` - -90d
      */
-    export interface BulkDeleteFilters {
-      /** Filter by active state.
-
-      * `true` - true
-      * `false` - false
-      * `STALE` - STALE */
-      active?: ActiveEnum;
-      /** Filter to flags created by a specific user ID. */
-      created_by_id?: number;
-      /** Search by feature flag key or name (case-insensitive). */
-      search?: string;
-      /** Filter by flag type.
-
-      * `boolean` - boolean
-      * `multivariant` - multivariant
-      * `experiment` - experiment
-      * `remote_config` - remote_config */
-      type?: BulkDeleteFiltersTypeEnum;
-      /** Filter by evaluation runtime.
-
-      * `server` - Server
-      * `client` - Client
-      * `all` - All */
-      evaluation_runtime?: EvaluationRuntimeEnum;
-      /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
-      excluded_properties?: string;
-      /** Tag names to filter by. Flags carrying at least one of these tags match. */
-      tags?: string[];
-      /** When true, only matches flags with at least one evaluation context. */
-      has_evaluation_contexts?: boolean;
-    }
-
-    export interface BulkDeleteRequest {
-      /** Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs. */
-      filters?: BulkDeleteFilters;
-      /** Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`. */
-      ids?: number[];
-    }
-
-    /**
-     * Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
-    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
-    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
-    so accessing ``serializer.errors`` would return this field descriptor instead of validation
-    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
-    can render the response in the OpenAPI spec and downstream generated clients.
-     */
-    export interface BulkDeleteResponse {
-      /** Flags successfully soft-deleted. */
-      deleted: BulkDeleteDeletedItem[];
-      /** Flags that could not be deleted, with reasons. */
-      errors: BulkDeleteErrorItem[];
-    }
-
-    export interface BulkIntervieweeContextItem {
-      /**
-         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
-         * @maxLength 400
-         */
-      interviewee_identifier: string;
-      /**
-         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
-         * @maxLength 10000
-         */
-      agent_context: string;
-    }
-
-    export interface BulkIntervieweeContextRequest {
-      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
-      items: BulkIntervieweeContextItem[];
-    }
-
-    export interface BulkIntervieweeContextResponse {
-      /** Number of rows inserted by this request. */
-      inserted_count: number;
-      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
-      skipped_count: number;
-      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
-      skipped_identifiers: string[];
-    }
-
-    export interface BulkKeysRequest {
-      /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
-      ids?: unknown[];
-    }
-
-    /**
-     * Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.
-     */
-    export type BulkKeysResponseKeys = {[key: string]: string};
-
-    export interface BulkKeysResponse {
-      /** Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project. */
-      keys: BulkKeysResponseKeys;
-      /** Present when some submitted IDs were not numeric and were ignored. */
-      warning?: string;
-    }
-
-    export interface BulkNotificationIdsRequest {
-      /**
-         * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
-         * @maxItems 500
-         */
-      notification_ids: string[];
-    }
-
-    export interface BulkUpdateTagsError {
-      id: number;
-      reason: string;
-    }
-
-    export interface BulkUpdateTagsItem {
-      id: number;
-      tags: string[];
-    }
-
-    export interface BulkUpdateTagsRequest {
-      /**
-         * List of object IDs to update tags on.
-         * @maxItems 500
-         */
-      ids: number[];
-      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
-
-      * `add` - add
-      * `remove` - remove
-      * `set` - set */
-      action: ActionEnum;
-      /** Tag names to add, remove, or set. */
-      tags: string[];
-    }
-
-    export interface BulkUpdateTagsResponse {
-      updated: BulkUpdateTagsItem[];
-      skipped: BulkUpdateTagsError[];
-    }
-
-    /**
-     * * `b2b` - B2B
-    * `b2c` - B2C
-    * `other` - Other
-     */
-    export type BusinessModelEnum = typeof BusinessModelEnum[keyof typeof BusinessModelEnum];
+    export type DateFromEnum = typeof DateFromEnum[keyof typeof DateFromEnum];
 
 
-    export const BusinessModelEnum = {
-      B2b: 'b2b',
-      B2c: 'b2c',
-      Other: 'other',
+    export const DateFromEnum = {
+      '14d': '-14d',
+      '1h': '-1h',
+      '24h': '-24h',
+      '30d': '-30d',
+      '3h': '-3h',
+      '7d': '-7d',
+      '90d': '-90d',
     } as const;
 
-    /**
-     * * `left` - left
-    * `right` - right
-     */
-    export type PlacementEnum = typeof PlacementEnum[keyof typeof PlacementEnum];
+    export interface WidgetDateRange {
+      /** Relative lookback window (for example '-7d'). Omit to use the project default range.
 
-
-    export const PlacementEnum = {
-      Left: 'left',
-      Right: 'right',
-    } as const;
-
-    export interface DashboardTileBasic {
-      readonly id: number;
-      readonly dashboard_id: number;
-      /** @nullable */
-      deleted?: boolean | null;
+      * `-14d` - -14d
+      * `-1h` - -1h
+      * `-24h` - -24h
+      * `-30d` - -30d
+      * `-3h` - -3h
+      * `-7d` - -7d
+      * `-90d` - -90d */
+      date_from?: DateFromEnum | null;
     }
 
-    /**
-     * * `primary` - Primary
-    * `secondary` - Secondary
-     */
-    export type StyleEnum = typeof StyleEnum[keyof typeof StyleEnum];
-
-
-    export const StyleEnum = {
-      Primary: 'primary',
-      Secondary: 'secondary',
-    } as const;
-
-    export interface ButtonTile {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      readonly last_modified_by: UserBasic;
-      /** @maxLength 2000 */
-      url: string;
-      /** @maxLength 200 */
-      text: string;
-      placement?: PlacementEnum;
-      readonly dashboard_tiles: readonly DashboardTileBasic[];
-      style?: StyleEnum;
-      readonly last_modified_at: string;
-      team: number;
-    }
-
-    export interface CIMDVerificationToken {
-      readonly id: string;
-      /** @maxLength 40 */
-      label: string;
-      /** @nullable */
-      readonly mask_value: string | null;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /** @nullable */
-      readonly last_used_at: string | null;
-    }
-
-    /**
-     * Create-response variant that includes the plaintext token.
-
-    Only emitted from the create endpoint - storage-side we only persist the
-    hash, so subsequent reads use the base serializer.
-     */
-    export interface CIMDVerificationTokenWithValue {
-      readonly id: string;
-      /** @maxLength 40 */
-      label: string;
-      /** @nullable */
-      readonly mask_value: string | null;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /** @nullable */
-      readonly last_used_at: string | null;
-      /** Plaintext token, only returned on creation */
-      readonly value: string;
-    }
-
-    export interface EventsHeatMapColumnAggregationResult {
-      column: number;
-      value: number;
-    }
-
-    export interface EventsHeatMapDataResult {
-      column: number;
-      row: number;
-      value: number;
-    }
-
-    export interface EventsHeatMapRowAggregationResult {
-      row: number;
-      value: number;
-    }
-
-    export interface EventsHeatMapStructuredResult {
-      allAggregations: number;
-      columnAggregations: EventsHeatMapColumnAggregationResult[];
-      data: EventsHeatMapDataResult[];
-      rowAggregations: EventsHeatMapRowAggregationResult[];
-    }
-
-    export interface CalendarHeatmapResponse {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Wether more breakdown values are available. */
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: EventsHeatMapStructuredResult;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface CalendarHeatmapQuery {
-      /** Groups aggregation */
-      aggregation_group_type_index?: number | null;
-      /** Properties specific to the trends insight */
-      calendarHeatmapFilter?: CalendarHeatmapFilter | null;
-      /** Whether we should be comparing against a specific conversion goal */
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization */
-      dataColorTheme?: number | null;
-      /** Date range for the query */
-      dateRange?: DateRange | null;
-      /** Exclude internal and test users by applying the respective filters */
-      filterTestAccounts?: boolean | null;
-      /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
-      interval?: IntervalType | null;
-      kind?: 'CalendarHeatmapQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Property filters for all series */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
-      response?: CalendarHeatmapResponse | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      /** Events and actions to include */
-      series: (EventsNode | ActionsNode | DataWarehouseNode)[];
-      /** Tags that will be added to the Query log comment */
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    /**
-     * * `error` - error
-    * `warning` - warning
-     */
-    export type UtmIssueSeverityEnum = typeof UtmIssueSeverityEnum[keyof typeof UtmIssueSeverityEnum];
-
-
-    export const UtmIssueSeverityEnum = {
-      Error: 'error',
-      Warning: 'warning',
-    } as const;
-
-    export interface UtmIssue {
-      /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
-      field: string;
-      /** Issue severity level
-
-      * `error` - error
-      * `warning` - warning */
-      severity: UtmIssueSeverityEnum;
-      /** Human-readable description of the issue */
-      message: string;
-    }
-
-    export interface CampaignAuditResult {
-      /** Campaign name from the ad platform */
-      campaign_name: string;
-      /** Campaign ID from the ad platform */
-      campaign_id: string;
-      /** Integration source name (e.g. google, meta) */
-      source_name: string;
-      /** Total spend for this campaign in the period */
-      spend: number;
-      /** Total clicks for this campaign */
-      clicks: number;
-      /** Total impressions for this campaign */
-      impressions: number;
-      /** Whether matching UTM pageview events were found */
-      has_utm_events: boolean;
-      /** Number of matching UTM pageview events */
-      event_count: number;
-      /** List of detected UTM configuration issues */
-      issues: UtmIssue[];
-    }
-
-    /**
-     * Supporting evidence
-     */
-    export type CapabilityStateEvidence = { [key: string]: unknown };
-
-    /**
-     * * `needs_setup` - needs_setup
-    * `detected` - detected
-    * `waiting_for_data` - waiting_for_data
-    * `ready` - ready
-    * `not_applicable` - not_applicable
-    * `unknown` - unknown
-     */
-    export type CapabilityStateStateEnum = typeof CapabilityStateStateEnum[keyof typeof CapabilityStateStateEnum];
-
-
-    export const CapabilityStateStateEnum = {
-      NeedsSetup: 'needs_setup',
-      Detected: 'detected',
-      WaitingForData: 'waiting_for_data',
-      Ready: 'ready',
-      NotApplicable: 'not_applicable',
-      Unknown: 'unknown',
-    } as const;
-
-    export interface CapabilityState {
-      /** Current state of the capability
-
-      * `needs_setup` - needs_setup
-      * `detected` - detected
-      * `waiting_for_data` - waiting_for_data
-      * `ready` - ready
-      * `not_applicable` - not_applicable
-      * `unknown` - unknown */
-      state: CapabilityStateStateEnum;
-      /** Whether the state is estimated from static analysis */
-      estimated: boolean;
-      /** Human-readable explanation */
-      reason: string;
-      /** Supporting evidence */
-      evidence?: CapabilityStateEvidence;
-    }
-
-    export interface CategoricalScoreOption {
+    export interface ErrorTrackingListWidgetConfig {
       /**
-         * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
-         * @maxLength 128
-         */
-      key: string;
-      /**
-         * Human-readable option label.
-         * @maxLength 256
-         */
-      label: string;
-    }
-
-    /**
-     * * `single` - single
-    * `multiple` - multiple
-     */
-    export type SelectionModeEnum = typeof SelectionModeEnum[keyof typeof SelectionModeEnum];
-
-
-    export const SelectionModeEnum = {
-      Single: 'single',
-      Multiple: 'multiple',
-    } as const;
-
-    export interface CategoricalScoreDefinitionConfig {
-      /** Ordered categorical options available to the scorer. */
-      options: CategoricalScoreOption[];
-      /** Whether reviewers can select one option or multiple options. Defaults to `single`.
-
-      * `single` - single
-      * `multiple` - multiple */
-      selection_mode?: SelectionModeEnum;
-      /**
-         * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+         * Maximum number of issues to return.
          * @minimum 1
-         * @nullable
+         * @maximum 25
          */
-      min_selections?: number | null;
-      /**
-         * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
-         * @minimum 1
-         * @nullable
-         */
-      max_selections?: number | null;
-    }
-
-    /**
-     * * `marketing` - Marketing
-    * `transactional` - Transactional
-     */
-    export type CategoryTypeEnum = typeof CategoryTypeEnum[keyof typeof CategoryTypeEnum];
-
-
-    export const CategoryTypeEnum = {
-      Marketing: 'marketing',
-      Transactional: 'transactional',
-    } as const;
-
-    /**
-     * * `consolidated` - consolidated
-    * `cdc_only` - cdc_only
-    * `both` - both
-     */
-    export type CdcTableModeEnum = typeof CdcTableModeEnum[keyof typeof CdcTableModeEnum];
-
-
-    export const CdcTableModeEnum = {
-      Consolidated: 'consolidated',
-      CdcOnly: 'cdc_only',
-      Both: 'both',
-    } as const;
-
-    export type ChangeRequestApprovalsItem = { [key: string]: unknown };
-
-    /**
-     * * `valid` - Valid
-    * `invalid` - Invalid
-    * `expired` - Expired
-    * `stale` - Stale (resource changed)
-     */
-    export type ValidationStatusEnum = typeof ValidationStatusEnum[keyof typeof ValidationStatusEnum];
-
-
-    export const ValidationStatusEnum = {
-      Valid: 'valid',
-      Invalid: 'invalid',
-      Expired: 'expired',
-      Stale: 'stale',
-    } as const;
-
-    /**
-     * * `pending` - Pending
-    * `approved` - Approved (awaiting application)
-    * `applied` - Applied
-    * `rejected` - Rejected
-    * `expired` - Expired
-    * `failed` - Failed to apply
-     */
-    export type ChangeRequestStateEnum = typeof ChangeRequestStateEnum[keyof typeof ChangeRequestStateEnum];
-
-
-    export const ChangeRequestStateEnum = {
-      Pending: 'pending',
-      Approved: 'approved',
-      Applied: 'applied',
-      Rejected: 'rejected',
-      Expired: 'expired',
-      Failed: 'failed',
-    } as const;
-
-    export interface ChangeRequest {
-      readonly id: string;
-      readonly action_key: string;
-      readonly action_version: number;
-      readonly resource_type: string;
-      /** @nullable */
-      readonly resource_id: string | null;
-      readonly intent: unknown;
-      readonly intent_display: unknown;
-      readonly policy_snapshot: unknown;
-      readonly validation_status: ValidationStatusEnum;
-      readonly validation_errors: unknown;
-      /** @nullable */
-      readonly validated_at: string | null;
-      readonly state: ChangeRequestStateEnum;
-      readonly created_by: UserBasic;
-      readonly applied_by: UserBasic;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly expires_at: string;
-      /** @nullable */
-      readonly applied_at: string | null;
-      readonly apply_error: string;
-      readonly result_data: unknown;
-      readonly approvals: readonly ChangeRequestApprovalsItem[];
-      /** Check if current user can approve this change request. */
-      readonly can_approve: boolean;
-      readonly can_cancel: boolean;
-      /** Check if current user is the requester. */
-      readonly is_requester: boolean;
-      /**
-         * Get the current user's approval decision if they have voted.
-         * @nullable
-         */
-      readonly user_decision: string | null;
-    }
-
-    /**
-     * * `slack_channel_message` - Channel message
-    * `slack_bot_mention` - Bot mention
-    * `slack_emoji_reaction` - Emoji reaction
-    * `teams_channel_message` - Teams channel message
-    * `teams_bot_mention` - Teams bot mention
-    * `widget_embedded` - Widget
-    * `widget_api` - API
-    * `github_issue` - GitHub issue
-     */
-    export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
-
-
-    export const ChannelDetailEnum = {
-      SlackChannelMessage: 'slack_channel_message',
-      SlackBotMention: 'slack_bot_mention',
-      SlackEmojiReaction: 'slack_emoji_reaction',
-      TeamsChannelMessage: 'teams_channel_message',
-      TeamsBotMention: 'teams_bot_mention',
-      WidgetEmbedded: 'widget_embedded',
-      WidgetApi: 'widget_api',
-      GithubIssue: 'github_issue',
-    } as const;
-
-    /**
-     * * `widget` - Widget
-    * `email` - Email
-    * `slack` - Slack
-    * `teams` - Microsoft Teams
-    * `github` - GitHub
-     */
-    export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
-
-
-    export const ChannelSourceEnum = {
-      Widget: 'widget',
-      Email: 'email',
-      Slack: 'slack',
-      Teams: 'teams',
-      Github: 'github',
-    } as const;
-
-    export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
-
-
-    export const DisplayType = {
-      Auto: 'auto',
-      Line: 'line',
-      Bar: 'bar',
-      Area: 'area',
-    } as const;
-
-    export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
-
-
-    export const YAxisPosition = {
-      Left: 'left',
-      Right: 'right',
-    } as const;
-
-    export interface ChartSettingsDisplay {
-      color?: string | null;
-      displayType?: DisplayType | null;
-      label?: string | null;
-      trendLine?: boolean | null;
-      yAxisPosition?: YAxisPosition | null;
-    }
-
-    export type Style = typeof Style[keyof typeof Style];
-
-
-    export const Style = {
-      None: 'none',
-      Number: 'number',
-      Short: 'short',
-      Percent: 'percent',
-    } as const;
-
-    export interface ChartSettingsFormatting {
-      decimalPlaces?: number | null;
-      prefix?: string | null;
-      style?: Style | null;
-      suffix?: string | null;
-    }
-
-    export interface Settings {
-      display?: ChartSettingsDisplay | null;
-      formatting?: ChartSettingsFormatting | null;
-    }
-
-    export interface ChartAxis {
-      column: string;
-      settings?: Settings | null;
-    }
-
-    /**
-     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
-     */
-    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
-
-    export interface HeatmapGradientStop {
-      color: string;
-      value: number;
-    }
-
-    export type GradientScaleMode = typeof GradientScaleMode[keyof typeof GradientScaleMode];
-
-
-    export const GradientScaleMode = {
-      Absolute: 'absolute',
-      Relative: 'relative',
-    } as const;
-
-    export type HeatmapSortOrder = typeof HeatmapSortOrder[keyof typeof HeatmapSortOrder];
-
-
-    export const HeatmapSortOrder = {
-      Asc: 'asc',
-      Desc: 'desc',
-    } as const;
-
-    export interface HeatmapSettings {
-      gradient?: HeatmapGradientStop[] | null;
-      gradientPreset?: string | null;
-      gradientScaleMode?: GradientScaleMode | null;
-      nullLabel?: string | null;
-      nullValue?: string | null;
-      sortColumn?: string | null;
-      sortOrder?: HeatmapSortOrder | null;
-      valueColumn?: string | null;
-      xAxisColumn?: string | null;
-      xAxisLabel?: string | null;
-      yAxisColumn?: string | null;
-      yAxisLabel?: string | null;
-    }
-
-    export type Scale = typeof Scale[keyof typeof Scale];
-
-
-    export const Scale = {
-      Linear: 'linear',
-      Logarithmic: 'logarithmic',
-    } as const;
-
-    export interface YAxisSettings {
-      label?: string | null;
-      scale?: Scale | null;
-      showGridLines?: boolean | null;
-      showTicks?: boolean | null;
-      /** Whether the Y axis should start at zero */
-      startAtZero?: boolean | null;
-    }
-
-    export interface ChartSettings {
-      goalLines?: GoalLine[] | null;
-      heatmap?: HeatmapSettings | null;
-      leftYAxisSettings?: YAxisSettings | null;
-      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
-      resultCustomizations?: ChartSettingsResultCustomizations;
-      rightYAxisSettings?: YAxisSettings | null;
-      seriesBreakdownColumn?: string | null;
-      showLegend?: boolean | null;
-      showNullsAsZero?: boolean | null;
-      showPieTotal?: boolean | null;
-      showTotalRow?: boolean | null;
-      showValuesOnSeries?: boolean | null;
-      showXAxisBorder?: boolean | null;
-      showXAxisTicks?: boolean | null;
-      showYAxisBorder?: boolean | null;
-      /** Whether we fill the bars to 100% in stacked mode */
-      stackBars100?: boolean | null;
-      xAxis?: ChartAxis | null;
-      xAxisLabel?: string | null;
-      yAxis?: ChartAxis[] | null;
-      /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
-      yAxisAtZero?: boolean | null;
-    }
-
-    export interface CheckDatabaseNameResponse {
-      name: string;
-      available: boolean;
-    }
-
-    /**
-     * * `claude` - claude
-     */
-    export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
-
-
-    export const ClaudeRuntimeAdapterEnum = {
-      Claude: 'claude',
-    } as const;
-
-    /**
-     * * `interactive` - interactive
-    * `background` - background
-     */
-    export type TaskExecutionModeEnum = typeof TaskExecutionModeEnum[keyof typeof TaskExecutionModeEnum];
-
-
-    export const TaskExecutionModeEnum = {
-      Interactive: 'interactive',
-      Background: 'background',
-    } as const;
-
-    /**
-     * * `user` - user
-    * `bot` - bot
-     */
-    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
-
-
-    export const PrAuthorshipModeEnum = {
-      User: 'user',
-      Bot: 'bot',
-    } as const;
-
-    /**
-     * * `manual` - manual
-    * `signal_report` - signal_report
-     */
-    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
-
-
-    export const RunSourceEnum = {
-      Manual: 'manual',
-      SignalReport: 'signal_report',
-    } as const;
-
-    /**
-     * * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `xhigh` - xhigh
-    * `max` - max
-     */
-    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
-
-
-    export const ReasoningEffortEnum = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Xhigh: 'xhigh',
-      Max: 'max',
-    } as const;
-
-    /**
-     * * `default` - default
-    * `acceptEdits` - acceptEdits
-    * `plan` - plan
-    * `bypassPermissions` - bypassPermissions
-    * `auto` - auto
-     */
-    export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
-
-
-    export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = {
-      Default: 'default',
-      AcceptEdits: 'acceptEdits',
-      Plan: 'plan',
-      BypassPermissions: 'bypassPermissions',
-      Auto: 'auto',
-    } as const;
-
-    /**
-     * Request body for creating a new task run
-     */
-    export interface ClaudeTaskRunCreateSchema {
-      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
-
-      * `interactive` - interactive
-      * `background` - background */
-      mode?: TaskExecutionModeEnum;
-      /**
-         * Git branch to checkout in the sandbox
-         * @maxLength 255
-         * @nullable
-         */
-      branch?: string | null;
-      /** ID of a previous run to resume from. Must belong to the same task. */
-      resume_from_run_id?: string;
-      /** Initial or follow-up user message to include in the run prompt. */
-      pending_user_message?: string;
-      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
-      pending_user_artifact_ids?: string[];
-      /** Optional sandbox environment to apply for this cloud run. */
-      sandbox_environment_id?: string;
-      /** Whether pull requests for this run should be authored by the user or the bot.
-
-      * `user` - user
-      * `bot` - bot */
-      pr_authorship_mode?: PrAuthorshipModeEnum;
-      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
-
-      * `manual` - manual
-      * `signal_report` - signal_report */
-      run_source?: RunSourceEnum;
-      /** Optional signal report identifier when this run was started from Inbox. */
-      signal_report_id?: string;
-      /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
-
-      * `claude` - claude */
-      runtime_adapter: ClaudeRuntimeAdapterEnum;
-      /** LLM model identifier to run in the Claude runtime. */
-      model: string;
-      /** Reasoning effort to request for models that expose an effort control.
-
-      * `low` - low
-      * `medium` - medium
-      * `high` - high
-      * `xhigh` - xhigh
-      * `max` - max */
-      reasoning_effort?: ReasoningEffortEnum;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
-      github_user_token?: string;
-      /** Initial permission mode for Claude runtimes.
-
-      * `default` - default
-      * `acceptEdits` - acceptEdits
-      * `plan` - plan
-      * `bypassPermissions` - bypassPermissions
-      * `auto` - auto */
-      initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
-    }
-
-    export type ClickhouseEventProperties = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type ClickhouseEventPerson = { [key: string]: unknown } | null;
-
-    export interface EventElement {
-      event: string;
-      /**
-         * @maxLength 10000
-         * @nullable
-         */
-      text?: string | null;
-      /**
-         * @maxLength 1000
-         * @nullable
-         */
-      tag_name?: string | null;
-      /** @nullable */
-      attr_class?: string[] | null;
-      /**
-         * @maxLength 10000
-         * @nullable
-         */
-      href?: string | null;
-      /**
-         * @maxLength 10000
-         * @nullable
-         */
-      attr_id?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      nth_child?: number | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      nth_of_type?: number | null;
-      attributes?: unknown;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      order?: number | null;
-    }
-
-    export interface ClickhouseEvent {
-      readonly id: string;
-      readonly distinct_id: string;
-      readonly properties: ClickhouseEventProperties;
-      readonly event: string;
-      readonly timestamp: string;
-      /** @nullable */
-      readonly person: ClickhouseEventPerson;
-      readonly elements: readonly EventElement[];
-      readonly elements_chain: string;
-    }
-
-    export interface DiffCluster {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      pixel_count: number;
-      centroid_x: number;
-      centroid_y: number;
-    }
-
-    export interface ClusterSummary {
-      items: DiffCluster[];
-      total: number;
-      truncated: boolean;
-    }
-
-    /**
-     * * `trace` - trace
-    * `generation` - generation
-    * `evaluation` - evaluation
-     */
-    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
-
-
-    export const ClusteringJobAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
-
-    export interface ClusteringJob {
-      readonly id: string;
-      /** @maxLength 100 */
-      name: string;
-      analysis_level: ClusteringJobAnalysisLevelEnum;
-      event_filters?: unknown;
-      enabled?: boolean;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    /**
-     * * `hdbscan` - hdbscan
-    * `kmeans` - kmeans
-     */
-    export type ClusteringMethodEnum = typeof ClusteringMethodEnum[keyof typeof ClusteringMethodEnum];
-
-
-    export const ClusteringMethodEnum = {
-      Hdbscan: 'hdbscan',
-      Kmeans: 'kmeans',
-    } as const;
-
-    export type ClusteringRunRequestEventFiltersItem = { [key: string]: unknown };
-
-    /**
-     * * `none` - none
-    * `l2` - l2
-     */
-    export type EmbeddingNormalizationEnum = typeof EmbeddingNormalizationEnum[keyof typeof EmbeddingNormalizationEnum];
-
-
-    export const EmbeddingNormalizationEnum = {
-      None: 'none',
-      L2: 'l2',
-    } as const;
-
-    /**
-     * * `none` - none
-    * `umap` - umap
-    * `pca` - pca
-     */
-    export type DimensionalityReductionMethodEnum = typeof DimensionalityReductionMethodEnum[keyof typeof DimensionalityReductionMethodEnum];
-
-
-    export const DimensionalityReductionMethodEnum = {
-      None: 'none',
-      Umap: 'umap',
-      Pca: 'pca',
-    } as const;
-
-    /**
-     * * `umap` - umap
-    * `pca` - pca
-    * `tsne` - tsne
-     */
-    export type VisualizationMethodEnum = typeof VisualizationMethodEnum[keyof typeof VisualizationMethodEnum];
-
-
-    export const VisualizationMethodEnum = {
-      Umap: 'umap',
-      Pca: 'pca',
-      Tsne: 'tsne',
-    } as const;
-
-    /**
-     * Serializer for clustering workflow request parameters.
-     */
-    export interface ClusteringRunRequest {
-      /**
-         * Number of days to look back for traces
-         * @minimum 1
-         * @maximum 90
-         */
-      lookback_days?: number;
-      /**
-         * Maximum number of traces to sample for clustering
-         * @minimum 20
-         * @maximum 10000
-         */
-      max_samples?: number;
-      /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
-
-      * `none` - none
-      * `l2` - l2 */
-      embedding_normalization?: EmbeddingNormalizationEnum;
-      /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
-
-      * `none` - none
-      * `umap` - umap
-      * `pca` - pca */
-      dimensionality_reduction_method?: DimensionalityReductionMethodEnum;
-      /**
-         * Target dimensions for dimensionality reduction (ignored if method is 'none')
-         * @minimum 2
-         * @maximum 500
-         */
-      dimensionality_reduction_ndims?: number;
-      /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
-
-      * `hdbscan` - hdbscan
-      * `kmeans` - kmeans */
-      clustering_method?: ClusteringMethodEnum;
-      /**
-         * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
-         * @minimum 0.02
-         * @maximum 0.5
-         */
-      min_cluster_size_fraction?: number;
-      /**
-         * HDBSCAN min_samples parameter (higher = more conservative clustering)
-         * @minimum 1
-         * @maximum 100
-         */
-      hdbscan_min_samples?: number;
-      /**
-         * Minimum number of clusters to try for k-means
-         * @minimum 2
-         * @maximum 50
-         */
-      kmeans_min_k?: number;
-      /**
-         * Maximum number of clusters to try for k-means
-         * @minimum 2
-         * @maximum 100
-         */
-      kmeans_max_k?: number;
-      /**
-         * Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
-         * @maxLength 50
-         */
-      run_label?: string;
-      /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
-
-      * `umap` - umap
-      * `pca` - pca
-      * `tsne` - tsne */
-      visualization_method?: VisualizationMethodEnum;
-      /** Property filters to scope which traces are included in clustering (PostHog standard format) */
-      event_filters?: ClusteringRunRequestEventFiltersItem[];
-      /**
-         * If provided, use this clustering job's analysis_level and event_filters instead of request params
-         * @nullable
-         */
-      clustering_job_id?: string | null;
-    }
-
-    export interface CodeInviteRedeemRequest {
-      /** @maxLength 50 */
-      code: string;
-    }
-
-    /**
-     * * `codex` - codex
-     */
-    export type CodexRuntimeAdapterEnum = typeof CodexRuntimeAdapterEnum[keyof typeof CodexRuntimeAdapterEnum];
-
-
-    export const CodexRuntimeAdapterEnum = {
-      Codex: 'codex',
-    } as const;
-
-    /**
-     * * `auto` - auto
-    * `read-only` - read-only
-    * `full-access` - full-access
-     */
-    export type CodexTaskRunCreateSchemaInitialPermissionModeEnum = typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum];
-
-
-    export const CodexTaskRunCreateSchemaInitialPermissionModeEnum = {
-      Auto: 'auto',
-      ReadOnly: 'read-only',
-      FullAccess: 'full-access',
-    } as const;
-
-    /**
-     * Request body for creating a new task run
-     */
-    export interface CodexTaskRunCreateSchema {
-      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
-
-      * `interactive` - interactive
-      * `background` - background */
-      mode?: TaskExecutionModeEnum;
-      /**
-         * Git branch to checkout in the sandbox
-         * @maxLength 255
-         * @nullable
-         */
-      branch?: string | null;
-      /** ID of a previous run to resume from. Must belong to the same task. */
-      resume_from_run_id?: string;
-      /** Initial or follow-up user message to include in the run prompt. */
-      pending_user_message?: string;
-      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
-      pending_user_artifact_ids?: string[];
-      /** Optional sandbox environment to apply for this cloud run. */
-      sandbox_environment_id?: string;
-      /** Whether pull requests for this run should be authored by the user or the bot.
-
-      * `user` - user
-      * `bot` - bot */
-      pr_authorship_mode?: PrAuthorshipModeEnum;
-      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
-
-      * `manual` - manual
-      * `signal_report` - signal_report */
-      run_source?: RunSourceEnum;
-      /** Optional signal report identifier when this run was started from Inbox. */
-      signal_report_id?: string;
-      /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
-
-      * `codex` - codex */
-      runtime_adapter: CodexRuntimeAdapterEnum;
-      /** LLM model identifier to run in the Codex runtime. */
-      model: string;
-      /** Reasoning effort to request for models that expose an effort control.
-
-      * `low` - low
-      * `medium` - medium
-      * `high` - high
-      * `xhigh` - xhigh
-      * `max` - max */
-      reasoning_effort?: ReasoningEffortEnum;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
-      github_user_token?: string;
-      /** Initial permission mode for Codex runtimes.
-
-      * `auto` - auto
-      * `read-only` - read-only
-      * `full-access` - full-access */
-      initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnum;
-    }
-
-    export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
-
-
-    export const PropertyGroupOperator = {
-      And: 'AND',
-      Or: 'OR',
-    } as const;
-
-    export interface CohortFilter {
-      bytecode?: unknown[] | null;
-      bytecode_error?: string | null;
-      conditionHash?: string | null;
-      type: 'cohort';
-      key: 'id';
-      value: number;
-      negation?: boolean;
-    }
-
-    export interface PersonFilter {
-      bytecode?: unknown[] | null;
-      bytecode_error?: string | null;
-      conditionHash?: string | null;
-      type: 'person';
-      key: string;
-      operator?: string | null;
-      value?: unknown;
-      negation?: boolean;
-    }
-
-    /**
-     * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
-     */
-    export interface CohortFilterGroup {
-      type: PropertyGroupOperator;
-      values: (BehavioralFilter | CohortFilter | PersonFilter | CohortFilterGroup)[];
-    }
-
-    export interface CohortFilters {
-      properties: CohortFilterGroup;
-    }
-
-    /**
-     * * `static` - static
-    * `person_property` - person_property
-    * `behavioral` - behavioral
-    * `realtime` - realtime
-    * `analytical` - analytical
-     */
-    export type CohortTypeEnum = typeof CohortTypeEnum[keyof typeof CohortTypeEnum];
-
-
-    export const CohortTypeEnum = {
-      Static: 'static',
-      PersonProperty: 'person_property',
-      Behavioral: 'behavioral',
-      Realtime: 'realtime',
-      Analytical: 'analytical',
-    } as const;
-
-    export interface Cohort {
-      readonly id: number;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** @maxLength 1000 */
-      description?: string;
-      groups?: unknown;
-      deleted?: boolean;
-      filters?: CohortFilters | null;
-      query?: unknown;
-      /** @nullable */
-      readonly version: number | null;
-      /** @nullable */
-      readonly pending_version: number | null;
-      readonly is_calculating: boolean;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly created_at: string | null;
-      /** @nullable */
-      readonly last_calculation: string | null;
-      /** @nullable */
-      readonly last_backfill_person_properties_at: string | null;
-      readonly errors_calculating: number;
-      /** @nullable */
-      readonly last_error_message: string | null;
-      /** @nullable */
-      readonly count: number | null;
-      is_static?: boolean;
-      /** Type of cohort based on filter complexity
-
-      * `static` - static
-      * `person_property` - person_property
-      * `behavioral` - behavioral
-      * `realtime` - realtime
-      * `analytical` - analytical */
-      cohort_type?: CohortTypeEnum | BlankEnum | null;
-      readonly experiment_set: readonly number[];
-      _create_in_folder?: string;
-      _create_static_person_ids?: string[];
-    }
-
-    export type CohortPersonResultProperties = { [key: string]: unknown };
-
-    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
-
-    /**
-     * * `person` - person
-     */
-    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
-
-
-    export const CohortPersonResultTypeEnum = {
-      Person: 'person',
-    } as const;
-
-    export interface CohortPersonResult {
-      id: string;
-      uuid: string;
-      type: CohortPersonResultTypeEnum;
-      name: string;
-      distinct_ids: string[];
-      properties: CohortPersonResultProperties;
-      /** @nullable */
-      created_at: string | null;
-      /** @nullable */
-      last_seen_at: string | null;
-      /** @nullable */
-      is_identified: boolean | null;
-      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
-      /** @nullable */
-      value_at_data_point: number | null;
-    }
-
-    export interface CohortPersonsResponse {
-      results: CohortPersonResult[];
-      /** @nullable */
-      next: string | null;
-      /** @nullable */
-      previous: string | null;
-    }
-
-    export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
-
-
-    export const ColorMode = {
-      Light: 'light',
-      Dark: 'dark',
-    } as const;
-
-    /**
-     * * `private` - Private (only visible to creator)
-    * `shared` - Shared with team
-     */
-    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
-
-
-    export const VisibilityEnum = {
-      Private: 'private',
-      Shared: 'shared',
-    } as const;
-
-    export interface ColumnConfiguration {
-      readonly id: string;
-      /** @maxLength 255 */
-      context_key: string;
-      columns?: string[];
-      /** @maxLength 255 */
-      name?: string;
-      filters?: unknown;
-      /**
-         * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
-         * @nullable
-         */
-      order_by?: string[] | null;
-      visibility?: VisibilityEnum;
-      /** @nullable */
-      readonly created_by: number | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface Comment {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      deleted?: boolean | null;
-      mentions?: number[];
-      slug?: string;
-      /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
-      is_task?: boolean;
-      /** The user who marked this task complete. Null for open tasks and non-task comments. */
-      readonly completed_by: UserBasic | null;
-      /** @nullable */
-      content?: string | null;
-      rich_content?: unknown;
-      readonly version: number;
-      readonly created_at: string;
-      /**
-         * @maxLength 72
-         * @nullable
-         */
-      item_id?: string | null;
-      item_context?: unknown;
-      /** @maxLength 79 */
-      scope: string;
-      /**
-         * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
-         * @nullable
-         */
-      readonly completed_at: string | null;
-      /** @nullable */
-      source_comment?: string | null;
-    }
-
-    export interface CompareItem {
-      label: string;
-      value: string;
-    }
-
-    export interface ComposeTicket {
-      /** Recipient email address. */
-      recipient_email: string;
-      /**
-         * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
-         * @maxLength 400
-         */
-      recipient_distinct_id?: string;
-      /**
-         * Email subject line.
-         * @maxLength 500
-         */
-      email_subject?: string;
-      /** ID of the EmailChannel to send from. */
-      email_config_id: string;
-      /**
-         * Message content in markdown.
-         * @maxLength 5000
-         */
-      message: string;
-      /** TipTap rich content JSON for formatted messages. */
-      rich_content?: unknown;
-    }
-
-    export interface ComposeTicketResponse {
-      /** Created ticket UUID. */
-      id: string;
-      /** Human-readable ticket number. */
-      ticket_number: number;
-    }
-
-    /**
-     * * `won` - won
-    * `lost` - lost
-    * `inconclusive` - inconclusive
-    * `stopped_early` - stopped_early
-    * `invalid` - invalid
-     */
-    export type ConclusionEnum = typeof ConclusionEnum[keyof typeof ConclusionEnum];
-
-
-    export const ConclusionEnum = {
-      Won: 'won',
-      Lost: 'lost',
-      Inconclusive: 'inconclusive',
-      StoppedEarly: 'stopped_early',
-      Invalid: 'invalid',
-    } as const;
-
-    export interface ConditionalFormattingRule {
-      bytecode: unknown[];
-      color: string;
-      colorMode?: ColorMode | null;
-      columnName: string;
-      id: string;
-      input: string;
-      templateId: string;
-    }
-
-    /**
-     * Response containing a JWT token for direct sandbox connection
-     */
-    export interface ConnectionTokenResponse {
-      /** JWT token for authenticating with the sandbox */
-      token: string;
-    }
-
-    /**
-     * * `utf-8` - utf-8
-    * `base64` - base64
-     */
-    export type ContentEncodingEnum = typeof ContentEncodingEnum[keyof typeof ContentEncodingEnum];
-
-
-    export const ContentEncodingEnum = {
-      Utf8: 'utf-8',
-      Base64: 'base64',
-    } as const;
-
-    export type ConversationMessagesItem = { [key: string]: unknown };
-
-    export type ConversationPendingApprovalsItem = { [key: string]: unknown };
-
-    /**
-     * * `idle` - Idle
-    * `in_progress` - In progress
-    * `canceling` - Canceling
-     */
-    export type ConversationStatus = typeof ConversationStatus[keyof typeof ConversationStatus];
-
-
-    export const ConversationStatus = {
-      Idle: 'idle',
-      InProgress: 'in_progress',
-      Canceling: 'canceling',
-    } as const;
-
-    /**
-     * * `assistant` - Assistant
-    * `tool_call` - Tool call
-    * `deep_research` - Deep research
-    * `slack` - Slack
-     */
-    export type ConversationType = typeof ConversationType[keyof typeof ConversationType];
-
-
-    export const ConversationType = {
-      Assistant: 'assistant',
-      ToolCall: 'tool_call',
-      DeepResearch: 'deep_research',
-      Slack: 'slack',
-    } as const;
-
-    export interface Conversation {
-      readonly id: string;
-      readonly status: ConversationStatus;
-      /**
-         * Title of the conversation.
-         * @nullable
-         */
-      readonly title: string | null;
-      readonly user: UserBasic;
-      /** @nullable */
-      readonly created_at: string | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly type: ConversationType;
-      /**
-         * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-         * @nullable
-         */
-      readonly is_internal: boolean | null;
-      /**
-         * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-         * @nullable
-         */
-      readonly slack_thread_key: string | null;
-      /**
-         * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-         * @nullable
-         */
-      readonly slack_workspace_domain: string | null;
-      readonly messages: readonly ConversationMessagesItem[];
-      readonly has_unsupported_content: boolean;
-      /** @nullable */
-      readonly agent_mode: string | null;
-      readonly is_sandbox: boolean;
-      /** Return pending approval cards as structured data.
-
-      Combines metadata from conversation.approval_decisions with payload from checkpoint
-      interrupts (single source of truth for payload data). */
-      readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
-    }
-
-    export interface ConversationMinimal {
-      readonly id: string;
-      readonly status: ConversationStatus;
-      /**
-         * Title of the conversation.
-         * @nullable
-         */
-      readonly title: string | null;
-      readonly user: UserBasic;
-      /** @nullable */
-      readonly created_at: string | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly type: ConversationType;
-      /**
-         * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-         * @nullable
-         */
-      readonly is_internal: boolean | null;
-      /**
-         * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-         * @nullable
-         */
-      readonly slack_thread_key: string | null;
-      /**
-         * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-         * @nullable
-         */
-      readonly slack_workspace_domain: string | null;
-    }
-
-    export type ConversionGoalFilter1Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter1SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter1 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      /** The event or `null` for all events. */
-      event?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: 'EventsNode';
-      limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Columns to order by */
-      orderBy?: string[] | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter1Response;
-      schema_map: ConversionGoalFilter1SchemaMap;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ConversionGoalFilter2Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter2SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter2 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      id: number;
-      kind?: 'ActionsNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter2Response;
-      schema_map: ConversionGoalFilter2SchemaMap;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ConversionGoalFilter3Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter3SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter3 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      distinct_id_field: string;
-      dw_source_type?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      id: string;
-      id_field: string;
-      kind?: 'DataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter3Response;
-      schema_map: ConversionGoalFilter3SchemaMap;
-      table_name: string;
-      timestamp_field: string;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    /**
-     * * `0` - Disabled
-    * `1` - Stateless
-    * `2` - Stateful
-     */
-    export type CookielessServerHashModeEnum = typeof CookielessServerHashModeEnum[keyof typeof CookielessServerHashModeEnum];
-
-
-    export const CookielessServerHashModeEnum = {
-      Number0: 0,
-      Number1: 1,
-      Number2: 2,
-    } as const;
-
-    export interface CopyDashboardTemplate {
-      /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
-      source_template_id: string;
-    }
-
-    export interface CopyDashboardTileRequest {
-      /** Dashboard id the tile currently belongs to. */
-      fromDashboardId: number;
-      /** Dashboard tile id to copy. */
-      tileId: number;
-    }
-
-    export interface CopyExperimentToProject {
-      /** The team ID to copy the experiment to. */
-      target_team_id: number;
-      /** Optional feature flag key to use in the destination team. */
-      feature_flag_key?: string;
-      /** Optional name for the copied experiment. */
-      name?: string;
-    }
-
-    export interface CopyFlagsRequest {
-      /** Key of the feature flag to copy */
-      feature_flag_key: string;
-      /** Source project ID to copy the flag from */
-      from_project: number;
-      /**
-         * List of target project IDs to copy the flag to
-         * @maxItems 50
-         */
-      target_project_ids: number[];
-      /** Whether to also copy scheduled changes for this flag */
-      copy_schedule?: boolean;
-      /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
-      disable_copied_flag?: boolean;
-    }
-
-    export interface CopyFlagsSuccessItem {
-      /** ID of the created feature flag */
-      id: number;
-      /** Key of the feature flag */
-      key: string;
-      /** Name of the feature flag */
-      name: string;
-      /** Whether the flag is active */
-      active: boolean;
-      /** Team ID the flag was copied to */
-      team_id: number;
-    }
-
-    export interface CopyFlagsResult {
-      /** Project ID (present on failure) */
-      project_id?: number;
-      /** Error message (present on failure) */
-      error_message?: string;
-    }
-
-    export interface CopyFlagsResponse {
-      /** List of successfully copied flags */
-      success: CopyFlagsSuccessItem[];
-      /** List of failed copy attempts */
-      failed: CopyFlagsResult[];
-    }
-
-    /**
-     * * `acquisition` - Acquisition
-    * `activation` - Activation
-    * `monetization` - Monetization
-    * `expansion` - Expansion
-    * `referral` - Referral
-    * `retention` - Retention
-    * `churn` - Churn
-    * `reactivation` - Reactivation
-     */
-    export type CoreEventCategoryEnum = typeof CoreEventCategoryEnum[keyof typeof CoreEventCategoryEnum];
-
-
-    export const CoreEventCategoryEnum = {
-      Acquisition: 'acquisition',
-      Activation: 'activation',
-      Monetization: 'monetization',
-      Expansion: 'expansion',
-      Referral: 'referral',
-      Retention: 'retention',
-      Churn: 'churn',
-      Reactivation: 'reactivation',
-    } as const;
-
-    export interface CoreEvent {
-      readonly id: string;
-      /**
-         * Display name for this core event
-         * @maxLength 255
-         */
-      name: string;
-      /** Optional description */
-      description?: string;
-      /** Lifecycle category for this core event
-
-      * `acquisition` - Acquisition
-      * `activation` - Activation
-      * `monetization` - Monetization
-      * `expansion` - Expansion
-      * `referral` - Referral
-      * `retention` - Retention
-      * `churn` - Churn
-      * `reactivation` - Reactivation */
-      category: CoreEventCategoryEnum;
-      /** Filter configuration - event, action, or data warehouse node */
-      filter: unknown;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    /**
-     * * `single` - Single page
-    * `sitemap` - Sitemap
-    * `same_origin` - Same origin crawl
-    * `github_repo` - GitHub repository
-     */
-    export type CrawlModeEnum = typeof CrawlModeEnum[keyof typeof CrawlModeEnum];
-
-
-    export const CrawlModeEnum = {
-      Single: 'single',
-      Sitemap: 'sitemap',
-      SameOrigin: 'same_origin',
-      GithubRepo: 'github_repo',
-    } as const;
-
-    /**
-     * Typed configuration for a FileDownload batch-export destination.
-     */
-    export interface FileDownloadDestinationFileConfig {
-      /** File format
-
-      * `Parquet` - Parquet
-      * `JSONLines` - JSONLines */
-      format?: FileFormatEnum;
-      /** Compress the file with a supported compression format
-
-      * `zstd` - zstd
-      * `gzip` - gzip
-      * `brotli` - brotli
-      * `lz4` - lz4
-      * `snappy` - snappy */
-      compression?: CompressionEnum | null;
-      /**
-         * Split download into multiple files of at most this size in MB
-         * @minimum 0
-         * @nullable
-         */
-      max_size_mb?: number | null;
-    }
-
-    export type FileDownloadEventsRequestModel = typeof FileDownloadEventsRequestModel[keyof typeof FileDownloadEventsRequestModel];
-
-
-    export const FileDownloadEventsRequestModel = {
-      Events: 'events',
-    } as const;
-
-    /**
-     * Typed configuration for the events model.
-     */
-    export interface FileDownloadEventsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadEventsRequestModel;
-      include?: string[];
-      exclude?: string[];
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type FileDownloadPersonsRequestModel = typeof FileDownloadPersonsRequestModel[keyof typeof FileDownloadPersonsRequestModel];
-
-
-    export const FileDownloadPersonsRequestModel = {
-      Persons: 'persons',
-    } as const;
-
-    /**
-     * Typed configuration for the persons model.
-     */
-    export interface FileDownloadPersonsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadPersonsRequestModel;
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type FileDownloadSessionsRequestModel = typeof FileDownloadSessionsRequestModel[keyof typeof FileDownloadSessionsRequestModel];
-
-
-    export const FileDownloadSessionsRequestModel = {
-      Sessions: 'sessions',
-    } as const;
-
-    /**
-     * Typed configuration for the sessions model.
-     */
-    export interface FileDownloadSessionsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadSessionsRequestModel;
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
-
-    /**
-     * * `cost` - cost
-    * `latency` - latency
-    * `eval_pass_rate` - eval_pass_rate
-     */
-    export type TemplatesEnum = typeof TemplatesEnum[keyof typeof TemplatesEnum];
-
-
-    export const TemplatesEnum = {
-      Cost: 'cost',
-      Latency: 'latency',
-      EvalPassRate: 'eval_pass_rate',
-    } as const;
-
-    export interface CreateFromPromptInput {
-      /** The name of the LLM prompt to experiment on. Must already exist for this team. */
-      prompt_name: string;
-      /**
-         * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
-         * @minItems 2
-         * @maxItems 10
-         */
-      versions: number[];
-      /**
-         * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
-         * @minItems 1
-         * @maxItems 3
-         */
-      templates: TemplatesEnum[];
-      /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
-      name?: string;
-      /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
-      feature_flag_key?: string;
-      /** Optional experiment description. */
-      description?: string;
-    }
-
-    export interface CreateGroup {
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      group_type_index: number;
-      /** @maxLength 400 */
-      group_key: string;
-      group_properties?: unknown;
-    }
-
-    /**
-     * * `BAA` - BAA
-    * `DPA` - DPA
-     */
-    export type CreateLegalDocumentDocumentTypeEnum = typeof CreateLegalDocumentDocumentTypeEnum[keyof typeof CreateLegalDocumentDocumentTypeEnum];
-
-
-    export const CreateLegalDocumentDocumentTypeEnum = {
-      Baa: 'BAA',
-      Dpa: 'DPA',
-    } as const;
-
-    /**
-     * Input serializer for POST. Mirrors the submittable fields on the model plus
-    cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
-    organization and submitting user.
-     */
-    export interface CreateLegalDocument {
-      /** Either 'BAA' or 'DPA'.
-
-      * `BAA` - BAA
-      * `DPA` - DPA */
-      document_type: CreateLegalDocumentDocumentTypeEnum;
-      /**
-         * The customer legal entity entering the agreement (PandaDoc's Client.Company).
-         * @maxLength 255
-         */
-      company_name: string;
-      /**
-         * The customer address (PandaDoc's Client.StreetAddress).
-         * @maxLength 512
-         */
-      company_address: string;
-      /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
-      representative_email: string;
-    }
-
-    /**
-     * Typed output for view set `create`.
-     */
-    export interface CreateOutput {
-      id: string;
-    }
-
-    /**
-     * * `zoom` - zoom
-    * `teams` - teams
-    * `meet` - meet
-    * `desktop_audio` - desktop_audio
-    * `slack` - slack
-     */
-    export type CreateRecordingRequestPlatformEnum = typeof CreateRecordingRequestPlatformEnum[keyof typeof CreateRecordingRequestPlatformEnum];
-
-
-    export const CreateRecordingRequestPlatformEnum = {
-      Zoom: 'zoom',
-      Teams: 'teams',
-      Meet: 'meet',
-      DesktopAudio: 'desktop_audio',
-      Slack: 'slack',
-    } as const;
-
-    /**
-     * Request body for creating a new recording
-     */
-    export interface CreateRecordingRequest {
-      /** Meeting platform being recorded
-
-      * `zoom` - zoom
-      * `teams` - teams
-      * `meet` - meet
-      * `desktop_audio` - desktop_audio
-      * `slack` - slack */
-      platform?: CreateRecordingRequestPlatformEnum;
-    }
-
-    /**
-     * * `zoom` - Zoom
-    * `teams` - Microsoft Teams
-    * `meet` - Google Meet
-    * `desktop_audio` - Desktop audio
-    * `slack` - Slack huddle
-     */
-    export type MeetingPlatformEnum = typeof MeetingPlatformEnum[keyof typeof MeetingPlatformEnum];
-
-
-    export const MeetingPlatformEnum = {
-      Zoom: 'zoom',
-      Teams: 'teams',
-      Meet: 'meet',
-      DesktopAudio: 'desktop_audio',
-      Slack: 'slack',
-    } as const;
-
-    /**
-     * * `recording` - Recording
-    * `uploading` - Uploading
-    * `processing` - Processing
-    * `ready` - Ready
-    * `error` - Error
-     */
-    export type DesktopRecordingStatusEnum = typeof DesktopRecordingStatusEnum[keyof typeof DesktopRecordingStatusEnum];
-
-
-    export const DesktopRecordingStatusEnum = {
-      Recording: 'recording',
-      Uploading: 'uploading',
-      Processing: 'processing',
-      Ready: 'ready',
-      Error: 'error',
-    } as const;
-
-    /**
-     * Serializer for extracted tasks
-     */
-    export interface DesktopRecordingTask {
-      title: string;
-      description?: string;
-      /** @nullable */
-      assignee?: string | null;
-    }
-
-    /**
-     * Response for creating a new recording (includes upload_token)
-     */
-    export interface CreateRecordingResponse {
-      readonly id: string;
-      readonly team: number;
-      /** @nullable */
-      readonly created_by: number | null;
-      readonly sdk_upload_id: string;
-      /** @nullable */
-      recall_recording_id?: string | null;
-      platform: MeetingPlatformEnum;
-      /**
-         * @maxLength 255
-         * @nullable
-         */
-      meeting_title?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      meeting_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      duration_seconds?: number | null;
-      status?: DesktopRecordingStatusEnum;
-      /** @nullable */
-      notes?: string | null;
-      /** @nullable */
-      error_message?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      video_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      video_size_bytes?: number | null;
-      /** List of participant names */
-      participants?: string[];
-      readonly transcript_text: string;
-      /** Transcript segments with timestamps */
-      transcript_segments?: TranscriptSegment[];
-      /** @nullable */
-      summary?: string | null;
-      /** AI-extracted tasks from transcript */
-      extracted_tasks?: DesktopRecordingTask[];
-      /** @nullable */
-      tasks_generated_at?: string | null;
-      /** @nullable */
-      summary_generated_at?: string | null;
-      started_at?: string;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** Recall.ai upload token for the desktop SDK */
-      upload_token: string;
-    }
-
-    export interface CreateRepoInput {
-      repo_full_name: string;
-      /** @nullable */
-      repo_external_id?: number | null;
-    }
-
-    export type CreateRunInputBaselineHashes = {[key: string]: string};
-
-    export type CreateRunInputMetadata = { [key: string]: unknown };
-
-    export interface CreateRunInput {
-      repo_id: string;
-      run_type: string;
-      commit_sha: string;
-      branch: string;
-      snapshots: SnapshotManifestItem[];
-      /** @nullable */
-      pr_number?: number | null;
-      baseline_hashes?: CreateRunInputBaselineHashes;
-      unchanged_count?: number;
-      removed_identifiers?: string[];
-      purpose?: string;
-      metadata?: CreateRunInputMetadata;
-    }
-
-    export interface CreateRunResult {
-      run_id: string;
-      uploads: UploadTarget[];
-    }
-
-    export interface CreateTextSource {
-      /**
-         * Short human label for the source. Shown in the settings list and in agent citations.
-         * @maxLength 255
-         */
-      name: string;
-      /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
-      text: string;
+      limit?: number;
+      /** Issue ranking column.
+
+      * `first_seen` - first_seen
+      * `last_seen` - last_seen
+      * `occurrences` - occurrences
+      * `sessions` - sessions
+      * `users` - users */
+      orderBy?: ErrorTrackingIssueOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Issue status filter.
+
+      * `archived` - archived
+      * `active` - active
+      * `resolved` - resolved
+      * `pending_release` - pending_release
+      * `suppressed` - suppressed
+      * `all` - all */
+      status?: ErrorTrackingIssueStatusEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
     }
 
     export interface TileLayoutBox {
@@ -8929,341 +3896,35 @@ export namespace Schemas {
       xs?: TileLayoutBox;
     }
 
-    export interface CreateTextTileRequest {
+    export interface AddDashboardWidgetRequest {
       /**
-         * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
-         * @minLength 1
-         * @maxLength 4000
+         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+         * @maxLength 64
          */
-      body: string;
-      /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
-      layouts?: TileLayouts;
+      widget_type: string;
+      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
+      config: ErrorTrackingListWidgetConfig;
       /**
-         * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
-         * @maxLength 400
-         * @nullable
-         */
-      color?: string | null;
-    }
-
-    /**
-     * * `web` - web
-    * `api` - api
-    * `mcp` - mcp
-     */
-    export type CreatedViaEnum = typeof CreatedViaEnum[keyof typeof CreatedViaEnum];
-
-
-    export const CreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-    } as const;
-
-    /**
-     * * `default` - Default
-    * `template` - Template
-    * `duplicate` - Duplicate
-    * `unlisted` - Unlisted (product-embedded)
-     */
-    export type CreationModeEnum = typeof CreationModeEnum[keyof typeof CreationModeEnum];
-
-
-    export const CreationModeEnum = {
-      Default: 'default',
-      Template: 'template',
-      Duplicate: 'duplicate',
-      Unlisted: 'unlisted',
-    } as const;
-
-    export interface Credential {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /** @maxLength 500 */
-      access_key: string;
-      /** @maxLength 500 */
-      access_secret: string;
-    }
-
-    export interface CustomerJourney {
-      readonly id: string;
-      insight: number;
-      /** @maxLength 400 */
-      name: string;
-      /** @nullable */
-      description?: string | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
-    /**
-     * * `person` - Person
-    * `group_0` - Group 0
-    * `group_1` - Group 1
-    * `group_2` - Group 2
-    * `group_3` - Group 3
-    * `group_4` - Group 4
-     */
-    export type CustomerProfileConfigScopeEnum = typeof CustomerProfileConfigScopeEnum[keyof typeof CustomerProfileConfigScopeEnum];
-
-
-    export const CustomerProfileConfigScopeEnum = {
-      Person: 'person',
-      Group0: 'group_0',
-      Group1: 'group_1',
-      Group2: 'group_2',
-      Group3: 'group_3',
-      Group4: 'group_4',
-    } as const;
-
-    export interface CustomerProfileConfig {
-      readonly id: string;
-      scope: CustomerProfileConfigScopeEnum;
-      content?: unknown;
-      sidebar?: unknown;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
-    export interface Dag {
-      readonly id: string;
-      /**
-         * Human-readable name for this DAG
-         * @maxLength 2048
-         */
-      name: string;
-      /** Optional description of the DAG's purpose */
-      description?: string;
-      /**
-         * Sync frequency string (e.g. '24hour', '7day')
-         * @nullable
-         */
-      sync_frequency?: string | null;
-      readonly node_count: number;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
-    export type DashboardFilters = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type DashboardVariables = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type DashboardPersistedFilters = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type DashboardPersistedVariables = { [key: string]: unknown } | null;
-
-    export type DashboardTilesItem = { [key: string]: unknown };
-
-    /**
-     * * `21` - Everyone in the project can edit
-    * `37` - Only those invited to this dashboard can edit
-     */
-    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
-
-
-    export const RestrictionLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    export type EffectivePrivilegeLevelEnum = typeof EffectivePrivilegeLevelEnum[keyof typeof EffectivePrivilegeLevelEnum];
-
-
-    export const EffectivePrivilegeLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export interface Dashboard {
-      readonly id: number;
-      /**
+         * Optional custom display name for the widget tile.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
       description?: string;
-      pinned?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      last_accessed_at?: string | null;
-      /** @nullable */
-      readonly last_viewed_at: string | null;
-      readonly is_shared: boolean;
-      deleted?: boolean;
-      readonly creation_mode: CreationModeEnum;
-      readonly filters: DashboardFilters;
-      /** @nullable */
-      readonly variables: DashboardVariables;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
-      /**
-         * ID of the color theme used for chart visualizations.
-         * @nullable
-         */
-      data_color_theme_id?: number | null;
-      tags?: unknown[];
-      restriction_level?: RestrictionLevelEnum;
-      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
-      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      readonly access_control_version: string;
-      /** @nullable */
-      last_refresh?: string | null;
-      /** @nullable */
-      readonly persisted_filters: DashboardPersistedFilters;
-      /** @nullable */
-      readonly persisted_variables: DashboardPersistedVariables;
-      readonly team_id: number;
-      /**
-         * List of quick filter IDs associated with this dashboard
-         * @nullable
-         */
-      quick_filter_ids?: string[] | null;
-      /** @nullable */
-      readonly tiles: readonly DashboardTilesItem[] | null;
-      /** Template key to create the dashboard from a predefined template. */
-      use_template?: string;
-      /**
-         * ID of an existing dashboard to duplicate.
-         * @nullable
-         */
-      use_dashboard?: number | null;
-      /** When deleting, also delete insights that are only on this dashboard. */
-      delete_insights?: boolean;
-      _create_in_folder?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: TileLayouts;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
     }
 
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export interface DashboardBasic {
-      readonly id: number;
+    export interface AddDashboardWidgetsBatchRequest {
       /**
-         * Name of the dashboard.
-         * @nullable
+         * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
+         * @minItems 1
+         * @maxItems 10
          */
-      readonly name: string | null;
-      /** Description of the dashboard. */
-      readonly description: string;
-      /** Whether the dashboard is pinned to the top of the list. */
-      readonly pinned: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly last_accessed_at: string | null;
-      /** @nullable */
-      readonly last_viewed_at: string | null;
-      readonly is_shared: boolean;
-      readonly deleted: boolean;
-      readonly creation_mode: CreationModeEnum;
-      tags?: unknown[];
-      /** Controls who can edit the dashboard.
-
-      * `21` - Everyone in the project can edit
-      * `37` - Only those invited to this dashboard can edit */
-      readonly restriction_level: RestrictionLevelEnum;
-      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
-      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      readonly access_control_version: string;
-      /** @nullable */
-      readonly last_refresh: string | null;
-      readonly team_id: number;
-    }
-
-    export interface DashboardCollaborator {
-      readonly id: string;
-      readonly dashboard_id: number;
-      readonly user: UserBasic;
-      level: RestrictionLevelEnum;
-      readonly added_at: string;
-      readonly updated_at: string;
-      user_uuid: string;
-    }
-
-    export interface DashboardFilter {
-      breakdown_filter?: BreakdownFilter | null;
-      date_from?: string | null;
-      date_to?: string | null;
-      explicitDate?: boolean | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-    }
-
-    /**
-     * * `team` - Only team
-    * `global` - Global
-    * `feature_flag` - Feature Flag
-     */
-    export type DashboardTemplateScopeEnum = typeof DashboardTemplateScopeEnum[keyof typeof DashboardTemplateScopeEnum];
-
-
-    export const DashboardTemplateScopeEnum = {
-      Team: 'team',
-      Global: 'global',
-      FeatureFlag: 'feature_flag',
-    } as const;
-
-    export interface DashboardTemplate {
-      readonly id: string;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      template_name?: string | null;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      dashboard_description?: string | null;
-      dashboard_filters?: unknown;
-      /** @nullable */
-      tags?: string[] | null;
-      tiles?: unknown;
-      variables?: unknown;
-      /** @nullable */
-      deleted?: boolean | null;
-      /** @nullable */
-      readonly created_at: string | null;
-      readonly created_by: UserBasic;
-      /**
-         * @maxLength 8201
-         * @nullable
-         */
-      image_url?: string | null;
-      /** @nullable */
-      readonly team_id: number | null;
-      scope?: DashboardTemplateScopeEnum | BlankEnum | null;
-      /** @nullable */
-      availability_contexts?: string[] | null;
-      /** Manually curated; used to highlight templates in the UI. */
-      is_featured?: boolean;
+      widgets: AddDashboardWidgetRequest[];
     }
 
     export type InsightVizNodeKind = typeof InsightVizNodeKind[keyof typeof InsightVizNodeKind];
@@ -10994,6 +5655,102 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ConversionGoalFilter1Response = { [key: string]: unknown } | null;
+
+    export type ConversionGoalFilter1SchemaMap = {[key: string]: string | unknown};
+
+    export interface ConversionGoalFilter1 {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      custom_name?: string | null;
+      /** The event or `null` for all events. */
+      event?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      kind?: 'EventsNode';
+      limit?: number | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Columns to order by */
+      orderBy?: string[] | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: ConversionGoalFilter1Response;
+      schema_map: ConversionGoalFilter1SchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ConversionGoalFilter2Response = { [key: string]: unknown } | null;
+
+    export type ConversionGoalFilter2SchemaMap = {[key: string]: string | unknown};
+
+    export interface ConversionGoalFilter2 {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      custom_name?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id: number;
+      kind?: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: ConversionGoalFilter2Response;
+      schema_map: ConversionGoalFilter2SchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ConversionGoalFilter3Response = { [key: string]: unknown } | null;
+
+    export type ConversionGoalFilter3SchemaMap = {[key: string]: string | unknown};
+
+    export interface ConversionGoalFilter3 {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      custom_name?: string | null;
+      distinct_id_field: string;
+      dw_source_type?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id: string;
+      id_field: string;
+      kind?: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: ConversionGoalFilter3Response;
+      schema_map: ConversionGoalFilter3SchemaMap;
+      table_name: string;
+      timestamp_field: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type MarketingAnalyticsDrillDownLevel = typeof MarketingAnalyticsDrillDownLevel[keyof typeof MarketingAnalyticsDrillDownLevel];
 
 
@@ -11652,12 +6409,166 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface HeatmapGradientStop {
+      color: string;
+      value: number;
+    }
+
+    export type GradientScaleMode = typeof GradientScaleMode[keyof typeof GradientScaleMode];
+
+
+    export const GradientScaleMode = {
+      Absolute: 'absolute',
+      Relative: 'relative',
+    } as const;
+
+    export type HeatmapSortOrder = typeof HeatmapSortOrder[keyof typeof HeatmapSortOrder];
+
+
+    export const HeatmapSortOrder = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
+    export interface HeatmapSettings {
+      gradient?: HeatmapGradientStop[] | null;
+      gradientPreset?: string | null;
+      gradientScaleMode?: GradientScaleMode | null;
+      nullLabel?: string | null;
+      nullValue?: string | null;
+      sortColumn?: string | null;
+      sortOrder?: HeatmapSortOrder | null;
+      valueColumn?: string | null;
+      xAxisColumn?: string | null;
+      xAxisLabel?: string | null;
+      yAxisColumn?: string | null;
+      yAxisLabel?: string | null;
+    }
+
+    export type Scale = typeof Scale[keyof typeof Scale];
+
+
+    export const Scale = {
+      Linear: 'linear',
+      Logarithmic: 'logarithmic',
+    } as const;
+
+    export interface YAxisSettings {
+      label?: string | null;
+      scale?: Scale | null;
+      showGridLines?: boolean | null;
+      showTicks?: boolean | null;
+      /** Whether the Y axis should start at zero */
+      startAtZero?: boolean | null;
+    }
+
+    export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
+
+
+    export const DisplayType = {
+      Auto: 'auto',
+      Line: 'line',
+      Bar: 'bar',
+      Area: 'area',
+    } as const;
+
+    export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
+
+
+    export const YAxisPosition = {
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
+    export interface ChartSettingsDisplay {
+      color?: string | null;
+      displayType?: DisplayType | null;
+      label?: string | null;
+      trendLine?: boolean | null;
+      yAxisPosition?: YAxisPosition | null;
+    }
+
+    export type Style = typeof Style[keyof typeof Style];
+
+
+    export const Style = {
+      None: 'none',
+      Number: 'number',
+      Short: 'short',
+      Percent: 'percent',
+    } as const;
+
+    export interface ChartSettingsFormatting {
+      decimalPlaces?: number | null;
+      prefix?: string | null;
+      style?: Style | null;
+      suffix?: string | null;
+    }
+
+    export interface Settings {
+      display?: ChartSettingsDisplay | null;
+      formatting?: ChartSettingsFormatting | null;
+    }
+
+    export interface ChartAxis {
+      column: string;
+      settings?: Settings | null;
+    }
+
+    /**
+     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+     */
+    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
+
+    export interface ChartSettings {
+      goalLines?: GoalLine[] | null;
+      heatmap?: HeatmapSettings | null;
+      leftYAxisSettings?: YAxisSettings | null;
+      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+      resultCustomizations?: ChartSettingsResultCustomizations;
+      rightYAxisSettings?: YAxisSettings | null;
+      seriesBreakdownColumn?: string | null;
+      showLegend?: boolean | null;
+      showNullsAsZero?: boolean | null;
+      showPieTotal?: boolean | null;
+      showTotalRow?: boolean | null;
+      showValuesOnSeries?: boolean | null;
+      showXAxisBorder?: boolean | null;
+      showXAxisTicks?: boolean | null;
+      showYAxisBorder?: boolean | null;
+      /** Whether we fill the bars to 100% in stacked mode */
+      stackBars100?: boolean | null;
+      xAxis?: ChartAxis | null;
+      xAxisLabel?: string | null;
+      yAxis?: ChartAxis[] | null;
+      /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
+      yAxisAtZero?: boolean | null;
+    }
+
     export type DataVisualizationNodeKind = typeof DataVisualizationNodeKind[keyof typeof DataVisualizationNodeKind];
 
 
     export const DataVisualizationNodeKind = {
       DataVisualizationNode: 'DataVisualizationNode',
     } as const;
+
+    export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
+
+
+    export const ColorMode = {
+      Light: 'light',
+      Dark: 'dark',
+    } as const;
+
+    export interface ConditionalFormattingRule {
+      bytecode: unknown[];
+      color: string;
+      colorMode?: ColorMode | null;
+      columnName: string;
+      id: string;
+      input: string;
+      templateId: string;
+    }
 
     export interface TableSettings {
       columns?: ChartAxis[] | null;
@@ -11709,6 +6620,21 @@ export namespace Schemas {
     - `HogQuery` — Hog language queries
      */
     export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | HogQuery;
+
+    export interface DashboardTileBasic {
+      readonly id: number;
+      readonly dashboard_id: number;
+      /** @nullable */
+      deleted?: boolean | null;
+    }
+
+    export type EffectivePrivilegeLevelEnum = typeof EffectivePrivilegeLevelEnum[keyof typeof EffectivePrivilegeLevelEnum];
+
+
+    export const EffectivePrivilegeLevelEnum = {
+      Number21: 21,
+      Number37: 37,
+    } as const;
 
     /**
      * @nullable
@@ -11833,22 +6759,66 @@ export namespace Schemas {
       team: number;
     }
 
-    export interface Nested {
+    /**
+     * * `left` - left
+    * `right` - right
+     */
+    export type PlacementEnum = typeof PlacementEnum[keyof typeof PlacementEnum];
+
+
+    export const PlacementEnum = {
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
+    /**
+     * * `primary` - Primary
+    * `secondary` - Secondary
+     */
+    export type StyleEnum = typeof StyleEnum[keyof typeof StyleEnum];
+
+
+    export const StyleEnum = {
+      Primary: 'primary',
+      Secondary: 'secondary',
+    } as const;
+
+    export interface ButtonTile {
       readonly id: string;
-      /** @maxLength 64 */
+      readonly created_by: UserBasic;
+      readonly last_modified_by: UserBasic;
+      /** @maxLength 2000 */
+      url: string;
+      /** @maxLength 200 */
+      text: string;
+      placement?: PlacementEnum;
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      style?: StyleEnum;
+      readonly last_modified_at: string;
+      team: number;
+    }
+
+    export interface DashboardWidget {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly last_modified_by: UserBasic;
+      /**
+         * Widget type identifier from the dashboard widget catalog.
+         * @maxLength 64
+         */
       widget_type: string;
       /**
+         * Optional custom display name for this widget tile. Falls back to the widget catalog label when unset.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
+      /** Optional markdown description shown on the dashboard tile when enabled. */
       description?: string;
-      config?: unknown;
-      last_modified_at?: string;
-      /** @nullable */
-      created_by?: number | null;
-      /** @nullable */
-      last_modified_by?: number | null;
+      /** Widget-specific configuration JSON for this widget type. */
+      config?: ErrorTrackingListWidgetConfig;
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      readonly last_modified_at: string;
       team: number;
     }
 
@@ -11857,6 +6827,7 @@ export namespace Schemas {
       insight: Insight;
       text: Text;
       button_tile: ButtonTile;
+      widget?: DashboardWidget | null;
       layouts?: unknown;
       /**
          * @maxLength 400
@@ -11868,7 +6839,5205 @@ export namespace Schemas {
       show_description?: boolean | null;
       /** @nullable */
       transparent_background?: boolean | null;
-      readonly widget: Nested;
+    }
+
+    export interface AddDashboardWidgetsBatchResponse {
+      /** Created dashboard widget tiles in request order. */
+      tiles: DashboardTile[];
+    }
+
+    export interface AddOptOutRequest {
+      /**
+         * The recipient identifier to opt out (e.g. email address).
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Optional message category key. If omitted, the recipient is opted out of all marketing messages. */
+      category_key?: string;
+    }
+
+    export type AddSnapshotsInputBaselineHashes = {[key: string]: string};
+
+    export type SnapshotManifestItemMetadata = { [key: string]: unknown };
+
+    export interface SnapshotManifestItem {
+      identifier: string;
+      content_hash: string;
+      /** @nullable */
+      width?: number | null;
+      /** @nullable */
+      height?: number | null;
+      metadata?: SnapshotManifestItemMetadata;
+    }
+
+    export interface AddSnapshotsInput {
+      snapshots: SnapshotManifestItem[];
+      baseline_hashes?: AddSnapshotsInputBaselineHashes;
+    }
+
+    export type UploadTargetFields = {[key: string]: string};
+
+    export interface UploadTarget {
+      content_hash: string;
+      url: string;
+      fields: UploadTargetFields;
+    }
+
+    export interface AddSnapshotsResult {
+      added: number;
+      uploads: UploadTarget[];
+    }
+
+    /**
+     * * `product_analytics` - product_analytics
+    * `sql` - sql
+    * `session_replay` - session_replay
+    * `error_tracking` - error_tracking
+    * `plan` - plan
+    * `execution` - execution
+    * `survey` - survey
+    * `research` - research
+    * `flags` - flags
+    * `llm_analytics` - llm_analytics
+    * `sandbox` - sandbox
+    * `user_interview` - user_interview
+     */
+    export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
+
+
+    export const AgentModeEnum = {
+      ProductAnalytics: 'product_analytics',
+      Sql: 'sql',
+      SessionReplay: 'session_replay',
+      ErrorTracking: 'error_tracking',
+      Plan: 'plan',
+      Execution: 'execution',
+      Survey: 'survey',
+      Research: 'research',
+      Flags: 'flags',
+      LlmAnalytics: 'llm_analytics',
+      Sandbox: 'sandbox',
+      UserInterview: 'user_interview',
+    } as const;
+
+    export interface AggregatedSpanRow {
+      avg_duration_nano: number;
+      count: number;
+      error_count: number;
+      name: string;
+      p50_duration_nano: number;
+      p95_duration_nano: number;
+      service_name: string;
+      total_duration_nano: number;
+    }
+
+    /**
+     * * `sum` - sum
+    * `avg` - avg
+    * `count` - count
+    * `p95` - p95
+     */
+    export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
+
+
+    export const AggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      P95: 'p95',
+    } as const;
+
+    export interface InsightsThresholdBounds {
+      /** Alert fires when the value drops below this number. */
+      lower?: number | null;
+      /** Alert fires when the value exceeds this number. */
+      upper?: number | null;
+    }
+
+    export type InsightThresholdType = typeof InsightThresholdType[keyof typeof InsightThresholdType];
+
+
+    export const InsightThresholdType = {
+      Absolute: 'absolute',
+      Percentage: 'percentage',
+    } as const;
+
+    export interface InsightThreshold {
+      bounds?: InsightsThresholdBounds | null;
+      /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
+      type: InsightThresholdType;
+    }
+
+    export interface Threshold {
+      readonly id: string;
+      readonly created_at: string;
+      /** Optional name for the threshold. */
+      name?: string;
+      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+      configuration: InsightThreshold;
+    }
+
+    export type AlertConditionType = typeof AlertConditionType[keyof typeof AlertConditionType];
+
+
+    export const AlertConditionType = {
+      AbsoluteValue: 'absolute_value',
+      RelativeIncrease: 'relative_increase',
+      RelativeDecrease: 'relative_decrease',
+    } as const;
+
+    export interface AlertCondition {
+      type: AlertConditionType;
+    }
+
+    /**
+     * * `Firing` - Firing
+    * `Not firing` - Not firing
+    * `Errored` - Errored
+    * `Snoozed` - Snoozed
+     */
+    export type AlertCheckStateEnum = typeof AlertCheckStateEnum[keyof typeof AlertCheckStateEnum];
+
+
+    export const AlertCheckStateEnum = {
+      Firing: 'Firing',
+      NotFiring: 'Not firing',
+      Errored: 'Errored',
+      Snoozed: 'Snoozed',
+    } as const;
+
+    /**
+     * * `pending` - pending
+    * `running` - running
+    * `done` - done
+    * `failed` - failed
+    * `skipped` - skipped
+     */
+    export type InvestigationStatusEnum = typeof InvestigationStatusEnum[keyof typeof InvestigationStatusEnum];
+
+
+    export const InvestigationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Done: 'done',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * * `true_positive` - true_positive
+    * `false_positive` - false_positive
+    * `inconclusive` - inconclusive
+     */
+    export type InvestigationVerdictEnum = typeof InvestigationVerdictEnum[keyof typeof InvestigationVerdictEnum];
+
+
+    export const InvestigationVerdictEnum = {
+      TruePositive: 'true_positive',
+      FalsePositive: 'false_positive',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    export interface AlertCheck {
+      readonly id: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly calculated_value: number | null;
+      readonly state: AlertCheckStateEnum;
+      readonly targets_notified: boolean;
+      readonly anomaly_scores: unknown;
+      readonly triggered_points: unknown;
+      readonly triggered_dates: unknown;
+      /** @nullable */
+      readonly interval: string | null;
+      readonly triggered_metadata: unknown;
+      readonly investigation_status: InvestigationStatusEnum | null;
+      readonly investigation_verdict: InvestigationVerdictEnum | null;
+      /** @nullable */
+      readonly investigation_summary: string | null;
+      /**
+         * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
+         * @nullable
+         */
+      readonly investigation_notebook_short_id: string | null;
+      /** @nullable */
+      readonly notification_sent_at: string | null;
+      readonly notification_suppressed_by_agent: boolean;
+    }
+
+    export interface TrendsAlertConfig {
+      /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
+      check_ongoing_interval?: boolean | null;
+      /** Zero-based index of the series in the insight's query to monitor. */
+      series_index: number;
+      type?: 'TrendsAlertConfig';
+    }
+
+    export interface PreprocessingConfig {
+      /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
+      diffs_n?: number | null;
+      /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
+      lags_n?: number | null;
+      /** Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0) */
+      smooth_n?: number | null;
+    }
+
+    export interface ZScoreDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
+      threshold?: number | null;
+      type?: 'zscore';
+      /** Rolling window size for calculating mean/std (default: 30) */
+      window?: number | null;
+    }
+
+    export interface MADDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
+      threshold?: number | null;
+      type?: 'mad';
+      /** Rolling window size for calculating median/MAD (default: 30) */
+      window?: number | null;
+    }
+
+    export interface IQRDetectorConfig {
+      /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
+      multiplier?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      type?: 'iqr';
+      /** Rolling window size for calculating quartiles (default: 30) */
+      window?: number | null;
+    }
+
+    export interface ThresholdDetectorConfig {
+      /** Lower bound - values below this are anomalies */
+      lower_bound?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      type?: 'threshold';
+      /** Upper bound - values above this are anomalies */
+      upper_bound?: number | null;
+    }
+
+    export interface ECODDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'ecod';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export interface COPODDetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'copod';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export interface IsolationForestDetectorConfig {
+      /** Number of trees in the forest (default: 100) */
+      n_estimators?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'isolation_forest';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export type Method = typeof Method[keyof typeof Method];
+
+
+    export const Method = {
+      Largest: 'largest',
+      Mean: 'mean',
+      Median: 'median',
+    } as const;
+
+    export interface KNNDetectorConfig {
+      /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+      method?: Method | null;
+      /** Number of neighbors to consider (default: 5) */
+      n_neighbors?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'knn';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export interface HBOSDetectorConfig {
+      /** Number of histogram bins (default: 10) */
+      n_bins?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'hbos';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export interface LOFDetectorConfig {
+      /** Number of neighbors for LOF (default: 20) */
+      n_neighbors?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'lof';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export interface OCSVMDetectorConfig {
+      /** SVM kernel type (default: "rbf") */
+      kernel?: string | null;
+      /** Upper bound on training errors fraction (default: 0.1) */
+      nu?: number | null;
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'ocsvm';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export interface PCADetectorConfig {
+      /** Preprocessing transforms applied before detection */
+      preprocessing?: PreprocessingConfig | null;
+      /** Anomaly probability threshold (default: 0.9) */
+      threshold?: number | null;
+      type?: 'pca';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
+      window?: number | null;
+    }
+
+    export type EnsembleOperator = typeof EnsembleOperator[keyof typeof EnsembleOperator];
+
+
+    export const EnsembleOperator = {
+      And: 'and',
+      Or: 'or',
+    } as const;
+
+    export interface EnsembleDetectorConfig {
+      /** Sub-detector configurations (minimum 2) */
+      detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
+      /** How to combine sub-detector results */
+      operator: EnsembleOperator;
+      type?: 'ensemble';
+    }
+
+    /**
+     * Detector configuration types
+     */
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
+
+    /**
+     * * `every_15_minutes` - every_15_minutes
+    * `hourly` - hourly
+    * `daily` - daily
+    * `weekly` - weekly
+    * `monthly` - monthly
+     */
+    export type CalculationIntervalEnum = typeof CalculationIntervalEnum[keyof typeof CalculationIntervalEnum];
+
+
+    export const CalculationIntervalEnum = {
+      Every15Minutes: 'every_15_minutes',
+      Hourly: 'hourly',
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+    } as const;
+
+    export interface AlertScheduleRestrictionWindow {
+      /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+      start: string;
+      /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+      end: string;
+    }
+
+    export interface AlertScheduleRestriction {
+      /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+      blocked_windows: AlertScheduleRestrictionWindow[];
+    }
+
+    /**
+     * * `notify` - Notify
+    * `suppress` - Suppress
+     */
+    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+
+
+    export const InvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
+    export interface Alert {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
+      insight: number;
+      /** Human-readable name for the alert. */
+      name?: string;
+      /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
+      subscribed_users: number[];
+      /** Threshold configuration with bounds and type for evaluating the alert. */
+      threshold: Threshold;
+      /** Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease. */
+      condition?: AlertCondition | null;
+      /** Current alert state: Firing, Not firing, Errored, or Snoozed. */
+      readonly state: string;
+      /** Whether the alert is actively being evaluated. */
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_notified_at: string | null;
+      /** @nullable */
+      readonly last_checked_at: string | null;
+      /** @nullable */
+      readonly next_check_at: string | null;
+      /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
+      readonly checks: readonly AlertCheck[];
+      /**
+         * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+         * @nullable
+         */
+      readonly checks_total: number | null;
+      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
+      config?: TrendsAlertConfig | null;
+      detector_config?: DetectorConfig | null;
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
+
+      * `every_15_minutes` - every_15_minutes
+      * `hourly` - hourly
+      * `daily` - daily
+      * `weekly` - weekly
+      * `monthly` - monthly */
+      calculation_interval?: CalculationIntervalEnum;
+      /**
+         * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /**
+         * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
+         * @nullable
+         */
+      skip_weekend?: boolean | null;
+      /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * The last calculated value from the most recent alert check.
+         * @nullable
+         */
+      readonly last_value: number | null;
+      /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+      investigation_agent_enabled?: boolean;
+      /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+      investigation_gates_notifications?: boolean;
+      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+      * `notify` - Notify
+      * `suppress` - Suppress */
+      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+    }
+
+    export interface AlertSimulate {
+      /** Insight ID to simulate the detector on. */
+      insight: number;
+      /** Detector configuration to simulate. */
+      detector_config: DetectorConfig;
+      /** Zero-based index of the series to analyze. */
+      series_index?: number;
+      /**
+         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+         * @nullable
+         */
+      date_from?: string | null;
+    }
+
+    export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
+
+    export type BreakdownSimulationResultSubDetectorScoresItem = { [key: string]: unknown };
+
+    export interface BreakdownSimulationResult {
+      /** Breakdown value label. */
+      label: string;
+      /** Data values for each point. */
+      data: number[];
+      /** Date labels for each point. */
+      dates: string[];
+      /** Anomaly score for each point. */
+      scores: (number | null)[];
+      /** Indices of points flagged as anomalies. */
+      triggered_indices: number[];
+      /** Dates of points flagged as anomalies. */
+      triggered_dates: string[];
+      /** Total number of data points analyzed. */
+      total_points: number;
+      /** Number of anomalies detected. */
+      anomaly_count: number;
+      /** Per-sub-detector scores for ensemble detectors. */
+      sub_detector_scores?: BreakdownSimulationResultSubDetectorScoresItem[];
+    }
+
+    export interface AlertSimulateResponse {
+      /** Data values for each point. */
+      data: number[];
+      /** Date labels for each point. */
+      dates: string[];
+      /** Anomaly score for each point (null if insufficient data). */
+      scores: (number | null)[];
+      /** Indices of points flagged as anomalies. */
+      triggered_indices: number[];
+      /** Dates of points flagged as anomalies. */
+      triggered_dates: string[];
+      /**
+         * Interval of the trends query (hour, day, week, month).
+         * @nullable
+         */
+      interval: string | null;
+      /** Total number of data points analyzed. */
+      total_points: number;
+      /** Number of anomalies detected. */
+      anomaly_count: number;
+      /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
+      sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
+      /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
+      breakdown_results?: BreakdownSimulationResult[];
+    }
+
+    /**
+     * * `USR` - user
+    * `GIT` - GitHub
+     */
+    export type CreationTypeEnum = typeof CreationTypeEnum[keyof typeof CreationTypeEnum];
+
+
+    export const CreationTypeEnum = {
+      Usr: 'USR',
+      Git: 'GIT',
+    } as const;
+
+    /**
+     * * `dashboard_item` - insight
+    * `dashboard` - dashboard
+    * `project` - project
+    * `organization` - organization
+    * `recording` - recording
+     */
+    export type AnnotationScopeEnum = typeof AnnotationScopeEnum[keyof typeof AnnotationScopeEnum];
+
+
+    export const AnnotationScopeEnum = {
+      DashboardItem: 'dashboard_item',
+      Dashboard: 'dashboard',
+      Project: 'project',
+      Organization: 'organization',
+      Recording: 'recording',
+    } as const;
+
+    export interface Annotation {
+      readonly id: number;
+      /**
+         * Annotation text shown on charts to describe the change, release, or incident.
+         * @maxLength 8192
+         * @nullable
+         */
+      content?: string | null;
+      /**
+         * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
+         * @nullable
+         */
+      date_marker?: string | null;
+      /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
+
+      * `USR` - user
+      * `GIT` - GitHub */
+      creation_type?: CreationTypeEnum;
+      /** @nullable */
+      dashboard_item?: number | null;
+      /** @nullable */
+      dashboard_id?: number | null;
+      /** @nullable */
+      readonly dashboard_name: string | null;
+      /** @nullable */
+      readonly insight_short_id: string | null;
+      /** @nullable */
+      readonly insight_name: string | null;
+      /** @nullable */
+      readonly insight_derived_name: string | null;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      readonly updated_at: string;
+      /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
+      deleted?: boolean;
+      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+
+      * `dashboard_item` - insight
+      * `dashboard` - dashboard
+      * `project` - project
+      * `organization` - organization
+      * `recording` - recording */
+      scope?: AnnotationScopeEnum;
+    }
+
+    export interface AppMetricSeries {
+      name: string;
+      values: number[];
+    }
+
+    export interface AppMetricsResponse {
+      labels: string[];
+      series: AppMetricSeries[];
+    }
+
+    export type AppMetricsTotalsResponseTotals = {[key: string]: number};
+
+    export interface AppMetricsTotalsResponse {
+      totals: AppMetricsTotalsResponseTotals;
+    }
+
+    /**
+     * Serializer for individual transcript segments from AssemblyAI
+     */
+    export interface TranscriptSegment {
+      /**
+         * Milliseconds from recording start
+         * @nullable
+         */
+      timestamp?: number | null;
+      /** @nullable */
+      speaker?: string | null;
+      text: string;
+      /**
+         * Transcription confidence score
+         * @nullable
+         */
+      confidence?: number | null;
+      /**
+         * Whether this is the final version
+         * @nullable
+         */
+      is_final?: boolean | null;
+    }
+
+    /**
+     * Serializer for appending transcript segments (supports batched real-time uploads)
+     */
+    export interface AppendSegments {
+      /** @minItems 1 */
+      segments: TranscriptSegment[];
+    }
+
+    export interface ApprovalPolicy {
+      readonly id: string;
+      /** @maxLength 128 */
+      action_key: string;
+      conditions?: unknown;
+      approver_config: unknown;
+      allow_self_approve?: boolean;
+      bypass_org_membership_levels?: unknown;
+      bypass_roles?: string[];
+      /** Auto-expire change requests after this duration */
+      expires_after?: string;
+      enabled?: boolean;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface ApproveSnapshotInput {
+      /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
+      identifier: string;
+      /** The content hash of the new baseline image to record for this identifier. */
+      new_hash: string;
+    }
+
+    export interface ApproveRunRequestInput {
+      /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
+      snapshots?: ApproveSnapshotInput[];
+      /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
+      approve_all?: boolean;
+      /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
+      commit_to_github?: boolean;
+    }
+
+    export interface Artifact {
+      id: string;
+      content_hash: string;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      /** @nullable */
+      download_url: string | null;
+    }
+
+    /**
+     * * `user` - user
+    * `role` - role
+     */
+    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+
+
+    export const AssigneeTypeEnum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface AsyncDeletionStatus {
+      /** The UUID of the person whose events are queued for deletion. */
+      person_uuid: string;
+      /** When the deletion was requested. */
+      created_at: string;
+      /** Current status: 'pending' or 'completed'. */
+      readonly status: string;
+      /**
+         * When the deletion was verified complete. Null if still pending.
+         * @nullable
+         */
+      delete_verified_at: string | null;
+    }
+
+    /**
+     * * `first_touch` - First Touch
+    * `last_touch` - Last Touch
+    * `linear` - Linear
+    * `time_decay` - Time Decay
+    * `position_based` - Position Based
+     */
+    export type AttributionModeEnum = typeof AttributionModeEnum[keyof typeof AttributionModeEnum];
+
+
+    export const AttributionModeEnum = {
+      FirstTouch: 'first_touch',
+      LastTouch: 'last_touch',
+      Linear: 'linear',
+      TimeDecay: 'time_decay',
+      PositionBased: 'position_based',
+    } as const;
+
+    export interface UserBasicInfo {
+      id: number;
+      first_name: string;
+      email: string;
+    }
+
+    export interface RunSummary {
+      total: number;
+      changed: number;
+      new: number;
+      removed: number;
+      unchanged: number;
+      unresolved?: number;
+      tolerated_matched?: number;
+    }
+
+    export type RunMetadata = { [key: string]: unknown };
+
+    export interface Run {
+      approved_by?: UserBasicInfo | null;
+      id: string;
+      repo_id: string;
+      status: string;
+      run_type: string;
+      commit_sha: string;
+      branch: string;
+      /** @nullable */
+      pr_number: number | null;
+      approved: boolean;
+      /** @nullable */
+      approved_at: string | null;
+      summary: RunSummary;
+      /** @nullable */
+      error_message: string | null;
+      created_at: string;
+      /** @nullable */
+      completed_at: string | null;
+      is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
+      metadata?: RunMetadata;
+    }
+
+    export interface AutoApproveResult {
+      run: Run;
+      baseline_content: string;
+    }
+
+    export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
+
+
+    export const AutocompleteCompletionItemKind = {
+      Method: 'Method',
+      Function: 'Function',
+      Constructor: 'Constructor',
+      Field: 'Field',
+      Variable: 'Variable',
+      Class: 'Class',
+      Struct: 'Struct',
+      Interface: 'Interface',
+      Module: 'Module',
+      Property: 'Property',
+      Event: 'Event',
+      Operator: 'Operator',
+      Unit: 'Unit',
+      Value: 'Value',
+      Constant: 'Constant',
+      Enum: 'Enum',
+      EnumMember: 'EnumMember',
+      Keyword: 'Keyword',
+      Text: 'Text',
+      Color: 'Color',
+      File: 'File',
+      Reference: 'Reference',
+      Customcolor: 'Customcolor',
+      Folder: 'Folder',
+      TypeParameter: 'TypeParameter',
+      User: 'User',
+      Issue: 'Issue',
+      Snippet: 'Snippet',
+    } as const;
+
+    export interface AutocompleteCompletionItem {
+      /** A human-readable string with additional information about this item, like type or symbol information. */
+      detail?: string | null;
+      /** A human-readable string that represents a doc-comment. */
+      documentation?: string | null;
+      /** A string or snippet that should be inserted in a document when selecting this completion. */
+      insertText: string;
+      /** The kind of this completion item. Based on the kind an icon is chosen by the editor. */
+      kind: AutocompleteCompletionItemKind;
+      /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
+      label: string;
+    }
+
+    /**
+     * * `P0` - P0
+    * `P1` - P1
+    * `P2` - P2
+    * `P3` - P3
+    * `P4` - P4
+     */
+    export type AutonomyPriorityEnum = typeof AutonomyPriorityEnum[keyof typeof AutonomyPriorityEnum];
+
+
+    export const AutonomyPriorityEnum = {
+      P0: 'P0',
+      P1: 'P1',
+      P2: 'P2',
+      P3: 'P3',
+      P4: 'P4',
+    } as const;
+
+    /**
+     * Discovered detail fields and their value distributions.
+     */
+    export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
+
+    export type StaticFiltersUsersItem = { [key: string]: unknown };
+
+    export type StaticFiltersScopesItem = { [key: string]: unknown };
+
+    export type StaticFiltersActivitiesItem = { [key: string]: unknown };
+
+    export type StaticFiltersClientsItem = { [key: string]: unknown };
+
+    export interface StaticFilters {
+      /** Users who have logged activity. */
+      users: StaticFiltersUsersItem[];
+      /** Available activity scopes. */
+      scopes: StaticFiltersScopesItem[];
+      /** Available activity types. */
+      activities: StaticFiltersActivitiesItem[];
+      /** API clients that have generated activity (from x-posthog-client header). */
+      clients: StaticFiltersClientsItem[];
+    }
+
+    export interface AvailableFiltersResponse {
+      /** Pre-computed filter options for scopes, activities, and users. */
+      static_filters: StaticFilters;
+      /** Discovered detail fields and their value distributions. */
+      detail_fields: AvailableFiltersResponseDetailFields;
+    }
+
+    /**
+     * * `ingest_first_event` - ingest_first_event
+    * `set_up_reverse_proxy` - set_up_reverse_proxy
+    * `create_first_insight` - create_first_insight
+    * `create_first_dashboard` - create_first_dashboard
+    * `track_custom_events` - track_custom_events
+    * `define_actions` - define_actions
+    * `set_up_cohorts` - set_up_cohorts
+    * `explore_trends_insight` - explore_trends_insight
+    * `create_funnel` - create_funnel
+    * `explore_retention_insight` - explore_retention_insight
+    * `explore_paths_insight` - explore_paths_insight
+    * `explore_stickiness_insight` - explore_stickiness_insight
+    * `explore_lifecycle_insight` - explore_lifecycle_insight
+    * `add_authorized_domain` - add_authorized_domain
+    * `set_up_web_vitals` - set_up_web_vitals
+    * `review_web_analytics_dashboard` - review_web_analytics_dashboard
+    * `filter_web_analytics` - filter_web_analytics
+    * `set_up_web_analytics_conversion_goals` - set_up_web_analytics_conversion_goals
+    * `visit_web_vitals_dashboard` - visit_web_vitals_dashboard
+    * `setup_session_recordings` - setup_session_recordings
+    * `watch_session_recording` - watch_session_recording
+    * `configure_recording_settings` - configure_recording_settings
+    * `create_recording_playlist` - create_recording_playlist
+    * `enable_console_logs` - enable_console_logs
+    * `create_feature_flag` - create_feature_flag
+    * `implement_flag_in_code` - implement_flag_in_code
+    * `update_feature_flag_release_conditions` - update_feature_flag_release_conditions
+    * `create_multivariate_flag` - create_multivariate_flag
+    * `set_up_flag_payloads` - set_up_flag_payloads
+    * `set_up_flag_evaluation_runtimes` - set_up_flag_evaluation_runtimes
+    * `create_experiment` - create_experiment
+    * `implement_experiment_variants` - implement_experiment_variants
+    * `launch_experiment` - launch_experiment
+    * `review_experiment_results` - review_experiment_results
+    * `create_survey` - create_survey
+    * `launch_survey` - launch_survey
+    * `collect_survey_responses` - collect_survey_responses
+    * `connect_source` - connect_source
+    * `run_first_query` - run_first_query
+    * `join_external_data` - join_external_data
+    * `create_saved_view` - create_saved_view
+    * `enable_error_tracking` - enable_error_tracking
+    * `upload_source_maps` - upload_source_maps
+    * `view_first_error` - view_first_error
+    * `resolve_first_error` - resolve_first_error
+    * `ingest_first_llm_event` - ingest_first_llm_event
+    * `view_first_trace` - view_first_trace
+    * `track_costs` - track_costs
+    * `set_up_llm_evaluation` - set_up_llm_evaluation
+    * `run_ai_playground` - run_ai_playground
+    * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
+    * `connect_revenue_source` - connect_revenue_source
+    * `set_up_revenue_goal` - set_up_revenue_goal
+    * `enable_log_capture` - enable_log_capture
+    * `view_first_logs` - view_first_logs
+    * `create_first_workflow` - create_first_workflow
+    * `set_up_first_workflow_channel` - set_up_first_workflow_channel
+    * `configure_workflow_trigger` - configure_workflow_trigger
+    * `add_workflow_action` - add_workflow_action
+    * `launch_workflow` - launch_workflow
+    * `create_first_endpoint` - create_first_endpoint
+    * `configure_endpoint` - configure_endpoint
+    * `test_endpoint` - test_endpoint
+    * `create_early_access_feature` - create_early_access_feature
+    * `update_feature_stage` - update_feature_stage
+     */
+    export type AvailableSetupTaskIdsEnum = typeof AvailableSetupTaskIdsEnum[keyof typeof AvailableSetupTaskIdsEnum];
+
+
+    export const AvailableSetupTaskIdsEnum = {
+      IngestFirstEvent: 'ingest_first_event',
+      SetUpReverseProxy: 'set_up_reverse_proxy',
+      CreateFirstInsight: 'create_first_insight',
+      CreateFirstDashboard: 'create_first_dashboard',
+      TrackCustomEvents: 'track_custom_events',
+      DefineActions: 'define_actions',
+      SetUpCohorts: 'set_up_cohorts',
+      ExploreTrendsInsight: 'explore_trends_insight',
+      CreateFunnel: 'create_funnel',
+      ExploreRetentionInsight: 'explore_retention_insight',
+      ExplorePathsInsight: 'explore_paths_insight',
+      ExploreStickinessInsight: 'explore_stickiness_insight',
+      ExploreLifecycleInsight: 'explore_lifecycle_insight',
+      AddAuthorizedDomain: 'add_authorized_domain',
+      SetUpWebVitals: 'set_up_web_vitals',
+      ReviewWebAnalyticsDashboard: 'review_web_analytics_dashboard',
+      FilterWebAnalytics: 'filter_web_analytics',
+      SetUpWebAnalyticsConversionGoals: 'set_up_web_analytics_conversion_goals',
+      VisitWebVitalsDashboard: 'visit_web_vitals_dashboard',
+      SetupSessionRecordings: 'setup_session_recordings',
+      WatchSessionRecording: 'watch_session_recording',
+      ConfigureRecordingSettings: 'configure_recording_settings',
+      CreateRecordingPlaylist: 'create_recording_playlist',
+      EnableConsoleLogs: 'enable_console_logs',
+      CreateFeatureFlag: 'create_feature_flag',
+      ImplementFlagInCode: 'implement_flag_in_code',
+      UpdateFeatureFlagReleaseConditions: 'update_feature_flag_release_conditions',
+      CreateMultivariateFlag: 'create_multivariate_flag',
+      SetUpFlagPayloads: 'set_up_flag_payloads',
+      SetUpFlagEvaluationRuntimes: 'set_up_flag_evaluation_runtimes',
+      CreateExperiment: 'create_experiment',
+      ImplementExperimentVariants: 'implement_experiment_variants',
+      LaunchExperiment: 'launch_experiment',
+      ReviewExperimentResults: 'review_experiment_results',
+      CreateSurvey: 'create_survey',
+      LaunchSurvey: 'launch_survey',
+      CollectSurveyResponses: 'collect_survey_responses',
+      ConnectSource: 'connect_source',
+      RunFirstQuery: 'run_first_query',
+      JoinExternalData: 'join_external_data',
+      CreateSavedView: 'create_saved_view',
+      EnableErrorTracking: 'enable_error_tracking',
+      UploadSourceMaps: 'upload_source_maps',
+      ViewFirstError: 'view_first_error',
+      ResolveFirstError: 'resolve_first_error',
+      IngestFirstLlmEvent: 'ingest_first_llm_event',
+      ViewFirstTrace: 'view_first_trace',
+      TrackCosts: 'track_costs',
+      SetUpLlmEvaluation: 'set_up_llm_evaluation',
+      RunAiPlayground: 'run_ai_playground',
+      EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
+      ConnectRevenueSource: 'connect_revenue_source',
+      SetUpRevenueGoal: 'set_up_revenue_goal',
+      EnableLogCapture: 'enable_log_capture',
+      ViewFirstLogs: 'view_first_logs',
+      CreateFirstWorkflow: 'create_first_workflow',
+      SetUpFirstWorkflowChannel: 'set_up_first_workflow_channel',
+      ConfigureWorkflowTrigger: 'configure_workflow_trigger',
+      AddWorkflowAction: 'add_workflow_action',
+      LaunchWorkflow: 'launch_workflow',
+      CreateFirstEndpoint: 'create_first_endpoint',
+      ConfigureEndpoint: 'configure_endpoint',
+      TestEndpoint: 'test_endpoint',
+      CreateEarlyAccessFeature: 'create_early_access_feature',
+      UpdateFeatureStage: 'update_feature_stage',
+    } as const;
+
+    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+
+
+    export const AzureBlobDestinationConfigType = {
+      AzureBlob: 'AzureBlob',
+    } as const;
+
+    /**
+     * * `brotli` - brotli
+    * `gzip` - gzip
+    * `lz4` - lz4
+    * `snappy` - snappy
+    * `zstd` - zstd
+     */
+    export type CompressionEnum = typeof CompressionEnum[keyof typeof CompressionEnum];
+
+
+    export const CompressionEnum = {
+      Brotli: 'brotli',
+      Gzip: 'gzip',
+      Lz4: 'lz4',
+      Snappy: 'snappy',
+      Zstd: 'zstd',
+    } as const;
+
+    /**
+     * * `JSONLines` - JSONLines
+    * `Parquet` - Parquet
+     */
+    export type FileFormatEnum = typeof FileFormatEnum[keyof typeof FileFormatEnum];
+
+
+    export const FileFormatEnum = {
+      JSONLines: 'JSONLines',
+      Parquet: 'Parquet',
+    } as const;
+
+    /**
+     * Typed configuration for an Azure Blob Storage batch-export destination.
+
+    Credentials live in the linked Integration, not in this config. Mirrors
+    `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface AzureBlobDestinationConfig {
+      /** Azure Blob Storage container name. */
+      container_name: string;
+      /** Object key prefix applied to every exported file. */
+      prefix?: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+
+      * `brotli` - brotli
+      * `gzip` - gzip
+      * `lz4` - lz4
+      * `snappy` - snappy
+      * `zstd` - zstd */
+      compression?: CompressionEnum | null;
+      /** File format used for exported objects.
+
+      * `JSONLines` - JSONLines
+      * `Parquet` - Parquet */
+      file_format?: FileFormatEnum;
+      /**
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
+      max_file_size_mb?: number | null;
+      type: AzureBlobDestinationConfigType;
+    }
+
+    export type AzureBlobDestinationRequestType = typeof AzureBlobDestinationRequestType[keyof typeof AzureBlobDestinationRequestType];
+
+
+    export const AzureBlobDestinationRequestType = {
+      AzureBlob: 'AzureBlob',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an Azure Blob Storage batch-export destination.
+     */
+    export interface AzureBlobDestinationRequest {
+      type: AzureBlobDestinationRequestType;
+      /** ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: AzureBlobDestinationConfig;
+    }
+
+    /**
+     * * `AzureBlob` - AzureBlob
+     */
+    export type AzureBlobDestinationRequestTypeEnum = typeof AzureBlobDestinationRequestTypeEnum[keyof typeof AzureBlobDestinationRequestTypeEnum];
+
+
+    export const AzureBlobDestinationRequestTypeEnum = {
+      AzureBlob: 'AzureBlob',
+    } as const;
+
+    /**
+     * * `AED` - AED
+    * `AFN` - AFN
+    * `ALL` - ALL
+    * `AMD` - AMD
+    * `ANG` - ANG
+    * `AOA` - AOA
+    * `ARS` - ARS
+    * `AUD` - AUD
+    * `AWG` - AWG
+    * `AZN` - AZN
+    * `BAM` - BAM
+    * `BBD` - BBD
+    * `BDT` - BDT
+    * `BGN` - BGN
+    * `BHD` - BHD
+    * `BIF` - BIF
+    * `BMD` - BMD
+    * `BND` - BND
+    * `BOB` - BOB
+    * `BRL` - BRL
+    * `BSD` - BSD
+    * `BTC` - BTC
+    * `BTN` - BTN
+    * `BWP` - BWP
+    * `BYN` - BYN
+    * `BZD` - BZD
+    * `CAD` - CAD
+    * `CDF` - CDF
+    * `CHF` - CHF
+    * `CLP` - CLP
+    * `CNY` - CNY
+    * `COP` - COP
+    * `CRC` - CRC
+    * `CVE` - CVE
+    * `CZK` - CZK
+    * `DJF` - DJF
+    * `DKK` - DKK
+    * `DOP` - DOP
+    * `DZD` - DZD
+    * `EGP` - EGP
+    * `ERN` - ERN
+    * `ETB` - ETB
+    * `EUR` - EUR
+    * `FJD` - FJD
+    * `GBP` - GBP
+    * `GEL` - GEL
+    * `GHS` - GHS
+    * `GIP` - GIP
+    * `GMD` - GMD
+    * `GNF` - GNF
+    * `GTQ` - GTQ
+    * `GYD` - GYD
+    * `HKD` - HKD
+    * `HNL` - HNL
+    * `HRK` - HRK
+    * `HTG` - HTG
+    * `HUF` - HUF
+    * `IDR` - IDR
+    * `ILS` - ILS
+    * `INR` - INR
+    * `IQD` - IQD
+    * `IRR` - IRR
+    * `ISK` - ISK
+    * `JMD` - JMD
+    * `JOD` - JOD
+    * `JPY` - JPY
+    * `KES` - KES
+    * `KGS` - KGS
+    * `KHR` - KHR
+    * `KMF` - KMF
+    * `KRW` - KRW
+    * `KWD` - KWD
+    * `KYD` - KYD
+    * `KZT` - KZT
+    * `LAK` - LAK
+    * `LBP` - LBP
+    * `LKR` - LKR
+    * `LRD` - LRD
+    * `LTL` - LTL
+    * `LVL` - LVL
+    * `LSL` - LSL
+    * `LYD` - LYD
+    * `MAD` - MAD
+    * `MDL` - MDL
+    * `MGA` - MGA
+    * `MKD` - MKD
+    * `MMK` - MMK
+    * `MNT` - MNT
+    * `MOP` - MOP
+    * `MRU` - MRU
+    * `MTL` - MTL
+    * `MUR` - MUR
+    * `MVR` - MVR
+    * `MWK` - MWK
+    * `MXN` - MXN
+    * `MYR` - MYR
+    * `MZN` - MZN
+    * `NAD` - NAD
+    * `NGN` - NGN
+    * `NIO` - NIO
+    * `NOK` - NOK
+    * `NPR` - NPR
+    * `NZD` - NZD
+    * `OMR` - OMR
+    * `PAB` - PAB
+    * `PEN` - PEN
+    * `PGK` - PGK
+    * `PHP` - PHP
+    * `PKR` - PKR
+    * `PLN` - PLN
+    * `PYG` - PYG
+    * `QAR` - QAR
+    * `RON` - RON
+    * `RSD` - RSD
+    * `RUB` - RUB
+    * `RWF` - RWF
+    * `SAR` - SAR
+    * `SBD` - SBD
+    * `SCR` - SCR
+    * `SDG` - SDG
+    * `SEK` - SEK
+    * `SGD` - SGD
+    * `SRD` - SRD
+    * `SSP` - SSP
+    * `STN` - STN
+    * `SYP` - SYP
+    * `SZL` - SZL
+    * `THB` - THB
+    * `TJS` - TJS
+    * `TMT` - TMT
+    * `TND` - TND
+    * `TOP` - TOP
+    * `TRY` - TRY
+    * `TTD` - TTD
+    * `TWD` - TWD
+    * `TZS` - TZS
+    * `UAH` - UAH
+    * `UGX` - UGX
+    * `USD` - USD
+    * `UYU` - UYU
+    * `UZS` - UZS
+    * `VES` - VES
+    * `VND` - VND
+    * `VUV` - VUV
+    * `WST` - WST
+    * `XAF` - XAF
+    * `XCD` - XCD
+    * `XOF` - XOF
+    * `XPF` - XPF
+    * `YER` - YER
+    * `ZAR` - ZAR
+    * `ZMW` - ZMW
+     */
+    export type BaseCurrencyEnum = typeof BaseCurrencyEnum[keyof typeof BaseCurrencyEnum];
+
+
+    export const BaseCurrencyEnum = {
+      Aed: 'AED',
+      Afn: 'AFN',
+      All: 'ALL',
+      Amd: 'AMD',
+      Ang: 'ANG',
+      Aoa: 'AOA',
+      Ars: 'ARS',
+      Aud: 'AUD',
+      Awg: 'AWG',
+      Azn: 'AZN',
+      Bam: 'BAM',
+      Bbd: 'BBD',
+      Bdt: 'BDT',
+      Bgn: 'BGN',
+      Bhd: 'BHD',
+      Bif: 'BIF',
+      Bmd: 'BMD',
+      Bnd: 'BND',
+      Bob: 'BOB',
+      Brl: 'BRL',
+      Bsd: 'BSD',
+      Btc: 'BTC',
+      Btn: 'BTN',
+      Bwp: 'BWP',
+      Byn: 'BYN',
+      Bzd: 'BZD',
+      Cad: 'CAD',
+      Cdf: 'CDF',
+      Chf: 'CHF',
+      Clp: 'CLP',
+      Cny: 'CNY',
+      Cop: 'COP',
+      Crc: 'CRC',
+      Cve: 'CVE',
+      Czk: 'CZK',
+      Djf: 'DJF',
+      Dkk: 'DKK',
+      Dop: 'DOP',
+      Dzd: 'DZD',
+      Egp: 'EGP',
+      Ern: 'ERN',
+      Etb: 'ETB',
+      Eur: 'EUR',
+      Fjd: 'FJD',
+      Gbp: 'GBP',
+      Gel: 'GEL',
+      Ghs: 'GHS',
+      Gip: 'GIP',
+      Gmd: 'GMD',
+      Gnf: 'GNF',
+      Gtq: 'GTQ',
+      Gyd: 'GYD',
+      Hkd: 'HKD',
+      Hnl: 'HNL',
+      Hrk: 'HRK',
+      Htg: 'HTG',
+      Huf: 'HUF',
+      Idr: 'IDR',
+      Ils: 'ILS',
+      Inr: 'INR',
+      Iqd: 'IQD',
+      Irr: 'IRR',
+      Isk: 'ISK',
+      Jmd: 'JMD',
+      Jod: 'JOD',
+      Jpy: 'JPY',
+      Kes: 'KES',
+      Kgs: 'KGS',
+      Khr: 'KHR',
+      Kmf: 'KMF',
+      Krw: 'KRW',
+      Kwd: 'KWD',
+      Kyd: 'KYD',
+      Kzt: 'KZT',
+      Lak: 'LAK',
+      Lbp: 'LBP',
+      Lkr: 'LKR',
+      Lrd: 'LRD',
+      Ltl: 'LTL',
+      Lvl: 'LVL',
+      Lsl: 'LSL',
+      Lyd: 'LYD',
+      Mad: 'MAD',
+      Mdl: 'MDL',
+      Mga: 'MGA',
+      Mkd: 'MKD',
+      Mmk: 'MMK',
+      Mnt: 'MNT',
+      Mop: 'MOP',
+      Mru: 'MRU',
+      Mtl: 'MTL',
+      Mur: 'MUR',
+      Mvr: 'MVR',
+      Mwk: 'MWK',
+      Mxn: 'MXN',
+      Myr: 'MYR',
+      Mzn: 'MZN',
+      Nad: 'NAD',
+      Ngn: 'NGN',
+      Nio: 'NIO',
+      Nok: 'NOK',
+      Npr: 'NPR',
+      Nzd: 'NZD',
+      Omr: 'OMR',
+      Pab: 'PAB',
+      Pen: 'PEN',
+      Pgk: 'PGK',
+      Php: 'PHP',
+      Pkr: 'PKR',
+      Pln: 'PLN',
+      Pyg: 'PYG',
+      Qar: 'QAR',
+      Ron: 'RON',
+      Rsd: 'RSD',
+      Rub: 'RUB',
+      Rwf: 'RWF',
+      Sar: 'SAR',
+      Sbd: 'SBD',
+      Scr: 'SCR',
+      Sdg: 'SDG',
+      Sek: 'SEK',
+      Sgd: 'SGD',
+      Srd: 'SRD',
+      Ssp: 'SSP',
+      Stn: 'STN',
+      Syp: 'SYP',
+      Szl: 'SZL',
+      Thb: 'THB',
+      Tjs: 'TJS',
+      Tmt: 'TMT',
+      Tnd: 'TND',
+      Top: 'TOP',
+      Try: 'TRY',
+      Ttd: 'TTD',
+      Twd: 'TWD',
+      Tzs: 'TZS',
+      Uah: 'UAH',
+      Ugx: 'UGX',
+      Usd: 'USD',
+      Uyu: 'UYU',
+      Uzs: 'UZS',
+      Ves: 'VES',
+      Vnd: 'VND',
+      Vuv: 'VUV',
+      Wst: 'WST',
+      Xaf: 'XAF',
+      Xcd: 'XCD',
+      Xof: 'XOF',
+      Xpf: 'XPF',
+      Yer: 'YER',
+      Zar: 'ZAR',
+      Zmw: 'ZMW',
+    } as const;
+
+    export interface QuarantineSourceRun {
+      id: string;
+      branch: string;
+      commit_sha: string;
+      created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+    }
+
+    export interface BaselineQuarantineSummary {
+      created_by?: UserBasicInfo | null;
+      source_run?: QuarantineSourceRun | null;
+      id: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+    }
+
+    export interface BaselineEntry {
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      tolerate_count_30d: number;
+      tolerate_count_90d: number;
+      is_quarantined: boolean;
+      last_run_at: string;
+      baseline_change_count: number;
+      /** @nullable */
+      recent_drift_avg: number | null;
+    }
+
+    export type BaselineTotalsByRunType = {[key: string]: number};
+
+    export interface BaselineTotals {
+      by_run_type: BaselineTotalsByRunType;
+      all_snapshots: number;
+      recently_tolerated: number;
+      frequently_tolerated: number;
+      currently_quarantined: number;
+    }
+
+    export interface BaselineOverview {
+      entries: BaselineEntry[];
+      totals: BaselineTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
+
+    /**
+     * * `minimal` - minimal
+    * `detailed` - detailed
+     */
+    export type DetailModeValueEnum = typeof DetailModeValueEnum[keyof typeof DetailModeValueEnum];
+
+
+    export const DetailModeValueEnum = {
+      Minimal: 'minimal',
+      Detailed: 'detailed',
+    } as const;
+
+    export interface BatchCheckRequest {
+      /**
+         * List of trace IDs to check for cached summaries
+         * @maxItems 100
+         */
+      trace_ids: string[];
+      /** Summary detail level to check for
+
+      * `minimal` - minimal
+      * `detailed` - detailed */
+      mode?: DetailModeValueEnum;
+      /**
+         * LLM model used for cached summaries
+         * @nullable
+         */
+      model?: string | null;
+    }
+
+    export interface CachedSummary {
+      trace_id: string;
+      title: string;
+      cached?: boolean;
+    }
+
+    export interface BatchCheckResponse {
+      summaries: CachedSummary[];
+    }
+
+    /**
+     * * `events` - Events
+    * `persons` - Persons
+    * `sessions` - Sessions
+     */
+    export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
+
+
+    export const ModelEnum = {
+      Events: 'events',
+      Persons: 'persons',
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * * `S3` - S3
+    * `AwsS3` - Aws S3
+    * `S3Compatible` - S3 Compatible
+    * `Snowflake` - Snowflake
+    * `Postgres` - Postgres
+    * `Redshift` - Redshift
+    * `BigQuery` - Bigquery
+    * `Databricks` - Databricks
+    * `AzureBlob` - Azure Blob
+    * `Workflows` - Workflows
+    * `HTTP` - Http
+    * `NoOp` - Noop
+    * `FileDownload` - File Download
+     */
+    export type BatchExportDestinationTypeEnum = typeof BatchExportDestinationTypeEnum[keyof typeof BatchExportDestinationTypeEnum];
+
+
+    export const BatchExportDestinationTypeEnum = {
+      S3: 'S3',
+      AwsS3: 'AwsS3',
+      S3Compatible: 'S3Compatible',
+      Snowflake: 'Snowflake',
+      Postgres: 'Postgres',
+      Redshift: 'Redshift',
+      BigQuery: 'BigQuery',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      Workflows: 'Workflows',
+      Http: 'HTTP',
+      NoOp: 'NoOp',
+      FileDownload: 'FileDownload',
+    } as const;
+
+    export type DatabricksDestinationConfigType = typeof DatabricksDestinationConfigType[keyof typeof DatabricksDestinationConfigType];
+
+
+    export const DatabricksDestinationConfigType = {
+      Databricks: 'Databricks',
+    } as const;
+
+    /**
+     * Typed configuration for a Databricks batch-export destination.
+
+    Credentials live in the linked Integration, not in this config. Mirrors
+    `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface DatabricksDestinationConfig {
+      /** Databricks SQL warehouse HTTP path. */
+      http_path: string;
+      /** Unity Catalog name. */
+      catalog: string;
+      /** Schema (database) name inside the catalog. */
+      schema: string;
+      /** Destination table name. */
+      table_name: string;
+      /** Whether to use the Databricks VARIANT type for JSON-like columns. */
+      use_variant_type?: boolean;
+      /** Whether to let Databricks evolve the destination table schema automatically. */
+      use_automatic_schema_evolution?: boolean;
+      type: DatabricksDestinationConfigType;
+    }
+
+    export type BigQueryDestinationConfigType = typeof BigQueryDestinationConfigType[keyof typeof BigQueryDestinationConfigType];
+
+
+    export const BigQueryDestinationConfigType = {
+      BigQuery: 'BigQuery',
+    } as const;
+
+    /**
+     * Typed configuration for a BigQuery batch-export destination.
+
+    Credentials live in the linked Integration, not in this config. Mirrors the
+    non-credential fields of `BigQueryBatchExportInputs` in
+    `products/batch_exports/backend/service.py`.
+     */
+    export interface BigQueryDestinationConfig {
+      /** BigQuery dataset ID to write to. */
+      dataset_id: string;
+      /** BigQuery table ID inside the dataset. */
+      table_id?: string;
+      /** Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created. */
+      use_json_type?: boolean;
+      type: BigQueryDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig;
+
+    /**
+     * Serializer for an BatchExportDestination model.
+
+    The `config` field is polymorphic and typed only for destinations that keep
+    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+    Other destination types accept the same JSON shape but without a typed
+    OpenAPI schema. Secret fields are stripped from `config` on read.
+     */
+    export interface BatchExportDestination {
+      /** A choice of supported BatchExportDestination types.
+
+      * `S3` - S3
+      * `AwsS3` - Aws S3
+      * `S3Compatible` - S3 Compatible
+      * `Snowflake` - Snowflake
+      * `Postgres` - Postgres
+      * `Redshift` - Redshift
+      * `BigQuery` - Bigquery
+      * `Databricks` - Databricks
+      * `AzureBlob` - Azure Blob
+      * `Workflows` - Workflows
+      * `HTTP` - Http
+      * `NoOp` - Noop
+      * `FileDownload` - File Download */
+      type: BatchExportDestinationTypeEnum;
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      config: BatchExportDestinationConfig;
+      /**
+         * The integration for this destination.
+         * @nullable
+         */
+      integration?: number | null;
+      /**
+         * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
+         * @nullable
+         */
+      integration_id?: number | null;
+    }
+
+    /**
+     * * `hour` - hour
+    * `day` - day
+    * `week` - week
+    * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes
+     */
+    export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
+
+
+    export const IntervalEnum = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Every5Minutes: 'every 5 minutes',
+      Every15Minutes: 'every 15 minutes',
+    } as const;
+
+    /**
+     * * `Cancelled` - Cancelled
+    * `Completed` - Completed
+    * `ContinuedAsNew` - Continued As New
+    * `Failed` - Failed
+    * `FailedRetryable` - Failed Retryable
+    * `FailedBilling` - Failed Billing
+    * `Terminated` - Terminated
+    * `TimedOut` - Timedout
+    * `Running` - Running
+    * `Starting` - Starting
+     */
+    export type BatchExportRunStatusEnum = typeof BatchExportRunStatusEnum[keyof typeof BatchExportRunStatusEnum];
+
+
+    export const BatchExportRunStatusEnum = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      ContinuedAsNew: 'ContinuedAsNew',
+      Failed: 'Failed',
+      FailedRetryable: 'FailedRetryable',
+      FailedBilling: 'FailedBilling',
+      Terminated: 'Terminated',
+      TimedOut: 'TimedOut',
+      Running: 'Running',
+      Starting: 'Starting',
+    } as const;
+
+    /**
+     * Serializer for a BatchExportRun model.
+     */
+    export interface BatchExportRun {
+      readonly id: string;
+      /** The status of this run.
+
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `FailedBilling` - Failed Billing
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
+      status: BatchExportRunStatusEnum;
+      /**
+         * The number of records that have been exported.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      records_completed?: number | null;
+      /**
+         * The number of records that failed downstream processing (e.g. hog function execution errors).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      records_failed?: number | null;
+      /**
+         * The latest error that occurred during this run.
+         * @nullable
+         */
+      latest_error?: string | null;
+      /**
+         * The start of the data interval.
+         * @nullable
+         */
+      data_interval_start?: string | null;
+      /** The end of the data interval. */
+      data_interval_end: string;
+      /**
+         * An opaque cursor that may be used to resume.
+         * @nullable
+         */
+      cursor?: string | null;
+      /** The timestamp at which this BatchExportRun was created. */
+      readonly created_at: string;
+      /**
+         * The timestamp at which this BatchExportRun finished, successfully or not.
+         * @nullable
+         */
+      finished_at?: string | null;
+      /** The timestamp at which this BatchExportRun was last updated. */
+      readonly last_updated_at: string;
+      /**
+         * The total count of records that should be exported in this BatchExportRun.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      records_total_count?: number | null;
+      /**
+         * The number of bytes that have been exported in this BatchExportRun.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      bytes_exported?: number | null;
+      /**
+         * The `BatchExport` this run belongs to.
+         * @nullable
+         */
+      readonly batch_export: string | null;
+      /**
+         * The `BatchExportOnDemand` this run belongs to.
+         * @nullable
+         */
+      batch_export_on_demand?: string | null;
+      /**
+         * The backfill this run belongs to.
+         * @nullable
+         */
+      backfill?: string | null;
+    }
+
+    /**
+     * Serializer for a BatchExport model.
+     */
+    export interface BatchExport {
+      readonly id: string;
+      /** The team this belongs to. */
+      readonly team_id: number;
+      /** A human-readable name for this BatchExport. */
+      name: string;
+      /** Which model this BatchExport is exporting.
+
+      * `events` - Events
+      * `persons` - Persons
+      * `sessions` - Sessions */
+      model?: ModelEnum | BlankEnum | null;
+      /** Destination configuration (type, config, and optional integration). */
+      destination: BatchExportDestination;
+      /** How often the batch export should run.
+
+      * `hour` - hour
+      * `day` - day
+      * `week` - week
+      * `every 5 minutes` - every 5 minutes
+      * `every 15 minutes` - every 15 minutes */
+      interval: IntervalEnum;
+      /** Whether this BatchExport is paused or not. */
+      paused?: boolean;
+      /** The timestamp at which this BatchExport was created. */
+      readonly created_at: string;
+      /** The timestamp at which this BatchExport was last updated. */
+      readonly last_updated_at: string;
+      /**
+         * The timestamp at which this BatchExport was last paused.
+         * @nullable
+         */
+      last_paused_at?: string | null;
+      /**
+         * Time before which any Batch Export runs won't be triggered.
+         * @nullable
+         */
+      start_at?: string | null;
+      /**
+         * Time after which any Batch Export runs won't be triggered.
+         * @nullable
+         */
+      end_at?: string | null;
+      /** The 10 most recent runs of this batch export, ordered newest first. */
+      readonly latest_runs: readonly BatchExportRun[];
+      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
+      hogql_query?: string;
+      /** A schema of custom fields to select when exporting data. */
+      readonly schema: unknown;
+      filters?: unknown;
+      /** IANA timezone name controlling daily and weekly interval boundaries. Defaults to UTC.
+
+      * `Africa/Abidjan` - Africa/Abidjan
+      * `Africa/Accra` - Africa/Accra
+      * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+      * `Africa/Algiers` - Africa/Algiers
+      * `Africa/Asmara` - Africa/Asmara
+      * `Africa/Asmera` - Africa/Asmera
+      * `Africa/Bamako` - Africa/Bamako
+      * `Africa/Bangui` - Africa/Bangui
+      * `Africa/Banjul` - Africa/Banjul
+      * `Africa/Bissau` - Africa/Bissau
+      * `Africa/Blantyre` - Africa/Blantyre
+      * `Africa/Brazzaville` - Africa/Brazzaville
+      * `Africa/Bujumbura` - Africa/Bujumbura
+      * `Africa/Cairo` - Africa/Cairo
+      * `Africa/Casablanca` - Africa/Casablanca
+      * `Africa/Ceuta` - Africa/Ceuta
+      * `Africa/Conakry` - Africa/Conakry
+      * `Africa/Dakar` - Africa/Dakar
+      * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+      * `Africa/Djibouti` - Africa/Djibouti
+      * `Africa/Douala` - Africa/Douala
+      * `Africa/El_Aaiun` - Africa/El_Aaiun
+      * `Africa/Freetown` - Africa/Freetown
+      * `Africa/Gaborone` - Africa/Gaborone
+      * `Africa/Harare` - Africa/Harare
+      * `Africa/Johannesburg` - Africa/Johannesburg
+      * `Africa/Juba` - Africa/Juba
+      * `Africa/Kampala` - Africa/Kampala
+      * `Africa/Khartoum` - Africa/Khartoum
+      * `Africa/Kigali` - Africa/Kigali
+      * `Africa/Kinshasa` - Africa/Kinshasa
+      * `Africa/Lagos` - Africa/Lagos
+      * `Africa/Libreville` - Africa/Libreville
+      * `Africa/Lome` - Africa/Lome
+      * `Africa/Luanda` - Africa/Luanda
+      * `Africa/Lubumbashi` - Africa/Lubumbashi
+      * `Africa/Lusaka` - Africa/Lusaka
+      * `Africa/Malabo` - Africa/Malabo
+      * `Africa/Maputo` - Africa/Maputo
+      * `Africa/Maseru` - Africa/Maseru
+      * `Africa/Mbabane` - Africa/Mbabane
+      * `Africa/Mogadishu` - Africa/Mogadishu
+      * `Africa/Monrovia` - Africa/Monrovia
+      * `Africa/Nairobi` - Africa/Nairobi
+      * `Africa/Ndjamena` - Africa/Ndjamena
+      * `Africa/Niamey` - Africa/Niamey
+      * `Africa/Nouakchott` - Africa/Nouakchott
+      * `Africa/Ouagadougou` - Africa/Ouagadougou
+      * `Africa/Porto-Novo` - Africa/Porto-Novo
+      * `Africa/Sao_Tome` - Africa/Sao_Tome
+      * `Africa/Timbuktu` - Africa/Timbuktu
+      * `Africa/Tripoli` - Africa/Tripoli
+      * `Africa/Tunis` - Africa/Tunis
+      * `Africa/Windhoek` - Africa/Windhoek
+      * `America/Adak` - America/Adak
+      * `America/Anchorage` - America/Anchorage
+      * `America/Anguilla` - America/Anguilla
+      * `America/Antigua` - America/Antigua
+      * `America/Araguaina` - America/Araguaina
+      * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+      * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+      * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+      * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+      * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+      * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+      * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+      * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+      * `America/Argentina/Salta` - America/Argentina/Salta
+      * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+      * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+      * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+      * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+      * `America/Aruba` - America/Aruba
+      * `America/Asuncion` - America/Asuncion
+      * `America/Atikokan` - America/Atikokan
+      * `America/Atka` - America/Atka
+      * `America/Bahia` - America/Bahia
+      * `America/Bahia_Banderas` - America/Bahia_Banderas
+      * `America/Barbados` - America/Barbados
+      * `America/Belem` - America/Belem
+      * `America/Belize` - America/Belize
+      * `America/Blanc-Sablon` - America/Blanc-Sablon
+      * `America/Boa_Vista` - America/Boa_Vista
+      * `America/Bogota` - America/Bogota
+      * `America/Boise` - America/Boise
+      * `America/Buenos_Aires` - America/Buenos_Aires
+      * `America/Cambridge_Bay` - America/Cambridge_Bay
+      * `America/Campo_Grande` - America/Campo_Grande
+      * `America/Cancun` - America/Cancun
+      * `America/Caracas` - America/Caracas
+      * `America/Catamarca` - America/Catamarca
+      * `America/Cayenne` - America/Cayenne
+      * `America/Cayman` - America/Cayman
+      * `America/Chicago` - America/Chicago
+      * `America/Chihuahua` - America/Chihuahua
+      * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+      * `America/Coral_Harbour` - America/Coral_Harbour
+      * `America/Cordoba` - America/Cordoba
+      * `America/Costa_Rica` - America/Costa_Rica
+      * `America/Creston` - America/Creston
+      * `America/Cuiaba` - America/Cuiaba
+      * `America/Curacao` - America/Curacao
+      * `America/Danmarkshavn` - America/Danmarkshavn
+      * `America/Dawson` - America/Dawson
+      * `America/Dawson_Creek` - America/Dawson_Creek
+      * `America/Denver` - America/Denver
+      * `America/Detroit` - America/Detroit
+      * `America/Dominica` - America/Dominica
+      * `America/Edmonton` - America/Edmonton
+      * `America/Eirunepe` - America/Eirunepe
+      * `America/El_Salvador` - America/El_Salvador
+      * `America/Ensenada` - America/Ensenada
+      * `America/Fort_Nelson` - America/Fort_Nelson
+      * `America/Fort_Wayne` - America/Fort_Wayne
+      * `America/Fortaleza` - America/Fortaleza
+      * `America/Glace_Bay` - America/Glace_Bay
+      * `America/Godthab` - America/Godthab
+      * `America/Goose_Bay` - America/Goose_Bay
+      * `America/Grand_Turk` - America/Grand_Turk
+      * `America/Grenada` - America/Grenada
+      * `America/Guadeloupe` - America/Guadeloupe
+      * `America/Guatemala` - America/Guatemala
+      * `America/Guayaquil` - America/Guayaquil
+      * `America/Guyana` - America/Guyana
+      * `America/Halifax` - America/Halifax
+      * `America/Havana` - America/Havana
+      * `America/Hermosillo` - America/Hermosillo
+      * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+      * `America/Indiana/Knox` - America/Indiana/Knox
+      * `America/Indiana/Marengo` - America/Indiana/Marengo
+      * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+      * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+      * `America/Indiana/Vevay` - America/Indiana/Vevay
+      * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+      * `America/Indiana/Winamac` - America/Indiana/Winamac
+      * `America/Indianapolis` - America/Indianapolis
+      * `America/Inuvik` - America/Inuvik
+      * `America/Iqaluit` - America/Iqaluit
+      * `America/Jamaica` - America/Jamaica
+      * `America/Jujuy` - America/Jujuy
+      * `America/Juneau` - America/Juneau
+      * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+      * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+      * `America/Knox_IN` - America/Knox_IN
+      * `America/Kralendijk` - America/Kralendijk
+      * `America/La_Paz` - America/La_Paz
+      * `America/Lima` - America/Lima
+      * `America/Los_Angeles` - America/Los_Angeles
+      * `America/Louisville` - America/Louisville
+      * `America/Lower_Princes` - America/Lower_Princes
+      * `America/Maceio` - America/Maceio
+      * `America/Managua` - America/Managua
+      * `America/Manaus` - America/Manaus
+      * `America/Marigot` - America/Marigot
+      * `America/Martinique` - America/Martinique
+      * `America/Matamoros` - America/Matamoros
+      * `America/Mazatlan` - America/Mazatlan
+      * `America/Mendoza` - America/Mendoza
+      * `America/Menominee` - America/Menominee
+      * `America/Merida` - America/Merida
+      * `America/Metlakatla` - America/Metlakatla
+      * `America/Mexico_City` - America/Mexico_City
+      * `America/Miquelon` - America/Miquelon
+      * `America/Moncton` - America/Moncton
+      * `America/Monterrey` - America/Monterrey
+      * `America/Montevideo` - America/Montevideo
+      * `America/Montreal` - America/Montreal
+      * `America/Montserrat` - America/Montserrat
+      * `America/Nassau` - America/Nassau
+      * `America/New_York` - America/New_York
+      * `America/Nipigon` - America/Nipigon
+      * `America/Nome` - America/Nome
+      * `America/Noronha` - America/Noronha
+      * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+      * `America/North_Dakota/Center` - America/North_Dakota/Center
+      * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+      * `America/Nuuk` - America/Nuuk
+      * `America/Ojinaga` - America/Ojinaga
+      * `America/Panama` - America/Panama
+      * `America/Pangnirtung` - America/Pangnirtung
+      * `America/Paramaribo` - America/Paramaribo
+      * `America/Phoenix` - America/Phoenix
+      * `America/Port-au-Prince` - America/Port-au-Prince
+      * `America/Port_of_Spain` - America/Port_of_Spain
+      * `America/Porto_Acre` - America/Porto_Acre
+      * `America/Porto_Velho` - America/Porto_Velho
+      * `America/Puerto_Rico` - America/Puerto_Rico
+      * `America/Punta_Arenas` - America/Punta_Arenas
+      * `America/Rainy_River` - America/Rainy_River
+      * `America/Rankin_Inlet` - America/Rankin_Inlet
+      * `America/Recife` - America/Recife
+      * `America/Regina` - America/Regina
+      * `America/Resolute` - America/Resolute
+      * `America/Rio_Branco` - America/Rio_Branco
+      * `America/Rosario` - America/Rosario
+      * `America/Santa_Isabel` - America/Santa_Isabel
+      * `America/Santarem` - America/Santarem
+      * `America/Santiago` - America/Santiago
+      * `America/Santo_Domingo` - America/Santo_Domingo
+      * `America/Sao_Paulo` - America/Sao_Paulo
+      * `America/Scoresbysund` - America/Scoresbysund
+      * `America/Shiprock` - America/Shiprock
+      * `America/Sitka` - America/Sitka
+      * `America/St_Barthelemy` - America/St_Barthelemy
+      * `America/St_Johns` - America/St_Johns
+      * `America/St_Kitts` - America/St_Kitts
+      * `America/St_Lucia` - America/St_Lucia
+      * `America/St_Thomas` - America/St_Thomas
+      * `America/St_Vincent` - America/St_Vincent
+      * `America/Swift_Current` - America/Swift_Current
+      * `America/Tegucigalpa` - America/Tegucigalpa
+      * `America/Thule` - America/Thule
+      * `America/Thunder_Bay` - America/Thunder_Bay
+      * `America/Tijuana` - America/Tijuana
+      * `America/Toronto` - America/Toronto
+      * `America/Tortola` - America/Tortola
+      * `America/Vancouver` - America/Vancouver
+      * `America/Virgin` - America/Virgin
+      * `America/Whitehorse` - America/Whitehorse
+      * `America/Winnipeg` - America/Winnipeg
+      * `America/Yakutat` - America/Yakutat
+      * `America/Yellowknife` - America/Yellowknife
+      * `Antarctica/Casey` - Antarctica/Casey
+      * `Antarctica/Davis` - Antarctica/Davis
+      * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+      * `Antarctica/Macquarie` - Antarctica/Macquarie
+      * `Antarctica/Mawson` - Antarctica/Mawson
+      * `Antarctica/McMurdo` - Antarctica/McMurdo
+      * `Antarctica/Palmer` - Antarctica/Palmer
+      * `Antarctica/Rothera` - Antarctica/Rothera
+      * `Antarctica/South_Pole` - Antarctica/South_Pole
+      * `Antarctica/Syowa` - Antarctica/Syowa
+      * `Antarctica/Troll` - Antarctica/Troll
+      * `Antarctica/Vostok` - Antarctica/Vostok
+      * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+      * `Asia/Aden` - Asia/Aden
+      * `Asia/Almaty` - Asia/Almaty
+      * `Asia/Amman` - Asia/Amman
+      * `Asia/Anadyr` - Asia/Anadyr
+      * `Asia/Aqtau` - Asia/Aqtau
+      * `Asia/Aqtobe` - Asia/Aqtobe
+      * `Asia/Ashgabat` - Asia/Ashgabat
+      * `Asia/Ashkhabad` - Asia/Ashkhabad
+      * `Asia/Atyrau` - Asia/Atyrau
+      * `Asia/Baghdad` - Asia/Baghdad
+      * `Asia/Bahrain` - Asia/Bahrain
+      * `Asia/Baku` - Asia/Baku
+      * `Asia/Bangkok` - Asia/Bangkok
+      * `Asia/Barnaul` - Asia/Barnaul
+      * `Asia/Beirut` - Asia/Beirut
+      * `Asia/Bishkek` - Asia/Bishkek
+      * `Asia/Brunei` - Asia/Brunei
+      * `Asia/Calcutta` - Asia/Calcutta
+      * `Asia/Chita` - Asia/Chita
+      * `Asia/Choibalsan` - Asia/Choibalsan
+      * `Asia/Chongqing` - Asia/Chongqing
+      * `Asia/Chungking` - Asia/Chungking
+      * `Asia/Colombo` - Asia/Colombo
+      * `Asia/Dacca` - Asia/Dacca
+      * `Asia/Damascus` - Asia/Damascus
+      * `Asia/Dhaka` - Asia/Dhaka
+      * `Asia/Dili` - Asia/Dili
+      * `Asia/Dubai` - Asia/Dubai
+      * `Asia/Dushanbe` - Asia/Dushanbe
+      * `Asia/Famagusta` - Asia/Famagusta
+      * `Asia/Gaza` - Asia/Gaza
+      * `Asia/Harbin` - Asia/Harbin
+      * `Asia/Hebron` - Asia/Hebron
+      * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+      * `Asia/Hong_Kong` - Asia/Hong_Kong
+      * `Asia/Hovd` - Asia/Hovd
+      * `Asia/Irkutsk` - Asia/Irkutsk
+      * `Asia/Istanbul` - Asia/Istanbul
+      * `Asia/Jakarta` - Asia/Jakarta
+      * `Asia/Jayapura` - Asia/Jayapura
+      * `Asia/Jerusalem` - Asia/Jerusalem
+      * `Asia/Kabul` - Asia/Kabul
+      * `Asia/Kamchatka` - Asia/Kamchatka
+      * `Asia/Karachi` - Asia/Karachi
+      * `Asia/Kashgar` - Asia/Kashgar
+      * `Asia/Kathmandu` - Asia/Kathmandu
+      * `Asia/Katmandu` - Asia/Katmandu
+      * `Asia/Khandyga` - Asia/Khandyga
+      * `Asia/Kolkata` - Asia/Kolkata
+      * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+      * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+      * `Asia/Kuching` - Asia/Kuching
+      * `Asia/Kuwait` - Asia/Kuwait
+      * `Asia/Macao` - Asia/Macao
+      * `Asia/Macau` - Asia/Macau
+      * `Asia/Magadan` - Asia/Magadan
+      * `Asia/Makassar` - Asia/Makassar
+      * `Asia/Manila` - Asia/Manila
+      * `Asia/Muscat` - Asia/Muscat
+      * `Asia/Nicosia` - Asia/Nicosia
+      * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+      * `Asia/Novosibirsk` - Asia/Novosibirsk
+      * `Asia/Omsk` - Asia/Omsk
+      * `Asia/Oral` - Asia/Oral
+      * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+      * `Asia/Pontianak` - Asia/Pontianak
+      * `Asia/Pyongyang` - Asia/Pyongyang
+      * `Asia/Qatar` - Asia/Qatar
+      * `Asia/Qostanay` - Asia/Qostanay
+      * `Asia/Qyzylorda` - Asia/Qyzylorda
+      * `Asia/Rangoon` - Asia/Rangoon
+      * `Asia/Riyadh` - Asia/Riyadh
+      * `Asia/Saigon` - Asia/Saigon
+      * `Asia/Sakhalin` - Asia/Sakhalin
+      * `Asia/Samarkand` - Asia/Samarkand
+      * `Asia/Seoul` - Asia/Seoul
+      * `Asia/Shanghai` - Asia/Shanghai
+      * `Asia/Singapore` - Asia/Singapore
+      * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+      * `Asia/Taipei` - Asia/Taipei
+      * `Asia/Tashkent` - Asia/Tashkent
+      * `Asia/Tbilisi` - Asia/Tbilisi
+      * `Asia/Tehran` - Asia/Tehran
+      * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+      * `Asia/Thimbu` - Asia/Thimbu
+      * `Asia/Thimphu` - Asia/Thimphu
+      * `Asia/Tokyo` - Asia/Tokyo
+      * `Asia/Tomsk` - Asia/Tomsk
+      * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+      * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+      * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+      * `Asia/Urumqi` - Asia/Urumqi
+      * `Asia/Ust-Nera` - Asia/Ust-Nera
+      * `Asia/Vientiane` - Asia/Vientiane
+      * `Asia/Vladivostok` - Asia/Vladivostok
+      * `Asia/Yakutsk` - Asia/Yakutsk
+      * `Asia/Yangon` - Asia/Yangon
+      * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+      * `Asia/Yerevan` - Asia/Yerevan
+      * `Atlantic/Azores` - Atlantic/Azores
+      * `Atlantic/Bermuda` - Atlantic/Bermuda
+      * `Atlantic/Canary` - Atlantic/Canary
+      * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+      * `Atlantic/Faeroe` - Atlantic/Faeroe
+      * `Atlantic/Faroe` - Atlantic/Faroe
+      * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+      * `Atlantic/Madeira` - Atlantic/Madeira
+      * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+      * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+      * `Atlantic/St_Helena` - Atlantic/St_Helena
+      * `Atlantic/Stanley` - Atlantic/Stanley
+      * `Australia/ACT` - Australia/ACT
+      * `Australia/Adelaide` - Australia/Adelaide
+      * `Australia/Brisbane` - Australia/Brisbane
+      * `Australia/Broken_Hill` - Australia/Broken_Hill
+      * `Australia/Canberra` - Australia/Canberra
+      * `Australia/Currie` - Australia/Currie
+      * `Australia/Darwin` - Australia/Darwin
+      * `Australia/Eucla` - Australia/Eucla
+      * `Australia/Hobart` - Australia/Hobart
+      * `Australia/LHI` - Australia/LHI
+      * `Australia/Lindeman` - Australia/Lindeman
+      * `Australia/Lord_Howe` - Australia/Lord_Howe
+      * `Australia/Melbourne` - Australia/Melbourne
+      * `Australia/NSW` - Australia/NSW
+      * `Australia/North` - Australia/North
+      * `Australia/Perth` - Australia/Perth
+      * `Australia/Queensland` - Australia/Queensland
+      * `Australia/South` - Australia/South
+      * `Australia/Sydney` - Australia/Sydney
+      * `Australia/Tasmania` - Australia/Tasmania
+      * `Australia/Victoria` - Australia/Victoria
+      * `Australia/West` - Australia/West
+      * `Australia/Yancowinna` - Australia/Yancowinna
+      * `Brazil/Acre` - Brazil/Acre
+      * `Brazil/DeNoronha` - Brazil/DeNoronha
+      * `Brazil/East` - Brazil/East
+      * `Brazil/West` - Brazil/West
+      * `CET` - CET
+      * `CST6CDT` - CST6CDT
+      * `Canada/Atlantic` - Canada/Atlantic
+      * `Canada/Central` - Canada/Central
+      * `Canada/Eastern` - Canada/Eastern
+      * `Canada/Mountain` - Canada/Mountain
+      * `Canada/Newfoundland` - Canada/Newfoundland
+      * `Canada/Pacific` - Canada/Pacific
+      * `Canada/Saskatchewan` - Canada/Saskatchewan
+      * `Canada/Yukon` - Canada/Yukon
+      * `Chile/Continental` - Chile/Continental
+      * `Chile/EasterIsland` - Chile/EasterIsland
+      * `Cuba` - Cuba
+      * `EET` - EET
+      * `EST` - EST
+      * `EST5EDT` - EST5EDT
+      * `Egypt` - Egypt
+      * `Eire` - Eire
+      * `Etc/GMT` - Etc/GMT
+      * `Etc/GMT+0` - Etc/GMT+0
+      * `Etc/GMT+1` - Etc/GMT+1
+      * `Etc/GMT+10` - Etc/GMT+10
+      * `Etc/GMT+11` - Etc/GMT+11
+      * `Etc/GMT+12` - Etc/GMT+12
+      * `Etc/GMT+2` - Etc/GMT+2
+      * `Etc/GMT+3` - Etc/GMT+3
+      * `Etc/GMT+4` - Etc/GMT+4
+      * `Etc/GMT+5` - Etc/GMT+5
+      * `Etc/GMT+6` - Etc/GMT+6
+      * `Etc/GMT+7` - Etc/GMT+7
+      * `Etc/GMT+8` - Etc/GMT+8
+      * `Etc/GMT+9` - Etc/GMT+9
+      * `Etc/GMT-0` - Etc/GMT-0
+      * `Etc/GMT-1` - Etc/GMT-1
+      * `Etc/GMT-10` - Etc/GMT-10
+      * `Etc/GMT-11` - Etc/GMT-11
+      * `Etc/GMT-12` - Etc/GMT-12
+      * `Etc/GMT-13` - Etc/GMT-13
+      * `Etc/GMT-14` - Etc/GMT-14
+      * `Etc/GMT-2` - Etc/GMT-2
+      * `Etc/GMT-3` - Etc/GMT-3
+      * `Etc/GMT-4` - Etc/GMT-4
+      * `Etc/GMT-5` - Etc/GMT-5
+      * `Etc/GMT-6` - Etc/GMT-6
+      * `Etc/GMT-7` - Etc/GMT-7
+      * `Etc/GMT-8` - Etc/GMT-8
+      * `Etc/GMT-9` - Etc/GMT-9
+      * `Etc/GMT0` - Etc/GMT0
+      * `Etc/Greenwich` - Etc/Greenwich
+      * `Etc/UCT` - Etc/UCT
+      * `Etc/UTC` - Etc/UTC
+      * `Etc/Universal` - Etc/Universal
+      * `Etc/Zulu` - Etc/Zulu
+      * `Europe/Amsterdam` - Europe/Amsterdam
+      * `Europe/Andorra` - Europe/Andorra
+      * `Europe/Astrakhan` - Europe/Astrakhan
+      * `Europe/Athens` - Europe/Athens
+      * `Europe/Belfast` - Europe/Belfast
+      * `Europe/Belgrade` - Europe/Belgrade
+      * `Europe/Berlin` - Europe/Berlin
+      * `Europe/Bratislava` - Europe/Bratislava
+      * `Europe/Brussels` - Europe/Brussels
+      * `Europe/Bucharest` - Europe/Bucharest
+      * `Europe/Budapest` - Europe/Budapest
+      * `Europe/Busingen` - Europe/Busingen
+      * `Europe/Chisinau` - Europe/Chisinau
+      * `Europe/Copenhagen` - Europe/Copenhagen
+      * `Europe/Dublin` - Europe/Dublin
+      * `Europe/Gibraltar` - Europe/Gibraltar
+      * `Europe/Guernsey` - Europe/Guernsey
+      * `Europe/Helsinki` - Europe/Helsinki
+      * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+      * `Europe/Istanbul` - Europe/Istanbul
+      * `Europe/Jersey` - Europe/Jersey
+      * `Europe/Kaliningrad` - Europe/Kaliningrad
+      * `Europe/Kiev` - Europe/Kiev
+      * `Europe/Kirov` - Europe/Kirov
+      * `Europe/Kyiv` - Europe/Kyiv
+      * `Europe/Lisbon` - Europe/Lisbon
+      * `Europe/Ljubljana` - Europe/Ljubljana
+      * `Europe/London` - Europe/London
+      * `Europe/Luxembourg` - Europe/Luxembourg
+      * `Europe/Madrid` - Europe/Madrid
+      * `Europe/Malta` - Europe/Malta
+      * `Europe/Mariehamn` - Europe/Mariehamn
+      * `Europe/Minsk` - Europe/Minsk
+      * `Europe/Monaco` - Europe/Monaco
+      * `Europe/Moscow` - Europe/Moscow
+      * `Europe/Nicosia` - Europe/Nicosia
+      * `Europe/Oslo` - Europe/Oslo
+      * `Europe/Paris` - Europe/Paris
+      * `Europe/Podgorica` - Europe/Podgorica
+      * `Europe/Prague` - Europe/Prague
+      * `Europe/Riga` - Europe/Riga
+      * `Europe/Rome` - Europe/Rome
+      * `Europe/Samara` - Europe/Samara
+      * `Europe/San_Marino` - Europe/San_Marino
+      * `Europe/Sarajevo` - Europe/Sarajevo
+      * `Europe/Saratov` - Europe/Saratov
+      * `Europe/Simferopol` - Europe/Simferopol
+      * `Europe/Skopje` - Europe/Skopje
+      * `Europe/Sofia` - Europe/Sofia
+      * `Europe/Stockholm` - Europe/Stockholm
+      * `Europe/Tallinn` - Europe/Tallinn
+      * `Europe/Tirane` - Europe/Tirane
+      * `Europe/Tiraspol` - Europe/Tiraspol
+      * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+      * `Europe/Uzhgorod` - Europe/Uzhgorod
+      * `Europe/Vaduz` - Europe/Vaduz
+      * `Europe/Vatican` - Europe/Vatican
+      * `Europe/Vienna` - Europe/Vienna
+      * `Europe/Vilnius` - Europe/Vilnius
+      * `Europe/Volgograd` - Europe/Volgograd
+      * `Europe/Warsaw` - Europe/Warsaw
+      * `Europe/Zagreb` - Europe/Zagreb
+      * `Europe/Zaporozhye` - Europe/Zaporozhye
+      * `Europe/Zurich` - Europe/Zurich
+      * `GB` - GB
+      * `GB-Eire` - GB-Eire
+      * `GMT` - GMT
+      * `GMT+0` - GMT+0
+      * `GMT-0` - GMT-0
+      * `GMT0` - GMT0
+      * `Greenwich` - Greenwich
+      * `HST` - HST
+      * `Hongkong` - Hongkong
+      * `Iceland` - Iceland
+      * `Indian/Antananarivo` - Indian/Antananarivo
+      * `Indian/Chagos` - Indian/Chagos
+      * `Indian/Christmas` - Indian/Christmas
+      * `Indian/Cocos` - Indian/Cocos
+      * `Indian/Comoro` - Indian/Comoro
+      * `Indian/Kerguelen` - Indian/Kerguelen
+      * `Indian/Mahe` - Indian/Mahe
+      * `Indian/Maldives` - Indian/Maldives
+      * `Indian/Mauritius` - Indian/Mauritius
+      * `Indian/Mayotte` - Indian/Mayotte
+      * `Indian/Reunion` - Indian/Reunion
+      * `Iran` - Iran
+      * `Israel` - Israel
+      * `Jamaica` - Jamaica
+      * `Japan` - Japan
+      * `Kwajalein` - Kwajalein
+      * `Libya` - Libya
+      * `MET` - MET
+      * `MST` - MST
+      * `MST7MDT` - MST7MDT
+      * `Mexico/BajaNorte` - Mexico/BajaNorte
+      * `Mexico/BajaSur` - Mexico/BajaSur
+      * `Mexico/General` - Mexico/General
+      * `NZ` - NZ
+      * `NZ-CHAT` - NZ-CHAT
+      * `Navajo` - Navajo
+      * `PRC` - PRC
+      * `PST8PDT` - PST8PDT
+      * `Pacific/Apia` - Pacific/Apia
+      * `Pacific/Auckland` - Pacific/Auckland
+      * `Pacific/Bougainville` - Pacific/Bougainville
+      * `Pacific/Chatham` - Pacific/Chatham
+      * `Pacific/Chuuk` - Pacific/Chuuk
+      * `Pacific/Easter` - Pacific/Easter
+      * `Pacific/Efate` - Pacific/Efate
+      * `Pacific/Enderbury` - Pacific/Enderbury
+      * `Pacific/Fakaofo` - Pacific/Fakaofo
+      * `Pacific/Fiji` - Pacific/Fiji
+      * `Pacific/Funafuti` - Pacific/Funafuti
+      * `Pacific/Galapagos` - Pacific/Galapagos
+      * `Pacific/Gambier` - Pacific/Gambier
+      * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+      * `Pacific/Guam` - Pacific/Guam
+      * `Pacific/Honolulu` - Pacific/Honolulu
+      * `Pacific/Johnston` - Pacific/Johnston
+      * `Pacific/Kanton` - Pacific/Kanton
+      * `Pacific/Kiritimati` - Pacific/Kiritimati
+      * `Pacific/Kosrae` - Pacific/Kosrae
+      * `Pacific/Kwajalein` - Pacific/Kwajalein
+      * `Pacific/Majuro` - Pacific/Majuro
+      * `Pacific/Marquesas` - Pacific/Marquesas
+      * `Pacific/Midway` - Pacific/Midway
+      * `Pacific/Nauru` - Pacific/Nauru
+      * `Pacific/Niue` - Pacific/Niue
+      * `Pacific/Norfolk` - Pacific/Norfolk
+      * `Pacific/Noumea` - Pacific/Noumea
+      * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+      * `Pacific/Palau` - Pacific/Palau
+      * `Pacific/Pitcairn` - Pacific/Pitcairn
+      * `Pacific/Pohnpei` - Pacific/Pohnpei
+      * `Pacific/Ponape` - Pacific/Ponape
+      * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+      * `Pacific/Rarotonga` - Pacific/Rarotonga
+      * `Pacific/Saipan` - Pacific/Saipan
+      * `Pacific/Samoa` - Pacific/Samoa
+      * `Pacific/Tahiti` - Pacific/Tahiti
+      * `Pacific/Tarawa` - Pacific/Tarawa
+      * `Pacific/Tongatapu` - Pacific/Tongatapu
+      * `Pacific/Truk` - Pacific/Truk
+      * `Pacific/Wake` - Pacific/Wake
+      * `Pacific/Wallis` - Pacific/Wallis
+      * `Pacific/Yap` - Pacific/Yap
+      * `Poland` - Poland
+      * `Portugal` - Portugal
+      * `ROC` - ROC
+      * `ROK` - ROK
+      * `Singapore` - Singapore
+      * `Turkey` - Turkey
+      * `UCT` - UCT
+      * `US/Alaska` - US/Alaska
+      * `US/Aleutian` - US/Aleutian
+      * `US/Arizona` - US/Arizona
+      * `US/Central` - US/Central
+      * `US/East-Indiana` - US/East-Indiana
+      * `US/Eastern` - US/Eastern
+      * `US/Hawaii` - US/Hawaii
+      * `US/Indiana-Starke` - US/Indiana-Starke
+      * `US/Michigan` - US/Michigan
+      * `US/Mountain` - US/Mountain
+      * `US/Pacific` - US/Pacific
+      * `US/Samoa` - US/Samoa
+      * `UTC` - UTC
+      * `Universal` - Universal
+      * `W-SU` - W-SU
+      * `WET` - WET
+      * `Zulu` - Zulu */
+      timezone?: string | null;
+      /**
+         * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.
+         * @minimum 0
+         * @maximum 6
+         * @nullable
+         */
+      offset_day?: number | null;
+      /**
+         * Hour-of-day offset (0-23) for daily and weekly intervals. Only valid when interval is 'day' or 'week'.
+         * @minimum 0
+         * @maximum 23
+         * @nullable
+         */
+      offset_hour?: number | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type BatchExportBackfillProgress = {
+      /** @nullable */
+      readonly total_runs?: number | null;
+      /** @nullable */
+      readonly finished_runs?: number | null;
+      /** @nullable */
+      readonly progress?: number | null;
+    } | null;
+
+    /**
+     * * `Cancelled` - Cancelled
+    * `Completed` - Completed
+    * `ContinuedAsNew` - Continued As New
+    * `Failed` - Failed
+    * `FailedRetryable` - Failed Retryable
+    * `Terminated` - Terminated
+    * `TimedOut` - Timedout
+    * `Running` - Running
+    * `Starting` - Starting
+     */
+    export type BatchExportBackfillStatusEnum = typeof BatchExportBackfillStatusEnum[keyof typeof BatchExportBackfillStatusEnum];
+
+
+    export const BatchExportBackfillStatusEnum = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      ContinuedAsNew: 'ContinuedAsNew',
+      Failed: 'Failed',
+      FailedRetryable: 'FailedRetryable',
+      Terminated: 'Terminated',
+      TimedOut: 'TimedOut',
+      Running: 'Running',
+      Starting: 'Starting',
+    } as const;
+
+    export interface BatchExportBackfill {
+      readonly id: string;
+      /** @nullable */
+      readonly progress: BatchExportBackfillProgress;
+      /**
+         * The start of the data interval.
+         * @nullable
+         */
+      start_at?: string | null;
+      /**
+         * The end of the data interval.
+         * @nullable
+         */
+      end_at?: string | null;
+      /** The status of this backfill.
+
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
+      status: BatchExportBackfillStatusEnum;
+      /** The timestamp at which this BatchExportBackfill was created. */
+      readonly created_at: string;
+      /**
+         * The timestamp at which this BatchExportBackfill finished, successfully or not.
+         * @nullable
+         */
+      finished_at?: string | null;
+      /** The timestamp at which this BatchExportBackfill was last updated. */
+      readonly last_updated_at: string;
+      /**
+         * The total number of records to export. Initially estimated, updated with actual count after completion.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      total_records_count?: number | null;
+      /**
+         * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
+         * @nullable
+         */
+      adjusted_start_at?: string | null;
+      /** The team this belongs to. */
+      team: number;
+      /** The BatchExport this backfill belongs to. */
+      batch_export: string;
+    }
+
+    export type DatabricksDestinationRequestType = typeof DatabricksDestinationRequestType[keyof typeof DatabricksDestinationRequestType];
+
+
+    export const DatabricksDestinationRequestType = {
+      Databricks: 'Databricks',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a Databricks batch-export destination.
+     */
+    export interface DatabricksDestinationRequest {
+      type: DatabricksDestinationRequestType;
+      /** ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: DatabricksDestinationConfig;
+    }
+
+    export type BigQueryDestinationRequestType = typeof BigQueryDestinationRequestType[keyof typeof BigQueryDestinationRequestType];
+
+
+    export const BigQueryDestinationRequestType = {
+      BigQuery: 'BigQuery',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a BigQuery batch-export destination.
+     */
+    export interface BigQueryDestinationRequest {
+      type: BigQueryDestinationRequestType;
+      /** ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: BigQueryDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest;
+
+    /**
+     * Request body for create/partial_update on BatchExportViewSet.
+
+    Mirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic
+    `destination` schema so integration_id is marked required on the types that need
+    it. Responses continue to use `BatchExportSerializer`.
+     */
+    export interface BatchExportRequest {
+      /** Human-readable name for the batch export. */
+      name: string;
+      /** Which data model to export (events, persons, sessions).
+
+      * `events` - Events
+      * `persons` - Persons
+      * `sessions` - Sessions */
+      model?: ModelEnum;
+      /** Destination configuration. Required integration_id is enforced per destination type. */
+      destination: BatchExportDestinationRequest;
+      /** How often the batch export should run.
+
+      * `hour` - hour
+      * `day` - day
+      * `week` - week
+      * `every 5 minutes` - every 5 minutes
+      * `every 15 minutes` - every 15 minutes */
+      interval: IntervalEnum;
+      /** Whether the batch export is paused. */
+      paused?: boolean;
+      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
+      hogql_query?: string;
+      filters?: unknown;
+      /**
+         * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
+         * @nullable
+         */
+      timezone?: string | null;
+      /**
+         * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
+         * @minimum 0
+         * @maximum 6
+         * @nullable
+         */
+      offset_day?: number | null;
+      /**
+         * Hour-of-day offset (0-23) for daily and weekly intervals.
+         * @minimum 0
+         * @maximum 23
+         * @nullable
+         */
+      offset_hour?: number | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type BatchImportCreatedBy = { [key: string]: unknown } | null;
+
+    /**
+     * * `completed` - Completed
+    * `failed` - Failed
+    * `paused` - Paused
+    * `running` - Running
+     */
+    export type BatchImportStatusEnum = typeof BatchImportStatusEnum[keyof typeof BatchImportStatusEnum];
+
+
+    export const BatchImportStatusEnum = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Paused: 'paused',
+      Running: 'running',
+    } as const;
+
+    /**
+     * Serializer for BatchImport model
+     */
+    export interface BatchImport {
+      readonly id: string;
+      readonly team_id: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly state: unknown;
+      /** @nullable */
+      readonly created_by: BatchImportCreatedBy;
+      readonly status: BatchImportStatusEnum;
+      /** @nullable */
+      readonly display_status_message: string | null;
+      readonly import_config: unknown;
+    }
+
+    export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
+
+
+    export const EventPropFilterTypeEnum = {
+      Event: 'event',
+      Element: 'element',
+    } as const;
+
+    export interface EventPropFilter {
+      type: EventPropFilterTypeEnum;
+      key: string;
+      value: unknown;
+      operator?: string | null;
+    }
+
+    export interface HogQLFilter {
+      type: 'hogql';
+      key: string;
+      value?: unknown;
+    }
+
+    export interface BehavioralFilter {
+      bytecode?: unknown[] | null;
+      bytecode_error?: string | null;
+      conditionHash?: string | null;
+      type: 'behavioral';
+      key: string | number;
+      value: string;
+      event_type: string;
+      time_value?: number | null;
+      time_interval?: string | null;
+      negation?: boolean;
+      operator?: string | null;
+      operator_value?: number | null;
+      seq_time_interval?: string | null;
+      seq_time_value?: number | null;
+      seq_event?: string | number | null;
+      seq_event_type?: string | null;
+      total_periods?: number | null;
+      min_periods?: number | null;
+      event_filters?: (EventPropFilter | HogQLFilter)[] | null;
+      explicit_datetime?: string | null;
+      explicit_datetime_to?: string | null;
+    }
+
+    export interface BiasRisk {
+      /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+      multiple_variant_percentage: number;
+    }
+
+    /**
+     * * `BigQuery` - BigQuery
+     */
+    export type BigQueryDestinationRequestTypeEnum = typeof BigQueryDestinationRequestTypeEnum[keyof typeof BigQueryDestinationRequestTypeEnum];
+
+
+    export const BigQueryDestinationRequestTypeEnum = {
+      BigQuery: 'BigQuery',
+    } as const;
+
+    export interface BlastRadius {
+      /** Number of users matching the filters */
+      affected: number;
+      /** Total number of users */
+      total: number;
+    }
+
+    /**
+     * Property filters to apply
+     */
+    export type BlastRadiusRequestFilters = { [key: string]: unknown };
+
+    export interface BlastRadiusRequest {
+      /** Property filters to apply */
+      filters: BlastRadiusRequestFilters;
+      /**
+         * Group type index for group-based targeting
+         * @nullable
+         */
+      group_type_index?: number | null;
+    }
+
+    export interface BooleanScoreDefinitionConfig {
+      /** Optional label for a true value. */
+      true_label?: string;
+      /** Optional label for a false value. */
+      false_label?: string;
+    }
+
+    export interface BreakdownItem {
+      label: string;
+      value: string | number;
+    }
+
+    export interface BreakdownValue {
+      count: number;
+      value: string;
+    }
+
+    /**
+     * Local variables at the time of the hit
+     */
+    export type BreakpointHitVariables = { [key: string]: unknown };
+
+    /**
+     * Schema for a single breakpoint hit event
+     */
+    export interface BreakpointHit {
+      /** Unique identifier for the hit event */
+      id: string;
+      /** Line number where the breakpoint was hit */
+      lineNumber: number;
+      /** Name of the function where breakpoint was hit */
+      functionName: string;
+      /** When the breakpoint was hit */
+      timestamp: string;
+      /** Local variables at the time of the hit */
+      variables: BreakpointHitVariables;
+      /** Stack trace at the time of the hit */
+      stackTrace: unknown[];
+      /** ID of the breakpoint that was hit */
+      breakpoint_id: string;
+      /** Filename where the breakpoint was hit */
+      filename: string;
+    }
+
+    /**
+     * Response schema for breakpoint hits endpoint
+     */
+    export interface BreakpointHitsResponse {
+      /** List of breakpoint hit events */
+      results: BreakpointHit[];
+      /** Number of results returned */
+      count: number;
+      /** Whether there are more results available */
+      has_more: boolean;
+    }
+
+    /**
+     * * `distinct_id` - User ID (default)
+    * `device_id` - Device ID
+     */
+    export type BucketingIdentifierEnum = typeof BucketingIdentifierEnum[keyof typeof BucketingIdentifierEnum];
+
+
+    export const BucketingIdentifierEnum = {
+      DistinctId: 'distinct_id',
+      DeviceId: 'device_id',
+    } as const;
+
+    /**
+     * * `fully_rolled_out` - fully_rolled_out
+    * `not_rolled_out` - not_rolled_out
+    * `partial` - partial
+     */
+    export type RolloutStateEnum = typeof RolloutStateEnum[keyof typeof RolloutStateEnum];
+
+
+    export const RolloutStateEnum = {
+      FullyRolledOut: 'fully_rolled_out',
+      NotRolledOut: 'not_rolled_out',
+      Partial: 'partial',
+    } as const;
+
+    export interface BulkDeleteDeletedItem {
+      /** ID of the soft-deleted flag. */
+      id: number;
+      /** The flag key at the time of deletion. */
+      key: string;
+      /** Rollout state captured before deletion.
+
+      * `fully_rolled_out` - fully_rolled_out
+      * `not_rolled_out` - not_rolled_out
+      * `partial` - partial */
+      rollout_state: RolloutStateEnum;
+      /**
+         * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
+         * @nullable
+         */
+      active_variant: string | null;
+    }
+
+    export interface BulkDeleteErrorItem {
+      /** Feature flag ID — integer for valid inputs; the original raw value for invalid inputs. */
+      id: unknown;
+      /** The flag key, when known. */
+      key?: string;
+      /** Human-readable reason the flag could not be deleted. */
+      reason: string;
+    }
+
+    /**
+     * * `boolean` - boolean
+    * `multivariant` - multivariant
+    * `experiment` - experiment
+    * `remote_config` - remote_config
+     */
+    export type BulkDeleteFiltersTypeEnum = typeof BulkDeleteFiltersTypeEnum[keyof typeof BulkDeleteFiltersTypeEnum];
+
+
+    export const BulkDeleteFiltersTypeEnum = {
+      Boolean: 'boolean',
+      Multivariant: 'multivariant',
+      Experiment: 'experiment',
+      RemoteConfig: 'remote_config',
+    } as const;
+
+    /**
+     * * `server` - Server
+    * `client` - Client
+    * `all` - All
+     */
+    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
+
+
+    export const EvaluationRuntimeEnum = {
+      Server: 'server',
+      Client: 'client',
+      All: 'all',
+    } as const;
+
+    /**
+     * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
+     */
+    export interface BulkDeleteFilters {
+      /** Filter by active state.
+
+      * `true` - true
+      * `false` - false
+      * `STALE` - STALE */
+      active?: ActiveEnum;
+      /** Filter to flags created by a specific user ID. */
+      created_by_id?: number;
+      /** Search by feature flag key or name (case-insensitive). */
+      search?: string;
+      /** Filter by flag type.
+
+      * `boolean` - boolean
+      * `multivariant` - multivariant
+      * `experiment` - experiment
+      * `remote_config` - remote_config */
+      type?: BulkDeleteFiltersTypeEnum;
+      /** Filter by evaluation runtime.
+
+      * `server` - Server
+      * `client` - Client
+      * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum;
+      /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
+      excluded_properties?: string;
+      /** Tag names to filter by. Flags carrying at least one of these tags match. */
+      tags?: string[];
+      /** When true, only matches flags with at least one evaluation context. */
+      has_evaluation_contexts?: boolean;
+    }
+
+    export interface BulkDeleteRequest {
+      /** Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs. */
+      filters?: BulkDeleteFilters;
+      /** Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`. */
+      ids?: number[];
+    }
+
+    /**
+     * Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+    so accessing ``serializer.errors`` would return this field descriptor instead of validation
+    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+    can render the response in the OpenAPI spec and downstream generated clients.
+     */
+    export interface BulkDeleteResponse {
+      /** Flags successfully soft-deleted. */
+      deleted: BulkDeleteDeletedItem[];
+      /** Flags that could not be deleted, with reasons. */
+      errors: BulkDeleteErrorItem[];
+    }
+
+    export interface BulkIntervieweeContextItem {
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface BulkIntervieweeContextRequest {
+      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+      items: BulkIntervieweeContextItem[];
+    }
+
+    export interface BulkIntervieweeContextResponse {
+      /** Number of rows inserted by this request. */
+      inserted_count: number;
+      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_count: number;
+      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_identifiers: string[];
+    }
+
+    export interface BulkKeysRequest {
+      /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
+      ids?: unknown[];
+    }
+
+    /**
+     * Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.
+     */
+    export type BulkKeysResponseKeys = {[key: string]: string};
+
+    export interface BulkKeysResponse {
+      /** Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project. */
+      keys: BulkKeysResponseKeys;
+      /** Present when some submitted IDs were not numeric and were ignored. */
+      warning?: string;
+    }
+
+    export interface BulkNotificationIdsRequest {
+      /**
+         * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
+         * @maxItems 500
+         */
+      notification_ids: string[];
+    }
+
+    export interface BulkUpdateTagsError {
+      id: number;
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsItem {
+      id: number;
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsRequest {
+      /**
+         * List of object IDs to update tags on.
+         * @maxItems 500
+         */
+      ids: number[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+      * `add` - add
+      * `remove` - remove
+      * `set` - set */
+      action: ActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsResponse {
+      updated: BulkUpdateTagsItem[];
+      skipped: BulkUpdateTagsError[];
+    }
+
+    /**
+     * * `b2b` - B2B
+    * `b2c` - B2C
+    * `other` - Other
+     */
+    export type BusinessModelEnum = typeof BusinessModelEnum[keyof typeof BusinessModelEnum];
+
+
+    export const BusinessModelEnum = {
+      B2b: 'b2b',
+      B2c: 'b2c',
+      Other: 'other',
+    } as const;
+
+    export interface CIMDVerificationToken {
+      readonly id: string;
+      /** @maxLength 40 */
+      label: string;
+      /** @nullable */
+      readonly mask_value: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly last_used_at: string | null;
+    }
+
+    /**
+     * Create-response variant that includes the plaintext token.
+
+    Only emitted from the create endpoint - storage-side we only persist the
+    hash, so subsequent reads use the base serializer.
+     */
+    export interface CIMDVerificationTokenWithValue {
+      readonly id: string;
+      /** @maxLength 40 */
+      label: string;
+      /** @nullable */
+      readonly mask_value: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly last_used_at: string | null;
+      /** Plaintext token, only returned on creation */
+      readonly value: string;
+    }
+
+    export interface EventsHeatMapColumnAggregationResult {
+      column: number;
+      value: number;
+    }
+
+    export interface EventsHeatMapDataResult {
+      column: number;
+      row: number;
+      value: number;
+    }
+
+    export interface EventsHeatMapRowAggregationResult {
+      row: number;
+      value: number;
+    }
+
+    export interface EventsHeatMapStructuredResult {
+      allAggregations: number;
+      columnAggregations: EventsHeatMapColumnAggregationResult[];
+      data: EventsHeatMapDataResult[];
+      rowAggregations: EventsHeatMapRowAggregationResult[];
+    }
+
+    export interface CalendarHeatmapResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Wether more breakdown values are available. */
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: EventsHeatMapStructuredResult;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface CalendarHeatmapQuery {
+      /** Groups aggregation */
+      aggregation_group_type_index?: number | null;
+      /** Properties specific to the trends insight */
+      calendarHeatmapFilter?: CalendarHeatmapFilter | null;
+      /** Whether we should be comparing against a specific conversion goal */
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization */
+      dataColorTheme?: number | null;
+      /** Date range for the query */
+      dateRange?: DateRange | null;
+      /** Exclude internal and test users by applying the respective filters */
+      filterTestAccounts?: boolean | null;
+      /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+      interval?: IntervalType | null;
+      kind?: 'CalendarHeatmapQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Property filters for all series */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
+      response?: CalendarHeatmapResponse | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      /** Events and actions to include */
+      series: (EventsNode | ActionsNode | DataWarehouseNode)[];
+      /** Tags that will be added to the Query log comment */
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * * `error` - error
+    * `warning` - warning
+     */
+    export type UtmIssueSeverityEnum = typeof UtmIssueSeverityEnum[keyof typeof UtmIssueSeverityEnum];
+
+
+    export const UtmIssueSeverityEnum = {
+      Error: 'error',
+      Warning: 'warning',
+    } as const;
+
+    export interface UtmIssue {
+      /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
+      field: string;
+      /** Issue severity level
+
+      * `error` - error
+      * `warning` - warning */
+      severity: UtmIssueSeverityEnum;
+      /** Human-readable description of the issue */
+      message: string;
+    }
+
+    export interface CampaignAuditResult {
+      /** Campaign name from the ad platform */
+      campaign_name: string;
+      /** Campaign ID from the ad platform */
+      campaign_id: string;
+      /** Integration source name (e.g. google, meta) */
+      source_name: string;
+      /** Total spend for this campaign in the period */
+      spend: number;
+      /** Total clicks for this campaign */
+      clicks: number;
+      /** Total impressions for this campaign */
+      impressions: number;
+      /** Whether matching UTM pageview events were found */
+      has_utm_events: boolean;
+      /** Number of matching UTM pageview events */
+      event_count: number;
+      /** List of detected UTM configuration issues */
+      issues: UtmIssue[];
+    }
+
+    /**
+     * Supporting evidence
+     */
+    export type CapabilityStateEvidence = { [key: string]: unknown };
+
+    /**
+     * * `needs_setup` - needs_setup
+    * `detected` - detected
+    * `waiting_for_data` - waiting_for_data
+    * `ready` - ready
+    * `not_applicable` - not_applicable
+    * `unknown` - unknown
+     */
+    export type CapabilityStateStateEnum = typeof CapabilityStateStateEnum[keyof typeof CapabilityStateStateEnum];
+
+
+    export const CapabilityStateStateEnum = {
+      NeedsSetup: 'needs_setup',
+      Detected: 'detected',
+      WaitingForData: 'waiting_for_data',
+      Ready: 'ready',
+      NotApplicable: 'not_applicable',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface CapabilityState {
+      /** Current state of the capability
+
+      * `needs_setup` - needs_setup
+      * `detected` - detected
+      * `waiting_for_data` - waiting_for_data
+      * `ready` - ready
+      * `not_applicable` - not_applicable
+      * `unknown` - unknown */
+      state: CapabilityStateStateEnum;
+      /** Whether the state is estimated from static analysis */
+      estimated: boolean;
+      /** Human-readable explanation */
+      reason: string;
+      /** Supporting evidence */
+      evidence?: CapabilityStateEvidence;
+    }
+
+    export interface CategoricalScoreOption {
+      /**
+         * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+         * @maxLength 128
+         */
+      key: string;
+      /**
+         * Human-readable option label.
+         * @maxLength 256
+         */
+      label: string;
+    }
+
+    /**
+     * * `single` - single
+    * `multiple` - multiple
+     */
+    export type SelectionModeEnum = typeof SelectionModeEnum[keyof typeof SelectionModeEnum];
+
+
+    export const SelectionModeEnum = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface CategoricalScoreDefinitionConfig {
+      /** Ordered categorical options available to the scorer. */
+      options: CategoricalScoreOption[];
+      /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+
+      * `single` - single
+      * `multiple` - multiple */
+      selection_mode?: SelectionModeEnum;
+      /**
+         * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+         * @minimum 1
+         * @nullable
+         */
+      min_selections?: number | null;
+      /**
+         * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+         * @minimum 1
+         * @nullable
+         */
+      max_selections?: number | null;
+    }
+
+    /**
+     * * `marketing` - Marketing
+    * `transactional` - Transactional
+     */
+    export type CategoryTypeEnum = typeof CategoryTypeEnum[keyof typeof CategoryTypeEnum];
+
+
+    export const CategoryTypeEnum = {
+      Marketing: 'marketing',
+      Transactional: 'transactional',
+    } as const;
+
+    /**
+     * * `consolidated` - consolidated
+    * `cdc_only` - cdc_only
+    * `both` - both
+     */
+    export type CdcTableModeEnum = typeof CdcTableModeEnum[keyof typeof CdcTableModeEnum];
+
+
+    export const CdcTableModeEnum = {
+      Consolidated: 'consolidated',
+      CdcOnly: 'cdc_only',
+      Both: 'both',
+    } as const;
+
+    export type ChangeRequestApprovalsItem = { [key: string]: unknown };
+
+    /**
+     * * `valid` - Valid
+    * `invalid` - Invalid
+    * `expired` - Expired
+    * `stale` - Stale (resource changed)
+     */
+    export type ValidationStatusEnum = typeof ValidationStatusEnum[keyof typeof ValidationStatusEnum];
+
+
+    export const ValidationStatusEnum = {
+      Valid: 'valid',
+      Invalid: 'invalid',
+      Expired: 'expired',
+      Stale: 'stale',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+    * `approved` - Approved (awaiting application)
+    * `applied` - Applied
+    * `rejected` - Rejected
+    * `expired` - Expired
+    * `failed` - Failed to apply
+     */
+    export type ChangeRequestStateEnum = typeof ChangeRequestStateEnum[keyof typeof ChangeRequestStateEnum];
+
+
+    export const ChangeRequestStateEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Applied: 'applied',
+      Rejected: 'rejected',
+      Expired: 'expired',
+      Failed: 'failed',
+    } as const;
+
+    export interface ChangeRequest {
+      readonly id: string;
+      readonly action_key: string;
+      readonly action_version: number;
+      readonly resource_type: string;
+      /** @nullable */
+      readonly resource_id: string | null;
+      readonly intent: unknown;
+      readonly intent_display: unknown;
+      readonly policy_snapshot: unknown;
+      readonly validation_status: ValidationStatusEnum;
+      readonly validation_errors: unknown;
+      /** @nullable */
+      readonly validated_at: string | null;
+      readonly state: ChangeRequestStateEnum;
+      readonly created_by: UserBasic;
+      readonly applied_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly expires_at: string;
+      /** @nullable */
+      readonly applied_at: string | null;
+      readonly apply_error: string;
+      readonly result_data: unknown;
+      readonly approvals: readonly ChangeRequestApprovalsItem[];
+      /** Check if current user can approve this change request. */
+      readonly can_approve: boolean;
+      readonly can_cancel: boolean;
+      /** Check if current user is the requester. */
+      readonly is_requester: boolean;
+      /**
+         * Get the current user's approval decision if they have voted.
+         * @nullable
+         */
+      readonly user_decision: string | null;
+    }
+
+    /**
+     * * `slack_channel_message` - Channel message
+    * `slack_bot_mention` - Bot mention
+    * `slack_emoji_reaction` - Emoji reaction
+    * `teams_channel_message` - Teams channel message
+    * `teams_bot_mention` - Teams bot mention
+    * `widget_embedded` - Widget
+    * `widget_api` - API
+    * `github_issue` - GitHub issue
+     */
+    export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
+
+
+    export const ChannelDetailEnum = {
+      SlackChannelMessage: 'slack_channel_message',
+      SlackBotMention: 'slack_bot_mention',
+      SlackEmojiReaction: 'slack_emoji_reaction',
+      TeamsChannelMessage: 'teams_channel_message',
+      TeamsBotMention: 'teams_bot_mention',
+      WidgetEmbedded: 'widget_embedded',
+      WidgetApi: 'widget_api',
+      GithubIssue: 'github_issue',
+    } as const;
+
+    /**
+     * * `widget` - Widget
+    * `email` - Email
+    * `slack` - Slack
+    * `teams` - Microsoft Teams
+    * `github` - GitHub
+     */
+    export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
+
+
+    export const ChannelSourceEnum = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+    } as const;
+
+    export interface CheckDatabaseNameResponse {
+      name: string;
+      available: boolean;
+    }
+
+    /**
+     * * `claude` - claude
+     */
+    export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
+
+
+    export const ClaudeRuntimeAdapterEnum = {
+      Claude: 'claude',
+    } as const;
+
+    /**
+     * * `interactive` - interactive
+    * `background` - background
+     */
+    export type TaskExecutionModeEnum = typeof TaskExecutionModeEnum[keyof typeof TaskExecutionModeEnum];
+
+
+    export const TaskExecutionModeEnum = {
+      Interactive: 'interactive',
+      Background: 'background',
+    } as const;
+
+    /**
+     * * `user` - user
+    * `bot` - bot
+     */
+    export type PrAuthorshipModeEnum = typeof PrAuthorshipModeEnum[keyof typeof PrAuthorshipModeEnum];
+
+
+    export const PrAuthorshipModeEnum = {
+      User: 'user',
+      Bot: 'bot',
+    } as const;
+
+    /**
+     * * `manual` - manual
+    * `signal_report` - signal_report
+     */
+    export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
+
+
+    export const RunSourceEnum = {
+      Manual: 'manual',
+      SignalReport: 'signal_report',
+    } as const;
+
+    /**
+     * * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `xhigh` - xhigh
+    * `max` - max
+     */
+    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
+
+
+    export const ReasoningEffortEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+      Max: 'max',
+    } as const;
+
+    /**
+     * * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+    * `auto` - auto
+     */
+    export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
+
+
+    export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+      Auto: 'auto',
+    } as const;
+
+    /**
+     * Request body for creating a new task run
+     */
+    export interface ClaudeTaskRunCreateSchema {
+      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+      * `interactive` - interactive
+      * `background` - background */
+      mode?: TaskExecutionModeEnum;
+      /**
+         * Git branch to checkout in the sandbox
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
+      /** ID of a previous run to resume from. Must belong to the same task. */
+      resume_from_run_id?: string;
+      /** Initial or follow-up user message to include in the run prompt. */
+      pending_user_message?: string;
+      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+      pending_user_artifact_ids?: string[];
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+      * `user` - user
+      * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+      * `manual` - manual
+      * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
+
+      * `claude` - claude */
+      runtime_adapter: ClaudeRuntimeAdapterEnum;
+      /** LLM model identifier to run in the Claude runtime. */
+      model: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+      * `low` - low
+      * `medium` - medium
+      * `high` - high
+      * `xhigh` - xhigh
+      * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      github_user_token?: string;
+      /** Initial permission mode for Claude runtimes.
+
+      * `default` - default
+      * `acceptEdits` - acceptEdits
+      * `plan` - plan
+      * `bypassPermissions` - bypassPermissions
+      * `auto` - auto */
+      initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
+    }
+
+    export type ClickhouseEventProperties = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type ClickhouseEventPerson = { [key: string]: unknown } | null;
+
+    export interface EventElement {
+      event: string;
+      /**
+         * @maxLength 10000
+         * @nullable
+         */
+      text?: string | null;
+      /**
+         * @maxLength 1000
+         * @nullable
+         */
+      tag_name?: string | null;
+      /** @nullable */
+      attr_class?: string[] | null;
+      /**
+         * @maxLength 10000
+         * @nullable
+         */
+      href?: string | null;
+      /**
+         * @maxLength 10000
+         * @nullable
+         */
+      attr_id?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      nth_child?: number | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      nth_of_type?: number | null;
+      attributes?: unknown;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      order?: number | null;
+    }
+
+    export interface ClickhouseEvent {
+      readonly id: string;
+      readonly distinct_id: string;
+      readonly properties: ClickhouseEventProperties;
+      readonly event: string;
+      readonly timestamp: string;
+      /** @nullable */
+      readonly person: ClickhouseEventPerson;
+      readonly elements: readonly EventElement[];
+      readonly elements_chain: string;
+    }
+
+    export interface DiffCluster {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      pixel_count: number;
+      centroid_x: number;
+      centroid_y: number;
+    }
+
+    export interface ClusterSummary {
+      items: DiffCluster[];
+      total: number;
+      truncated: boolean;
+    }
+
+    /**
+     * * `trace` - trace
+    * `generation` - generation
+    * `evaluation` - evaluation
+     */
+    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
+
+
+    export const ClusteringJobAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
+    export interface ClusteringJob {
+      readonly id: string;
+      /** @maxLength 100 */
+      name: string;
+      analysis_level: ClusteringJobAnalysisLevelEnum;
+      event_filters?: unknown;
+      enabled?: boolean;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `hdbscan` - hdbscan
+    * `kmeans` - kmeans
+     */
+    export type ClusteringMethodEnum = typeof ClusteringMethodEnum[keyof typeof ClusteringMethodEnum];
+
+
+    export const ClusteringMethodEnum = {
+      Hdbscan: 'hdbscan',
+      Kmeans: 'kmeans',
+    } as const;
+
+    export type ClusteringRunRequestEventFiltersItem = { [key: string]: unknown };
+
+    /**
+     * * `none` - none
+    * `l2` - l2
+     */
+    export type EmbeddingNormalizationEnum = typeof EmbeddingNormalizationEnum[keyof typeof EmbeddingNormalizationEnum];
+
+
+    export const EmbeddingNormalizationEnum = {
+      None: 'none',
+      L2: 'l2',
+    } as const;
+
+    /**
+     * * `none` - none
+    * `umap` - umap
+    * `pca` - pca
+     */
+    export type DimensionalityReductionMethodEnum = typeof DimensionalityReductionMethodEnum[keyof typeof DimensionalityReductionMethodEnum];
+
+
+    export const DimensionalityReductionMethodEnum = {
+      None: 'none',
+      Umap: 'umap',
+      Pca: 'pca',
+    } as const;
+
+    /**
+     * * `umap` - umap
+    * `pca` - pca
+    * `tsne` - tsne
+     */
+    export type VisualizationMethodEnum = typeof VisualizationMethodEnum[keyof typeof VisualizationMethodEnum];
+
+
+    export const VisualizationMethodEnum = {
+      Umap: 'umap',
+      Pca: 'pca',
+      Tsne: 'tsne',
+    } as const;
+
+    /**
+     * Serializer for clustering workflow request parameters.
+     */
+    export interface ClusteringRunRequest {
+      /**
+         * Number of days to look back for traces
+         * @minimum 1
+         * @maximum 90
+         */
+      lookback_days?: number;
+      /**
+         * Maximum number of traces to sample for clustering
+         * @minimum 20
+         * @maximum 10000
+         */
+      max_samples?: number;
+      /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
+
+      * `none` - none
+      * `l2` - l2 */
+      embedding_normalization?: EmbeddingNormalizationEnum;
+      /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
+
+      * `none` - none
+      * `umap` - umap
+      * `pca` - pca */
+      dimensionality_reduction_method?: DimensionalityReductionMethodEnum;
+      /**
+         * Target dimensions for dimensionality reduction (ignored if method is 'none')
+         * @minimum 2
+         * @maximum 500
+         */
+      dimensionality_reduction_ndims?: number;
+      /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
+
+      * `hdbscan` - hdbscan
+      * `kmeans` - kmeans */
+      clustering_method?: ClusteringMethodEnum;
+      /**
+         * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
+         * @minimum 0.02
+         * @maximum 0.5
+         */
+      min_cluster_size_fraction?: number;
+      /**
+         * HDBSCAN min_samples parameter (higher = more conservative clustering)
+         * @minimum 1
+         * @maximum 100
+         */
+      hdbscan_min_samples?: number;
+      /**
+         * Minimum number of clusters to try for k-means
+         * @minimum 2
+         * @maximum 50
+         */
+      kmeans_min_k?: number;
+      /**
+         * Maximum number of clusters to try for k-means
+         * @minimum 2
+         * @maximum 100
+         */
+      kmeans_max_k?: number;
+      /**
+         * Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+         * @maxLength 50
+         */
+      run_label?: string;
+      /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
+
+      * `umap` - umap
+      * `pca` - pca
+      * `tsne` - tsne */
+      visualization_method?: VisualizationMethodEnum;
+      /** Property filters to scope which traces are included in clustering (PostHog standard format) */
+      event_filters?: ClusteringRunRequestEventFiltersItem[];
+      /**
+         * If provided, use this clustering job's analysis_level and event_filters instead of request params
+         * @nullable
+         */
+      clustering_job_id?: string | null;
+    }
+
+    export interface CodeInviteRedeemRequest {
+      /** @maxLength 50 */
+      code: string;
+    }
+
+    /**
+     * * `codex` - codex
+     */
+    export type CodexRuntimeAdapterEnum = typeof CodexRuntimeAdapterEnum[keyof typeof CodexRuntimeAdapterEnum];
+
+
+    export const CodexRuntimeAdapterEnum = {
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * * `auto` - auto
+    * `read-only` - read-only
+    * `full-access` - full-access
+     */
+    export type CodexTaskRunCreateSchemaInitialPermissionModeEnum = typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnum];
+
+
+    export const CodexTaskRunCreateSchemaInitialPermissionModeEnum = {
+      Auto: 'auto',
+      ReadOnly: 'read-only',
+      FullAccess: 'full-access',
+    } as const;
+
+    /**
+     * Request body for creating a new task run
+     */
+    export interface CodexTaskRunCreateSchema {
+      /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+      * `interactive` - interactive
+      * `background` - background */
+      mode?: TaskExecutionModeEnum;
+      /**
+         * Git branch to checkout in the sandbox
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
+      /** ID of a previous run to resume from. Must belong to the same task. */
+      resume_from_run_id?: string;
+      /** Initial or follow-up user message to include in the run prompt. */
+      pending_user_message?: string;
+      /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+      pending_user_artifact_ids?: string[];
+      /** Optional sandbox environment to apply for this cloud run. */
+      sandbox_environment_id?: string;
+      /** Whether pull requests for this run should be authored by the user or the bot.
+
+      * `user` - user
+      * `bot` - bot */
+      pr_authorship_mode?: PrAuthorshipModeEnum;
+      /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+      * `manual` - manual
+      * `signal_report` - signal_report */
+      run_source?: RunSourceEnum;
+      /** Optional signal report identifier when this run was started from Inbox. */
+      signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
+
+      * `codex` - codex */
+      runtime_adapter: CodexRuntimeAdapterEnum;
+      /** LLM model identifier to run in the Codex runtime. */
+      model: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+      * `low` - low
+      * `medium` - medium
+      * `high` - high
+      * `xhigh` - xhigh
+      * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      github_user_token?: string;
+      /** Initial permission mode for Codex runtimes.
+
+      * `auto` - auto
+      * `read-only` - read-only
+      * `full-access` - full-access */
+      initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnum;
+    }
+
+    export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
+
+
+    export const PropertyGroupOperator = {
+      And: 'AND',
+      Or: 'OR',
+    } as const;
+
+    export interface CohortFilter {
+      bytecode?: unknown[] | null;
+      bytecode_error?: string | null;
+      conditionHash?: string | null;
+      type: 'cohort';
+      key: 'id';
+      value: number;
+      negation?: boolean;
+    }
+
+    export interface PersonFilter {
+      bytecode?: unknown[] | null;
+      bytecode_error?: string | null;
+      conditionHash?: string | null;
+      type: 'person';
+      key: string;
+      operator?: string | null;
+      value?: unknown;
+      negation?: boolean;
+    }
+
+    /**
+     * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
+     */
+    export interface CohortFilterGroup {
+      type: PropertyGroupOperator;
+      values: (BehavioralFilter | CohortFilter | PersonFilter | CohortFilterGroup)[];
+    }
+
+    export interface CohortFilters {
+      properties: CohortFilterGroup;
+    }
+
+    /**
+     * * `static` - static
+    * `person_property` - person_property
+    * `behavioral` - behavioral
+    * `realtime` - realtime
+    * `analytical` - analytical
+     */
+    export type CohortTypeEnum = typeof CohortTypeEnum[keyof typeof CohortTypeEnum];
+
+
+    export const CohortTypeEnum = {
+      Static: 'static',
+      PersonProperty: 'person_property',
+      Behavioral: 'behavioral',
+      Realtime: 'realtime',
+      Analytical: 'analytical',
+    } as const;
+
+    export interface Cohort {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** @maxLength 1000 */
+      description?: string;
+      groups?: unknown;
+      deleted?: boolean;
+      filters?: CohortFilters | null;
+      query?: unknown;
+      /** @nullable */
+      readonly version: number | null;
+      /** @nullable */
+      readonly pending_version: number | null;
+      readonly is_calculating: boolean;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      /** @nullable */
+      readonly last_calculation: string | null;
+      /** @nullable */
+      readonly last_backfill_person_properties_at: string | null;
+      readonly errors_calculating: number;
+      /** @nullable */
+      readonly last_error_message: string | null;
+      /** @nullable */
+      readonly count: number | null;
+      is_static?: boolean;
+      /** Type of cohort based on filter complexity
+
+      * `static` - static
+      * `person_property` - person_property
+      * `behavioral` - behavioral
+      * `realtime` - realtime
+      * `analytical` - analytical */
+      cohort_type?: CohortTypeEnum | BlankEnum | null;
+      readonly experiment_set: readonly number[];
+      _create_in_folder?: string;
+      _create_static_person_ids?: string[];
+    }
+
+    export type CohortPersonResultProperties = { [key: string]: unknown };
+
+    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
+
+    /**
+     * * `person` - person
+     */
+    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+
+
+    export const CohortPersonResultTypeEnum = {
+      Person: 'person',
+    } as const;
+
+    export interface CohortPersonResult {
+      id: string;
+      uuid: string;
+      type: CohortPersonResultTypeEnum;
+      name: string;
+      distinct_ids: string[];
+      properties: CohortPersonResultProperties;
+      /** @nullable */
+      created_at: string | null;
+      /** @nullable */
+      last_seen_at: string | null;
+      /** @nullable */
+      is_identified: boolean | null;
+      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
+      /** @nullable */
+      value_at_data_point: number | null;
+    }
+
+    export interface CohortPersonsResponse {
+      results: CohortPersonResult[];
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+    }
+
+    /**
+     * * `private` - Private (only visible to creator)
+    * `shared` - Shared with team
+     */
+    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
+
+
+    export const VisibilityEnum = {
+      Private: 'private',
+      Shared: 'shared',
+    } as const;
+
+    export interface ColumnConfiguration {
+      readonly id: string;
+      /** @maxLength 255 */
+      context_key: string;
+      columns?: string[];
+      /** @maxLength 255 */
+      name?: string;
+      filters?: unknown;
+      /**
+         * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+         * @nullable
+         */
+      order_by?: string[] | null;
+      visibility?: VisibilityEnum;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface Comment {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      deleted?: boolean | null;
+      mentions?: number[];
+      slug?: string;
+      /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+      is_task?: boolean;
+      /** The user who marked this task complete. Null for open tasks and non-task comments. */
+      readonly completed_by: UserBasic | null;
+      /** @nullable */
+      content?: string | null;
+      rich_content?: unknown;
+      readonly version: number;
+      readonly created_at: string;
+      /**
+         * @maxLength 72
+         * @nullable
+         */
+      item_id?: string | null;
+      item_context?: unknown;
+      /** @maxLength 79 */
+      scope: string;
+      /**
+         * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /** @nullable */
+      source_comment?: string | null;
+    }
+
+    export interface CompareItem {
+      label: string;
+      value: string;
+    }
+
+    export interface ComposeTicket {
+      /** Recipient email address. */
+      recipient_email: string;
+      /**
+         * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
+         * @maxLength 400
+         */
+      recipient_distinct_id?: string;
+      /**
+         * Email subject line.
+         * @maxLength 500
+         */
+      email_subject?: string;
+      /** ID of the EmailChannel to send from. */
+      email_config_id: string;
+      /**
+         * Message content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
+    export interface ComposeTicketResponse {
+      /** Created ticket UUID. */
+      id: string;
+      /** Human-readable ticket number. */
+      ticket_number: number;
+    }
+
+    /**
+     * * `won` - won
+    * `lost` - lost
+    * `inconclusive` - inconclusive
+    * `stopped_early` - stopped_early
+    * `invalid` - invalid
+     */
+    export type ConclusionEnum = typeof ConclusionEnum[keyof typeof ConclusionEnum];
+
+
+    export const ConclusionEnum = {
+      Won: 'won',
+      Lost: 'lost',
+      Inconclusive: 'inconclusive',
+      StoppedEarly: 'stopped_early',
+      Invalid: 'invalid',
+    } as const;
+
+    /**
+     * Response containing a JWT token for direct sandbox connection
+     */
+    export interface ConnectionTokenResponse {
+      /** JWT token for authenticating with the sandbox */
+      token: string;
+    }
+
+    /**
+     * * `utf-8` - utf-8
+    * `base64` - base64
+     */
+    export type ContentEncodingEnum = typeof ContentEncodingEnum[keyof typeof ContentEncodingEnum];
+
+
+    export const ContentEncodingEnum = {
+      Utf8: 'utf-8',
+      Base64: 'base64',
+    } as const;
+
+    export type ConversationMessagesItem = { [key: string]: unknown };
+
+    export type ConversationPendingApprovalsItem = { [key: string]: unknown };
+
+    /**
+     * * `idle` - Idle
+    * `in_progress` - In progress
+    * `canceling` - Canceling
+     */
+    export type ConversationStatus = typeof ConversationStatus[keyof typeof ConversationStatus];
+
+
+    export const ConversationStatus = {
+      Idle: 'idle',
+      InProgress: 'in_progress',
+      Canceling: 'canceling',
+    } as const;
+
+    /**
+     * * `assistant` - Assistant
+    * `tool_call` - Tool call
+    * `deep_research` - Deep research
+    * `slack` - Slack
+     */
+    export type ConversationType = typeof ConversationType[keyof typeof ConversationType];
+
+
+    export const ConversationType = {
+      Assistant: 'assistant',
+      ToolCall: 'tool_call',
+      DeepResearch: 'deep_research',
+      Slack: 'slack',
+    } as const;
+
+    export interface Conversation {
+      readonly id: string;
+      readonly status: ConversationStatus;
+      /**
+         * Title of the conversation.
+         * @nullable
+         */
+      readonly title: string | null;
+      readonly user: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly type: ConversationType;
+      /**
+         * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+         * @nullable
+         */
+      readonly is_internal: boolean | null;
+      /**
+         * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+         * @nullable
+         */
+      readonly slack_thread_key: string | null;
+      /**
+         * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+         * @nullable
+         */
+      readonly slack_workspace_domain: string | null;
+      readonly messages: readonly ConversationMessagesItem[];
+      readonly has_unsupported_content: boolean;
+      /** @nullable */
+      readonly agent_mode: string | null;
+      readonly is_sandbox: boolean;
+      /** Return pending approval cards as structured data.
+
+      Combines metadata from conversation.approval_decisions with payload from checkpoint
+      interrupts (single source of truth for payload data). */
+      readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
+    }
+
+    export interface ConversationMinimal {
+      readonly id: string;
+      readonly status: ConversationStatus;
+      /**
+         * Title of the conversation.
+         * @nullable
+         */
+      readonly title: string | null;
+      readonly user: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly type: ConversationType;
+      /**
+         * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+         * @nullable
+         */
+      readonly is_internal: boolean | null;
+      /**
+         * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+         * @nullable
+         */
+      readonly slack_thread_key: string | null;
+      /**
+         * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+         * @nullable
+         */
+      readonly slack_workspace_domain: string | null;
+    }
+
+    /**
+     * * `0` - Disabled
+    * `1` - Stateless
+    * `2` - Stateful
+     */
+    export type CookielessServerHashModeEnum = typeof CookielessServerHashModeEnum[keyof typeof CookielessServerHashModeEnum];
+
+
+    export const CookielessServerHashModeEnum = {
+      Number0: 0,
+      Number1: 1,
+      Number2: 2,
+    } as const;
+
+    export interface CopyDashboardTemplate {
+      /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
+      source_template_id: string;
+    }
+
+    export interface CopyDashboardTileRequest {
+      /** Dashboard id the tile currently belongs to. */
+      fromDashboardId: number;
+      /** Dashboard tile id to copy. */
+      tileId: number;
+    }
+
+    export interface CopyExperimentToProject {
+      /** The team ID to copy the experiment to. */
+      target_team_id: number;
+      /** Optional feature flag key to use in the destination team. */
+      feature_flag_key?: string;
+      /** Optional name for the copied experiment. */
+      name?: string;
+    }
+
+    export interface CopyFlagsRequest {
+      /** Key of the feature flag to copy */
+      feature_flag_key: string;
+      /** Source project ID to copy the flag from */
+      from_project: number;
+      /**
+         * List of target project IDs to copy the flag to
+         * @maxItems 50
+         */
+      target_project_ids: number[];
+      /** Whether to also copy scheduled changes for this flag */
+      copy_schedule?: boolean;
+      /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+      disable_copied_flag?: boolean;
+    }
+
+    export interface CopyFlagsSuccessItem {
+      /** ID of the created feature flag */
+      id: number;
+      /** Key of the feature flag */
+      key: string;
+      /** Name of the feature flag */
+      name: string;
+      /** Whether the flag is active */
+      active: boolean;
+      /** Team ID the flag was copied to */
+      team_id: number;
+    }
+
+    export interface CopyFlagsResult {
+      /** Project ID (present on failure) */
+      project_id?: number;
+      /** Error message (present on failure) */
+      error_message?: string;
+    }
+
+    export interface CopyFlagsResponse {
+      /** List of successfully copied flags */
+      success: CopyFlagsSuccessItem[];
+      /** List of failed copy attempts */
+      failed: CopyFlagsResult[];
+    }
+
+    /**
+     * * `acquisition` - Acquisition
+    * `activation` - Activation
+    * `monetization` - Monetization
+    * `expansion` - Expansion
+    * `referral` - Referral
+    * `retention` - Retention
+    * `churn` - Churn
+    * `reactivation` - Reactivation
+     */
+    export type CoreEventCategoryEnum = typeof CoreEventCategoryEnum[keyof typeof CoreEventCategoryEnum];
+
+
+    export const CoreEventCategoryEnum = {
+      Acquisition: 'acquisition',
+      Activation: 'activation',
+      Monetization: 'monetization',
+      Expansion: 'expansion',
+      Referral: 'referral',
+      Retention: 'retention',
+      Churn: 'churn',
+      Reactivation: 'reactivation',
+    } as const;
+
+    export interface CoreEvent {
+      readonly id: string;
+      /**
+         * Display name for this core event
+         * @maxLength 255
+         */
+      name: string;
+      /** Optional description */
+      description?: string;
+      /** Lifecycle category for this core event
+
+      * `acquisition` - Acquisition
+      * `activation` - Activation
+      * `monetization` - Monetization
+      * `expansion` - Expansion
+      * `referral` - Referral
+      * `retention` - Retention
+      * `churn` - Churn
+      * `reactivation` - Reactivation */
+      category: CoreEventCategoryEnum;
+      /** Filter configuration - event, action, or data warehouse node */
+      filter: unknown;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `single` - Single page
+    * `sitemap` - Sitemap
+    * `same_origin` - Same origin crawl
+    * `github_repo` - GitHub repository
+     */
+    export type CrawlModeEnum = typeof CrawlModeEnum[keyof typeof CrawlModeEnum];
+
+
+    export const CrawlModeEnum = {
+      Single: 'single',
+      Sitemap: 'sitemap',
+      SameOrigin: 'same_origin',
+      GithubRepo: 'github_repo',
+    } as const;
+
+    /**
+     * Typed configuration for a FileDownload batch-export destination.
+     */
+    export interface FileDownloadDestinationFileConfig {
+      /** File format
+
+      * `Parquet` - Parquet
+      * `JSONLines` - JSONLines */
+      format?: FileFormatEnum;
+      /** Compress the file with a supported compression format
+
+      * `zstd` - zstd
+      * `gzip` - gzip
+      * `brotli` - brotli
+      * `lz4` - lz4
+      * `snappy` - snappy */
+      compression?: CompressionEnum | null;
+      /**
+         * Split download into multiple files of at most this size in MB
+         * @minimum 0
+         * @nullable
+         */
+      max_size_mb?: number | null;
+    }
+
+    export type FileDownloadEventsRequestModel = typeof FileDownloadEventsRequestModel[keyof typeof FileDownloadEventsRequestModel];
+
+
+    export const FileDownloadEventsRequestModel = {
+      Events: 'events',
+    } as const;
+
+    /**
+     * Typed configuration for the events model.
+     */
+    export interface FileDownloadEventsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadEventsRequestModel;
+      include?: string[];
+      exclude?: string[];
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type FileDownloadPersonsRequestModel = typeof FileDownloadPersonsRequestModel[keyof typeof FileDownloadPersonsRequestModel];
+
+
+    export const FileDownloadPersonsRequestModel = {
+      Persons: 'persons',
+    } as const;
+
+    /**
+     * Typed configuration for the persons model.
+     */
+    export interface FileDownloadPersonsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadPersonsRequestModel;
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type FileDownloadSessionsRequestModel = typeof FileDownloadSessionsRequestModel[keyof typeof FileDownloadSessionsRequestModel];
+
+
+    export const FileDownloadSessionsRequestModel = {
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * Typed configuration for the sessions model.
+     */
+    export interface FileDownloadSessionsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadSessionsRequestModel;
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
+
+    /**
+     * * `cost` - cost
+    * `latency` - latency
+    * `eval_pass_rate` - eval_pass_rate
+     */
+    export type TemplatesEnum = typeof TemplatesEnum[keyof typeof TemplatesEnum];
+
+
+    export const TemplatesEnum = {
+      Cost: 'cost',
+      Latency: 'latency',
+      EvalPassRate: 'eval_pass_rate',
+    } as const;
+
+    export interface CreateFromPromptInput {
+      /** The name of the LLM prompt to experiment on. Must already exist for this team. */
+      prompt_name: string;
+      /**
+         * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
+         * @minItems 2
+         * @maxItems 10
+         */
+      versions: number[];
+      /**
+         * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+         * @minItems 1
+         * @maxItems 3
+         */
+      templates: TemplatesEnum[];
+      /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
+      name?: string;
+      /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
+      feature_flag_key?: string;
+      /** Optional experiment description. */
+      description?: string;
+    }
+
+    export interface CreateGroup {
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      group_type_index: number;
+      /** @maxLength 400 */
+      group_key: string;
+      group_properties?: unknown;
+    }
+
+    /**
+     * * `BAA` - BAA
+    * `DPA` - DPA
+     */
+    export type CreateLegalDocumentDocumentTypeEnum = typeof CreateLegalDocumentDocumentTypeEnum[keyof typeof CreateLegalDocumentDocumentTypeEnum];
+
+
+    export const CreateLegalDocumentDocumentTypeEnum = {
+      Baa: 'BAA',
+      Dpa: 'DPA',
+    } as const;
+
+    /**
+     * Input serializer for POST. Mirrors the submittable fields on the model plus
+    cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
+    organization and submitting user.
+     */
+    export interface CreateLegalDocument {
+      /** Either 'BAA' or 'DPA'.
+
+      * `BAA` - BAA
+      * `DPA` - DPA */
+      document_type: CreateLegalDocumentDocumentTypeEnum;
+      /**
+         * The customer legal entity entering the agreement (PandaDoc's Client.Company).
+         * @maxLength 255
+         */
+      company_name: string;
+      /**
+         * The customer address (PandaDoc's Client.StreetAddress).
+         * @maxLength 512
+         */
+      company_address: string;
+      /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
+      representative_email: string;
+    }
+
+    /**
+     * Typed output for view set `create`.
+     */
+    export interface CreateOutput {
+      id: string;
+    }
+
+    /**
+     * * `zoom` - zoom
+    * `teams` - teams
+    * `meet` - meet
+    * `desktop_audio` - desktop_audio
+    * `slack` - slack
+     */
+    export type CreateRecordingRequestPlatformEnum = typeof CreateRecordingRequestPlatformEnum[keyof typeof CreateRecordingRequestPlatformEnum];
+
+
+    export const CreateRecordingRequestPlatformEnum = {
+      Zoom: 'zoom',
+      Teams: 'teams',
+      Meet: 'meet',
+      DesktopAudio: 'desktop_audio',
+      Slack: 'slack',
+    } as const;
+
+    /**
+     * Request body for creating a new recording
+     */
+    export interface CreateRecordingRequest {
+      /** Meeting platform being recorded
+
+      * `zoom` - zoom
+      * `teams` - teams
+      * `meet` - meet
+      * `desktop_audio` - desktop_audio
+      * `slack` - slack */
+      platform?: CreateRecordingRequestPlatformEnum;
+    }
+
+    /**
+     * * `zoom` - Zoom
+    * `teams` - Microsoft Teams
+    * `meet` - Google Meet
+    * `desktop_audio` - Desktop audio
+    * `slack` - Slack huddle
+     */
+    export type MeetingPlatformEnum = typeof MeetingPlatformEnum[keyof typeof MeetingPlatformEnum];
+
+
+    export const MeetingPlatformEnum = {
+      Zoom: 'zoom',
+      Teams: 'teams',
+      Meet: 'meet',
+      DesktopAudio: 'desktop_audio',
+      Slack: 'slack',
+    } as const;
+
+    /**
+     * * `recording` - Recording
+    * `uploading` - Uploading
+    * `processing` - Processing
+    * `ready` - Ready
+    * `error` - Error
+     */
+    export type DesktopRecordingStatusEnum = typeof DesktopRecordingStatusEnum[keyof typeof DesktopRecordingStatusEnum];
+
+
+    export const DesktopRecordingStatusEnum = {
+      Recording: 'recording',
+      Uploading: 'uploading',
+      Processing: 'processing',
+      Ready: 'ready',
+      Error: 'error',
+    } as const;
+
+    /**
+     * Serializer for extracted tasks
+     */
+    export interface DesktopRecordingTask {
+      title: string;
+      description?: string;
+      /** @nullable */
+      assignee?: string | null;
+    }
+
+    /**
+     * Response for creating a new recording (includes upload_token)
+     */
+    export interface CreateRecordingResponse {
+      readonly id: string;
+      readonly team: number;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly sdk_upload_id: string;
+      /** @nullable */
+      recall_recording_id?: string | null;
+      platform: MeetingPlatformEnum;
+      /**
+         * @maxLength 255
+         * @nullable
+         */
+      meeting_title?: string | null;
+      /**
+         * @maxLength 200
+         * @nullable
+         */
+      meeting_url?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      duration_seconds?: number | null;
+      status?: DesktopRecordingStatusEnum;
+      /** @nullable */
+      notes?: string | null;
+      /** @nullable */
+      error_message?: string | null;
+      /**
+         * @maxLength 200
+         * @nullable
+         */
+      video_url?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      video_size_bytes?: number | null;
+      /** List of participant names */
+      participants?: string[];
+      readonly transcript_text: string;
+      /** Transcript segments with timestamps */
+      transcript_segments?: TranscriptSegment[];
+      /** @nullable */
+      summary?: string | null;
+      /** AI-extracted tasks from transcript */
+      extracted_tasks?: DesktopRecordingTask[];
+      /** @nullable */
+      tasks_generated_at?: string | null;
+      /** @nullable */
+      summary_generated_at?: string | null;
+      started_at?: string;
+      /** @nullable */
+      completed_at?: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** Recall.ai upload token for the desktop SDK */
+      upload_token: string;
+    }
+
+    export interface CreateRepoInput {
+      repo_full_name: string;
+      /** @nullable */
+      repo_external_id?: number | null;
+    }
+
+    export type CreateRunInputBaselineHashes = {[key: string]: string};
+
+    export type CreateRunInputMetadata = { [key: string]: unknown };
+
+    export interface CreateRunInput {
+      repo_id: string;
+      run_type: string;
+      commit_sha: string;
+      branch: string;
+      snapshots: SnapshotManifestItem[];
+      /** @nullable */
+      pr_number?: number | null;
+      baseline_hashes?: CreateRunInputBaselineHashes;
+      unchanged_count?: number;
+      removed_identifiers?: string[];
+      purpose?: string;
+      metadata?: CreateRunInputMetadata;
+    }
+
+    export interface CreateRunResult {
+      run_id: string;
+      uploads: UploadTarget[];
+    }
+
+    export interface CreateTextSource {
+      /**
+         * Short human label for the source. Shown in the settings list and in agent citations.
+         * @maxLength 255
+         */
+      name: string;
+      /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
+      text: string;
+    }
+
+    export interface CreateTextTileRequest {
+      /**
+         * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
+         * @minLength 1
+         * @maxLength 4000
+         */
+      body: string;
+      /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
+      layouts?: TileLayouts;
+      /**
+         * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+    }
+
+    /**
+     * * `web` - web
+    * `api` - api
+    * `mcp` - mcp
+     */
+    export type CreatedViaEnum = typeof CreatedViaEnum[keyof typeof CreatedViaEnum];
+
+
+    export const CreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
+
+    /**
+     * * `default` - Default
+    * `template` - Template
+    * `duplicate` - Duplicate
+    * `unlisted` - Unlisted (product-embedded)
+     */
+    export type CreationModeEnum = typeof CreationModeEnum[keyof typeof CreationModeEnum];
+
+
+    export const CreationModeEnum = {
+      Default: 'default',
+      Template: 'template',
+      Duplicate: 'duplicate',
+      Unlisted: 'unlisted',
+    } as const;
+
+    export interface Credential {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @maxLength 500 */
+      access_key: string;
+      /** @maxLength 500 */
+      access_secret: string;
+    }
+
+    export interface CustomerJourney {
+      readonly id: string;
+      insight: number;
+      /** @maxLength 400 */
+      name: string;
+      /** @nullable */
+      description?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * * `person` - Person
+    * `group_0` - Group 0
+    * `group_1` - Group 1
+    * `group_2` - Group 2
+    * `group_3` - Group 3
+    * `group_4` - Group 4
+     */
+    export type CustomerProfileConfigScopeEnum = typeof CustomerProfileConfigScopeEnum[keyof typeof CustomerProfileConfigScopeEnum];
+
+
+    export const CustomerProfileConfigScopeEnum = {
+      Person: 'person',
+      Group0: 'group_0',
+      Group1: 'group_1',
+      Group2: 'group_2',
+      Group3: 'group_3',
+      Group4: 'group_4',
+    } as const;
+
+    export interface CustomerProfileConfig {
+      readonly id: string;
+      scope: CustomerProfileConfigScopeEnum;
+      content?: unknown;
+      sidebar?: unknown;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface Dag {
+      readonly id: string;
+      /**
+         * Human-readable name for this DAG
+         * @maxLength 2048
+         */
+      name: string;
+      /** Optional description of the DAG's purpose */
+      description?: string;
+      /**
+         * Sync frequency string (e.g. '24hour', '7day')
+         * @nullable
+         */
+      sync_frequency?: string | null;
+      readonly node_count: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export type DashboardFilters = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type DashboardVariables = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardPersistedFilters = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardPersistedVariables = { [key: string]: unknown } | null;
+
+    export type DashboardTilesItem = { [key: string]: unknown };
+
+    /**
+     * * `21` - Everyone in the project can edit
+    * `37` - Only those invited to this dashboard can edit
+     */
+    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
+
+
+    export const RestrictionLevelEnum = {
+      Number21: 21,
+      Number37: 37,
+    } as const;
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface Dashboard {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      pinned?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      last_accessed_at?: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      readonly is_shared: boolean;
+      deleted?: boolean;
+      readonly creation_mode: CreationModeEnum;
+      readonly filters: DashboardFilters;
+      /** @nullable */
+      readonly variables: DashboardVariables;
+      /** Custom color mapping for breakdown values. */
+      breakdown_colors?: unknown;
+      /**
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
+      data_color_theme_id?: number | null;
+      tags?: unknown[];
+      restriction_level?: RestrictionLevelEnum;
+      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
+      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly access_control_version: string;
+      /** @nullable */
+      last_refresh?: string | null;
+      /** @nullable */
+      readonly persisted_filters: DashboardPersistedFilters;
+      /** @nullable */
+      readonly persisted_variables: DashboardPersistedVariables;
+      readonly team_id: number;
+      /**
+         * List of quick filter IDs associated with this dashboard
+         * @nullable
+         */
+      quick_filter_ids?: string[] | null;
+      /** @nullable */
+      readonly tiles: readonly DashboardTilesItem[] | null;
+      /** Template key to create the dashboard from a predefined template. */
+      use_template?: string;
+      /**
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
+      use_dashboard?: number | null;
+      /** When deleting, also delete insights that are only on this dashboard. */
+      delete_insights?: boolean;
+      _create_in_folder?: string;
+    }
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface DashboardBasic {
+      readonly id: number;
+      /**
+         * Name of the dashboard.
+         * @nullable
+         */
+      readonly name: string | null;
+      /** Description of the dashboard. */
+      readonly description: string;
+      /** Whether the dashboard is pinned to the top of the list. */
+      readonly pinned: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_accessed_at: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      readonly is_shared: boolean;
+      readonly deleted: boolean;
+      readonly creation_mode: CreationModeEnum;
+      tags?: unknown[];
+      /** Controls who can edit the dashboard.
+
+      * `21` - Everyone in the project can edit
+      * `37` - Only those invited to this dashboard can edit */
+      readonly restriction_level: RestrictionLevelEnum;
+      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
+      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly access_control_version: string;
+      /** @nullable */
+      readonly last_refresh: string | null;
+      readonly team_id: number;
+    }
+
+    export interface DashboardCollaborator {
+      readonly id: string;
+      readonly dashboard_id: number;
+      readonly user: UserBasic;
+      level: RestrictionLevelEnum;
+      readonly added_at: string;
+      readonly updated_at: string;
+      user_uuid: string;
+    }
+
+    export interface DashboardFilter {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
+    /**
+     * * `team` - Only team
+    * `global` - Global
+    * `feature_flag` - Feature Flag
+     */
+    export type DashboardTemplateScopeEnum = typeof DashboardTemplateScopeEnum[keyof typeof DashboardTemplateScopeEnum];
+
+
+    export const DashboardTemplateScopeEnum = {
+      Team: 'team',
+      Global: 'global',
+      FeatureFlag: 'feature_flag',
+    } as const;
+
+    export interface DashboardTemplate {
+      readonly id: string;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      template_name?: string | null;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      dashboard_description?: string | null;
+      dashboard_filters?: unknown;
+      /** @nullable */
+      tags?: string[] | null;
+      tiles?: unknown;
+      variables?: unknown;
+      /** @nullable */
+      deleted?: boolean | null;
+      /** @nullable */
+      readonly created_at: string | null;
+      readonly created_by: UserBasic;
+      /**
+         * @maxLength 8201
+         * @nullable
+         */
+      image_url?: string | null;
+      /** @nullable */
+      readonly team_id: number | null;
+      scope?: DashboardTemplateScopeEnum | BlankEnum | null;
+      /** @nullable */
+      availability_contexts?: string[] | null;
+      /** Manually curated; used to highlight templates in the UI. */
+      is_featured?: boolean;
     }
 
     /**
@@ -11890,6 +12059,23 @@ export namespace Schemas {
     export interface DashboardTileResult {
       id?: number;
       insight: InsightResult;
+    }
+
+    export interface DashboardWidgetRunResult {
+      /** Dashboard tile ID for this widget result. */
+      tile_id: number;
+      /**
+         * Widget type identifier, or null when the tile was not found.
+         * @nullable
+         */
+      widget_type: string | null;
+      /** Live widget query result payload. */
+      result: unknown;
+      /**
+         * Error message when the widget could not be run.
+         * @nullable
+         */
+      error: string | null;
     }
 
     export interface DataColorTheme {
@@ -11962,7 +12148,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
      */
     export type DataWarehouseSavedQueryQuery = {
       kind?: DataWarehouseSavedQueryQueryKind;
@@ -12017,7 +12203,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -12583,6 +12769,7 @@ export namespace Schemas {
     * `Plain` - Plain
     * `Resend` - Resend
     * `PgAnalyze` - PgAnalyze
+    * `WorkOS` - WorkOS
     * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -12734,6 +12921,7 @@ export namespace Schemas {
       Plain: 'Plain',
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
+      WorkOS: 'WorkOS',
       Custom: 'Custom',
     } as const;
 
@@ -12892,6 +13080,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -12965,6 +13154,11 @@ export namespace Schemas {
       Bayesian: 'bayesian',
       Frequentist: 'frequentist',
     } as const;
+
+    export interface DeleteTileRequest {
+      /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+    }
 
     /**
      * * `pending` - Pending
@@ -15103,18 +15297,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `ASC` - ASC
-    * `DESC` - DESC
-     */
-    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
-
-
-    export const OrderDirectionEnum = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    /**
      * * `summary` - summary
     * `stack` - stack
     * `raw` - raw
@@ -15272,24 +15454,6 @@ export namespace Schemas {
       success: boolean;
     }
 
-    /**
-     * * `last_seen` - last_seen
-    * `first_seen` - first_seen
-    * `occurrences` - occurrences
-    * `users` - users
-    * `sessions` - sessions
-     */
-    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
-
-
-    export const ErrorTrackingIssueOrderByEnum = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-    } as const;
-
     export interface ErrorTrackingIssueQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
@@ -15328,26 +15492,6 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
-    /**
-     * * `archived` - archived
-    * `active` - active
-    * `resolved` - resolved
-    * `pending_release` - pending_release
-    * `suppressed` - suppressed
-    * `all` - all
-     */
-    export type ErrorTrackingIssuesListQueryRequestStatusEnum = typeof ErrorTrackingIssuesListQueryRequestStatusEnum[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnum];
-
-
-    export const ErrorTrackingIssuesListQueryRequestStatusEnum = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-      All: 'all',
-    } as const;
-
     export interface ErrorTrackingIssuesListQueryRequest {
       /** Date range for issue aggregates. Defaults to the last 7 days. */
       dateRange?: ErrorTrackingDateRange;
@@ -15359,7 +15503,7 @@ export namespace Schemas {
       * `pending_release` - pending_release
       * `suppressed` - suppressed
       * `all` - all */
-      status?: ErrorTrackingIssuesListQueryRequestStatusEnum;
+      status?: ErrorTrackingIssueStatusEnum;
       /** Filter by issue assignee. Omit to include all assignees. */
       assignee?: ErrorTrackingAssignee | null;
       /** When true, exclude internal/test account data from results. Defaults to true. */
@@ -17218,6 +17362,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -17869,6 +18014,8 @@ export namespace Schemas {
          * @nullable
          */
       feature_enrollment?: boolean | null;
+      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+      early_exit?: boolean;
     }
 
     export interface FeatureFlagCreateRequestSchema {
@@ -18516,6 +18663,14 @@ export namespace Schemas {
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
     }
+
+    export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
+
+
+    export const HideViewedRecordings = {
+      CurrentUser: 'current-user',
+      AnyUser: 'any-user',
+    } as const;
 
     /**
      * Variable: {key, type: string|number|boolean, default}.
@@ -20005,6 +20160,8 @@ export namespace Schemas {
       events?: RecordingsQueryEvents;
       filter_test_accounts?: boolean | null;
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+      hide_viewed_recordings?: HideViewedRecordings | null;
       kind?: 'RecordingsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -22217,6 +22374,11 @@ export namespace Schemas {
     export const ModelNameEnum = {
       FeatureFlag: 'FeatureFlag',
     } as const;
+
+    export interface MoveTileTile {
+      /** Dashboard tile ID to move. */
+      id: number;
+    }
 
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
@@ -25001,6 +25163,7 @@ export namespace Schemas {
     * `error_tracking` - Error tracking
     * `pganalyze` - pganalyze
     * `signals_scout` - Signals scout
+    * `logs` - Logs
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -25015,6 +25178,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
+      Logs: 'logs',
     } as const;
 
     /**
@@ -25026,6 +25190,7 @@ export namespace Schemas {
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
     * `cross_source_issue` - Cross source issue
+    * `alert_state_change` - Alert state change
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -25039,6 +25204,7 @@ export namespace Schemas {
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
+      AlertStateChange: 'alert_state_change',
     } as const;
 
     export interface SignalSourceConfig {
@@ -25852,12 +26018,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number: number | null;
       readonly slug: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -27584,7 +27766,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
      */
     export type PatchedDataWarehouseSavedQueryQuery = {
       kind?: PatchedDataWarehouseSavedQueryQueryKind;
@@ -27607,7 +27789,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -29542,6 +29724,13 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    export interface PatchedMoveTileRequest {
+      /** Destination dashboard ID. */
+      to_dashboard?: number;
+      /** Tile to move, identified by its dashboard tile ID. */
+      tile?: MoveTileTile;
+    }
+
     export interface PatchedNode {
       readonly id?: string;
       /** @maxLength 2048 */
@@ -29955,7 +30144,8 @@ export namespace Schemas {
       readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token?: string | null;
-      readonly updated_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
       readonly uuid?: string;
       readonly api_token?: string;
       app_urls?: (string | null)[];
@@ -31910,12 +32100,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number?: number | null;
       readonly slug?: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -32973,7 +33179,8 @@ export namespace Schemas {
       readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token: string | null;
-      readonly updated_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
       readonly uuid: string;
       readonly api_token: string;
       app_urls?: (string | null)[];
@@ -36750,6 +36957,11 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
+    export interface RunWidgetsResponse {
+      /** Per-tile widget run results. */
+      results: DashboardWidgetRunResult[];
+    }
+
     /**
      * Form fields that must be submitted verbatim with the file upload
      */
@@ -39423,6 +39635,31 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
+    export interface WidgetCatalogEntry {
+      /** Stable widget type identifier used in API requests. */
+      widget_type: string;
+      /** Product area key for grouping related widget variants. */
+      group_id: string;
+      /** Human-readable product area label. */
+      group_label: string;
+      /** Widget variant label within the product area. */
+      label: string;
+      /** Short description of what the widget shows. */
+      description: string;
+      /** JSON schema hints for config fields (types, choices, bounds). Not a strict validator. */
+      config_schema_hints: unknown;
+      /**
+         * Product access resource required to view or run this widget, if any.
+         * @nullable
+         */
+      required_product_access?: string | null;
+    }
+
+    export interface WidgetCatalogResponse {
+      /** Registered dashboard widget types available when dashboard-widgets is enabled. */
+      results: WidgetCatalogEntry[];
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -40423,6 +40660,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsDeleteTileParams = {
+    format?: EnvironmentsDashboardsDeleteTileFormat;
+    };
+
+    export type EnvironmentsDashboardsDeleteTileFormat = typeof EnvironmentsDashboardsDeleteTileFormat[keyof typeof EnvironmentsDashboardsDeleteTileFormat];
+
+
+    export const EnvironmentsDashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -40492,6 +40741,22 @@ export namespace Schemas {
       ForceCache: 'force_cache',
     } as const;
 
+    export type EnvironmentsDashboardsRunWidgetsRetrieveParams = {
+    format?: EnvironmentsDashboardsRunWidgetsRetrieveFormat;
+    /**
+     * Comma-separated dashboard tile IDs to run widgets for.
+     */
+    tile_ids: string;
+    };
+
+    export type EnvironmentsDashboardsRunWidgetsRetrieveFormat = typeof EnvironmentsDashboardsRunWidgetsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunWidgetsRetrieveFormat];
+
+
+    export const EnvironmentsDashboardsRunWidgetsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsSnapshotCreateParams = {
     format?: EnvironmentsDashboardsSnapshotCreateFormat;
     };
@@ -40548,6 +40813,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsWidgetsBatchCreateParams = {
+    format?: EnvironmentsDashboardsWidgetsBatchCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsWidgetsBatchCreateFormat = typeof EnvironmentsDashboardsWidgetsBatchCreateFormat[keyof typeof EnvironmentsDashboardsWidgetsBatchCreateFormat];
+
+
+    export const EnvironmentsDashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
     format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
     };
@@ -40580,6 +40857,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsWidgetCatalogRetrieveParams = {
+    format?: EnvironmentsDashboardsWidgetCatalogRetrieveFormat;
+    };
+
+    export type EnvironmentsDashboardsWidgetCatalogRetrieveFormat = typeof EnvironmentsDashboardsWidgetCatalogRetrieveFormat[keyof typeof EnvironmentsDashboardsWidgetCatalogRetrieveFormat];
+
+
+    export const EnvironmentsDashboardsWidgetCatalogRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -43729,6 +44018,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string;
+    /**
      * Session recording id to return observations for.
      */
     session_id: string;
@@ -43753,17 +44046,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-    * `name` - Name
-    * `-name` - Name (descending)
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `updated_at` - Updated at
-    * `-updated_at` - Updated at (descending)
-    * `scanner_type` - Scanner type
-    * `-scanner_type` - Scanner type (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
@@ -43796,17 +44080,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `started_at` - Started at
-    * `-started_at` - Started at (descending)
-    * `completed_at` - Completed at
-    * `-completed_at` - Completed at (descending)
-    * `status` - Status
-    * `-status` - Status (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter to observations of a specific session recording.
      */
@@ -44614,6 +44889,7 @@ export namespace Schemas {
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
     * `LogsExclusionRule` - LogsExclusionRule
+    * `DashboardWidget` - DashboardWidget
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
@@ -44691,6 +44967,7 @@ export namespace Schemas {
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
+      DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
@@ -44754,6 +45031,7 @@ export namespace Schemas {
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
     * `LogsExclusionRule` - LogsExclusionRule
+    * `DashboardWidget` - DashboardWidget
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
@@ -44819,6 +45097,7 @@ export namespace Schemas {
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
+      DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
@@ -45485,6 +45764,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat;
+    };
+
+    export type DashboardsDeleteTileFormat = typeof DashboardsDeleteTileFormat[keyof typeof DashboardsDeleteTileFormat];
+
+
+    export const DashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -45554,6 +45845,22 @@ export namespace Schemas {
       ForceCache: 'force_cache',
     } as const;
 
+    export type DashboardsRunWidgetsRetrieveParams = {
+    format?: DashboardsRunWidgetsRetrieveFormat;
+    /**
+     * Comma-separated dashboard tile IDs to run widgets for.
+     */
+    tile_ids: string;
+    };
+
+    export type DashboardsRunWidgetsRetrieveFormat = typeof DashboardsRunWidgetsRetrieveFormat[keyof typeof DashboardsRunWidgetsRetrieveFormat];
+
+
+    export const DashboardsRunWidgetsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsSnapshotCreateParams = {
     format?: DashboardsSnapshotCreateFormat;
     };
@@ -45610,6 +45917,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsWidgetsBatchCreateParams = {
+    format?: DashboardsWidgetsBatchCreateFormat;
+    };
+
+    export type DashboardsWidgetsBatchCreateFormat = typeof DashboardsWidgetsBatchCreateFormat[keyof typeof DashboardsWidgetsBatchCreateFormat];
+
+
+    export const DashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsBulkUpdateTagsCreateParams = {
     format?: DashboardsBulkUpdateTagsCreateFormat;
     };
@@ -45642,6 +45961,18 @@ export namespace Schemas {
 
 
     export const DashboardsCreateUnlistedDashboardCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsWidgetCatalogRetrieveParams = {
+    format?: DashboardsWidgetCatalogRetrieveFormat;
+    };
+
+    export type DashboardsWidgetCatalogRetrieveFormat = typeof DashboardsWidgetCatalogRetrieveFormat[keyof typeof DashboardsWidgetCatalogRetrieveFormat];
+
+
+    export const DashboardsWidgetCatalogRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -46266,6 +46597,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type ExperimentsListParams = {
@@ -49497,10 +49832,13 @@ export namespace Schemas {
     internal?: boolean;
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -49565,10 +49903,13 @@ export namespace Schemas {
     export type TasksRunsListParams = {
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     };
@@ -49785,6 +50126,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string;
+    /**
      * Session recording id to return observations for.
      */
     session_id: string;
@@ -49809,17 +50154,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-    * `name` - Name
-    * `-name` - Name (descending)
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `updated_at` - Updated at
-    * `-updated_at` - Updated at (descending)
-    * `scanner_type` - Scanner type
-    * `-scanner_type` - Scanner type (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
@@ -49852,17 +50188,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `started_at` - Started at
-    * `-started_at` - Started at (descending)
-    * `completed_at` - Completed at
-    * `-completed_at` - Completed at (descending)
-    * `status` - Status
-    * `-status` - Status (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter to observations of a specific session recording.
      */
