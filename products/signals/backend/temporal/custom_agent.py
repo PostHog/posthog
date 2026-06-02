@@ -39,6 +39,11 @@ class CustomSignalAgentWorkflow:
             run_custom_signal_agent_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=85),
+            # Heartbeater() in the activity beats continuously while the agent thinks; a 2-min
+            # heartbeat_timeout lets Temporal detect a dead/stuck worker within minutes instead
+            # of waiting out the full 85-min start_to_close. With maximum_attempts=1 a missed
+            # heartbeat fails the run (no duplicate sandbox tasks from a retry).
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 

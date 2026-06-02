@@ -262,11 +262,15 @@ class CustomSignalAgent:
         return persisted
 
     def register_title(self, title: str) -> None:
+        if not title.strip():
+            raise ValueError("title must not be empty")
         if len(title) > self.max_title_length:
             raise ValueError(f"title must be <= {self.max_title_length} characters")
         self._title = title
 
     def register_description(self, description: str) -> None:
+        if not description.strip():
+            raise ValueError("description must not be empty")
         self._description = description
 
     def register_actionability(self, actionability: ActionabilityAssessment) -> None:

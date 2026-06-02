@@ -81,7 +81,10 @@ def _resolve_autostart_assignee(
     # Map reviewer github logins to user IDs (preserving reviewer order)
     candidate_user_ids: list[int] = []
     for reviewer in reviewers_content:
-        login = reviewer["github_login"].lower()
+        login = reviewer.get("github_login")
+        if not login:
+            continue
+        login = login.lower()
         candidate = login_to_user.get(login)
         if isinstance(candidate, User):
             candidate_user_ids.append(candidate.id)

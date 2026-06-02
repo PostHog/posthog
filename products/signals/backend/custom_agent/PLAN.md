@@ -27,11 +27,12 @@ products/signals/backend/
     loader.py                # dotted-path import + identity validation for the activity
     persistence.py           # direct READY-report creation + artefacts + task link
     examples/
-      cookie_poem_agent.py   # canonical minimal example (NO_REPO, one send())
+      cookie_poem_agent.py     # canonical minimal example (NO_REPO, one send())
+      cursed_comment_agent.py  # realistic example (repo research + agentic resolvers)
   auto_start.py              # shared with the agentic signals pipeline
   temporal/custom_agent.py   # workflow + activity + run_agent/arun_agent launchers
   management/commands/
-    run_cookie_poem_agent.py # CLI smoke test
+    run_custom_agent_example.py # CLI smoke test (--agent cookie_poem|cursed_comment)
 ```
 
 `base.py` has zero `temporalio` / `posthog.temporal` imports. The agent is a
@@ -235,8 +236,9 @@ Any future fix to the autostart hacks (assignment-by-self-opt-in, GitHub-login â
 
 1. Define a subclass of `CustomSignalAgent` in an importable top-level module.
 2. Implement `identifier()` and `async run()`.
-3. Wire a tiny helper that loads the team and calls `run_agent(...)`. See `cookie_poem_agent.run_cookie_poem_agent`.
-4. Optional: add a management command wrapping that helper. See `management/commands/run_cookie_poem_agent.py`.
+3. Wire a tiny helper that loads the team and calls `run_agent(...)`. See `management/commands/run_custom_agent_example.py`.
+4. Optional: register it in the `AGENTS` map in `management/commands/run_custom_agent_example.py` so it's runnable via `--agent <key>`.
+   For a realistic example that does real repo research and uses the default resolvers, see `cursed_comment_agent.py`.
 5. The Temporal workflow is shared, so no Temporal registration is needed.
 
 ## Known limitations and decisions
@@ -246,7 +248,7 @@ Any future fix to the autostart hacks (assignment-by-self-opt-in, GitHub-login â
 - **No validation retry on repo selection.** If the free-form repo selector returns malformed JSON, the activity fails and no report is produced.
 - **`SignalReport.metadata` is not persisted.** Product / type / run_id / workflow_id live in workflow input and structured logs only. Filtering Code Inbox by source product for custom-agent reports doesn't work yet. Revisit when needed.
 - **No failed-report persistence.** If the agent crashes before final persistence, sandbox logs are the only artefact. Future work if Code Inbox needs failed runs surfaced.
-- **No automated test coverage on the custom agent layer.** Manual testing through `run_cookie_poem_agent` is the bar. Reintroduce only without bringing back the `session_factory` knob.
+- **No automated test coverage on the custom agent layer.** Manual testing through `run_custom_agent_example` is the bar. Reintroduce only without bringing back the `session_factory` knob.
 - **Autostart inherits all the signals autostart caveats.** See `auto_start.py` and the Architecture doc.
 
 ## Gotchas

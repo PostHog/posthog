@@ -2,7 +2,7 @@
 
 This module defines only the agent class and its default prompt. The wiring to
 Temporal (constructing a team, calling ``run_agent``) lives in the management
-command ``run_cookie_poem_agent`` to keep this module Temporal-free \u2014 the
+command ``run_custom_agent_example`` to keep this module Temporal-free — the
 activity dynamically imports agent modules via ``import_agent_class``, and
 agent modules that pull in the Temporal layer at module load time can hit
 partial-load ``ImportError``s.
@@ -10,10 +10,10 @@ partial-load ``ImportError``s.
 Run via the management command::
 
     # Through Temporal (default)
-    python manage.py run_cookie_poem_agent --team-id 1
+    python manage.py run_custom_agent_example --agent cookie_poem --team-id 1
 
     # Direct, no Temporal harness (useful for testing the agent locally)
-    python manage.py run_cookie_poem_agent --team-id 1 --local
+    python manage.py run_custom_agent_example --agent cookie_poem --team-id 1 --local
 """
 
 from __future__ import annotations
