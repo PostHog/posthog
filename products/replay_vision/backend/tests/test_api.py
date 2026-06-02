@@ -337,6 +337,33 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-scanner", "a-scanner"])
 
+    def _patch_deny_session_recording(self):
+        return patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, **_: resource != "session_recording",
+        )
+
+    def test_create_rejected_without_session_recording_read(self) -> None:
+        with self._patch_deny_session_recording():
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "needs-recording-read",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_FLASH,
+                },
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertIn("session_recording", resp.json()["detail"])
+
+    def test_patch_rejected_without_session_recording_read(self) -> None:
+        scanner = self._create_scanner()
+        with self._patch_deny_session_recording():
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+        self.assertEqual(resp.status_code, 403, resp.json())
+
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property

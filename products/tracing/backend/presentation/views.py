@@ -36,6 +36,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ..logic import (
@@ -361,6 +362,23 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             next_cursor = base64.b64encode(
                 json.dumps({"timestamp": boundary_ts.isoformat(), "trace_id": boundary_trace_id}).encode("utf-8")
             ).decode("utf-8")
+
+        report_user_action(
+            request.user,
+            "tracing query executed",
+            {
+                "traces_count": len(kept_trace_ids),
+                "spans_count": len(results),
+                "has_more": has_more,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+                "order_by": order_by,
+                "is_paginated": bool(after_cursor),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             {

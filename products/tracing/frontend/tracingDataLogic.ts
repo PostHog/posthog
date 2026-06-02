@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -44,6 +45,14 @@ const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 function isUserInitiatedError(error: unknown): boolean {
     const errorStr = String(error).toLowerCase()
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+}
+
+function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
+    if (count === 0) {
+        posthog.capture('tracing no results returned', { query_type: queryType })
+    } else {
+        posthog.capture('tracing results returned', { count, query_type: queryType })
+    }
 }
 
 export interface TracingDataLogicProps {
@@ -498,9 +507,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             actions.setSpanTreeAbortController(controller)
         },
+        fetchSpansSuccess: () => {
+            captureTracingResults(values.rootSpans.length, 'spans')
+        },
+        fetchAggregationSuccess: ({ aggregation }) => {
+            captureTracingResults(aggregation.current.length, 'aggregation')
+        },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
+                posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
             }
         },
         fetchSparklineFailure: ({ error }) => {

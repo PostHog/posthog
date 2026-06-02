@@ -1,7 +1,6 @@
 import { mockProducer } from './mocks/producer.mock'
 
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
-import { CdpLegacyEventsConsumerDeps } from '../../src/cdp/consumers/cdp-legacy-event.consumer'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
@@ -44,15 +43,5 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         geoipService: hub.geoipService,
         groupRepository: hub.groupRepository,
         quotaLimiting: hub.quotaLimiting,
-    }
-}
-
-export function createCdpLegacyEventsConsumerDeps(
-    hub: Hub,
-    kafkaProducer?: KafkaProducerWrapper
-): CdpLegacyEventsConsumerDeps {
-    return {
-        ...createCdpConsumerDeps(hub, kafkaProducer),
-        groupTypeManager: hub.groupTypeManager,
     }
 }
