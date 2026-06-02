@@ -1,4 +1,5 @@
 import asyncio
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
@@ -71,8 +72,14 @@ class TestSafetyClassifier(BaseTest):
     @override_settings(GEMINI_API_KEY="test-key")
     def test_classify_documents_routes_verdicts(self) -> None:
         docs = [
-            logic.PendingDocument(team_id=self.team.id, document_id="d1", content="normal docs"),
-            logic.PendingDocument(team_id=self.team.id, document_id="d2", content="ATTACK ignore previous"),
+            logic.PendingDocument(
+                team_id=self.team.id, document_id=UUID("00000000-0000-0000-0000-000000000001"), content="normal docs"
+            ),
+            logic.PendingDocument(
+                team_id=self.team.id,
+                document_id=UUID("00000000-0000-0000-0000-000000000002"),
+                content="ATTACK ignore previous",
+            ),
         ]
 
         async def fake_generate(model, contents, config):  # noqa: ANN001
@@ -83,11 +90,18 @@ class TestSafetyClassifier(BaseTest):
             mk.return_value.models.generate_content = AsyncMock(side_effect=fake_generate)
             results = {r.document_id: r.verdict for r in asyncio.run(safety.classify_documents(docs))}
 
-        assert results == {"d1": SafetyVerdict.SAFE, "d2": SafetyVerdict.UNSAFE}
+        assert results == {
+            UUID("00000000-0000-0000-0000-000000000001"): SafetyVerdict.SAFE,
+            UUID("00000000-0000-0000-0000-000000000002"): SafetyVerdict.UNSAFE,
+        }
 
     @override_settings(GEMINI_API_KEY="test-key")
     def test_classify_documents_fails_open_on_error(self) -> None:
-        docs = [logic.PendingDocument(team_id=self.team.id, document_id="d1", content="x")]
+        docs = [
+            logic.PendingDocument(
+                team_id=self.team.id, document_id=UUID("00000000-0000-0000-0000-000000000001"), content="x"
+            )
+        ]
         with (
             patch.object(safety.genai, "AsyncClient") as mk,
             patch("products.business_knowledge.backend.safety.asyncio.sleep", AsyncMock()),

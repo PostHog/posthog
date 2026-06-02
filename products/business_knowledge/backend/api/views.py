@@ -167,9 +167,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             client = sync_connect()
-            async_to_sync(client.start_workflow)(
-                "business-knowledge-ingest-source",
-                IngestSourceInputs(team_id=self.team_id, source_id=str(source.id)),
+            # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
+            async_to_sync(client.start_workflow)(  # type: ignore[misc]
+                "business-knowledge-ingest-source",  # type: ignore[arg-type]
+                IngestSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
                 id=f"business-knowledge-ingest-{source.id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )

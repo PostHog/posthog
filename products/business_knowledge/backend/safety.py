@@ -22,7 +22,7 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 from google.genai import types
-from posthoganalytics.ai.gemini import genai
+from posthoganalytics.ai.gemini import AsyncClient, genai
 
 from .constants import MAX_CLASSIFY_CHARS
 from .logic import PendingDocument
@@ -75,7 +75,7 @@ def _parse_verdict(response_text: str) -> tuple[str, str]:
     return SafetyVerdict.SAFE, ""
 
 
-async def _classify_one(client: "genai.AsyncClient", doc: PendingDocument) -> SafetyResult:
+async def _classify_one(client: AsyncClient, doc: PendingDocument) -> SafetyResult:
     prompt = _SAFETY_PROMPT.format(content=doc.content[:MAX_CLASSIFY_CHARS])
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
