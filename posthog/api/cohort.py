@@ -75,7 +75,7 @@ from posthog.queries.base import determine_parsed_date_for_property_matching, pr
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
-from posthog.utils import format_query_params_absolute_url
+from posthog.utils import format_query_params_absolute_url, str_to_bool
 
 from products.feature_flags.backend.flag_matching import (
     FeatureFlagMatcher,
@@ -508,11 +508,11 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Slim list payload (opt-in via `?slim=true` on the list endpoint): drop
+        # Basic list payload (opt-in via `?basic=true` on the list endpoint): drop
         # the heavy JSON columns the cohort picker never reads. Keeps the
         # response small for teams with thousands of cohorts. Default output is
         # unchanged; only callers that explicitly ask get the trimmed shape.
-        if self.context.get("slim_cohort_list"):
+        if self.context.get("basic_cohort_list"):
             for field_name in ("filters", "query", "groups"):
                 self.fields.pop(field_name, None)
 
@@ -1156,7 +1156,7 @@ def _cohort_list_fast_path_enabled(request) -> bool:
     feature flag. The fast path returns the same rows in the same order; only
     the query shape differs, so it's safe to gate broadly.
     """
-    if request.query_params.get("fast_list", "false").lower() == "true":
+    if str_to_bool(request.query_params.get("fast_list", "0")):
         return True
     try:
         user = getattr(request, "user", None)
@@ -1191,12 +1191,12 @@ def _cohort_list_fast_path_enabled(request) -> bool:
                 ),
             ),
             OpenApiParameter(
-                name="slim",
+                name="basic",
                 type=bool,
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Return a trimmed payload that omits the heavy `filters`, `query`, and "
+                    "Return a basic payload that omits the heavy `filters`, `query`, and "
                     "`groups` fields. Useful for pickers that only need id/name/count."
                 ),
             ),
@@ -1211,8 +1211,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         # Trim the list payload only when explicitly requested on the list endpoint.
-        context["slim_cohort_list"] = (
-            self.action == "list" and self.request.query_params.get("slim", "false").lower() == "true"
+        context["basic_cohort_list"] = self.action == "list" and str_to_bool(
+            self.request.query_params.get("basic", "0")
         )
         return context
 

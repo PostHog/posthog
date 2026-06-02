@@ -179,6 +179,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
+    // Opt the cohort picker into the server-side optimised list query (`fast_list`)
+    // and the trimmed payload (`basic`, which drops filters/query/groups the picker
+    // never reads). Gated by a flag so it can be rolled out independently.
+    const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_FAST_LIST]
+        ? { fast_list: true, basic: true }
+        : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
             name: 'Events',
@@ -654,7 +660,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.Cohorts,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
             value: 'cohorts',
             // See taxonomicFilterLogic — cohort populations comfortably fit
             // in one page; cache the first 100 and fuse-filter typed
@@ -678,7 +684,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
             clientFilterFirstPage: true,
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,

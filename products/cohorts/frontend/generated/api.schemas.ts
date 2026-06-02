@@ -312,6 +312,10 @@ export interface PatchedRemovePersonRequestApi {
 
 export type CohortsListParams = {
     /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean
+    /**
      * Opt into the optimised list query path (gated otherwise by the `cohorts-list-fast-path` feature flag). Returns the same rows in the same order; only the underlying query shape differs.
      */
     fast_list?: boolean
@@ -323,10 +327,6 @@ export type CohortsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    /**
-     * Return a trimmed payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
-     */
-    slim?: boolean
 }
 
 export type CohortsPersonsRetrieveParams = {

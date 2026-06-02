@@ -1695,7 +1695,7 @@ email@example.org,
         )
 
     @patch("posthog.api.cohort.report_user_action")
-    def test_slim_list_omits_heavy_fields(self, patch_capture):
+    def test_basic_list_omits_heavy_fields(self, patch_capture):
         Cohort.objects.create(
             team=self.team,
             name="some cohort",
@@ -1705,12 +1705,12 @@ email@example.org,
         full = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
         self.assertIn("filters", full)
 
-        slim = self.client.get(f"/api/projects/{self.team.id}/cohorts?slim=true").json()["results"][0]
+        basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
         for dropped in ("filters", "query", "groups"):
-            self.assertNotIn(dropped, slim)
+            self.assertNotIn(dropped, basic)
         # The fields pickers actually read are still present.
         for kept in ("id", "name", "count"):
-            self.assertIn(kept, slim)
+            self.assertIn(kept, basic)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_list_cohorts_excludes_nested_behavioral_cohorts(self, patch_capture):
