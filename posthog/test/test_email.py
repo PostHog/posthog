@@ -528,7 +528,9 @@ class TestMessagingHashSalt(BaseTest):
 
         with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
             self.assertTrue(
-                MessagingRecord.objects.filter(
+                # django-stubs' mypy plugin resolves filter() kwargs against model fields
+                # and can't follow the manager's raw_email→email_hash__in remap.
+                MessagingRecord.objects.filter(  # type: ignore[misc]
                     raw_email="rotate@posthog.com", campaign_key="c", sent_at__isnull=False
                 ).exists()
             )
