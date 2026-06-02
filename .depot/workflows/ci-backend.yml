@@ -25,11 +25,11 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .depot/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
-# Every job is gated on the ENABLE_DEPOT_SHADOW Depot CI variable (see the `changes`
+# Every job is gated on the CI_ENABLE_DEPOT_SHADOW Depot CI variable (see the `changes`
 # job): `true` runs the shadow, anything else (incl. unset) skips it. This is a Depot
 # variable, NOT a GitHub one — Depot CI reads its own `vars` store. Toggle with:
-#   depot ci vars add ENABLE_DEPOT_SHADOW=true --repo PostHog/posthog    (enable)
-#   depot ci vars remove ENABLE_DEPOT_SHADOW --repo PostHog/posthog      (disable)
+#   depot ci vars add CI_ENABLE_DEPOT_SHADOW=true --repo PostHog/posthog    (enable)
+#   depot ci vars remove CI_ENABLE_DEPOT_SHADOW --repo PostHog/posthog      (disable)
 # The companion drift check (.github/workflows/ci-backend-shadow-drift.yml) runs on
 # GitHub Actions and reads a same-named GitHub repository variable — set both.
 on:
@@ -98,7 +98,7 @@ jobs:
         # Shadow on/off switch. `changes` is the root of the `needs` graph, so gating
         # it skips every downstream job. `django_tests` repeats the gate because its
         # `always()` would otherwise survive the skip cascade.
-        if: vars.ENABLE_DEPOT_SHADOW == 'true'
+        if: vars.CI_ENABLE_DEPOT_SHADOW == 'true'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
@@ -1159,7 +1159,7 @@ jobs:
         timeout-minutes: 5
         # always() collates skipped/failed matrix jobs; gated so it doesn't spin up a
         # lone runner when the shadow is off.
-        if: always() && vars.ENABLE_DEPOT_SHADOW == 'true'
+        if: always() && vars.CI_ENABLE_DEPOT_SHADOW == 'true'
         steps:
             - name: Check matrix outcome
               run: |
