@@ -935,7 +935,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         `/api/projects/@current/`) get a default authenticator chain that
         includes `JwtAuthentication` ahead of other token-based backends.
 
-        `JwtAuthentication.decode_jwt` hard-codes HS256+SECRET_KEY and raises
+        `JwtAuthentication.decode_jwt` hard-codes HS256 + the JWT signing key and raises
         `AuthenticationFailed` (→ 401) on any non-`jwt.DecodeError` exception,
         including the `InvalidAlgorithmError` that fires for an RS256 ID-JAG
         access token. If `IDJagAccessTokenAuthentication` doesn't run first,
