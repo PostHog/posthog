@@ -1,27 +1,27 @@
-"""Enable, disable, or inspect HTTP sample capture for warehouse-source syncs.
+"""Enable, disable, or inspect gRPC sample capture for warehouse-source syncs.
 
 Sample capture writes anonymized request/response pairs to S3 for use as test
-fixtures. It's controlled by a single Redis key (`data_imports:http_sample_capture`)
+fixtures. It's controlled by a single Redis key (`data_imports:grpc_sample_capture`)
 with a TTL — when the key expires, capture stops automatically.
 
 Usage:
 
-    # Enable capture for all 4xx Stripe responses, capped at 50 samples, for 30 minutes
-    python manage.py warehouse_sources_capture_http_samples enable \
-        --source-type stripe --response-code 4xx --limit 50 --ttl 30m
+    # Enable capture for all UNAVAILABLE google_ads calls, capped at 50 samples, for 30 minutes
+    python manage.py warehouse_sources_capture_grpc_samples enable \
+        --source-type google_ads --response-code unavailable --limit 50 --ttl 30m
 
     # Multiple rules: pass --rule N times. Rules are evaluated in order and
     # the FIRST matching rule wins, so put the most specific rule first.
-    python manage.py warehouse_sources_capture_http_samples enable \
-        --rule source_type=stripe,response_code=429,limit=20 \
-        --rule source_type=hubspot,response_code=*,team_id=12,limit=10 \
+    python manage.py warehouse_sources_capture_grpc_samples enable \
+        --rule source_type=google_ads,response_code=resource_exhausted,limit=20 \
+        --rule source_type=bigquery,response_code=*,team_id=12,limit=10 \
         --ttl 1h
 
     # Inspect the active config
-    python manage.py warehouse_sources_capture_http_samples list
+    python manage.py warehouse_sources_capture_grpc_samples list
 
     # Disable early (clears the Redis key + counters)
-    python manage.py warehouse_sources_capture_http_samples disable
+    python manage.py warehouse_sources_capture_grpc_samples disable
 """
 
 from __future__ import annotations
@@ -33,10 +33,11 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.redis import get_client
-from posthog.temporal.data_imports.sources.common.http.sampling import (
+from posthog.temporal.data_imports.sources.common.grpc.sampling import (
     CAPTURE_CONFIG_REDIS_KEY,
     CAPTURE_COUNTER_KEY_PREFIX,
     MAX_CONFIG_TTL_SECONDS,
+    S3_PREFIX,
 )
 from posthog.temporal.data_imports.sources.common.sample_scrub import WILDCARD, CaptureConfig, CaptureRule
 
@@ -76,14 +77,18 @@ def _parse_rule_kv(spec: str, default_limit: int) -> CaptureRule:
 
 
 class Command(BaseCommand):
-    help = "Manage HTTP sample capture for warehouse-source syncs."
+    help = "Manage gRPC sample capture for warehouse-source syncs."
 
     def add_arguments(self, parser: CommandParser) -> None:
         sub = parser.add_subparsers(dest="action", required=True)
 
         enable = sub.add_parser("enable", help="Enable capture")
         enable.add_argument("--source-type", default=WILDCARD, help="Filter by source type (default: *)")
-        enable.add_argument("--response-code", default=WILDCARD, help="HTTP code or class, e.g. 429 / 4xx (default: *)")
+        enable.add_argument(
+            "--response-code",
+            default=WILDCARD,
+            help="gRPC status class or code, e.g. ok / unavailable / resource_exhausted / 14 (default: *)",
+        )
         enable.add_argument("--team-id", default=WILDCARD, help="Filter by team_id (default: *)")
         enable.add_argument("--schema-id", default=WILDCARD, help="Filter by schema id (default: *)")
         enable.add_argument("--limit", type=int, default=50, help="Max samples per rule (default: 50)")
@@ -131,9 +136,19 @@ class Command(BaseCommand):
             schema_id=options["schema_id"],
             limit=options["limit"],
         )
-        rules: list[CaptureRule] = [primary]
-        for raw in options["rule"]:
-            rules.append(_parse_rule_kv(raw, default_limit=options["limit"]))
+        extra = [_parse_rule_kv(raw, default_limit=options["limit"]) for raw in options["rule"]]
+
+        # Rules are first-match-wins. An all-wildcard primary built purely from
+        # flag defaults would shadow every `--rule` entry (they'd be dead code),
+        # so when the operator drives capture entirely via `--rule` we drop the
+        # implicit primary. A primary with any explicit filter is always kept.
+        primary_is_wildcard = (
+            primary.source_type == WILDCARD
+            and primary.response_code == WILDCARD
+            and primary.team_id == WILDCARD
+            and primary.schema_id == WILDCARD
+        )
+        rules: list[CaptureRule] = extra if (extra and primary_is_wildcard) else [primary, *extra]
 
         capture_id = uuid.uuid4().hex
         config = CaptureConfig(capture_id=capture_id, rules=tuple(rules))
@@ -146,7 +161,7 @@ class Command(BaseCommand):
             self._emit(f"  [{index}] {rule}")
         self._emit(
             "",
-            f"S3 prefix:  warehouse-sources-http-samples/{capture_id}/",
+            f"S3 prefix:  {S3_PREFIX}/{capture_id}/",
             "",
             "Capture stops automatically when the Redis key expires. Run with `disable` to stop early.",
         )
@@ -193,7 +208,7 @@ class Command(BaseCommand):
         self._emit(
             f"capture_id: {config.capture_id}",
             f"ttl_seconds_remaining: {ttl}",
-            f"S3 prefix: warehouse-sources-http-samples/{config.capture_id}/",
+            f"S3 prefix: {S3_PREFIX}/{config.capture_id}/",
             f"rules ({len(config.rules)}):",
         )
         for index, rule in enumerate(config.rules):
