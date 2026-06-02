@@ -25,7 +25,7 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
-use capture::config::{CaptureMode, Config, KafkaConfig};
+use capture::config::{CaptureMode, Config, EnvelopeCompression, KafkaConfig};
 use capture::server::serve;
 use capture::setup;
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -128,6 +128,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_metrics_producer_max_retries: None,
         kafka_metrics_topic_metadata_refresh_interval_ms: None,
         kafka_metrics_metadata_max_age_ms: None,
+        kafka_replay_envelope_compression: EnvelopeCompression::None,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,

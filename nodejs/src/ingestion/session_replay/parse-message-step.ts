@@ -14,6 +14,8 @@ import { normalizeSessionId } from '../../utils/utils'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
+const lz4: { decode(input: Buffer): Buffer } = require('lz4')
+
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 
@@ -26,7 +28,20 @@ export interface ParseMessageStepOutput {
 }
 
 function isGzipped(buffer: Buffer): boolean {
-    return buffer.slice(0, GZIP_HEADER.length).equals(GZIP_HEADER)
+    return buffer.subarray(0, GZIP_HEADER.length).equals(GZIP_HEADER)
+}
+
+function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
+    if (!headers) {
+        return null
+    }
+    for (const header of headers) {
+        const value = header['content-encoding']
+        if (value !== undefined) {
+            return typeof value === 'string' ? value : value.toString()
+        }
+    }
+    return null
 }
 
 function getValidEvents(events: unknown[]): {
@@ -89,12 +104,15 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         }
 
         let messageUnzipped = message.value
+        const contentEncoding = getContentEncoding(message.headers)
         try {
-            if (isGzipped(message.value)) {
+            if (contentEncoding === 'lz4') {
+                messageUnzipped = lz4.decode(message.value)
+            } else if (isGzipped(message.value)) {
                 messageUnzipped = gunzipSync(message.value)
             }
         } catch (error) {
-            return dlq('invalid_gzip_data', error)
+            return dlq('invalid_compressed_data', error)
         }
 
         let rawPayload: unknown
