@@ -110,5 +110,4 @@ class TestMailJetSource:
             resumable_source_manager=manager,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
-            incremental_field=inputs.incremental_field,
         )

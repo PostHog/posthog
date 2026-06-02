@@ -112,7 +112,6 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[MailjetResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = MAILJET_ENDPOINTS[endpoint]
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
@@ -168,7 +167,6 @@ def mailjet_source(
     resumable_source_manager: ResumableSourceManager[MailjetResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = MAILJET_ENDPOINTS[endpoint]
 
@@ -182,7 +180,6 @@ def mailjet_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,
