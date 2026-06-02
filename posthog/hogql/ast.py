@@ -607,10 +607,20 @@ class ArrayType(ConstantType):
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
     item_types: list[ConstantType]
+    field_names: list[str | None] = field(default_factory=list)
     repeat: bool = False
 
     def print_type(self) -> str:
         return "Tuple"
+
+
+@dataclass(kw_only=True, slots=True)
+class AggregateStateType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+    wrapped_type: ConstantType = field(default_factory=UnknownType)
+
+    def print_type(self) -> str:
+        return "AggregateState"
 
 
 @dataclass(kw_only=True, slots=True)

@@ -13,6 +13,7 @@ from posthog.hogql.type_diagnostics import function_catalog_inventory, resolve_w
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
+    infer_function_return_type,
     least_common_supertype,
     parse_clickhouse_type,
     runtime_type_from_database_field,
@@ -46,6 +47,8 @@ class TestHogQLTypeSystem:
 
         assert parsed.family == "array"
         assert parsed.nullable is True
+        assert parsed.low_cardinality is True
+        assert parsed.display().startswith("Nullable(LowCardinality(Array(")
         assert parsed.item_type is not None
         assert parsed.item_type.family == "tuple"
         assert parsed.item_type.field_names == ("id", "ts")
@@ -64,6 +67,12 @@ class TestHogQLTypeSystem:
         assert parsed_map.value_type is not None
         assert parsed_map.value_type.family == "float"
         assert parsed_map.value_type.nullable is True
+
+        parsed_state = parse_clickhouse_type("AggregateFunction(sum, Float64)")
+
+        assert parsed_state.family == "aggregate_state"
+        assert parsed_state.wrapped_type is not None
+        assert parsed_state.wrapped_type.family == "float"
 
     def test_database_field_runtime_type_preserves_float_array_dimension(self) -> None:
         field = FloatArrayDatabaseField(name="score_bins", nullable=False)
@@ -127,6 +136,11 @@ class TestHogQLTypeSystem:
         )
         resolved = cast(ast.TupleAccess, resolve_types(node, self.context, dialect="clickhouse"))
         assert resolved.type == ast.StringType(nullable=False)
+
+        self._assert_first_column_type(
+            "SELECT tupleElement(JSONExtract('{\"name\":\"Ada\",\"score\":1.5}', 'Tuple(name String, score Float64)'), 'score')",
+            ast.FloatType(nullable=False),
+        )
 
     def test_resolver_infers_structural_array_function_types(self) -> None:
         self._assert_first_column_type(
@@ -377,6 +391,34 @@ class TestHogQLTypeSystem:
             ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
         )
 
+    def test_resolver_infers_aggregate_state_and_merge_function_types(self) -> None:
+        sum_state = infer_function_return_type("sumState", [ast.FloatType(nullable=False)]).return_type
+        assert sum_state == ast.AggregateStateType(
+            nullable=False,
+            wrapped_type=ast.FloatType(nullable=False),
+        )
+
+        assert infer_function_return_type("sumMerge", [sum_state]).return_type == ast.FloatType(nullable=False)
+        assert infer_function_return_type(
+            "countMerge", [ast.UnknownType(nullable=False)]
+        ).return_type == ast.IntegerType(nullable=False)
+        assert infer_function_return_type(
+            "avgState", [ast.IntegerType(nullable=False)]
+        ).return_type == ast.AggregateStateType(
+            nullable=False,
+            wrapped_type=ast.FloatType(nullable=False),
+        )
+
+        quantiles_state = infer_function_return_type("quantilesState", [ast.IntegerType(nullable=False)]).return_type
+        assert quantiles_state == ast.AggregateStateType(
+            nullable=False,
+            wrapped_type=ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+        )
+        assert infer_function_return_type("quantilesMerge", [quantiles_state]).return_type == ast.ArrayType(
+            nullable=False,
+            item_type=ast.FloatType(nullable=False),
+        )
+
     def test_resolver_infers_common_string_function_types(self) -> None:
         self._assert_first_column_type("SELECT base64Encode('test')", ast.StringType(nullable=False))
         self._assert_first_column_type("SELECT hex(unhex('DEADBEEF'))", ast.StringType(nullable=False))
@@ -487,7 +529,7 @@ class TestHogQLTypeSystem:
             ast.SelectQuery,
             resolve_types(
                 self._select(
-                    "SELECT CAST('x' AS String) AS a, toString('y') AS b, assumeNotNull(1) AS c, ifNull(1, 2) AS d, coalesce(1, 2) AS e"
+                    "SELECT CAST('x' AS String) AS a, toString('y') AS b, assumeNotNull(1) AS c, ifNull(1, 2) AS d, coalesce(1, 2) AS e, toDateTime(toDateTime('2020-01-01')) AS f"
                 ),
                 self.context,
                 dialect="clickhouse",
@@ -500,6 +542,7 @@ class TestHogQLTypeSystem:
         assert "assumeNotNull(" not in sql
         assert "ifNull(" not in sql
         assert "coalesce(" not in sql
+        assert "toDateTime(toDateTime(" not in sql
         assert "1 AS c" in sql
         assert "1 AS d" in sql
         assert "1 AS e" in sql
@@ -508,7 +551,7 @@ class TestHogQLTypeSystem:
         resolved = cast(
             ast.SelectQuery,
             resolve_types(
-                self._select("SELECT CAST(1 AS Integer) AS number, toDateTime(toDateTime('2020-01-01')) AS ts"),
+                self._select("SELECT CAST(1 AS Integer) AS number"),
                 self.context,
                 dialect="clickhouse",
             ),
@@ -517,4 +560,19 @@ class TestHogQLTypeSystem:
         sql = print_prepared_ast(simplified, self.context, dialect="clickhouse")
 
         assert "toInt64(1) AS number" in sql
-        assert "toDateTime(toDateTime(" in sql
+
+        datetime_resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT CAST(toDateTime('2020-01-01') AS DateTime64(3)) AS ts"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        datetime_simplified = cast(
+            ast.SelectQuery,
+            simplify_redundant_type_operations(datetime_resolved, self.context, dialect="clickhouse"),
+        )
+        alias = cast(ast.Alias, datetime_simplified.select[0])
+
+        assert isinstance(alias.expr, ast.TypeCast)

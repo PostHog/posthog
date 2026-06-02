@@ -49,6 +49,7 @@ class RuntimeType:
     family: RuntimeTypeFamily
     nullable: bool = True
     dialect: RuntimeTypeDialect = "common"
+    low_cardinality: bool = False
     signed: Optional[bool] = None
     bits: Optional[int] = None
     precision: Optional[int] = None
@@ -70,6 +71,8 @@ class RuntimeType:
 
     def display(self) -> str:
         inner = self._display_inner()
+        if self.low_cardinality:
+            inner = f"LowCardinality({inner})"
         return f"Nullable({inner})" if self.nullable else inner
 
     def debug_dict(self) -> dict[str, object]:
@@ -78,6 +81,8 @@ class RuntimeType:
             "nullable": self.nullable,
             "dialect": self.dialect,
         }
+        if self.low_cardinality:
+            data["low_cardinality"] = True
         for key in ("signed", "bits", "precision", "scale", "timezone", "source"):
             value = getattr(self, key)
             if value is not None:
@@ -288,6 +293,13 @@ def runtime_type_from_constant_type(constant_type: ast.ConstantType) -> RuntimeT
             family="tuple",
             nullable=nullable,
             item_types=tuple(runtime_type_from_constant_type(item) for item in constant_type.item_types),
+            field_names=tuple(constant_type.field_names),
+        )
+    if isinstance(constant_type, ast.AggregateStateType):
+        return RuntimeType(
+            family="aggregate_state",
+            nullable=nullable,
+            wrapped_type=runtime_type_from_constant_type(constant_type.wrapped_type),
         )
     if isinstance(constant_type, ast.MapType):
         return RuntimeType(
@@ -328,6 +340,12 @@ def constant_type_from_runtime_type(runtime_type: RuntimeType) -> ast.ConstantTy
         return ast.TupleType(
             nullable=nullable,
             item_types=[constant_type_from_runtime_type(item) for item in runtime_type.item_types],
+            field_names=list(runtime_type.field_names),
+        )
+    if runtime_type.family == "aggregate_state":
+        return ast.AggregateStateType(
+            nullable=nullable,
+            wrapped_type=constant_type_from_runtime_type(runtime_type.wrapped_type or UNKNOWN_RUNTIME_TYPE),
         )
     if runtime_type.family == "map":
         return ast.MapType(
@@ -423,7 +441,12 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
 
     wrapper = _parse_wrapper(stripped, "LowCardinality")
     if wrapper is not None:
-        return dataclasses.replace(parse_clickhouse_type(wrapper), dialect="clickhouse")
+        return dataclasses.replace(
+            parse_clickhouse_type(wrapper),
+            dialect="clickhouse",
+            low_cardinality=True,
+            source=stripped,
+        )
 
     wrapper = _parse_wrapper(stripped, "Array")
     if wrapper is not None:
@@ -627,7 +650,11 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
             for index in range(width)
         )
         return RuntimeType(
-            family="tuple", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect), item_types=item_types
+            family="tuple",
+            nullable=nullable,
+            dialect=cast(RuntimeTypeDialect, dialect),
+            item_types=item_types,
+            field_names=_common_tuple_field_names(known_types),
         )
     if families == {"map"}:
         key_types = [type_.key_type or UNKNOWN_RUNTIME_TYPE for type_ in known_types]
@@ -760,6 +787,19 @@ def infer_tuple_access_constant_type(tuple_type: ast.ConstantType, index: int) -
     if zero_based_index < 0 or zero_based_index >= len(tuple_type.item_types):
         return ast.UnknownType()
     item_type = tuple_type.item_types[zero_based_index]
+    return dataclasses.replace(item_type, nullable=tuple_type.nullable or item_type.nullable)
+
+
+def infer_tuple_name_access_constant_type(tuple_type: ast.ConstantType, field_name: str) -> ast.ConstantType:
+    if not isinstance(tuple_type, ast.TupleType):
+        return ast.UnknownType()
+    try:
+        index = tuple_type.field_names.index(field_name)
+    except ValueError:
+        return ast.UnknownType()
+    if index >= len(tuple_type.item_types):
+        return ast.UnknownType()
+    item_type = tuple_type.item_types[index]
     return dataclasses.replace(item_type, nullable=tuple_type.nullable or item_type.nullable)
 
 
@@ -995,6 +1035,9 @@ def _infer_generic_function_type(
         index = _constant_int(args[1]) if args and len(args) > 1 else None
         if index is not None:
             return infer_tuple_access_constant_type(arg_types[0], index)
+        field_name = _constant_string(args[1]) if args and len(args) > 1 else None
+        if field_name is not None:
+            return infer_tuple_name_access_constant_type(arg_types[0], field_name)
         return ast.UnknownType()
 
     aggregate_type = _infer_aggregate_function_type(normalized_name, arg_types)
@@ -1150,6 +1193,10 @@ def _normalize_array_reduce_aggregate_name(aggregate_name: str) -> str:
 
 
 def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.ConstantType]) -> ast.ConstantType | None:
+    state_or_merge_type = _infer_aggregate_state_or_merge_type(normalized_name, arg_types)
+    if state_or_merge_type is not None:
+        return state_or_merge_type
+
     if normalized_name in {
         "count",
         "countif",
@@ -1218,6 +1265,46 @@ def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.Con
 
 def _is_aggregate_state_or_merge(normalized_name: str) -> bool:
     return normalized_name.endswith("state") or normalized_name.endswith("merge") or normalized_name.endswith("mergeif")
+
+
+def _infer_aggregate_state_or_merge_type(
+    normalized_name: str, arg_types: list[ast.ConstantType]
+) -> ast.ConstantType | None:
+    state_base_name = _strip_aggregate_suffix(normalized_name, ("stateif", "state"))
+    if state_base_name is not None:
+        state_arg_types = arg_types[:-1] if normalized_name.endswith("stateif") else arg_types
+        wrapped_type = _infer_aggregate_function_type(state_base_name, state_arg_types)
+        if wrapped_type is None:
+            return None
+        return ast.AggregateStateType(nullable=False, wrapped_type=wrapped_type)
+
+    merge_base_name = _strip_aggregate_suffix(normalized_name, ("mergeif", "merge"))
+    if merge_base_name is not None:
+        if arg_types and isinstance(arg_types[0], ast.AggregateStateType):
+            return dataclasses.replace(arg_types[0].wrapped_type)
+        return _infer_known_merge_result_type(merge_base_name, arg_types)
+
+    return None
+
+
+def _infer_known_merge_result_type(base_name: str, arg_types: list[ast.ConstantType]) -> ast.ConstantType | None:
+    if base_name in {"count", "countdistinct"} or base_name.startswith("uniq"):
+        return ast.IntegerType(nullable=False)
+    if base_name.startswith("quantiles"):
+        return ast.ArrayType(
+            nullable=False,
+            item_type=ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types)),
+        )
+    if base_name.startswith("quantile") or base_name.startswith("median") or base_name in {"avg"}:
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+    return None
+
+
+def _strip_aggregate_suffix(normalized_name: str, suffixes: tuple[str, ...]) -> str | None:
+    for suffix in suffixes:
+        if normalized_name.endswith(suffix):
+            return normalized_name[: -len(suffix)]
+    return None
 
 
 def _infer_map_type(arg_types: list[ast.ConstantType], dialect: HogQLDialect) -> ast.ConstantType:
@@ -1372,6 +1459,17 @@ def _same_tuple_width(runtime_types: list[RuntimeType]) -> bool:
         return False
     width = len(runtime_types[0].item_types)
     return all(len(type_.item_types) == width for type_ in runtime_types)
+
+
+def _common_tuple_field_names(runtime_types: list[RuntimeType]) -> tuple[Optional[str], ...]:
+    if not runtime_types:
+        return ()
+    field_names = runtime_types[0].field_names
+    if not field_names:
+        return ()
+    if all(type_.field_names == field_names for type_ in runtime_types):
+        return field_names
+    return ()
 
 
 def _parse_wrapper(type_name: str, wrapper_name: str) -> Optional[str]:

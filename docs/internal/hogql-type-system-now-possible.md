@@ -29,7 +29,7 @@ The new runtime type model lives in `posthog/hogql/type_system.py`.
 - integer signedness and bit width
 - float width
 - decimal precision and scale
-- strings, fixed strings, UUIDs, booleans, dates, datetimes, intervals, JSON-ish values, and enums
+- strings, fixed strings, low-cardinality wrappers, UUIDs, booleans, dates, datetimes, intervals, JSON-ish values, and enums
 - datetime precision and timezone
 - nullable wrappers
 - arrays with element types
@@ -77,6 +77,7 @@ parse_clickhouse_type("Array(Tuple(id UInt64, ts DateTime64(3, 'UTC')))")
 ```
 
 The parser understands `Nullable`, `LowCardinality`, `Array`, `Tuple`, `Map`, decimal variants, integer widths, float widths, `DateTime`, `DateTime64`, `FixedString`, `Enum`, `UUID`, `JSON`, `AggregateFunction`, and `SimpleAggregateFunction`.
+`LowCardinality(...)` is preserved as an explicit runtime type fact instead of being erased while unwrapping the inner family.
 
 This makes several follow-up tasks possible:
 
@@ -95,7 +96,7 @@ This also fixed a concrete bug from the TODO:
 Previously it returned `FloatType()`, which erased the array dimension before the resolver or printer could reason about it.
 
 Struct fields also preserve field names in the structured runtime model.
-The old `TupleType` compatibility object remains positional, but the runtime adapter can carry names for callers that need them.
+The old `TupleType` compatibility object now also carries optional field names, so tuple names can survive the bridge back into resolver-facing types.
 
 ## Type Algebra
 
@@ -163,8 +164,8 @@ Newly inferred function groups include:
 - JSON extraction: `JSONExtract(..., 'Type')` parses the return-type literal, including `Array(...)`, tuple, numeric, date, datetime, boolean, UUID, and nullable wrappers supported by the runtime type parser
 - JSON helpers: `JSONExtractInt`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtractString`, `JSONExtractRaw`, `JSONExtractKeys`, `JSONExtractArrayRaw`, `JSONExtractKeysAndValues`, `JSON_VALUE`, `JSONHas`, `JSONType`, and `JSONLength`
 - array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arrayReduce`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
-- tuple and map functions: `tuple`, `tupleElement`, `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapFilter`, and `mapApply`
-- common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `argMin`, `argMax`, `quantile*`, `median*`, `groupArray`, `array_agg`
+- tuple and map functions: `tuple`, positional and named `tupleElement`, `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapFilter`, and `mapApply`
+- common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `argMin`, `argMax`, `quantile*`, `median*`, `groupArray`, `array_agg`, and common aggregate state/merge pairs
 
 This is not full ClickHouse function parity.
 It is enough to stop losing types at many common function boundaries and to make the remaining unknowns measurable.
@@ -209,6 +210,10 @@ Tuple access can then recover the selected item type:
 TupleAccess(tuple=Tuple(exprs=[Constant(1), Constant("two")]), index=2)
 # StringType(nullable=False)
 ```
+
+Named tuple metadata now survives through the compatibility layer when the source has field names.
+For example, `tupleElement(JSONExtract(json, 'Tuple(name String, score Float64)'), 'score')` resolves to `FloatType`.
+Struct database fields also carry their field names into `TupleType`, which gives future projection and accessor optimizers a named lookup path instead of only positional metadata.
 
 Array slices preserve array element type.
 Array access resolves to the array element type.
@@ -318,7 +323,7 @@ Redundant cast detection:
 
 - `toString(String)` can be proven redundant.
 - `toDate(Date)` can be proven redundant.
-- datetime casts can be classified with precision/timezone metadata, but the current simplifier deliberately leaves them in place.
+- `toDateTime(DateTime)` can be proven redundant when precision, timezone, nullability, and family facts match.
 - `assumeNotNull(non_nullable_expr)` can be proven redundant.
 - Casts that change nullability, timezone, precision, parsing semantics, or type family can stay in place.
 
@@ -364,7 +369,15 @@ Typed numeric and datetime materialized-property minmax rewrites remain blocked 
 The planner correctly treats those source/semantic mismatches as optimizer barriers, so `toFloat(col) < 5` and `parseDateTime64BestEffortOrNull(col) < ts` are not rewritten into lexicographic string comparisons.
 Future typed-property index work needs either physically typed sources or a separately proven index path with ClickHouse planner tests.
 
-Aggregate states are represented structurally, but the common state/merge pairs still need deeper catalog coverage before preaggregation transformations can rely on final and intermediate state types.
+Aggregate states are represented structurally in both the runtime model and the resolver-facing compatibility layer.
+Common state/merge pairs now preserve enough metadata for typed intermediate and final values:
+
+- `countState(...)` and `countMerge(...)`
+- `sumState(...)` and `sumMerge(...)` when the merge input is a typed state
+- `avgState(...)` and `avgMerge(...)`
+- `quantilesState(...)` and `quantilesMerge(...)`
+
+Broader aggregate combinators, map/forEach variants, and validation that a merge consumes the matching state shape remain follow-up work before preaggregation transformations can depend on this broadly.
 
 Strict mode is not enabled.
 Unknowns remain printable.
@@ -408,15 +421,17 @@ The simplifier currently removes conservative no-op operations:
 - `CAST(String AS String)` and equivalent safe string aliases such as `text`, `varchar`, and `char`
 - `toString(String)`
 - `toDate(Date)`
+- `toDateTime(DateTime)` when timezone and precision facts match
 - `toBool(Boolean)`
 - `assumeNotNull(non_nullable_expr)`
 - `toNullable(already_nullable_expr)`
 - `ifNull(non_nullable_expr, fallback)`
 - `coalesce(non_nullable_expr, ...)`
+- repeated compatible casts in those safe families
 
 It deliberately does not remove casts for families where the current compatibility type model lacks enough precision:
 
-- datetime casts, because timezone and precision can matter
+- datetime casts that change timezone or precision
 - numeric casts, because signedness and width can matter
 - decimal casts, because precision and scale can matter
 - unknown expressions, which remain optimizer barriers
@@ -435,4 +450,5 @@ Good first targets:
 
 - identify source shapes where a typed property comparison can preserve semantic ordering while exposing a direct indexed expression
 - identify cases where a literal can be converted instead of wrapping the materialized column
+- extend aggregate state typing to map/forEach variants and validate compatible state/merge pairs
 - add ClickHouse planner tests for numeric and datetime minmax skip-index use before enabling a new rewrite

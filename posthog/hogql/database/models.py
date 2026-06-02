@@ -106,6 +106,7 @@ class StructDatabaseField(DatabaseField):
         return TupleType(
             nullable=self.is_nullable(),
             item_types=[field.get_constant_type() for field in self.fields.values()],
+            field_names=list(self.fields.keys()),
         )
 
 

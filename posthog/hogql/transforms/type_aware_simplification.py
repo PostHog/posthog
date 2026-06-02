@@ -10,7 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.type_system import RuntimeType, parse_sql_runtime_type, runtime_type_from_constant_type
 from posthog.hogql.visitor import CloningVisitor
 
-_SAFE_REDUNDANT_CAST_FAMILIES = frozenset({"string", "boolean", "date", "uuid"})
+_SAFE_REDUNDANT_CAST_FAMILIES = frozenset({"string", "boolean", "date", "datetime", "uuid"})
 
 
 def simplify_redundant_type_operations(
@@ -103,6 +103,8 @@ def _conversion_call_target_type(normalized_name: str, source_type: RuntimeType)
         return dataclasses.replace(source_type, family="string")
     if normalized_name == "todate" and source_type.family == "date":
         return dataclasses.replace(source_type, family="date")
+    if normalized_name == "todatetime" and source_type.family == "datetime":
+        return dataclasses.replace(source_type, family="datetime")
     if normalized_name == "tobool" and source_type.family == "boolean":
         return dataclasses.replace(source_type, family="boolean")
     return None
@@ -116,5 +118,9 @@ def _is_redundant_cast(source_type: RuntimeType, target_type: RuntimeType) -> bo
     if source_type.family not in _SAFE_REDUNDANT_CAST_FAMILIES:
         return False
     if source_type.nullable != target_type.nullable:
+        return False
+    if source_type.family == "datetime" and (
+        source_type.precision != target_type.precision or source_type.timezone != target_type.timezone
+    ):
         return False
     return True

@@ -48,6 +48,10 @@ Completed in this branch:
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 - Added `posthog/hogql/property_planner.py`, which combines semantic property types, physical property sources, source index metadata, restricted-property materialization rules, and comparison compatibility into optimizer-ready property comparison plans.
 - Wired the ClickHouse materialized-column range rewrite through that property comparison plan, so the existing string minmax-friendly rewrite only uses direct physical-source comparisons when the planner says the source type matches the property semantics.
+- Added explicit `LowCardinality` preservation in structured runtime types, so this wrapper is a distinct type fact instead of being silently erased.
+- Added tuple field names to the resolver-facing `TupleType` compatibility layer, plus named `tupleElement(tuple, 'field')` inference for typed tuple metadata such as `JSONExtract(..., 'Tuple(name String, score Float64)')` and struct database fields.
+- Added `AggregateStateType` as a compatibility type for aggregate state expressions, with generic inference for common state/merge pairs such as `countState`/`countMerge`, `sumState`/`sumMerge` when the state is typed, `avgState`/`avgMerge`, and `quantilesState`/`quantilesMerge`.
+- Extended the opt-in type-aware simplifier to remove redundant `toDateTime(DateTime)` and repeated compatible safe casts when precision, timezone, family, and nullability facts match.
 
 Still intentionally left as follow-up work:
 
@@ -56,6 +60,7 @@ Still intentionally left as follow-up work:
 - Full higher-order map parity beyond key/value binding, especially strict lambda arity and return validation.
 - Typed materialized-property comparison rewrites for numeric and datetime properties whose physical source columns can support semantic ordering.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
+- Broader aggregate-state/combinator coverage, especially map/forEach variants and validation of compatible state/merge pairs.
 - Strict resolver mode.
 - Query-corpus unknown-type baselines and ClickHouse integration tests for planner/index wins.
 
@@ -127,8 +132,8 @@ The type hierarchy is split between:
 - `nullable`
 
 This is useful, but intentionally coarse.
-It does not represent ClickHouse precision, scale, timezone, signedness, low cardinality, enum values, named tuple fields, aggregate states, nested nullability, or most parametric type details.
-Map key/value types now have a compatibility representation, but the legacy `ConstantType` model still omits most ClickHouse-specific map metadata.
+The structured runtime model now carries ClickHouse precision, scale, timezone, signedness, low cardinality, enum values, named tuple fields, aggregate states, nested nullability, and most first-slice parametric constructors.
+The legacy `ConstantType` compatibility model now carries map key/value types, tuple field names, and aggregate-state wrappers, but it still omits most ClickHouse-specific precision details for optimizer decisions.
 
 Database fields map to constant types through `DatabaseField.get_constant_type()`.
 The mapping is also coarse.
@@ -214,9 +219,9 @@ The remaining gaps are more specific:
 - Strict lambda arity and return validation for higher-order array/map functions.
 - UDFs.
 
-Aggregate state and merge functions are especially incomplete.
+Aggregate state and merge coverage is still incomplete outside the common typed pairs.
 Some entries are marked `aggregate=True` but still have no return type signature or generic inference.
-This blocks typed handling for preaggregation and aggregation state transformations.
+This blocks typed handling for broader preaggregation and aggregation state transformations.
 
 ### Property Typing
 
@@ -289,7 +294,7 @@ TODO:
   - [x] decimals with precision and scale when the type string provides them
   - [x] strings, fixed strings, UUIDs, booleans, enums
   - [x] dates and datetimes, including `DateTime64` precision and timezone
-  - [ ] preserve low cardinality wrappers as a distinct type fact
+  - [x] preserve low cardinality wrappers as a distinct type fact
   - [x] nullable wrappers
   - [x] arrays with element types and element nullability
   - [x] tuples with positional and optional named fields
@@ -330,7 +335,7 @@ TODO:
 - [ ] Add string/date/datetime coercion rules for PostHog-supported syntax by dialect.
 - [x] Add array element unification rules.
 - [x] Add tuple element lookup rules.
-- [ ] Add named tuple lookup rules.
+- [x] Add named tuple lookup rules.
 - [x] Add map key/value access rules.
 - [x] Add comparison compatibility checks that can distinguish:
   - [x] definitely compatible
@@ -417,20 +422,21 @@ TODO:
   - [x] `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - [ ] Cover tuple and map functions:
   - [x] tuple construction and access
-  - [ ] named tuple access
+  - [x] named tuple access
   - [x] `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapContains`
   - [x] `mapFilter`, `mapApply`
 - [ ] Cover aggregate functions:
   - [x] `count`, `countIf`
-  - [ ] `countState`, `countMerge`
+  - [x] `countState`, `countMerge`
   - [x] `sum`, `sumIf`
-  - [ ] `sumState`, `sumMerge`
+  - [x] `sumState`, `sumMerge` for typed state/merge pairs
   - [x] `avg`, `avgIf`
-  - [ ] `avgState`, `avgMerge`
+  - [x] `avgState`, `avgMerge`
   - [x] `min`, `max`, `any`, `argMin`, `argMax`
   - [x] `uniq*`
   - [x] scalar `quantile*` and `median*` variants
-  - [ ] quantile/median state and merge variants
+  - [x] `quantilesState`, `quantilesMerge`
+  - [ ] remaining quantile/median state and merge variants
   - [ ] map/forEach aggregate variants
 - [x] Cover high-use string and URL functions that unblock emitted-SQL nullability simplification.
 - [ ] Cover high-use date functions after the above.
@@ -460,7 +466,7 @@ TODO:
 - [x] Infer `ArrayAccess(Array[T], Int) -> T`.
 - [x] Infer `ArraySlice(Array[T], ...) -> Array[T]`.
 - [x] Infer `TupleAccess(Tuple[..., T_i, ...], i) -> T_i`.
-- [ ] Infer named tuple access when the tuple has field names.
+- [x] Infer named tuple access when the tuple has field names.
 - [x] Infer dictionary/map construction and access types.
 - [x] Type common higher-order `Lambda` expressions with parameter and return types.
 - [x] Make `LambdaArgumentType` resolve from surrounding higher-order function context instead of always `UnknownType`.
@@ -535,10 +541,10 @@ TODO:
 - [x] Add an opt-in typed cast/nullability simplifier for conservative cases:
   - [x] remove redundant `toString(String)`
   - [x] remove redundant `toDate(Date)`
-  - [ ] remove redundant `toDateTime(DateTime)`
+  - [x] remove redundant `toDateTime(DateTime)`
   - [x] remove redundant `toBool(Boolean)`
   - [x] remove redundant `assumeNotNull(non_nullable_expr)`
-  - [ ] collapse repeated compatible casts
+  - [x] collapse repeated compatible casts
   - [x] avoid removing casts that change timezone, precision, parsing semantics, or nullability
 - [ ] Add literal-side conversion rewrites:
   - [ ] compare typed column to typed literal without wrapping the column
@@ -553,7 +559,7 @@ TODO:
   - [ ] preserve SQL three-valued logic where needed
   - [x] avoid redundant `ifNull`/`coalesce` around functions known to be non-nullable in the opt-in simplifier
 - [ ] Add aggregate-state typing:
-  - [ ] allow state/merge transformations to know intermediate and final types
+  - [x] allow state/merge transformations to know intermediate and final types for common typed state pairs
   - [ ] validate compatible state/merge pairs
   - [ ] improve preaggregation matching
 - [ ] Add projection and lazy-join improvements:
@@ -705,7 +711,8 @@ TODO:
 - [x] Use property comparison planning as the default guard for the existing materialized string-column range rewrite.
 - [ ] Add typed property comparison rewrites behind a modifier or internal flag once physical source types or another proven-safe index path exist.
 - [x] Add conservative nullability wrapper simplification behind an internal flag.
-- [ ] Add aggregate state typing support for preaggregation work.
+- [x] Add first aggregate state typing support for common state/merge pairs.
+- [ ] Extend aggregate state typing into preaggregation matching.
 - [ ] Add projection/lazy table improvements only after field lineage is stable.
 - [ ] Run query corpus comparisons before and after each rewrite.
 
