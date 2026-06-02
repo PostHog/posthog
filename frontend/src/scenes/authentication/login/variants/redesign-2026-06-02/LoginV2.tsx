@@ -12,6 +12,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import {
     Button,
+    ButtonGroup,
     Card,
     CardContent,
     CardDescription,
@@ -21,11 +22,6 @@ import {
     FieldError,
     FieldLabel,
     Input,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
 } from 'lib/ui/quill'
 import { KeyboardGardenBackground } from 'scenes/authentication/shared/KeyboardGardenBackground'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
@@ -41,6 +37,11 @@ import { loginLogic } from '../../loginLogic'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
+const REGIONS: { value: Region; flag: string; label: string }[] = [
+    { value: Region.US, flag: '🇺🇸', label: 'United States' },
+    { value: Region.EU, flag: '🇪🇺', label: 'European Union' },
+]
+
 function LoginDataRegion(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
@@ -48,8 +49,8 @@ function LoginDataRegion(): JSX.Element | null {
         return null
     }
 
-    const navigateToRegion = (region: Region | null): void => {
-        if (!region) {
+    const navigateToRegion = (region: Region): void => {
+        if (region === preflight.region) {
             return
         }
         const { pathname, search, hash } = router.values.currentLocation
@@ -64,15 +65,23 @@ function LoginDataRegion(): JSX.Element | null {
                     (what's this?)
                 </Link>
             </FieldLabel>
-            <Select value={preflight.region} onValueChange={navigateToRegion}>
-                <SelectTrigger className="w-full">
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value={Region.US}>United States</SelectItem>
-                    <SelectItem value={Region.EU}>European Union</SelectItem>
-                </SelectContent>
-            </Select>
+            <ButtonGroup className="w-full">
+                {REGIONS.map((region) => (
+                    <Button
+                        key={region.value}
+                        type="button"
+                        variant={preflight.region === region.value ? 'primary' : 'outline'}
+                        className="flex-1"
+                        aria-pressed={preflight.region === region.value}
+                        onClick={() => navigateToRegion(region.value)}
+                    >
+                        <span aria-hidden className="mr-1.5">
+                            {region.flag}
+                        </span>
+                        {region.label}
+                    </Button>
+                ))}
+            </ButtonGroup>
         </Field>
     )
 }
