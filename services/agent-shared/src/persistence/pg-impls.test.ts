@@ -658,4 +658,169 @@ maybeDescribe('Postgres impls (real PG)', () => {
         const slacks = await store.list(7, 'slack')
         expect(slacks.map((r) => r.integration_id).sort()).toEqual(['T01ACME'])
     })
+
+    // ------------------------------------------------------------------
+    // Idempotency-key guarantees
+    //
+    // The (application_id, idempotency_key) partial unique index is the
+    // load-bearing piece for cron-trigger dedupe + webhook redelivery
+    // dedupe. These tests pin the guarantees the design relies on
+    // against real Postgres rather than the in-memory fake.
+    // ------------------------------------------------------------------
+
+    async function seedSession(
+        queue: PgSessionQueue,
+        appId: string,
+        revId: string,
+        opts: { id?: string; idempotencyKey?: string | null; createdAt?: Date } = {}
+    ): Promise<string> {
+        const id = opts.id ?? randomUUID()
+        const ts = (opts.createdAt ?? new Date()).toISOString()
+        await queue.enqueue({
+            id,
+            application_id: appId,
+            revision_id: revId,
+            team_id: 1,
+            external_key: null,
+            idempotency_key: opts.idempotencyKey ?? null,
+            trigger_metadata: null,
+            state: 'queued',
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
+            created_at: ts,
+            updated_at: ts,
+        })
+        return id
+    }
+
+    it('PgSessionQueue enqueue rejects a duplicate (application_id, idempotency_key) with Postgres 23505', async () => {
+        if (!reachable) {
+            return
+        }
+        const revisions = new PgRevisionStore(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'idem-dupe', name: 'X', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const queue = new PgSessionQueue(pool)
+
+        const firstId = await seedSession(queue, app.id, rev.id, { idempotencyKey: 'cron:rev:hourly:2026-06-02T12:00' })
+
+        // Second insert with the same (app, key) must hit the unique index.
+        // The ingress's enqueueOrResume catches this and resolves the existing
+        // session — but the catch path only fires when the DB really throws.
+        let captured: unknown
+        try {
+            await seedSession(queue, app.id, rev.id, { idempotencyKey: 'cron:rev:hourly:2026-06-02T12:00' })
+        } catch (err) {
+            captured = err
+        }
+        expect((captured as { code?: string } | undefined)?.code).toBe('23505')
+
+        // The original row is intact + findable by the key.
+        const found = await queue.findByIdempotencyKey(app.id, 'cron:rev:hourly:2026-06-02T12:00')
+        expect(found?.id).toBe(firstId)
+    })
+
+    it('PgSessionQueue partial unique index allows multiple NULL idempotency_keys', async () => {
+        if (!reachable) {
+            return
+        }
+        // Without `WHERE idempotency_key IS NOT NULL` on the unique index,
+        // un-keyed enqueues would collide with each other under
+        // Postgres's default treatment of NULL as distinct. Pin that
+        // behaviour: the same app can hold many sessions with no key.
+        const revisions = new PgRevisionStore(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'idem-null', name: 'X', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const queue = new PgSessionQueue(pool)
+        const id1 = await seedSession(queue, app.id, rev.id, { idempotencyKey: null })
+        const id2 = await seedSession(queue, app.id, rev.id, { idempotencyKey: null })
+        expect(id1).not.toBe(id2)
+    })
+
+    it('PgSessionQueue idempotency_key collisions are scoped to application_id', async () => {
+        if (!reachable) {
+            return
+        }
+        // Two different apps can hold the same key shape (e.g. both have a
+        // cron named "hourly" firing on the same minute) without colliding.
+        const revisions = new PgRevisionStore(pool)
+        const a = await revisions.createApplication({ team_id: 1, slug: 'idem-a', name: 'A', description: '' })
+        const b = await revisions.createApplication({ team_id: 1, slug: 'idem-b', name: 'B', description: '' })
+        const revA = await revisions.createRevision({
+            application_id: a.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const revB = await revisions.createRevision({
+            application_id: b.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const queue = new PgSessionQueue(pool)
+        const idA = await seedSession(queue, a.id, revA.id, { idempotencyKey: 'cron:foo:hourly:2026-06-02T12:00' })
+        const idB = await seedSession(queue, b.id, revB.id, { idempotencyKey: 'cron:foo:hourly:2026-06-02T12:00' })
+        expect(idA).not.toBe(idB)
+
+        // findByIdempotencyKey is application-scoped — A's lookup returns A's row.
+        expect((await queue.findByIdempotencyKey(a.id, 'cron:foo:hourly:2026-06-02T12:00'))?.id).toBe(idA)
+        expect((await queue.findByIdempotencyKey(b.id, 'cron:foo:hourly:2026-06-02T12:00'))?.id).toBe(idB)
+    })
+
+    it('PgSessionQueue clearStaleIdempotencyKeys nulls keys older than cutoff and reports count', async () => {
+        if (!reachable) {
+            return
+        }
+        const revisions = new PgRevisionStore(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'idem-sweep', name: 'X', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const queue = new PgSessionQueue(pool)
+        const now = Date.now()
+        const old = new Date(now - 31 * 24 * 60 * 60 * 1000) // 31d
+        const fresh = new Date(now - 1 * 24 * 60 * 60 * 1000) // 1d
+
+        const oldId = await seedSession(queue, app.id, rev.id, { idempotencyKey: 'old-key', createdAt: old })
+        const freshId = await seedSession(queue, app.id, rev.id, { idempotencyKey: 'fresh-key', createdAt: fresh })
+
+        const cutoff = new Date(now - 30 * 24 * 60 * 60 * 1000) // 30d
+        const cleared = await queue.clearStaleIdempotencyKeys(cutoff)
+        expect(cleared).toBe(1)
+
+        // Old session loses its key — a future enqueue with the same shape
+        // would slot in cleanly (this is the whole point of the sweep).
+        expect(await queue.findByIdempotencyKey(app.id, 'old-key')).toBeNull()
+        // Fresh session keeps its key — still findable.
+        expect((await queue.findByIdempotencyKey(app.id, 'fresh-key'))?.id).toBe(freshId)
+
+        // Row itself survives — only the key column is nulled.
+        const oldRow = await queue.get(oldId)
+        expect(oldRow).not.toBeNull()
+        expect(oldRow!.idempotency_key).toBeNull()
+    })
 })

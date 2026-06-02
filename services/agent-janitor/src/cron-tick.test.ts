@@ -168,6 +168,32 @@ describe('cronTick', () => {
         expect(out.fired).toBe(3)
     })
 
+    it('clamps the enumeration window to max_catch_up_age_seconds', async () => {
+        // Regression for the boot-time DoS: without clamping the window
+        // BEFORE iteration, a long pause + a sub-minute schedule would
+        // walk hundreds of thousands of firings only to discard them all
+        // in applyCatchUp. The cap should keep firings.length bounded.
+        const revisions = new MemoryRevisionStore()
+        const queue = new MemorySessionQueue()
+        await deploy(revisions, {
+            triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'all', max_catch_up_age_seconds: 120 })],
+        })
+        const state = newCronTickState()
+
+        const t0 = new Date('2026-06-01T00:00:00Z')
+        await cronTick({ revisions, queue, now: () => t0 }, state)
+
+        // 7-day gap on a minute schedule = 10,080 firings before the clamp.
+        // After clamping to max_catch_up_age_seconds=120, the tick should
+        // enumerate at most 2 firings and skip nothing on the catch-up
+        // discard path.
+        const tLater = new Date('2026-06-08T00:00:00Z')
+        const out = await cronTick({ revisions, queue, now: () => tLater }, state)
+
+        expect(out.fired).toBe(2)
+        expect(out.skipped_caught_up).toBe(0)
+    })
+
     it('idempotency: re-running the same tick is a no-op (the unique-key path)', async () => {
         // Simulates a second janitor replica running cronTick on the same
         // window; the second call should land on the unique-violation path

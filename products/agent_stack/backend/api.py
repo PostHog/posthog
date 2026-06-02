@@ -1362,6 +1362,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "put_file",
         "delete_file",
         "put_bundle",
+        "cron_fire",
     ]
     scope_object_read_actions = [
         "list",

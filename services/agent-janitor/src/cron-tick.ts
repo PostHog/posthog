@@ -173,9 +173,18 @@ export async function cronTick(deps: CronTickDeps, state: CronTickState): Promis
                 continue
             }
             const cfg = trigger.config
+            // Clamp the enumeration window to `max_catch_up_age_seconds` BEFORE
+            // walking — `applyCatchUp` would discard anything older, but
+            // sub-minute schedules (cron-parser accepts 6-field `* * * * * *`)
+            // turn a paused janitor + the 7-day cap into 604,800 wasted
+            // iterations on a single tick. Cap the window first so we never
+            // enumerate firings we'd throw away.
+            const ageCapMs = cfg.max_catch_up_age_seconds * 1000
+            const earliestAllowed = new Date(now.getTime() - ageCapMs)
+            const windowFrom = lastTickAt > earliestAllowed ? lastTickAt : earliestAllowed
             let firings: Date[]
             try {
-                firings = enumerateFirings(cfg.schedule, cfg.timezone, lastTickAt, now)
+                firings = enumerateFirings(cfg.schedule, cfg.timezone, windowFrom, now)
             } catch (err) {
                 log.warn(
                     {
