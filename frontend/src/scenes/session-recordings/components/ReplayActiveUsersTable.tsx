@@ -13,7 +13,9 @@ import { PersonType } from '~/types'
 import { replayActiveUsersTableLogic } from './replayActiveUsersTableLogic'
 
 export const ReplayActiveUsersTable = (): JSX.Element => {
-    const { countedUsers, countedUsersLoading } = useValues(replayActiveUsersTableLogic({ scene: 'templates' }))
+    const { countedUsers, countedUsersLoading, countedUsersError } = useValues(
+        replayActiveUsersTableLogic({ scene: 'templates' })
+    )
 
     return (
         <div className="flex flex-col border rounded bg-surface-primary w-full px-4 py-2">
@@ -38,6 +40,9 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
                 ]}
                 dataSource={countedUsers || []}
                 loading={countedUsersLoading}
+                emptyState={
+                    countedUsersError ? "Couldn't load most active users right now. Please try again later." : undefined
+                }
                 onRow={(record) => {
                     return {
                         className: 'cursor-pointer hover:bg-surface-secondary',

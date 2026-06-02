@@ -11,7 +11,9 @@ import { urls } from 'scenes/urls'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 export const ReplayActiveScreensTable = (): JSX.Element => {
-    const { countedScreens, countedScreensLoading } = useValues(replayActiveScreensTableLogic({ scene: 'templates' }))
+    const { countedScreens, countedScreensLoading, countedScreensError } = useValues(
+        replayActiveScreensTableLogic({ scene: 'templates' })
+    )
 
     return (
         <div className="flex flex-col border rounded bg-surface-primary w-full px-4 py-2">
@@ -36,6 +38,11 @@ export const ReplayActiveScreensTable = (): JSX.Element => {
                 ]}
                 dataSource={countedScreens || []}
                 loading={countedScreensLoading}
+                emptyState={
+                    countedScreensError
+                        ? "Couldn't load most active pages right now. Please try again later."
+                        : undefined
+                }
                 onRow={(record) => {
                     return {
                         className: 'cursor-pointer hover:bg-surface-secondary',
