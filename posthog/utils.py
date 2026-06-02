@@ -59,6 +59,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.security.url_validation import has_authority_bypass_chars
 
 tracer = trace.get_tracer(__name__)
 
@@ -75,10 +76,11 @@ TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import InsightVariable, Team, User
+    from posthog.models import Team, User
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
+    from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -118,6 +120,9 @@ def absolute_uri(url: Optional[str] = None) -> str:
     """
     if not url:
         return settings.SITE_URL
+
+    if has_authority_bypass_chars(url):
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
     if provided_url.hostname and provided_url.scheme:
@@ -576,6 +581,18 @@ def _build_template_context(
                     )
                     posthog_app_context["custom_products"] = user_product_list.data
 
+                with tracer.start_as_current_span("template.promoted_product_intent"):
+                    from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
+
+                    # Best-effort — the promoted-product sidebar entry is experimental.
+                    # If the lookup fails for any reason, hide it for this request
+                    # rather than 500ing the page render.
+                    try:
+                        posthog_app_context["promoted_product_intent"] = get_promoted_product_intent(user.team.pk)
+                    except Exception:
+                        capture_exception()
+                        posthog_app_context["promoted_product_intent"] = None
+
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
@@ -757,7 +774,7 @@ def get_default_event_name(team: "Team") -> str | None:
 
 @tracer.start_as_current_span("template.frontend_apps")
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from posthog.models import Plugin, PluginSourceFile
+    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
@@ -1441,8 +1458,9 @@ def filters_override_requested_by_client(request: Request, dashboard: Optional["
 def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
-    from posthog.api.insight_variable import map_stale_to_latest
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+    from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None

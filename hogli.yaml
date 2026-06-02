@@ -138,6 +138,9 @@ devbox:
     devbox:setup:
         click: hogli_commands.devbox.cli:devbox_setup
         description: Install and configure local access to Coder devboxes
+    devbox:doctor:
+        click: hogli_commands.devbox.cli:devbox_doctor
+        description: Diagnose devbox prerequisites and setup (read-only)
     devbox:start:
         click: hogli_commands.devbox.cli:devbox_start
         description: Start or create your remote devbox
@@ -156,6 +159,9 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
+    devbox:exec:
+        click: hogli_commands.devbox.cli:devbox_remote_exec
+        description: Run a command inside your devbox (non-interactive)
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
@@ -183,6 +189,9 @@ devbox:
     devbox:cleanup:disk:
         click: hogli_commands.devbox.cli:devbox_cleanup_disk
         description: Free disk space by cleaning caches and build artifacts
+    devbox:sync:
+        click: hogli_commands.devbox.sync:cmd_sync
+        description: Mirror your local PostHog checkout to a devbox
     devbox:task:
         click: hogli_commands.devbox.cli:devbox_task
         description: Run a background agent task on a fresh devbox
@@ -784,6 +793,9 @@ tools:
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:lint:owners:
+        click: hogli_commands.product.cli:cmd_lint_owners
+        description: Validate product.yaml owners against PostHog/posthog GitHub teams
     product:maturity:
         click: hogli_commands.product.cli:cmd_maturity
         description: Score product maturity across isolation dimensions
@@ -897,6 +909,9 @@ tools:
         bin_script: find-affected-stories
         description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
+    ci:insights:
+        click: hogli_commands.ci_insights:ci_insights
+        description: Show CI insights for the current repo + branch (search/view/plan subcommands)
 utilities:
     nuke:
         steps:

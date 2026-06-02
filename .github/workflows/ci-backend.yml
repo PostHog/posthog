@@ -13,6 +13,11 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
+        # Heavy test matrices (django, turbo-tests) skip drafts; ready_for_review
+        # re-triggers them when a PR leaves draft. To force them on a draft, add the
+        # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
+        # start without needing a new push. Cheap checks still run on drafts.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
 
 concurrency:
@@ -75,6 +80,10 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            schema: ${{ steps.filter.outputs.schema || 'true' }}
+            product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
+            product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
+            timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -118,6 +127,17 @@ jobs:
                         - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
+                        # Python outside backend/ — products like logs and
+                        # posthog_ai point `backend:test` at extra roots
+                        # (skills/, scripts/). Catch any .py change so the
+                        # backend job triggers when only those files move.
+                        - 'products/**/*.py'
+                        # Each product's package.json declares the per-product
+                        # backend:test script that turbo-discover reads to
+                        # compose the Product matrix. Without this entry,
+                        # widening or fixing the script doesn't trigger
+                        # tests it controls.
+                        - 'products/*/package.json'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
@@ -136,6 +156,10 @@ jobs:
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
                         - 'products/*/manifest.tsx' # Generates products.json
+                        # hogli db commands used for test database setup
+                        - 'tools/hogli-commands/hogli_commands/**'
+                        - 'tools/hogli/**'
+                        - hogli.yaml
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -174,7 +198,6 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations
-                        - frontend/src/queries/schema.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
@@ -187,6 +210,11 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                      schema:
+                        # Tracked separately from `legacy` so turbo-discover can
+                        # diff schema.json and narrow the product matrix to
+                        # products that import the changed types.
+                        - frontend/src/queries/schema.json
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -195,8 +223,16 @@ jobs:
                       persons-SQL:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
+                      timing_scripts:
+                        - '.github/scripts/optimize_test_durations.py'
+                        - '.github/scripts/turbo-discover.js'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      product_yamls:
+                        # Validates owner team slugs against PostHog/posthog collaborator teams.
+                        # Costs one GitHub API call; gated here so we only pay it when ownership
+                        # actually changes. Drives the validate-product-yamls job below.
+                        - 'products/*/product.yaml'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -270,6 +306,7 @@ jobs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
+            django_shards: ${{ steps.discover.outputs.django_shards }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -301,7 +338,7 @@ jobs:
                   fi
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -321,6 +358,7 @@ jobs:
                   # On pushes to master, always run everything.
                   # On PRs, use the path filter to detect legacy changes.
                   LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
+                  SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
               run: |
@@ -331,6 +369,7 @@ jobs:
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+                  echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
 
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
@@ -339,6 +378,8 @@ jobs:
         needs: [changes, turbo-discover, detect-snapshot-mode]
         if: >-
             always() &&
+            (github.event.pull_request.draft != true ||
+             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
@@ -373,7 +414,7 @@ jobs:
                     temporal elasticsearch objectstorage-azure
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -395,9 +436,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -533,9 +574,9 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -560,6 +601,69 @@ jobs:
 
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+
+    # Validates product.yaml owners against PostHog/posthog collaborator teams.
+    # Gated on the product_yamls paths filter so we only spend a GitHub API call
+    # when ownership actually changes. The scoped form (positional product names)
+    # means a PR can't trip on pre-existing stale ownership in unrelated yamls.
+    # Skipped for fork PRs — app-token secrets aren't available there, and forks
+    # can't introduce new product.yaml entries that ship to master without a
+    # same-repo PR going through this check anyway.
+    validate-product-yamls:
+        needs: [changes]
+        if: >
+            needs.changes.outputs.product_yamls == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        name: Validate product.yaml owners (ubuntu-latest)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Default GITHUB_TOKEN can't list /repos/{repo}/teams (needs org-level
+            # `members: read`). Reuse the assign-reviewers app — same secret, same
+            # use case. `owner: PostHog` scopes the issued token at the org so
+            # org-level permissions actually flow through; otherwise the token is
+            # repo-scoped and the org scope gets dropped.
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.11.14'
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Validate changed product.yaml owners
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
+              run: |
+                  # CHANGED_FILES is space-separated (dorny list-files: escape).
+                  # Each entry is products/<name>/product.yaml — strip to <name>.
+                  names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
+                  # Drop products whose product.yaml was deleted in this PR (e.g. the
+                  # product moved out of products/) — there are no owners left to validate.
+                  names=$(for n in $names; do [ -f "products/$n/product.yaml" ] && printf '%s ' "$n"; done | xargs)
+                  if [ -z "$names" ]; then
+                    echo "No existing product.yaml files in diff after filtering"
+                    exit 0
+                  fi
+                  ./bin/hogli product:lint:owners $names
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -603,9 +707,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1159,7 +1263,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1175,10 +1279,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -1306,8 +1407,11 @@ jobs:
 
     build_django_matrix:
         name: Build Django matrix
-        needs: [changes, get_clickhouse_versions]
-        if: needs.changes.outputs.backend == 'true'
+        needs: [changes, get_clickhouse_versions, turbo-discover]
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            needs.get_clickhouse_versions.result == 'success'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
@@ -1318,42 +1422,55 @@ jobs:
               env:
                   OLDEST_SUPPORTED_IMAGE: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
+                  DJANGO_SHARDS_JSON: ${{ needs.turbo-discover.outputs.django_shards }}
               run: |
-                  # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
-                  # Consult #team-devex before changing.
-                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 39) | {
+                  # Auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
+                  # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
+                  CORE_SHARDS=38
+                  CORE_POE_SHARDS=7
+                  TEMPORAL_SHARDS=7
+                  if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
+                    CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
+                    CORE_POE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.CorePOE.shards')
+                    TEMPORAL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Temporal.shards')
+                    echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                  else
+                    echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                  fi
+
+                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
+                    [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": false,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: 38,
+                      concurrency: $shards,
                       group: .,
                       artifact_key: ("core-" + (.|tostring)),
                       compat: false
                     }]
                   ')
 
-                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 8) | {
+                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
+                    [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": true,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: 7,
+                      concurrency: $shards,
                       group: .,
                       artifact_key: ("core-poe-" + (.|tostring)),
                       compat: false
                     }]
                   ')
 
-                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 8) | {
+                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
+                    [range(1; $shards + 1) | {
                       segment: "Temporal",
                       "person-on-events": false,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: 7,
+                      concurrency: $shards,
                       group: .,
                       artifact_key: ("temporal-" + (.|tostring)),
                       compat: false
@@ -1393,6 +1510,8 @@ jobs:
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         if: |
             always() &&
+            (github.event.pull_request.draft != true ||
+             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
             (needs.changes.outputs.legacy == 'true' ||
@@ -1462,9 +1581,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1642,7 +1761,7 @@ jobs:
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
                       matrix.person-on-events
-                      && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
+                      && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog'
                       )
                   }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
@@ -1653,6 +1772,7 @@ jobs:
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
+                      --pytest-durations=100 \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
@@ -1713,6 +1833,7 @@ jobs:
                   pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
+                      --pytest-durations=100 \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
@@ -1735,8 +1856,8 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+              # Upload on master, or on PRs that change timing/sharding scripts (for validation)
+              if: ${{ (github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -2016,9 +2137,9 @@ jobs:
                   filter: blob:none
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
 
             - name: Download JUnit artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -2106,9 +2227,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -2158,9 +2279,29 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: bin/ci-wait-for-docker wait
 
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.turbo-discover.outputs.schema_cache_key }}
+
+            - name: Prime test_posthog from cached schema
+              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              if: ${{ github.event_name == 'pull_request' }}
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+
             - name: Run async migrations tests
               run: |
-                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --junitxml=junit.xml
+                  # Scope async migration tests directly and reuse the primed test database.
+                  pytest posthog/async_migrations/test -m "async_migrations" --reuse-db --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -2244,10 +2385,10 @@ jobs:
                     echo "available=false" >> "$GITHUB_OUTPUT"
                     echo "Trusted timing reporter is not available on the checked-out ref; skipping emit."
                   fi
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0

@@ -37,6 +37,7 @@ describe('createFetchPersonBatchStep', () => {
             fetchPerson: jest.fn(),
             fetchPersonsByDistinctIds: jest.fn(),
             fetchPersonsByPersonIds: jest.fn(),
+            fetchDistinctIdsForPersons: jest.fn(),
             createPerson: jest.fn(),
             updatePerson: jest.fn(),
             updatePersonAssertVersion: jest.fn(),
@@ -101,7 +102,8 @@ describe('createFetchPersonBatchStep', () => {
                 { teamId: 123, distinctId: 'user-1' },
                 { teamId: 123, distinctId: 'user-2' },
             ],
-            true // useReadReplica
+            true, // useReadReplica
+            'error-tracking/person-properties'
         )
     })
 
@@ -203,7 +205,8 @@ describe('createFetchPersonBatchStep', () => {
         // Should only query for the event with distinct_id
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
             [{ teamId: 123, distinctId: 'user-123' }],
-            true
+            true,
+            'error-tracking/person-properties'
         )
     })
 

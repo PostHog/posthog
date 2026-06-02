@@ -6,16 +6,33 @@ from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSou
 class TestGoogleAdsNonRetryableErrors:
     def setup_method(self):
         self.source = GoogleAdsSource()
+        self.non_retryable = self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize(
         "error_msg",
         [
-            # Exact excerpt reported by error tracking.
-            "RefreshError: ('invalid_grant: Token has been expired or revoked.', "
-            "{'error': 'invalid_grant', 'error_description': 'Token has been expired or revoked.'})",
-            # Second common variant from error tracking (same root cause — revoked/expired refresh token).
-            "RefreshError: ('invalid_grant: Bad Request', "
-            "{'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+            # Real RefreshError string observed in production when the refresh
+            # token has been revoked / expired — reported by `str(e)` on
+            # google.auth.exceptions.RefreshError.
+            "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+            "('invalid_grant: Token has been expired or revoked.', {'error': 'invalid_grant', 'error_description': 'Token has been expired or revoked.'})",
+            "('invalid_grant: Invalid grant: account not found', {'error': 'invalid_grant', 'error_description': 'Invalid grant: account not found'})",
+        ],
+    )
+    def test_invalid_grant_is_non_retryable(self, error_msg):
+        assert any(pattern in error_msg for pattern in self.non_retryable), (
+            f"RefreshError message {error_msg!r} did not match any non-retryable pattern"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Observed in production: requesting metrics against a manager (MCC) account.
+            (
+                "errors {\n  error_code {\n    query_error: REQUESTED_METRICS_FOR_MANAGER\n  }\n  "
+                'message: "Metrics cannot be requested for a manager account. To retrieve metrics, '
+                'issue separate requests against each client account under the manager account."\n}\n'
+            ),
             # Other Google Ads specific failures that should stop retrying.
             "PERMISSION_DENIED: The caller does not have permission",
             "UNAUTHENTICATED: Request had invalid authentication credentials",
@@ -25,8 +42,7 @@ class TestGoogleAdsNonRetryableErrors:
         ],
     )
     def test_permanent_auth_errors_are_non_retryable(self, error_msg):
-        non_retryable = self.source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
@@ -40,13 +56,30 @@ class TestGoogleAdsNonRetryableErrors:
         ],
     )
     def test_transient_errors_are_retryable(self, error_msg):
-        non_retryable = self.source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert not is_non_retryable, f"Expected error to be retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "PERMISSION_DENIED",
+            "UNAUTHENTICATED",
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+            "Account has been deleted",
+            "INVALID_CUSTOMER_ID",
+            "REQUESTED_METRICS_FOR_MANAGER",
+            "invalid_grant",
+        ],
+    )
+    def test_documented_patterns_present(self, pattern):
+        assert pattern in self.non_retryable
+
+    def test_requested_metrics_for_manager_has_user_facing_message(self):
+        message = self.non_retryable["REQUESTED_METRICS_FOR_MANAGER"]
+        assert message is not None
+        assert "manager" in message.lower()
+
     def test_invalid_grant_has_friendly_message(self):
-        non_retryable = self.source.get_non_retryable_errors()
-        assert "invalid_grant" in non_retryable
-        friendly = non_retryable["invalid_grant"]
+        friendly = self.non_retryable["invalid_grant"]
         assert friendly is not None
         assert "reconnect" in friendly.lower()

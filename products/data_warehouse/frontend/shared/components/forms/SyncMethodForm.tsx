@@ -177,14 +177,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     )
 
     useEffect(() => {
-        setRadioValue(
-            schema.sync_type ??
-                (schema.webhook_only || schema.supports_webhooks
-                    ? 'webhook'
-                    : incrementalSyncSupported.disabled
-                      ? 'append'
-                      : 'incremental')
-        )
+        setRadioValue(getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled))
         setIncrementalFieldValue(defaultField)
         setAppendFieldValue(defaultField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))

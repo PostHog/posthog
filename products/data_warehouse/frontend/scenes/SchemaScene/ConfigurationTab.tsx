@@ -59,12 +59,22 @@ export interface ConfigurationTabProps {
     schema: ExternalDataSourceSchema
     source: ExternalDataSource | null
     section: SchemaConfigurationSection
+    onConfigureSyncMethod: () => void
+    onViewSyncHistory: () => void
 }
 
-export function ConfigurationTab({ sourceId, schema, source, section }: ConfigurationTabProps): JSX.Element {
+export function ConfigurationTab({
+    sourceId,
+    schema,
+    source,
+    section,
+    onConfigureSyncMethod,
+    onViewSyncHistory,
+}: ConfigurationTabProps): JSX.Element {
     const logic = sourceSettingsLogic({ id: sourceId })
-    const { isProjectTime } = useValues(logic)
-    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable } = useActions(logic)
+    const { isProjectTime, refreshingSchemas } = useValues(logic)
+    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
+        useActions(logic)
 
     switch (section) {
         case 'details':
@@ -75,6 +85,8 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
+                    onConfigureSyncMethod={onConfigureSyncMethod}
+                    onViewSyncHistory={onViewSyncHistory}
                 />
             )
         case 'sync-method':
@@ -86,6 +98,8 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
                     schema={schema}
                     updateSchema={updateSchema}
                     resyncSchema={resyncSchema}
+                    refreshSchemas={refreshSchemas}
+                    refreshingSchemas={refreshingSchemas}
                 />
             )
         case 'schedule':
@@ -125,12 +139,16 @@ function DetailsSection({
     reloadSchema,
     cancelSchema,
     updateSchema,
+    onConfigureSyncMethod,
+    onViewSyncHistory,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
+    onConfigureSyncMethod: () => void
+    onViewSyncHistory: () => void
 }): JSX.Element {
     return (
         <div>
@@ -150,12 +168,14 @@ function DetailsSection({
                     </div>
                     <SourceEditorAction source={source}>
                         <LemonSwitch
-                            disabledReason={
-                                schema.sync_type === null ? 'You must set up the sync method first' : undefined
-                            }
                             checked={schema.should_sync}
                             label={schema.should_sync ? 'Syncing' : 'Disabled'}
                             onChange={(active) => {
+                                if (active && !schema.sync_type) {
+                                    // No sync method saved yet — open the sync method section to set one up.
+                                    onConfigureSyncMethod()
+                                    return
+                                }
                                 if (!active && schema.sync_type === 'cdc') {
                                     LemonDialog.open({
                                         title: 'Disable CDC table?',
@@ -280,6 +300,9 @@ function DetailsSection({
                         )}
                     </SourceEditorAction>
                 )}
+                <LemonButton type="secondary" onClick={onViewSyncHistory}>
+                    View sync history
+                </LemonButton>
             </div>
         </div>
     )
@@ -415,11 +438,15 @@ function ColumnsSection({
     schema,
     updateSchema,
     resyncSchema,
+    refreshSchemas,
+    refreshingSchemas,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
+    refreshSchemas: () => void
+    refreshingSchemas: boolean
 }): JSX.Element {
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
@@ -498,7 +525,19 @@ function ColumnsSection({
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                 {!hasAvailableColumns ? (
-                    <span className="text-muted">Per-column selection isn't available for this source yet.</span>
+                    <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
+                        <span className="text-sm">No columns discovered yet for this schema.</span>
+                        <SourceEditorAction source={source}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                loading={refreshingSchemas}
+                                onClick={() => refreshSchemas()}
+                            >
+                                Pull new schemas
+                            </LemonButton>
+                        </SourceEditorAction>
+                    </div>
                 ) : (
                     <>
                         <span className="text-sm text-secondary">{summaryLine}</span>

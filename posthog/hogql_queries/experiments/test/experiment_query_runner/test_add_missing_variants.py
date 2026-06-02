@@ -237,7 +237,6 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_with_holdout_variant(self):
-        """Should handle holdout variants correctly."""
         from products.experiments.backend.models.experiment import ExperimentHoldout
 
         holdout = ExperimentHoldout.objects.create(
@@ -259,8 +258,8 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
 
         result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
-        assert len(result) == 3  # control + test + holdout
+        assert len(result) == 2
         keys = [v[1].key for v in result]
         assert "control" in keys
         assert "test" in keys
-        assert f"holdout-{holdout.id}" in keys
+        assert f"holdout-{holdout.id}" not in keys

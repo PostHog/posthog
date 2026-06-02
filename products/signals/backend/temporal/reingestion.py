@@ -18,7 +18,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.signals.backend.api import emit_signal
+from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow

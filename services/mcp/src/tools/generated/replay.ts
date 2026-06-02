@@ -622,6 +622,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         schema: AssistantRecordingsQuery,
         kind: 'RecordingsQuery',
         urlPrefix: '/replay',
-        mcpVersion: 2,
     }),
 }

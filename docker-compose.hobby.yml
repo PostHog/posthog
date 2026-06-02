@@ -503,20 +503,36 @@ services:
                 # Use rpk topic list as the readiness check - it's a simple operation
                 # that confirms the broker is accepting Kafka protocol requests
                 until rpk topic list --brokers kafka:9092 2>/dev/null; do
-                    echo "Kafka broker not ready yet (elapsed: ${ELAPSED}s)..."
+                    echo "Kafka broker not ready yet (elapsed: $${ELAPSED}s)..."
                     sleep 2
-                    ELAPSED=$((ELAPSED + 2))
-                    if [ $ELAPSED -ge $TIMEOUT ]; then
-                        echo "Timeout waiting for Kafka broker after ${TIMEOUT}s"
+                    ELAPSED=$$((ELAPSED + 2))
+                    if [ $$ELAPSED -ge $$TIMEOUT ]; then
+                        echo "Timeout waiting for Kafka broker after $${TIMEOUT}s"
                         echo "Final attempt to list topics:"
                         rpk topic list --brokers kafka:9092 || true
                         exit 1
                     fi
                 done
                 echo "Kafka broker is accepting requests, creating topics..."
-                # Create topics needed by rust services
+                # Create topics needed by rust services and the combined analytics ingestion
+                # consumer, which checks topic existence at startup for every output it produces
+                # to (see analytics/outputs/registry.ts). Auto-create only fires on producer-first
+                # writes, so pre-create them here.
                 # Note: $$ escapes $ for docker-compose variable substitution
-                for topic in clickhouse_events_json; do
+                TOPICS="clickhouse_events_json \
+                    clickhouse_ai_events_json \
+                    clickhouse_heatmap_events \
+                    clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_dlq \
+                    events_plugin_ingestion_overflow \
+                    events_plugin_ingestion_async \
+                    clickhouse_groups \
+                    clickhouse_person \
+                    clickhouse_person_distinct_id \
+                    clickhouse_app_metrics2 \
+                    log_entries \
+                    clickhouse_tophog"
+                for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created successfully"
                     else

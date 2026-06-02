@@ -278,7 +278,7 @@ class TestBatchQueueStaleExecuting:
             await BatchQueue.update_status(orphan_conn, batch_id=bid, job_state="executing", attempt=1)
         # orphan_conn is now closed — advisory lock released
 
-        stale = await BatchQueue.get_stale_executing(conn)
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=0)
         assert len(stale) == 1
         assert str(stale[0].id) == bid
         assert stale[0].latest_attempt == 1
@@ -290,10 +290,84 @@ class TestBatchQueueStaleExecuting:
         await BatchQueue.get_unprocessed_and_lock(conn)
         await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
 
-        stale = await BatchQueue.get_stale_executing(conn_b)
+        stale = await BatchQueue.get_stale_executing(conn_b, grace_seconds=0)
         assert len(stale) == 0
 
         await conn.execute("SELECT pg_advisory_unlock_all()")
+
+    @pytest.mark.asyncio
+    async def test_grace_shields_recent_executing_from_orphan_sweep(self, conn, _db_url):
+        bid = await _insert_batch(conn)
+
+        async with await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as orphan_conn:
+            await BatchQueue.get_unprocessed_and_lock(orphan_conn)
+            await BatchQueue.update_status(orphan_conn, batch_id=bid, job_state="executing", attempt=1)
+        # orphan_conn closed — advisory lock released, status row is fresh.
+
+        # Fresh 'executing' must be ignored until it ages past the grace window:
+        # a live worker that briefly lost its psycopg session shouldn't be
+        # racily reclaimed.
+        assert await BatchQueue.get_stale_executing(conn, grace_seconds=3600) == []
+
+    @pytest.mark.asyncio
+    async def test_grace_lets_aged_executing_through(self, conn, _db_url):
+        bid = await _insert_batch(conn)
+
+        async with await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as orphan_conn:
+            await BatchQueue.get_unprocessed_and_lock(orphan_conn)
+        # Backdate the status row so it appears older than the grace window.
+        await conn.execute(
+            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
+            f"VALUES (%s, 'executing', 1, now() - interval '120 seconds')",
+            [bid],
+        )
+
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
+        assert len(stale) == 1
+        assert str(stale[0].id) == bid
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBatchQueueRetryBackoff:
+    @pytest.mark.asyncio
+    async def test_backoff_gates_fresh_waiting_retry(self, conn):
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="waiting_retry", attempt=1)
+
+        # With a large backoff base, the just-failed batch isn't picked up.
+        assert await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=3600) == []
+
+        # With backoff disabled, it's eligible immediately.
+        batches = await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=0)
+        assert len(batches) == 1
+        await BatchQueue.unlock_for_batches(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_backoff_scales_with_attempt(self, conn):
+        bid = await _insert_batch(conn)
+        # Backdate the status row by 10 seconds with attempt=3.
+        await conn.execute(
+            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
+            f"VALUES (%s, 'waiting_retry', 3, now() - interval '10 seconds')",
+            [bid],
+        )
+
+        # base=5, attempt=3 -> 15s required, only 10s elapsed: blocked.
+        assert await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=5) == []
+
+        # base=3, attempt=3 -> 9s required, 10s elapsed: eligible.
+        batches = await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=3)
+        assert len(batches) == 1
+        await BatchQueue.unlock_for_batches(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_backoff_does_not_gate_first_pickup(self, conn):
+        # batches with no status rows (s.batch_id IS NULL) must always be eligible,
+        # regardless of the backoff knob.
+        await _insert_batch(conn)
+        batches = await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=3600)
+        assert len(batches) == 1
+        await BatchQueue.unlock_for_batches(conn, batches=batches)
 
 
 class TestPendingBatchToExportSignal:

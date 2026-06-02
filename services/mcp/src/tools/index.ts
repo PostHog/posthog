@@ -1,5 +1,7 @@
 import { hasScopes } from '@/lib/api'
 
+// AI observability
+import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -11,8 +13,8 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
-// AI observability
-import getLLMCosts from './llmAnalytics/getLLMCosts'
+// Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
+import notebookEdit from './notebooks/edit'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
@@ -25,20 +27,11 @@ import {
     readDataWarehouseSchema,
 } from './posthogAiTools'
 // Projects
-import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
-import getProperties from './projects/propertyDefinitions'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
-// Query
-import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
-import queryRun from './query/run'
-import hogqlSchema from './query/schema'
-import queryValidate from './query/validate'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
-// Search
-import entitySearch from './search/entitySearch'
 // Misc
 import {
     type ToolFilterOptions,
@@ -46,6 +39,8 @@ import {
     getToolDefinition,
 } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
+// Workflows (lifecycle — CRUD lives in generated/workflows.ts)
+import { workflowsArchive, workflowsDisable, workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -55,9 +50,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Projects
     'projects-get': getProjects,
     'switch-project': setActiveProject,
-    'event-definitions-list': eventDefinitions,
     'event-definition-update': updateEventDefinition,
-    'properties-list': getProperties,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
@@ -67,17 +60,11 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Insights
     'insight-query': queryInsight,
 
-    // Queries
-    'query-generate-hogql-from-question': generateHogQLFromQuestion,
-    'query-run': queryRun,
-    'query-validate': queryValidate,
-    'hogql-schema': hogqlSchema,
-
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
 
-    // Search
-    'entity-search': entitySearch,
+    // Notebooks
+    'notebook-edit': notebookEdit,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
@@ -97,6 +84,12 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
     'external-data-sources-jobs': externalDataSourcesJobs,
     'external-data-sync-logs': externalDataSyncLogs,
+
+    // Workflows lifecycle (thin wrappers over hog_flows_partial_update so MCP gets
+    // an idiomatic enable/disable/archive surface without three new REST endpoints).
+    'workflows-enable': workflowsEnable,
+    'workflows-disable': workflowsDisable,
+    'workflows-archive': workflowsArchive,
 }
 
 export const getToolsFromContext = async (
@@ -118,12 +111,8 @@ export const getToolsFromContext = async (
         }
     }
 
-    // Filter tools by mcpVersion — when set, the tool is exclusive to that version
-    const effectiveVersion = options?.version ?? 1
-    const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
-
-    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
-        const definition = getToolDefinition(toolBase.name, options?.version)
+    const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
+        const definition = getToolDefinition(toolBase.name)
         return {
             ...toolBase,
             title: definition.title,

@@ -1,9 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.temporal.data_imports.sources.common.webhook_s3 import (
-    WebhookSourceManager,
-    is_webhook_feature_flag_enabled,
-)
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -272,7 +269,6 @@ If automatic creation failed due to a permissions error and you're using a restr
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -280,8 +276,7 @@ If automatic creation failed due to a permissions error and you're using a restr
                 # Webhook-only endpoints (e.g. Discount) have no list API and therefore no
                 # incremental fields, but they must still expose webhook support so the
                 # warehouse pipeline can route events into the correct table.
-                supports_webhooks=webhook_flag_enabled
-                and (
+                supports_webhooks=(
                     STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None
                     or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
                 ),

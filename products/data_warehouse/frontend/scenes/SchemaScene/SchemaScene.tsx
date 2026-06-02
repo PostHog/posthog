@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -8,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -67,7 +69,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
-    const showColumnsSection = (schema?.available_columns?.length ?? 0) > 0
+    const showColumnsSection = source?.supports_column_selection === true
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || showColumnsSection)
 
     useEffect(() => {
@@ -110,6 +112,14 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                             schema={schema}
                             source={source}
                             section={currentSection}
+                            onConfigureSyncMethod={() => setCurrentSection('sync-method')}
+                            onViewSyncHistory={() =>
+                                router.actions.push(
+                                    combineUrl(urls.dataWarehouseSource(sourceId, 'syncs'), {
+                                        schema: schema.name,
+                                    }).url
+                                )
+                            }
                         />
                     }
                 />

@@ -26,6 +26,8 @@ export type ProductIntroductionProps = {
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
+    /** Overrides the default "Your team is already using {productName}..." copy shown when `isEmpty` is false. */
+    secondaryDescription?: string
     /** If you want to override the title, defaults to "Create your first *thing*" */
     titleOverride?: string
     /** If we should show the empty state */
@@ -66,6 +68,7 @@ export const ProductIntroduction = ({
     productKey,
     thingName,
     description,
+    secondaryDescription,
     titleOverride,
     isEmpty,
     action,
@@ -174,8 +177,12 @@ export const ProductIntroduction = ({
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
                         <p className="ml-0">
-                            Your team is already using {productName}. You can take a look at what they're doing, or get
-                            started yourself.
+                            {secondaryDescription ?? (
+                                <>
+                                    Your team is already using {productName}. You can take a look at what they're doing,
+                                    or get started yourself.
+                                </>
+                            )}
                         </p>
                     )}
                     <div

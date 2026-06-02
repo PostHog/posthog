@@ -4,9 +4,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
-from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,

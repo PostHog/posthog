@@ -19,7 +19,7 @@ import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
@@ -95,7 +95,7 @@ export function SettingsTab(): JSX.Element {
                         label="Require completed conversion or retention window"
                         checked={experiment.only_count_matured_users ?? false}
                         onChange={(checked) => {
-                            updateExperiment({ only_count_matured_users: checked })
+                            updateExperimentSettings({ only_count_matured_users: checked })
                         }}
                     />
                 </div>
