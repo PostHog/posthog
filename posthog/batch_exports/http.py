@@ -550,18 +550,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def validate_type(self, _type: str) -> str:
-        # do not allow changing the destination type if the instance already exists
-        instance = getattr(self.parent, "instance", None)
-        if instance is not None:
-            assert isinstance(instance, BatchExport)
-            if instance.destination.type != _type:
-                raise serializers.ValidationError(
-                    f"Cannot change destination type from '{instance.destination.type}' to '{_type}'. "
-                    "Delete this batch export and create a new one with the new destination type."
-                )
-        return _type
-
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
 
@@ -943,6 +931,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
         else:
             existing_config = {}
 
+        if instance is not None and destination_type != instance.destination.type:
+            raise serializers.ValidationError(
+                f"Cannot change destination type from '{instance.destination.type}' to '{destination_type}'. "
+                "Delete this batch export and create a new one with the new destination type."
+            )
+
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports
@@ -1260,9 +1254,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             if destination_data:
-                # Type changes are rejected by `BatchExportDestinationSerializer.validate_type` —
-                # the incoming `type` (if any) always equals the existing type by the time we get
-                # here.
+                # Type changes are rejected by `validate_destination` — the incoming `type`
+                # (if any) always equals the existing type by the time we get here.
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),
