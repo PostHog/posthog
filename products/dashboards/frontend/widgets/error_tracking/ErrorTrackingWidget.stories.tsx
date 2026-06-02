@@ -155,6 +155,9 @@ export const Loading: Story = {
         loading: true,
         result: null,
     },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
+    },
 }
 
 export const Empty: Story = {
