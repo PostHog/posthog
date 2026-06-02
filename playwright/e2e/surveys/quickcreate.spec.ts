@@ -66,6 +66,12 @@ const clickCreateSurvey = async (page: Page): Promise<void> => {
 }
 
 const goToSurveyOverview = async (page: Page): Promise<void> => {
+    // Reaching "Create survey" opens the flag's context side panel, which persists across
+    // navigation and overlays the survey tabs — intercepting the Overview click. Close it first.
+    const closePanel = page.locator('[data-attr="context-panel-close-button"]')
+    if (await closePanel.isVisible().catch(() => false)) {
+        await closePanel.click()
+    }
     await page.locator('.LemonTabs__tab').getByText('Overview').click()
 }
 
