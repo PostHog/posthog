@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -141,7 +142,10 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = SURVEYMONKEY_ENDPOINTS[endpoint]
-    headers = _get_headers(access_token)
+    # One session reused across the whole sync (keeps TLS/TCP connections warm). urllib3 retries
+    # are disabled so tenacity below is the single retry authority — otherwise the two layers
+    # multiply request counts against SurveyMonkey's low daily call quota.
+    session = make_tracked_session(headers=_get_headers(access_token), retry=Retry(total=0))
 
     cutoff = (
         _format_incremental_value(db_incremental_field_last_value)
@@ -156,7 +160,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise SurveyMonkeyRetryableError(
@@ -193,8 +197,10 @@ def _list_all_survey_ids(
     while url:
         page = fetch_page(url)
         for item in page.get("data", []) or []:
-            if item.get("id") is not None:
-                survey_ids.append(str(item["id"]))
+            # Direct access: a survey without an id is a malformed response, and silently
+            # skipping it would drop all of that survey's child records (pages, questions,
+            # responses, collectors) with no trace. Fail loudly instead.
+            survey_ids.append(str(item["id"]))
         url = page.get("links", {}).get("next")
     return survey_ids
 

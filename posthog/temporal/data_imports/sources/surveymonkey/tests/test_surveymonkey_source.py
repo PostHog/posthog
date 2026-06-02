@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import SurveyMonkeySourceConfig
 from posthog.temporal.data_imports.sources.surveymonkey.settings import ENDPOINTS
@@ -111,13 +112,14 @@ class TestSurveyMonkeySourceForPipeline:
         return inputs
 
     def test_passes_token_base_url_and_endpoint(self) -> None:
+        sentinel = cast(SourceResponse, object())
         with patch(f"{SOURCE_PATCH}.surveymonkey_source") as mock_source:
-            mock_source.return_value = "RESPONSE"
+            mock_source.return_value = sentinel
             result = SurveyMonkeySource().source_for_pipeline(
                 _config(data_center="ca"), MagicMock(), self._inputs("survey_responses")
             )
 
-        assert result == "RESPONSE"
+        assert result is sentinel
         kwargs = mock_source.call_args.kwargs
         assert kwargs["access_token"] == "token"
         assert kwargs["base_url"] == "https://api.surveymonkey.ca/v3"

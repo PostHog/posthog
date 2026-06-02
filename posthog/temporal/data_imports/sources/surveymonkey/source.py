@@ -89,7 +89,7 @@ Make sure to grant the following read scopes:
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Your SurveyMonkey access token is invalid or expired. Please generate a new token and reconnect.",
-            "403 Client Error: Forbidden for url": "Your SurveyMonkey access token is missing required scopes. Please grant surveys_read, responses_read_detail and collectors_read, then reconnect.",
+            "403 Client Error: Forbidden for url": "Your SurveyMonkey access token is missing required scopes. Please grant `surveys_read`, `responses_read_detail`, and `collectors_read`, then reconnect.",
         }
 
     def get_schemas(

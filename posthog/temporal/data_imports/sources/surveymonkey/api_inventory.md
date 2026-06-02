@@ -6,13 +6,13 @@ Auth: `Authorization: bearer <access_token>` (private-app static token or OAuth2
 All list endpoints page with `page` / `per_page` and return
 `{data: [...], page, per_page, total, links: {self, next, ...}}`. We follow `links.next`.
 
-| Schema             | Path                                        | Grain          | Primary key | Pagination     | Incremental cursor                  | Partition (stable) |
-| ------------------ | ------------------------------------------- | -------------- | ----------- | -------------- | ----------------------------------- | ------------------ |
-| `surveys`          | `/surveys`                                  | account        | `id`        | `links.next`   | `date_modified` (`start_modified_at`) | `date_created`     |
-| `survey_responses` | `/surveys/{survey_id}/responses/bulk`       | fan-out/survey | `id`        | `links.next`   | `date_modified` / `date_created`    | `date_created`     |
-| `survey_pages`     | `/surveys/{survey_id}/pages`                | fan-out/survey | `id`        | `links.next`   | full refresh                        | —                  |
-| `survey_questions` | `/surveys/{survey_id}/details` (extracted)  | fan-out/survey | `id`        | none (1 call)  | full refresh                        | —                  |
-| `collectors`       | `/surveys/{survey_id}/collectors`           | fan-out/survey | `id`        | `links.next`   | full refresh                        | —                  |
+| Schema             | Path                                       | Grain          | Primary key | Pagination    | Incremental cursor                    | Partition (stable) |
+| ------------------ | ------------------------------------------ | -------------- | ----------- | ------------- | ------------------------------------- | ------------------ |
+| `surveys`          | `/surveys`                                 | account        | `id`        | `links.next`  | `date_modified` (`start_modified_at`) | `date_created`     |
+| `survey_responses` | `/surveys/{survey_id}/responses/bulk`      | fan-out/survey | `id`        | `links.next`  | `date_modified` / `date_created`      | `date_created`     |
+| `survey_pages`     | `/surveys/{survey_id}/pages`               | fan-out/survey | `id`        | `links.next`  | full refresh                          | —                  |
+| `survey_questions` | `/surveys/{survey_id}/details` (extracted) | fan-out/survey | `id`        | none (1 call) | full refresh                          | —                  |
+| `collectors`       | `/surveys/{survey_id}/collectors`          | fan-out/survey | `id`        | `links.next`  | full refresh                          | —                  |
 
 Fan-out endpoints first enumerate every survey id via `/surveys`, then page the child
 resource per survey. `survey_questions` is flattened from the nested `pages[].questions[]`
