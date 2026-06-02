@@ -1012,10 +1012,10 @@ export interface ErrorTrackingIssueEventsResponseApi {
  * `suppressed` - suppressed
  * `all` - all
  */
-export type ErrorTrackingIssuesListQueryRequestStatusEnumApi =
-    (typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi)[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi]
+export type ErrorTrackingIssueStatusEnumApi =
+    (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
 
-export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
+export const ErrorTrackingIssueStatusEnumApi = {
     Archived: 'archived',
     Active: 'active',
     Resolved: 'resolved',
@@ -1063,7 +1063,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
   * `pending_release` - pending_release
   * `suppressed` - suppressed
   * `all` - all */
-    status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
+    status?: ErrorTrackingIssueStatusEnumApi
     /** Filter by issue assignee. Omit to include all assignees. */
     assignee?: ErrorTrackingAssigneeApi | null
     /** When true, exclude internal/test account data from results. Defaults to true. */
@@ -1243,6 +1243,35 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown
+    version: string
+    project: string
+}
+
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown
+    version?: string
+    project?: string
+}
+
 export interface ErrorTrackingSettingsApi {
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -1358,16 +1387,6 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     results: ErrorTrackingSpikeEventApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown
-    version: string
-    project: string
-}
-
 export interface ErrorTrackingStackFrameApi {
     readonly id: string
     /** Raw frame ID in 'hash/part' format */
@@ -1457,25 +1476,6 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
-}
-
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
-}
-
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown
-    version?: string
-    project?: string
 }
 
 /**
@@ -1678,6 +1678,17 @@ export type ErrorTrackingRecommendationsListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -1701,17 +1712,6 @@ export type ErrorTrackingStackFramesListParams = {
 }
 
 export type ErrorTrackingSuppressionRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
      */

@@ -109,6 +109,39 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
+ * * `suppressed` - suppressed
+ * `potential` - potential
+ */
+export type SignalReportStateRequestStateEnumApi =
+    (typeof SignalReportStateRequestStateEnumApi)[keyof typeof SignalReportStateRequestStateEnumApi]
+
+export const SignalReportStateRequestStateEnumApi = {
+    Suppressed: 'suppressed',
+    Potential: 'potential',
+} as const
+
+export interface SignalReportStateRequestApi {
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+
+  * `suppressed` - suppressed
+  * `potential` - potential */
+    state: SignalReportStateRequestStateEnumApi
+    /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
+    dismissal_reason?: string
+    /**
+     * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    dismissal_note?: string
+    /**
+     * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+     * @minimum 1
+     * @maximum 100000
+     */
+    snooze_for?: number
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -915,6 +948,7 @@ export interface ForgetResponseApi {
  * `error_tracking` - Error tracking
  * `pganalyze` - pganalyze
  * `signals_scout` - Signals scout
+ * `logs` - Logs
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -928,6 +962,7 @@ export const SourceProductEnumApi = {
     ErrorTracking: 'error_tracking',
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
+    Logs: 'logs',
 } as const
 
 /**
@@ -939,6 +974,7 @@ export const SourceProductEnumApi = {
  * `issue_reopened` - Issue reopened
  * `issue_spiking` - Issue spiking
  * `cross_source_issue` - Cross source issue
+ * `alert_state_change` - Alert state change
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -952,6 +988,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueReopened: 'issue_reopened',
     IssueSpiking: 'issue_spiking',
     CrossSourceIssue: 'cross_source_issue',
+    AlertStateChange: 'alert_state_change',
 } as const
 
 export interface SignalSourceConfigApi {

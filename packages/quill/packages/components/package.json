@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-components",
-    "version": "0.3.0-beta.9",
+    "version": "0.3.0-beta.12",
     "private": true,
     "description": "Internal workspace package (private, not published). The middle layer of the quill design system — higher-level compositions of primitives that wire several of them together with sensible defaults (e.g. a FormField that composes Label + Input + validation state, or a ConfirmDialog that composes Dialog + Button + destructive variant). Bundled into @posthog/quill at build time; consumers should import from @posthog/quill instead.",
     "license": "MIT",
@@ -36,7 +36,11 @@
         "lucide-react": "^0.577.0"
     },
     "devDependencies": {
+        "@storybook/react": "catalog:",
         "@tailwindcss/vite": "^4.1.17",
+        "@tanstack/react-table": "^8.21.3",
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
         "@vitejs/plugin-react": "^5.1.1",
         "vite": "^6.3.5",
         "vite-plugin-dts": "^4.5.4"

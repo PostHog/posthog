@@ -20,6 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -598,6 +599,18 @@ class TaskRun(models.Model):
     class Meta:
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
+        indexes = [
+            # Partial functional index backing the per-PR-webhook lookup
+            # `filter(output__pr_url=...)`. The equality lookup implies the key is
+            # present, so the `IS NOT NULL` condition keeps the index off the many
+            # runs without a PR URL (queued/in-progress/failed) while still serving
+            # the query.
+            models.Index(
+                KeyTransform("pr_url", "output"),
+                name="task_run_output_pr_url_idx",
+                condition=models.Q(output__pr_url__isnull=False),
+            ),
+        ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
