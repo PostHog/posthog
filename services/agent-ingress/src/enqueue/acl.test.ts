@@ -28,6 +28,8 @@ function makeSession(opts: { state?: AgentSession['state']; pending?: PendingEle
         revision_id: 'rev',
         team_id: 1,
         external_key: 'slack:C01:thread1',
+        idempotency_key: null,
+        trigger_metadata: null,
         state: opts.state ?? 'completed',
         conversation: [{ role: 'user', content: 'alice opened', timestamp: 1 }],
         pending_inputs: [],

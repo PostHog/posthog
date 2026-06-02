@@ -119,6 +119,8 @@ export const handlers = [
             revision_id: '',
             state: s.state,
             external_key: null,
+            idempotency_key: null,
+            trigger_metadata: null,
             principal: { kind: s.principal.kind, display_name: s.principal.displayName },
             turns: s.turns.length,
             preview: lastAssistantText(s.turns),

@@ -94,6 +94,8 @@ function makeSession(): AgentSession {
         revision_id: 'rev1',
         team_id: 1,
         external_key: null,
+        idempotency_key: null,
+        trigger_metadata: null,
         state: 'running',
         principal: null,
         conversation: [],

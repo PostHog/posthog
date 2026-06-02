@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 49 enabled ops
+ * PostHog API - MCP 50 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -882,6 +882,37 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
     .describe(
         'Body shape for POST /revisions/<id>/clone_from/ — copy every file\nfrom `source_revision_id` into this (draft) revision.'
     )
+
+/**
+ * Fire one cron job out-of-band — the same execution path the
+scheduler walks, but on demand. Authoring UX: the user iterates on
+a cron prompt by clicking 'Fire now' rather than waiting for the
+next scheduled firing. Without this, 'did my prompt do the right
+thing?' is unanswerable until the cron actually fires.
+
+Idempotent via `request_id`: repeat clicks with the same id resolve
+to the same session id rather than firing N times. See
+`docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ */
+export const AgentApplicationsRevisionsCronFireCreateParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.object({
+    cron_name: zod.string().describe('`name` of the cron trigger in `spec.triggers[]` to fire.'),
+    request_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "Stable client-supplied id so repeated clicks of the same UI 'Fire now' button resolve to the same session id rather than firing twice. The janitor keys dedupe off `cron-manual:<rev>:<name>:<request_id>`. Omit to fire unconditionally — every call generates a fresh UUID."
+        ),
+})
 
 /**
  * Read one file by `?path=...`. Works on any revision state.

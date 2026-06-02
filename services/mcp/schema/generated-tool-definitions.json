@@ -442,6 +442,20 @@
             "readOnlyHint": false
         }
     },
+    "agent-applications-revisions-cron-fire-create": {
+        "description": "Fire a single cron job out-of-band, bypassing the scheduler's window logic. Use this to iterate on a cron agent's `prompt` (or to debug `external_key` placeholder expansion) without waiting for the next real firing. Required: `cron_name` (matches `spec.triggers[].config.name` on a `type: cron` trigger). Optional: `request_id` — pass a stable id per logical click so repeat fires resolve to the same session instead of stacking duplicates. Returns `{ ok, session_id, fired_at, idempotency_key }`; track the session via `agent-applications-sessions-retrieve` to read the conversation. Authoring-loop completion piece — without this, \"did my prompt do the right thing?\" is unanswerable until the cron actually fires.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Manually fire one cron job",
+        "title": "Manually fire one cron job",
+        "required_scopes": ["agent_application:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "agent-applications-revisions-file-destroy": {
         "description": "Remove the file at `?path=…` from a draft revision. Idempotent — deleting an already-absent file is a no-op.",
         "category": "Agent stack",

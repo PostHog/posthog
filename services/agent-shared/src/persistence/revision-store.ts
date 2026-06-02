@@ -26,6 +26,15 @@ export interface RevisionStore {
     updateSpec(revisionId: string, spec: AgentSpec): Promise<void>
     setRevisionState(revisionId: string, state: RevisionState, sha256?: string): Promise<void>
     setLiveRevision(applicationId: string, revisionId: string): Promise<void>
+    /**
+     * List every application's `live_revision_id` whose spec carries at
+     * least one cron trigger. Cron tick consumer; runs on the janitor's
+     * 30s loop. The v0 impl is an in-memory filter over every live
+     * revision — fine until cron-enabled live revisions count grows past
+     * ~1000, at which point a JSONB GIN index on `spec->'triggers'`
+     * upgrades the query in place. Tracked in plan §6 "How cronTick uses it."
+     */
+    listLiveCronRevisions(): Promise<AgentRevision[]>
 }
 
 export interface NewApplication {
@@ -154,5 +163,19 @@ export class MemoryRevisionStore implements RevisionStore {
         if (a) {
             a.live_revision_id = revisionId
         }
+    }
+
+    async listLiveCronRevisions(): Promise<AgentRevision[]> {
+        const out: AgentRevision[] = []
+        for (const a of this.apps.values()) {
+            if (a.archived || !a.live_revision_id) {
+                continue
+            }
+            const rev = this.revs.get(a.live_revision_id)
+            if (rev && rev.spec.triggers.some((t) => t.type === 'cron')) {
+                out.push(rev)
+            }
+        }
+        return out
     }
 }

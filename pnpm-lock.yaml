@@ -3847,6 +3847,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.723.0
         version: 3.975.0
+      '@posthog/agent-ingress':
+        specifier: workspace:*
+        version: link:../agent-ingress
       '@posthog/agent-migrations':
         specifier: workspace:*
         version: link:../agent-migrations
@@ -3856,6 +3859,9 @@ importers:
       '@posthog/agent-tools':
         specifier: workspace:*
         version: link:../agent-tools
+      cron-parser:
+        specifier: ^4.9.0
+        version: 4.9.0
       express:
         specifier: ^4.21.1
         version: 4.22.2
@@ -15350,6 +15356,10 @@ packages:
 
   cron-parser@4.8.1:
     resolution: {integrity: sha512-jbokKWGcyU4gl6jAfX97E1gDpY12DJ1cLJZmoDzaAln/shZ+S3KBFBuA2Q6WeUN4gJf/8klnV1EfvhA2lK5IRQ==}
+    engines: {node: '>=12.0.0'}
+
+  cron-parser@4.9.0:
+    resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
 
   cron-parser@5.5.0:
@@ -39727,7 +39737,11 @@ snapshots:
 
   cron-parser@4.8.1:
     dependencies:
-      luxon: 3.5.0
+      luxon: 3.7.2
+
+  cron-parser@4.9.0:
+    dependencies:
+      luxon: 3.7.2
 
   cron-parser@5.5.0:
     dependencies:

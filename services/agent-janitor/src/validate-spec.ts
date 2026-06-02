@@ -14,6 +14,8 @@
  * the Fernet keys. The janitor only validates bundle-side things.
  */
 
+import cronParser from 'cron-parser'
+
 import { AgentRevision, BundleStore } from '@posthog/agent-shared'
 import { hasNativeTool } from '@posthog/agent-tools'
 
@@ -24,6 +26,25 @@ export type ValidationCode =
     | 'missing_custom_tool_compiled'
     | 'missing_custom_tool_schema'
     | 'missing_skill'
+    | 'invalid_cron_schedule'
+    | 'invalid_cron_timezone'
+    | 'duplicate_cron_name'
+    | 'unknown_cron_placeholder'
+
+/**
+ * Placeholder set authors can use inside `external_key` and `prompt` on a
+ * cron trigger. Shared between freeze-time validation (here) and runtime
+ * expansion (PR-3 of `cron-trigger-scheduler.md`). Anything outside this
+ * set is rejected at freeze rather than letting an unrecognized `{foo}`
+ * silently pass through to the firing message.
+ */
+export const CRON_PLACEHOLDERS: ReadonlySet<string> = new Set([
+    'fired_at:iso',
+    'fired_at:date',
+    'fired_at:week',
+    'schedule',
+    'cron_name',
+])
 
 export interface ValidationError {
     code: ValidationCode
@@ -114,6 +135,60 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         }
     }
 
+    // Cron-specific freeze-time checks. Zod has already validated the field
+    // shapes (`name` regex, `prompt` length, `max_catch_up_age_seconds`
+    // bounds, etc.) — these are the cross-cutting / runtime checks zod can't
+    // express: schedule parses against cron-parser, timezone resolves to a
+    // real IANA zone, names are unique across triggers, placeholders are
+    // whitelisted.
+    const cronNamesSeen = new Set<string>()
+    for (const [i, trigger] of rev.spec.triggers.entries()) {
+        if (trigger.type !== 'cron') {
+            continue
+        }
+        const cfg = trigger.config
+        try {
+            cronParser.parseExpression(cfg.schedule, { tz: cfg.timezone })
+        } catch (err) {
+            errors.push({
+                code: 'invalid_cron_schedule',
+                message: `cron "${cfg.name}" schedule "${cfg.schedule}" is not a valid cron expression: ${(err as Error).message}`,
+                pointer: `spec.triggers[${i}].config.schedule`,
+            })
+        }
+        if (!isValidTimezone(cfg.timezone)) {
+            errors.push({
+                code: 'invalid_cron_timezone',
+                message: `cron "${cfg.name}" timezone "${cfg.timezone}" is not a recognised IANA zone`,
+                pointer: `spec.triggers[${i}].config.timezone`,
+            })
+        }
+        if (cronNamesSeen.has(cfg.name)) {
+            errors.push({
+                code: 'duplicate_cron_name',
+                message: `cron name "${cfg.name}" appears on more than one trigger; names must be unique within spec.triggers[]`,
+                pointer: `spec.triggers[${i}].config.name`,
+            })
+        }
+        cronNamesSeen.add(cfg.name)
+        for (const placeholder of unknownPlaceholders(cfg.prompt)) {
+            errors.push({
+                code: 'unknown_cron_placeholder',
+                message: `cron "${cfg.name}" prompt references unknown placeholder "{${placeholder}}"; allowed: ${[...CRON_PLACEHOLDERS].join(', ')}`,
+                pointer: `spec.triggers[${i}].config.prompt`,
+            })
+        }
+        if (cfg.external_key) {
+            for (const placeholder of unknownPlaceholders(cfg.external_key)) {
+                errors.push({
+                    code: 'unknown_cron_placeholder',
+                    message: `cron "${cfg.name}" external_key references unknown placeholder "{${placeholder}}"; allowed: ${[...CRON_PLACEHOLDERS].join(', ')}`,
+                    pointer: `spec.triggers[${i}].config.external_key`,
+                })
+            }
+        }
+    }
+
     return {
         ok: errors.length === 0,
         revision_id: rev.id,
@@ -121,4 +196,36 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         errors,
         resolved_natives: resolvedNatives,
     }
+}
+
+/**
+ * `Intl.DateTimeFormat` is the most reliable IANA-zone validator that ships
+ * with the Node runtime — it throws on unknown zones and accepts the same
+ * set `cron-parser` does (both delegate to ICU).
+ */
+function isValidTimezone(tz: string): boolean {
+    try {
+        new Intl.DateTimeFormat('en', { timeZone: tz })
+        return true
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Yield every `{placeholder}` token in `input` that isn't in
+ * `CRON_PLACEHOLDERS`. Matches conservatively — single-line, no escapes —
+ * the same conservative shape the runtime expander uses, so what passes
+ * validation is exactly what the firing path can resolve.
+ */
+function unknownPlaceholders(input: string): string[] {
+    const out: string[] = []
+    const re = /\{([^{}\s]+)\}/g
+    let match: RegExpExecArray | null
+    while ((match = re.exec(input)) !== null) {
+        if (!CRON_PLACEHOLDERS.has(match[1])) {
+            out.push(match[1])
+        }
+    }
+    return out
 }

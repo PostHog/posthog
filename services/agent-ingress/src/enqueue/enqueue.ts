@@ -56,6 +56,26 @@ export interface EnqueueInput {
      * Defaults to `principalDisplay(principal)`.
      */
     requesterDisplay?: string
+    /**
+     * General-purpose dedupe key — "same request, return the original session
+     * id on collision." Distinct from `externalKey` (which appends on
+     * collision). Set by cron firings (`cron:<rev>:<name>:<minute>`) and
+     * webhook redeliveries (provider-supplied keys like Stripe's
+     * `Idempotency-Key` header). See `cron-trigger-scheduler.md` §6.
+     *
+     * If a session with this key already exists, this call no-ops and
+     * returns `{ kind: 'created', isResume: false }` with the original
+     * session id. The principal + seed message of the duplicate request
+     * are discarded — same shape Stripe's idempotency contract follows.
+     */
+    idempotencyKey?: string
+    /**
+     * Trigger-specific metadata stamped on the session row at creation.
+     * Forwarded straight to `AgentSession.trigger_metadata` JSONB.
+     * Surfaced by `/sessions/list` so the UI can render a "fired by
+     * <cron_name> at <fired_at>" badge etc.
+     */
+    triggerMetadata?: Record<string, unknown>
 }
 
 export type EnqueueOutcome =
@@ -70,6 +90,17 @@ export type EnqueueOutcome =
       }
 
 export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
+    // Idempotency check first — independent of externalKey. A duplicate
+    // request returns the original session id unchanged; the principal +
+    // seed of the duplicate are deliberately discarded. Stripe-shaped
+    // semantics, same contract every other idempotent API in the platform
+    // will eventually share.
+    if (input.idempotencyKey) {
+        const existing = await deps.queue.findByIdempotencyKey(input.application.id, input.idempotencyKey)
+        if (existing) {
+            return { kind: 'created', sessionId: existing.id, isResume: false }
+        }
+    }
     if (input.externalKey) {
         const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
@@ -101,6 +132,8 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         revision_id: input.revision.id,
         team_id: deps.teamId,
         external_key: input.externalKey,
+        idempotency_key: input.idempotencyKey ?? null,
+        trigger_metadata: input.triggerMetadata ?? null,
         state: 'queued' as const,
         conversation: [input.seed],
         pending_inputs: [],
@@ -112,6 +145,31 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }
-    await deps.queue.enqueue(session)
+    try {
+        await deps.queue.enqueue(session)
+    } catch (err) {
+        // Race-window safety net: between the `findByIdempotencyKey` check
+        // above and this INSERT, a concurrent writer could have created a
+        // session with the same key. The unique index fires; we surface the
+        // original session id rather than the unique-violation error. Only
+        // engaged when an idempotency key is supplied — without one the
+        // unique index can't match.
+        if (input.idempotencyKey && isUniqueViolation(err)) {
+            const existing = await deps.queue.findByIdempotencyKey(input.application.id, input.idempotencyKey)
+            if (existing) {
+                return { kind: 'created', sessionId: existing.id, isResume: false }
+            }
+        }
+        throw err
+    }
     return { kind: 'created', sessionId: session.id, isResume: false }
+}
+
+/**
+ * Postgres unique-violation SQLSTATE. `pg` surfaces this as `err.code`;
+ * tests passing in arbitrary mocks can match the same shape by setting
+ * `.code = '23505'` on the rejected error.
+ */
+function isUniqueViolation(err: unknown): boolean {
+    return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505'
 }

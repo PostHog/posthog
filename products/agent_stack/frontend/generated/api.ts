@@ -50,6 +50,8 @@ import type {
     AgentMemoryWriteRequestApi,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
+    AgentRevisionCronFireRequestApi,
+    AgentRevisionCronFireResponseApi,
     AgentRevisionSystemPromptResponseApi,
     AgentRevisionValidateResponseApi,
     AgentSkillTemplatesListParams,
@@ -742,6 +744,43 @@ export const agentApplicationsRevisionsCloneFromCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(cloneFromRequestApi),
     })
+}
+
+export const getAgentApplicationsRevisionsCronFireCreateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/cron/fire/`
+}
+
+/**
+ * Fire one cron job out-of-band — the same execution path the
+scheduler walks, but on demand. Authoring UX: the user iterates on
+a cron prompt by clicking 'Fire now' rather than waiting for the
+next scheduled firing. Without this, 'did my prompt do the right
+thing?' is unanswerable until the cron actually fires.
+
+Idempotent via `request_id`: repeat clicks with the same id resolve
+to the same session id rather than firing N times. See
+`docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ */
+export const agentApplicationsRevisionsCronFireCreate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    agentRevisionCronFireRequestApi: AgentRevisionCronFireRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionCronFireResponseApi> => {
+    return apiMutator<AgentRevisionCronFireResponseApi>(
+        getAgentApplicationsRevisionsCronFireCreateUrl(projectId, applicationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(agentRevisionCronFireRequestApi),
+        }
+    )
 }
 
 export const getAgentApplicationsRevisionsFileRetrieveUrl = (

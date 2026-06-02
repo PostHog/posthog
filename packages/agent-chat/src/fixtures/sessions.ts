@@ -296,7 +296,13 @@ function aliceTurn(text: string, at: string): Turn {
 const releaseStreamingSession: ChatSession = {
     id: '01998a01-2222-7000-8000-000000000101',
     application: releaseConcierge,
-    trigger: { kind: 'cron', schedule: '0 16 * * THU', timezone: 'UTC', firedAt: '2026-05-28T15:46:00Z' },
+    trigger: {
+        kind: 'cron',
+        cronName: 'weekly-cut',
+        schedule: '0 16 * * THU',
+        timezone: 'UTC',
+        firedAt: '2026-05-28T15:46:00Z',
+    },
     principal: { kind: 'system', displayName: 'cron · weekly cut' },
     turns: [
         aliceTurn('Cut the v2.41 release. PR for the changelog, ping owners on any failing checks.', '2026-05-28T15:46:00Z'),
@@ -388,7 +394,13 @@ const triagerStreamingSession: ChatSession = {
 const digestActiveSession: ChatSession = {
     ...idleSession,
     state: 'streaming',
-    trigger: { kind: 'cron', schedule: '0 9 * * MON', timezone: 'US/Pacific', firedAt: '2026-05-28T15:55:00Z' },
+    trigger: {
+        kind: 'cron',
+        cronName: 'weekly-digest',
+        schedule: '0 9 * * MON',
+        timezone: 'US/Pacific',
+        firedAt: '2026-05-28T15:55:00Z',
+    },
     started_at: '2026-05-28T15:55:00Z',
     turns: [
         aliceTurn('Test run for the digest draft', '2026-05-28T15:55:00Z'),
@@ -464,7 +476,13 @@ const weeklyDigestHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007d1',
         application: weeklyDigest,
-        trigger: { kind: 'cron', schedule: '0 9 * * MON', timezone: 'US/Pacific', firedAt: '2026-05-27T09:00:00-07:00' },
+        trigger: {
+            kind: 'cron',
+            cronName: 'weekly-digest',
+            schedule: '0 9 * * MON',
+            timezone: 'US/Pacific',
+            firedAt: '2026-05-27T09:00:00-07:00',
+        },
         principal: { kind: 'system', displayName: 'cron · weekly fire' },
         state: 'completed',
         started_at: '2026-05-27T09:00:00-07:00',
@@ -519,7 +537,13 @@ const weeklyDigestHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007d4',
         application: weeklyDigest,
-        trigger: { kind: 'cron', schedule: '0 9 * * MON', timezone: 'US/Pacific', firedAt: '2026-05-20T09:00:00-07:00' },
+        trigger: {
+            kind: 'cron',
+            cronName: 'weekly-digest',
+            schedule: '0 9 * * MON',
+            timezone: 'US/Pacific',
+            firedAt: '2026-05-20T09:00:00-07:00',
+        },
         principal: { kind: 'system', displayName: 'cron · weekly fire' },
         state: 'completed',
         started_at: '2026-05-20T09:00:00-07:00',
@@ -542,7 +566,13 @@ const releaseConciergeHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007e1',
         application: releaseConcierge,
-        trigger: { kind: 'cron', schedule: '0 16 * * THU', timezone: 'UTC', firedAt: '2026-05-21T15:46:00Z' },
+        trigger: {
+            kind: 'cron',
+            cronName: 'weekly-cut',
+            schedule: '0 16 * * THU',
+            timezone: 'UTC',
+            firedAt: '2026-05-21T15:46:00Z',
+        },
         principal: { kind: 'system', displayName: 'cron · weekly cut' },
         state: 'completed',
         started_at: '2026-05-21T15:46:00Z',

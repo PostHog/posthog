@@ -157,6 +157,26 @@ export class PgRevisionStore implements RevisionStore {
             revisionId,
         ])
     }
+
+    async listLiveCronRevisions(): Promise<AgentRevision[]> {
+        // SQL-side filter on `spec.triggers` would need a JSONB GIN index to be
+        // performant; the v0 strategy per plan §6 is in-memory filter over
+        // every application's `live_revision_id`. We do JOIN at the SQL layer
+        // to avoid a roundtrip-per-app, and let the Node-side filter check
+        // `triggers[].type === 'cron'` after deserialisation. Upgrade path:
+        // `WHERE spec @> '{"triggers": [{"type": "cron"}]}'::jsonb`
+        // paired with a `gin (spec jsonb_path_ops)` index when this query
+        // gets hot.
+        const r = await this.pool.query(
+            `SELECT r.id, r.application_id, r.parent_revision_id, r.created_by_id,
+                    r.created_at, r.state, r.bundle_uri, r.bundle_sha256, r.spec
+             FROM agent_revision r
+             JOIN agent_application a ON a.live_revision_id = r.id
+             WHERE a.archived = false`
+        )
+        const revs = r.rows.map(rowToRev)
+        return revs.filter((rev) => rev.spec.triggers.some((t) => t.type === 'cron'))
+    }
 }
 
 function rowToApp(row: {
