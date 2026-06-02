@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from posthog.test.base import (
@@ -16,11 +16,19 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property_planner import (
+    PropertyComparisonPlan,
+    PropertyMinmaxBlocker,
+    PropertySourceKind,
+    plan_property_comparison,
+)
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
@@ -94,6 +102,79 @@ class TestPropertyTypes(BaseTest):
             name="group_boolean",
             defaults={"property_type": "Boolean", "group_type_index": 0},
         )
+
+    def _plan_where_comparison(
+        self,
+        select: str,
+        restricted_properties: set[tuple[str, int]] | None = None,
+    ) -> PropertyComparisonPlan:
+        expr = parse_select(select)
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        if restricted_properties is not None:
+            context.restricted_properties = restricted_properties
+
+        _, prepared = prepare_and_print_ast(expr, context, "clickhouse")
+        assert isinstance(prepared, ast.SelectQuery)
+        comparison = cast(ast.CompareOperation, prepared.where)
+        plan = plan_property_comparison(comparison, context)
+        assert plan is not None
+        return plan
+
+    def test_property_comparison_planner_marks_string_minmax_ready(self) -> None:
+        with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
+            plan = self._plan_where_comparison("select count() from events where properties.$browser < 'm'")
+
+        assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
+        assert plan.access.semantic_type == ast.StringType(nullable=True)
+        assert plan.access.source.physical_type == ast.StringType(nullable=True)
+        assert plan.physical_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+        assert plan.can_use_minmax_index is True
+        assert plan.minmax_blocker is None
+
+    def test_property_comparison_planner_blocks_numeric_minmax_until_source_type_matches(self) -> None:
+        with materialized("events", "$screen_width", is_nullable=True, create_minmax_index=True):
+            plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
+
+        assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
+        assert plan.access.semantic_type == ast.FloatType(nullable=True)
+        assert plan.access.source.physical_type == ast.StringType(nullable=True)
+        assert plan.semantic_compatibility == ComparisonCompatibility.CHEAP_CAST
+        assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+        assert plan.can_use_minmax_index is False
+        assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+
+    def test_property_comparison_planner_blocks_datetime_minmax_until_source_type_matches(self) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+        with materialized("events", "event_time_prop", is_nullable=True, create_minmax_index=True):
+            plan = self._plan_where_comparison(
+                "select count() from events where properties.event_time_prop < toDateTime('2024-01-01')"
+            )
+
+        assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
+        assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
+        assert plan.access.source.physical_type == ast.StringType(nullable=True)
+        assert plan.semantic_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+        assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+        assert plan.can_use_minmax_index is False
+        assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+
+    def test_property_comparison_planner_respects_restricted_property_materialization(self) -> None:
+        with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
+            plan = self._plan_where_comparison(
+                "select count() from events where properties.$browser < 'm'",
+                restricted_properties={("$browser", PropertyDefinition.Type.EVENT)},
+            )
+
+        assert plan.access.source.kind == PropertySourceKind.JSON
+        assert plan.access.source.restricted is True
+        assert plan.access.source.has_minmax_index is False
+        assert plan.can_use_minmax_index is False
+        assert plan.minmax_blocker == PropertyMinmaxBlocker.NO_MINMAX_INDEX
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_event(self):

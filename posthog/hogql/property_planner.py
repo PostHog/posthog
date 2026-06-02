@@ -1,0 +1,472 @@
+import dataclasses
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Literal, Optional, cast
+
+from posthog.schema import PropertyGroupsMode
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
+from posthog.hogql.type_system import ComparisonCompatibility, comparison_compatibility
+
+from posthog.clickhouse.materialized_columns import (
+    MATERIALIZATION_VALID_TABLES,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
+from posthog.clickhouse.property_groups import property_groups
+from posthog.models.property import PropertyName, TableColumn
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+
+
+class PropertyScope(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    GROUP = "group"
+    UNKNOWN = "unknown"
+
+
+class PropertySourceKind(StrEnum):
+    JSON = "json"
+    MATERIALIZED_COLUMN = "materialized_column"
+    DYNAMIC_MATERIALIZED_COLUMN = "dynamic_materialized_column"
+    PROPERTY_GROUP = "property_group"
+
+
+class PropertyMinmaxBlocker(StrEnum):
+    NO_MINMAX_INDEX = "no_minmax_index"
+    SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE = "source_type_differs_from_property_type"
+    VALUE_TYPE_NOT_SOURCE_COMPATIBLE = "value_type_not_source_compatible"
+
+
+@dataclass(frozen=True, slots=True)
+class PropertySourcePlan:
+    kind: PropertySourceKind
+    table_name: str | None
+    field_name: str | None
+    column_name: str | None
+    physical_type: ast.ConstantType
+    is_nullable: bool
+    has_minmax_index: bool = False
+    has_bloom_filter_index: bool = False
+    has_ngram_lower_index: bool = False
+    has_bloom_filter_lower_index: bool = False
+    restricted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PropertyAccessPlan:
+    property_name: str
+    scope: PropertyScope
+    semantic_type: ast.ConstantType
+    source: PropertySourcePlan
+    property_type: ast.PropertyType
+
+
+@dataclass(frozen=True, slots=True)
+class PropertyComparisonPlan:
+    access: PropertyAccessPlan
+    property_side: Literal["left", "right"]
+    operator: ast.CompareOperationOp
+    value_type: ast.ConstantType
+    semantic_compatibility: ComparisonCompatibility
+    physical_compatibility: ComparisonCompatibility
+    source_matches_semantics: bool
+    can_use_minmax_index: bool
+    minmax_blocker: PropertyMinmaxBlocker | None
+
+
+def plan_property_comparison(node: ast.CompareOperation, context: HogQLContext) -> PropertyComparisonPlan | None:
+    left_plan = plan_property_access(node.left, context)
+    if left_plan is not None:
+        return _build_property_comparison_plan(
+            access=left_plan,
+            property_side="left",
+            operator=node.op,
+            value_type=_constant_type_from_expr(node.right, context),
+        )
+
+    right_plan = plan_property_access(node.right, context)
+    if right_plan is not None:
+        return _build_property_comparison_plan(
+            access=right_plan,
+            property_side="right",
+            operator=node.op,
+            value_type=_constant_type_from_expr(node.left, context),
+        )
+
+    return None
+
+
+def plan_property_access(expr: ast.Expr, context: HogQLContext) -> PropertyAccessPlan | None:
+    extracted = _extract_property_access(expr, context)
+    if extracted is None:
+        return None
+
+    property_type, semantic_type = extracted
+    if len(property_type.chain) != 1:
+        return None
+
+    property_name = str(property_type.chain[0])
+    source = _plan_property_source(property_type=property_type, property_name=property_name, context=context)
+    return PropertyAccessPlan(
+        property_name=property_name,
+        scope=_property_scope(property_type, context),
+        semantic_type=semantic_type,
+        source=source,
+        property_type=property_type,
+    )
+
+
+def is_property_type_restricted(property_type: ast.PropertyType, context: HogQLContext) -> bool:
+    if not context.restricted_properties or len(property_type.chain) == 0:
+        return False
+    keys_to_drop = get_restricted_keys_for_table_type(property_type.field_type.table_type, context)
+    if not keys_to_drop:
+        return False
+    return str(property_type.chain[0]) in keys_to_drop
+
+
+def get_restricted_keys_for_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+    if not isinstance(table_type, ast.BaseTableType):
+        return set()
+
+    try:
+        table = table_type.resolve_database_table(context)
+    except Exception:
+        return set()
+
+    if isinstance(table, EventsPersonSubTable):
+        prop_def_type = PropertyDefinition.Type.PERSON
+    elif isinstance(table, EventsTable):
+        prop_def_type = PropertyDefinition.Type.EVENT
+    elif isinstance(table, (PersonsTable, RawPersonsTable)):
+        prop_def_type = PropertyDefinition.Type.PERSON
+    else:
+        return set()
+
+    return {name for name, property_type in context.restricted_properties or set() if property_type == prop_def_type}
+
+
+def _build_property_comparison_plan(
+    access: PropertyAccessPlan,
+    property_side: Literal["left", "right"],
+    operator: ast.CompareOperationOp,
+    value_type: ast.ConstantType,
+) -> PropertyComparisonPlan:
+    semantic_compatibility = comparison_compatibility(access.semantic_type, value_type)
+    physical_compatibility = comparison_compatibility(access.source.physical_type, value_type)
+    source_matches_semantics = (
+        comparison_compatibility(access.semantic_type, access.source.physical_type) in _OPTIMIZER_COMPATIBLE_COMPARISONS
+    )
+
+    minmax_blocker = _minmax_blocker(
+        access=access,
+        source_matches_semantics=source_matches_semantics,
+        physical_compatibility=physical_compatibility,
+    )
+    return PropertyComparisonPlan(
+        access=access,
+        property_side=property_side,
+        operator=operator,
+        value_type=value_type,
+        semantic_compatibility=semantic_compatibility,
+        physical_compatibility=physical_compatibility,
+        source_matches_semantics=source_matches_semantics,
+        can_use_minmax_index=minmax_blocker is None,
+        minmax_blocker=minmax_blocker,
+    )
+
+
+_OPTIMIZER_COMPATIBLE_COMPARISONS = {
+    ComparisonCompatibility.DEFINITELY_COMPATIBLE,
+    ComparisonCompatibility.CHEAP_CAST,
+}
+
+
+def _minmax_blocker(
+    access: PropertyAccessPlan,
+    source_matches_semantics: bool,
+    physical_compatibility: ComparisonCompatibility,
+) -> PropertyMinmaxBlocker | None:
+    if not access.source.has_minmax_index:
+        return PropertyMinmaxBlocker.NO_MINMAX_INDEX
+    if not source_matches_semantics:
+        return PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+    if physical_compatibility not in _OPTIMIZER_COMPATIBLE_COMPARISONS:
+        return PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE
+    return None
+
+
+def _extract_property_access(expr: ast.Expr, context: HogQLContext) -> tuple[ast.PropertyType, ast.ConstantType] | None:
+    expr = _unwrap_alias(expr)
+    expr_type = _resolve_expr_type(expr)
+    if isinstance(expr_type, ast.PropertyType):
+        return expr_type, _semantic_type_for_property_type(expr_type, context)
+
+    if not isinstance(expr, ast.Call):
+        return None
+
+    normalized_name = expr.name.lower()
+    if len(expr.args) == 1:
+        if normalized_name == "tofloat":
+            inner = _extract_property_access(expr.args[0], context)
+            if inner is not None:
+                return inner[0], ast.FloatType(nullable=True)
+        if normalized_name == "todatetime":
+            inner = _extract_property_access(expr.args[0], context)
+            if inner is not None:
+                return inner[0], ast.DateTimeType(nullable=True)
+        if normalized_name == "tostring":
+            inner = _extract_property_access(expr.args[0], context)
+            if inner is not None:
+                return inner[0], ast.StringType(nullable=True)
+        if normalized_name == "tobool":
+            inner = _extract_property_access_from_boolean_conversion(expr.args[0], context)
+            if inner is not None:
+                return inner[0], ast.BooleanType(nullable=True)
+
+    return None
+
+
+def _extract_property_access_from_boolean_conversion(
+    expr: ast.Expr, context: HogQLContext
+) -> tuple[ast.PropertyType, ast.ConstantType] | None:
+    expr = _unwrap_alias(expr)
+    if not isinstance(expr, ast.Call) or len(expr.args) == 0:
+        return _extract_property_access(expr, context)
+
+    normalized_name = expr.name.lower()
+    if normalized_name == "transform":
+        return _extract_property_access_from_boolean_conversion(expr.args[0], context)
+    if normalized_name == "tostring" and len(expr.args) == 1:
+        return _extract_property_access(expr.args[0], context)
+    return None
+
+
+def _plan_property_source(
+    property_type: ast.PropertyType, property_name: str, context: HogQLContext
+) -> PropertySourcePlan:
+    table_info = _materialized_table_info(property_type.field_type, context)
+    if table_info is None:
+        return _json_source_plan(property_type=property_type, property_name=property_name, context=context)
+
+    table_name, field_name = table_info
+    restricted = is_property_type_restricted(property_type, context)
+    if restricted or context.modifiers.materializationMode == "disabled":
+        return _json_source_plan(
+            property_type=property_type,
+            property_name=property_name,
+            context=context,
+            table_name=table_name,
+            field_name=field_name,
+            restricted=restricted,
+        )
+
+    materialized_column = get_materialized_column_for_property(
+        cast(TablesWithMaterializedColumns, table_name),
+        cast(TableColumn, field_name),
+        cast(PropertyName, property_name),
+    )
+    if materialized_column is not None:
+        return PropertySourcePlan(
+            kind=PropertySourceKind.MATERIALIZED_COLUMN,
+            table_name=table_name,
+            field_name=field_name,
+            column_name=materialized_column.name,
+            physical_type=ast.StringType(nullable=materialized_column.is_nullable),
+            is_nullable=materialized_column.is_nullable,
+            has_minmax_index=materialized_column.has_minmax_index,
+            has_bloom_filter_index=materialized_column.has_bloom_filter_index,
+            has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+            has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
+        )
+
+    if dmat_column := _dmat_column(context, table_name, field_name, property_name):
+        return PropertySourcePlan(
+            kind=PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN,
+            table_name=table_name,
+            field_name=field_name,
+            column_name=dmat_column,
+            physical_type=ast.StringType(nullable=True),
+            is_nullable=True,
+        )
+
+    if context.modifiers.propertyGroupsMode in (PropertyGroupsMode.ENABLED, PropertyGroupsMode.OPTIMIZED):
+        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
+            return PropertySourcePlan(
+                kind=PropertySourceKind.PROPERTY_GROUP,
+                table_name=table_name,
+                field_name=field_name,
+                column_name=property_group_column,
+                physical_type=ast.StringType(nullable=True),
+                is_nullable=True,
+                has_bloom_filter_index=True,
+            )
+
+    return _json_source_plan(
+        property_type=property_type,
+        property_name=property_name,
+        context=context,
+        table_name=table_name,
+        field_name=field_name,
+    )
+
+
+def _json_source_plan(
+    property_type: ast.PropertyType,
+    property_name: str,
+    context: HogQLContext,
+    table_name: str | None = None,
+    field_name: str | None = None,
+    restricted: bool = False,
+) -> PropertySourcePlan:
+    if table_name is None or field_name is None:
+        table_info = _materialized_table_info(property_type.field_type, context)
+        if table_info is not None:
+            table_name, field_name = table_info
+
+    return PropertySourcePlan(
+        kind=PropertySourceKind.JSON,
+        table_name=table_name,
+        field_name=field_name,
+        column_name=field_name,
+        physical_type=ast.StringType(nullable=True),
+        is_nullable=True,
+        restricted=restricted,
+    )
+
+
+def _materialized_table_info(field_type: ast.FieldType, context: HogQLContext) -> tuple[str, str] | None:
+    table = field_type.table_type
+    while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+        table = table.table_type
+
+    if not isinstance(table, ast.TableType):
+        return None
+
+    table_name = table.resolve_database_table(context).to_printed_hogql()
+    if table_name not in MATERIALIZATION_VALID_TABLES:
+        return None
+
+    field = field_type.resolve_database_field(context)
+    if not isinstance(field, DatabaseField):
+        return None
+
+    return table_name, field.name
+
+
+def _dmat_column(context: HogQLContext, table_name: str, field_name: str, property_name: str) -> str | None:
+    if context.property_swapper is None:
+        return None
+    if table_name != "events" or field_name != "properties":
+        return None
+    prop_info = context.property_swapper.event_properties.get(property_name)
+    if prop_info is None:
+        return None
+    return prop_info.get("dmat")
+
+
+def _semantic_type_for_property_type(property_type: ast.PropertyType, context: HogQLContext) -> ast.ConstantType:
+    property_info = _property_info_for_property_type(property_type, context)
+    if property_info is None:
+        return ast.StringType(nullable=True)
+    return _semantic_type_from_property_definition_type(property_info.get("type"))
+
+
+def _semantic_type_from_property_definition_type(property_type: str | None) -> ast.ConstantType:
+    if property_type in (PropertyType.Numeric, PropertyType.Duration):
+        return ast.FloatType(nullable=True)
+    if property_type == PropertyType.Datetime:
+        return ast.DateTimeType(nullable=True)
+    if property_type == PropertyType.Boolean:
+        return ast.BooleanType(nullable=True)
+    if property_type == PropertyType.String:
+        return ast.StringType(nullable=True)
+    return ast.StringType(nullable=True)
+
+
+def _property_info_for_property_type(
+    property_type: ast.PropertyType, context: HogQLContext
+) -> dict[str, str | None] | None:
+    if context.property_swapper is None or len(property_type.chain) != 1:
+        return None
+
+    property_name = str(property_type.chain[0])
+    scope = _property_scope(property_type, context)
+    if scope == PropertyScope.EVENT:
+        return context.property_swapper.event_properties.get(property_name)
+    if scope == PropertyScope.PERSON:
+        return context.property_swapper.person_properties.get(property_name)
+    if scope == PropertyScope.GROUP:
+        group_property_name = _group_property_name(property_type, context, property_name)
+        if group_property_name is None:
+            return None
+        return context.property_swapper.group_properties.get(group_property_name)
+    return None
+
+
+def _property_scope(property_type: ast.PropertyType, context: HogQLContext) -> PropertyScope:
+    field_type = property_type.field_type
+    if field_type.name == "person_properties":
+        return PropertyScope.PERSON
+
+    table_type = field_type.table_type
+    if isinstance(table_type, ast.VirtualTableType) and table_type.field == "poe" and field_type.name == "properties":
+        return PropertyScope.PERSON
+
+    if not isinstance(table_type, ast.BaseTableType):
+        return PropertyScope.UNKNOWN
+
+    try:
+        resolved_table = table_type.resolve_database_table(context)
+    except HogQLNotImplementedError:
+        return PropertyScope.UNKNOWN
+
+    if isinstance(resolved_table, EventsTable):
+        return PropertyScope.EVENT
+    if isinstance(resolved_table, (EventsPersonSubTable, PersonsTable, RawPersonsTable)):
+        return PropertyScope.PERSON
+    if isinstance(resolved_table, GroupsTable):
+        return PropertyScope.GROUP
+    return PropertyScope.UNKNOWN
+
+
+def _group_property_name(property_type: ast.PropertyType, context: HogQLContext, property_name: str) -> str | None:
+    table_type = property_type.field_type.table_type
+    if isinstance(table_type, ast.LazyJoinType) and table_type.field.startswith("group_"):
+        group_id = int(table_type.field.split("_")[1])
+        return f"{group_id}_{property_name}"
+    if isinstance(table_type, ast.LazyTableType):
+        global_group_id: Optional[int] = context.globals.get("group_id") if context.globals else None
+        if isinstance(global_group_id, int):
+            return f"{global_group_id}_{property_name}"
+    return None
+
+
+def _constant_type_from_expr(expr: ast.Expr, context: HogQLContext) -> ast.ConstantType:
+    expr_type = _resolve_expr_type(_unwrap_alias(expr))
+    if expr_type is not None:
+        return expr_type.resolve_constant_type(context)
+    return ast.UnknownType()
+
+
+def _resolve_expr_type(expr: ast.Expr) -> ast.Type | None:
+    expr_type = expr.type
+    while isinstance(expr_type, ast.FieldAliasType):
+        expr_type = expr_type.type
+    if isinstance(expr_type, ast.CallType):
+        return dataclasses.replace(expr_type.return_type)
+    return expr_type
+
+
+def _unwrap_alias(expr: ast.Expr) -> ast.Expr:
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr

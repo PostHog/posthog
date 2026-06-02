@@ -20,6 +20,7 @@ from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
+from posthog.hogql.property_planner import get_restricted_keys_for_table_type, is_property_type_restricted
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -429,14 +430,7 @@ class ClickHousePrinter(BasePrinter):
         return super()._get_materialized_property_source_for_property_type(type)
 
     def _is_property_type_restricted(self, type: ast.PropertyType) -> bool:
-        if not self.context.restricted_properties or len(type.chain) == 0:
-            return False
-        keys_to_drop = self._get_restricted_keys_for_table_type(type.field_type.table_type)
-        if not keys_to_drop:
-            return False
-        # Only the first chain element is a top-level key on the JSON blob; nested
-        # accesses (``properties.foo.bar``) are restricted iff their root key is.
-        return str(type.chain[0]) in keys_to_drop
+        return is_property_type_restricted(type, self.context)
 
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
         """
@@ -473,29 +467,7 @@ class ClickHousePrinter(BasePrinter):
         Given a table type, returns the set of property names that should be stripped
         from the JSON blob based on restricted_properties in the context.
         """
-        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
-        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-
-        from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-        if not isinstance(table_type, ast.BaseTableType):
-            return set()
-
-        try:
-            table = table_type.resolve_database_table(self.context)
-        except Exception:
-            return set()
-
-        if isinstance(table, EventsPersonSubTable):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        elif isinstance(table, EventsTable):
-            prop_def_type = PropertyDefinition.Type.EVENT
-        elif isinstance(table, (PersonsTable, RawPersonsTable)):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        else:
-            return set()
-
-        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
+        return get_restricted_keys_for_table_type(table_type, self.context)
 
     def _get_property_group_source_for_field(
         self, field_type: ast.FieldType, property_name: str

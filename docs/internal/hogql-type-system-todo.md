@@ -52,7 +52,7 @@ Still intentionally left as follow-up work:
 - Full ClickHouse parity for every function signature and aggregate combinator.
 - Full higher-order array parity beyond common lambda-first functions, especially lambda-aware array sorting and strict lambda arity/return validation.
 - Full higher-order map parity beyond key/value binding, especially strict lambda arity and return validation.
-- Property-definition planning metadata and materialized-property comparison rewrites.
+- Materialized-property comparison rewrites.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Strict resolver mode.
 - Query-corpus unknown-type baselines and ClickHouse integration tests for planner/index wins.
@@ -499,20 +499,21 @@ Property type information is central to the optimization story because many HogQ
 
 TODO:
 
-- [ ] Separate physical storage type from semantic property type.
+- [x] Separate physical storage type from semantic property type.
       For example, an event property may be physically stored as string JSON or a nullable materialized string column, while semantically known as numeric, datetime, boolean, or string.
 - [ ] Represent typed property access as a typed expression before printing.
-- [ ] Make materialized column availability part of planning metadata, not only printer behavior.
+- [x] Make materialized column availability part of planning metadata, not only printer behavior.
 - [ ] Decide when a typed property conversion can be skipped:
   - [ ] materialized column is already numeric
   - [ ] literal can be safely coerced instead of column-wrapped
-  - [ ] comparison can remain lexical by design
-  - [ ] conversion is required for correctness
-  - [ ] conversion would block an index and should move to the literal side
+  - [x] comparison can remain lexical by design
+  - [x] conversion is required for correctness
+  - [x] conversion would block an index
+  - [ ] conversion should move to the literal side
 - [ ] Add a type-aware rule for numeric property comparisons that can use minmax indexes when safe.
 - [ ] Add a type-aware rule for datetime property comparisons that can use minmax indexes when safe.
-- [ ] Preserve property group and dynamic materialized column behavior.
-- [ ] Preserve restricted-property behavior; materialized shortcuts must not bypass access control.
+- [x] Preserve property group and dynamic materialized column behavior.
+- [x] Preserve restricted-property behavior; materialized shortcuts must not bypass access control.
 - [ ] Make `PropertyType.resolve_constant_type()` more precise for JSON paths when metadata exists.
 - [ ] Make property type notices derive from the same facts the optimizer uses.
 
@@ -779,5 +780,5 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Immediate Next Step
 
-Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, and the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`.
-The next concrete task should be property-planning metadata for materialized property comparisons, followed by ClickHouse planner tests before enabling any property/index rewrite broadly.
+Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, and property comparison planning metadata exists in `posthog/hogql/property_planner.py`.
+The next concrete task should be the first guarded materialized-property comparison rewrite, paired with ClickHouse planner tests before enabling any property/index rewrite broadly.

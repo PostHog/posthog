@@ -419,13 +419,13 @@ This gives internal callers a safe way to compare emitted SQL before and after s
 
 ## Suggested Next Work
 
-The next practical implementation slice should be property-planning metadata for materialized property comparisons.
-That is where skip-index wins become realistic, but it should stay separate because it needs ClickHouse planner tests and access-control checks.
+`posthog/hogql/property_planner.py` now adds property-planning metadata for materialized property comparisons.
+It separates semantic property-definition type facts from physical source type facts, reports selected materialized-column, dynamic materialized-column, property-group, or JSON sources, and classifies comparison compatibility for both the semantic property value and the physical source value.
+
+That gets the optimizer to the point where skip-index rewrites are realistic, but the rewrite itself should stay separate because it needs ClickHouse planner tests and access-control checks.
 
 Good first targets:
 
-- represent physical materialized-column type facts separately from semantic property definition facts
-- classify typed property comparisons with `comparison_compatibility(...)`
+- use the property comparison plan as the input to the first guarded rewrite
 - identify cases where a literal can be converted instead of wrapping the materialized column
-- prove restricted-property behavior still forces safe JSON paths
 - add ClickHouse planner tests for numeric and datetime minmax skip-index use
