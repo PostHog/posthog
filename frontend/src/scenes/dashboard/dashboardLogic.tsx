@@ -1970,6 +1970,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
+        duplicateTile: () => {
+            cache.widgetTileIdsBeforeDuplicate = new Set(values.widgetTiles.map((tile) => tile.id))
+        },
+        duplicateTileSuccess: ({ dashboard }) => {
+            if (!dashboard || !values.dashboardWidgetsEnabled) {
+                return
+            }
+
+            const previousTileIds = cache.widgetTileIdsBeforeDuplicate as Set<number> | undefined
+            cache.widgetTileIdsBeforeDuplicate = undefined
+            if (!previousTileIds) {
+                return
+            }
+
+            const createdTiles = findNewlyAddedWidgetTiles(previousTileIds, dashboard.tiles)
+            if (createdTiles.length > 0) {
+                actions.refreshDashboardWidgets({
+                    tileIds: createdTiles.map((tile) => tile.id),
+                    forceRefresh: true,
+                })
+            }
+        },
         removeTile: ({ tile }) => {
             cache.removedTileForUndo = tile
         },
