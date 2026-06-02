@@ -394,8 +394,8 @@ tools:
             idempotent: true
         title: List artifact bundle files
         description: >
-            List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql,
-            and any eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.
+            List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql, and any
+            eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.
     autoresearch-training-runs-artifacts-upload-create:
         operation: autoresearch_training_runs_artifacts_upload_create
         enabled: true
@@ -408,11 +408,11 @@ tools:
         title: Upload an artifact bundle file
         description: >
             Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in
-            content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql,
-            or an eda/ notebook). Re-uploading the same path overwrites it. This is how you author the model — author
-            train.py and predict.py (standalone sklearn scripts) and features.sql (HogQL with the {anchors}/{lookback_days}
-            contract), then upload each here. Do NOT use set_output or curl —
-            the bundle you upload is what inference runs in a sandbox.
+            content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, or an eda/
+            notebook). Re-uploading the same path overwrites it. This is how you author the model — author train.py and
+            predict.py (standalone sklearn scripts) and features.sql (HogQL with the {anchors}/{lookback_days}
+            contract), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference
+            runs in a sandbox.
     autoresearch-training-runs-complete-create:
         operation: autoresearch_training_runs_complete_create
         enabled: true
