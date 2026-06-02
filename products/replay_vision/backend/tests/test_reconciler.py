@@ -5,8 +5,11 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.client import ScheduleOverlapPolicy
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
 
@@ -20,8 +23,19 @@ from products.replay_vision.backend.temporal.activities import (
     list_scanner_schedules_activity,
     upsert_scanner_schedule_activity,
 )
-from products.replay_vision.backend.temporal.constants import SCANNER_SCHEDULE_ID_PREFIX, SWEEP_SCANNER_WORKFLOW_NAME
-from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
+from products.replay_vision.backend.temporal.constants import (
+    RECONCILER_EXECUTION_TIMEOUT,
+    RECONCILER_INTERVAL,
+    RECONCILER_SCHEDULE_ID,
+    RECONCILER_WORKFLOW_ID,
+    RECONCILER_WORKFLOW_NAME,
+    SCANNER_SCHEDULE_ID_PREFIX,
+    SWEEP_SCANNER_WORKFLOW_NAME,
+)
+from products.replay_vision.backend.temporal.reconciler import (
+    ReconcileScannerSchedulesWorkflow,
+    create_replay_vision_reconciler_schedule,
+)
 from products.replay_vision.backend.temporal.reconciler_types import (
     EnabledScannerEntry,
     ReconcileScannerSchedulesInputs,
@@ -341,3 +355,32 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
 
 def test_reconcile_parse_inputs() -> None:
     assert ReconcileScannerSchedulesWorkflow.parse_inputs([]) == ReconcileScannerSchedulesInputs()
+
+
+@pytest.mark.asyncio
+@parameterized.expand([("missing", False, "create"), ("present", True, "update")])
+async def test_create_reconciler_schedule_routes_by_existence(_name: str, exists: bool, expected: str) -> None:
+    schedule_mod = "posthog.temporal.common.schedule"
+    with (
+        patch(f"{schedule_mod}.a_schedule_exists", AsyncMock(return_value=exists)),
+        patch(f"{schedule_mod}.a_create_schedule", AsyncMock()) as create,
+        patch(f"{schedule_mod}.a_update_schedule", AsyncMock()) as update,
+    ):
+        await create_replay_vision_reconciler_schedule(AsyncMock())
+    called, skipped = (create, update) if expected == "create" else (update, create)
+    called.assert_awaited_once()
+    skipped.assert_not_awaited()
+    assert called.call_args.args[1] == RECONCILER_SCHEDULE_ID
+    schedule = called.call_args.args[2]
+    assert schedule.action.workflow == RECONCILER_WORKFLOW_NAME
+    assert schedule.action.id == RECONCILER_WORKFLOW_ID
+    assert schedule.action.task_queue == settings.REPLAY_VISION_TASK_QUEUE
+    assert schedule.action.execution_timeout == RECONCILER_EXECUTION_TIMEOUT
+    assert schedule.action.retry_policy.maximum_attempts == 1
+    assert schedule.spec.intervals[0].every == RECONCILER_INTERVAL
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert schedule.policy.catchup_window == RECONCILER_INTERVAL
+    if expected == "create":
+        assert called.call_args.kwargs["trigger_immediately"] is True
+    else:
+        assert "trigger_immediately" not in called.call_args.kwargs
