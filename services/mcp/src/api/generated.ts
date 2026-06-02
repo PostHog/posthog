@@ -456,6 +456,8 @@ export namespace Schemas {
       message: string;
       /** Name of the ExternalDataSchema responsible for syncing the table */
       schema_name: string;
+      /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+      source_id?: string | null;
       /** Source type, e.g. "Stripe", "Hubspot" */
       source_type: string;
       /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -12761,6 +12763,7 @@ export namespace Schemas {
     * `Plain` - Plain
     * `Resend` - Resend
     * `PgAnalyze` - PgAnalyze
+    * `WorkOS` - WorkOS
     * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -12912,6 +12915,7 @@ export namespace Schemas {
       Plain: 'Plain',
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
+      WorkOS: 'WorkOS',
       Custom: 'Custom',
     } as const;
 
@@ -13070,6 +13074,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -17351,6 +17356,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -18651,6 +18657,14 @@ export namespace Schemas {
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
     }
+
+    export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
+
+
+    export const HideViewedRecordings = {
+      CurrentUser: 'current-user',
+      AnyUser: 'any-user',
+    } as const;
 
     /**
      * Variable: {key, type: string|number|boolean, default}.
@@ -20140,6 +20154,8 @@ export namespace Schemas {
       events?: RecordingsQueryEvents;
       filter_test_accounts?: boolean | null;
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+      hide_viewed_recordings?: HideViewedRecordings | null;
       kind?: 'RecordingsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -30122,7 +30138,8 @@ export namespace Schemas {
       readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token?: string | null;
-      readonly updated_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
       readonly uuid?: string;
       readonly api_token?: string;
       app_urls?: (string | null)[];
@@ -33156,7 +33173,8 @@ export namespace Schemas {
       readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token: string | null;
-      readonly updated_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
       readonly uuid: string;
       readonly api_token: string;
       app_urls?: (string | null)[];
@@ -43994,6 +44012,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string;
+    /**
      * Session recording id to return observations for.
      */
     session_id: string;
@@ -44018,17 +44040,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-    * `name` - Name
-    * `-name` - Name (descending)
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `updated_at` - Updated at
-    * `-updated_at` - Updated at (descending)
-    * `scanner_type` - Scanner type
-    * `-scanner_type` - Scanner type (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
@@ -44061,17 +44074,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `started_at` - Started at
-    * `-started_at` - Started at (descending)
-    * `completed_at` - Completed at
-    * `-completed_at` - Completed at (descending)
-    * `status` - Status
-    * `-status` - Status (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter to observations of a specific session recording.
      */
@@ -50116,6 +50120,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string;
+    /**
      * Session recording id to return observations for.
      */
     session_id: string;
@@ -50140,17 +50148,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-    * `name` - Name
-    * `-name` - Name (descending)
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `updated_at` - Updated at
-    * `-updated_at` - Updated at (descending)
-    * `scanner_type` - Scanner type
-    * `-scanner_type` - Scanner type (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
@@ -50183,17 +50182,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `started_at` - Started at
-    * `-started_at` - Started at (descending)
-    * `completed_at` - Completed at
-    * `-completed_at` - Completed at (descending)
-    * `status` - Status
-    * `-status` - Status (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter to observations of a specific session recording.
      */

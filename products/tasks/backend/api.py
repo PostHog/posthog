@@ -28,7 +28,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -268,13 +268,6 @@ def task_run_visibility_q(user_id: int | None) -> Q:
     )
 
 
-class TasksAccessPermission(BasePermission):
-    message = "You need a valid invite code to access this feature."
-
-    def has_permission(self, request, view) -> bool:
-        return has_tasks_access(request.user)
-
-
 def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
     """Parse a Slack permalink into `(channel, thread_ts)`"""
     try:
@@ -351,7 +344,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = Task.objects.all()
     pagination_class = TasksPagination
@@ -1152,7 +1145,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TaskAutomationSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = TaskAutomation.objects.all()
     filter_rewrite_rules = {"team_id": "task__team_id"}
@@ -1200,7 +1193,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = TaskRun.objects.select_related(
         "task", "task__created_by", "task__github_integration", "task__github_user_integration"
@@ -2862,7 +2855,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SandboxEnvironment.objects.all()
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
