@@ -47,7 +47,8 @@ def _format_datetime(value: Any) -> Optional[str]:
         utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
         return utc_value.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     if isinstance(value, date):
-        return value.isoformat()
+        # Promote a bare date to midnight UTC so begin_time is always a full datetime.
+        return datetime(value.year, value.month, value.day, tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     return str(value)
 
 
@@ -218,15 +219,21 @@ def validate_credentials(api_key: str, region: str) -> tuple[bool, Optional[str]
             auth=(api_key, ""),
             timeout=30,
         )
-    except Exception:
-        return False, "Could not reach Recurly. Please check your network and region, then try again."
+    except Exception as e:
+        return False, f"Could not reach Recurly ({e}). Please check your network and region, then try again."
 
     if res.status_code == 200:
         return True, None
-    if res.status_code in (401, 403):
+    if res.status_code == 401:
         return (
             False,
-            "Recurly rejected the API key. Create a private API key under Integrations > API Credentials "
-            "in Recurly and confirm the selected region matches your site.",
+            "Recurly rejected the API key (401 Unauthorized). Create a private API key under "
+            "Integrations > API Credentials in Recurly and confirm the selected region matches your site.",
+        )
+    if res.status_code == 403:
+        return (
+            False,
+            "The Recurly API key is valid but lacks permission to read this site (403 Forbidden). "
+            "Check the key's permissions and try again.",
         )
     return False, f"Recurly returned an unexpected status ({res.status_code}) while validating credentials."

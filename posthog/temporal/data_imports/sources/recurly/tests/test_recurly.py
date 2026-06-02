@@ -52,7 +52,7 @@ class TestRecurlyHelpers:
         assert _format_datetime(value) == "2024-01-02T03:00:00.000Z"
 
     def test_format_datetime_date(self):
-        assert _format_datetime(date(2024, 1, 2)) == "2024-01-02"
+        assert _format_datetime(date(2024, 1, 2)) == "2024-01-02T00:00:00.000Z"
 
     def test_format_datetime_none(self):
         assert _format_datetime(None) is None
