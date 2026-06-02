@@ -33,8 +33,9 @@ import { UUIDT } from '../../src/utils/utils'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
-import { createHogExecutionGlobals, insertHogFunctionTemplate } from './_tests/fixtures'
+import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
+import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
@@ -873,5 +874,207 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             expect(distinctIdSpy).not.toHaveBeenCalled()
         })
+    })
+})
+
+// Email queue routing is postgres-v2 only — the email worker reschedules jobs
+// between queue names on the same v2 backend. We keep this block outside the
+// `describe.each` so the legacy postgres mode doesn't also try to exercise it.
+describe('Workflows E2E (email queue)', () => {
+    jest.setTimeout(30000)
+
+    let eventsConsumer: CdpEventsConsumer
+    let hogflowWorker: CdpCyclotronWorkerHogFlow
+    let emailWorker: CdpCyclotronWorkerEmail
+    let hogflowQueue: JobQueue
+
+    let hub: Hub
+    let kafkaProducer: KafkaProducerWrapper
+    let mockProducerObserver: KafkaProducerObserver
+    let team: Team
+    let cyclotronPool: Pool
+
+    beforeAll(() => {
+        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+    })
+
+    afterAll(async () => {
+        await cyclotronPool.end()
+    })
+
+    beforeEach(async () => {
+        MockKafkaProducerWrapper.create = jest.fn((...args) => {
+            return ActualKafkaProducerWrapper.create(...args)
+        })
+
+        await resetKafka()
+        await resetTestDatabase()
+        await cyclotronPool.query('DELETE FROM cyclotron_jobs')
+
+        hub = await createHub()
+        // Route all teams' emails through the dedicated queue
+        hub.CDP_EMAIL_QUEUE_ROUTING = '*'
+        hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+
+        team = await getFirstTeam(hub.postgres)
+        mockProducerObserver.resetKafkaProducer()
+
+        // Email integration — provider 'maildev' routes to local SMTP (port 1025)
+        await insertIntegration(hub.postgres, team.id, {
+            id: 1,
+            kind: 'email',
+            config: {
+                email: 'sender@posthog.com',
+                name: 'Test Sender',
+                domain: 'posthog.com',
+                verified: true,
+                provider: 'maildev',
+            },
+        })
+
+        // Native-email template that the workflow's email action invokes
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-workflows-e2e-email',
+            name: 'Workflows E2E Email',
+            code: `sendEmail(inputs.email)`,
+            inputs_schema: [
+                {
+                    type: 'native_email',
+                    key: 'email',
+                    label: 'Email message',
+                    integration: 'email',
+                    required: true,
+                    default: {
+                        to: { email: '', name: '' },
+                        from: { email: '', name: '' },
+                        subject: '',
+                        text: 'Hello!',
+                        html: '<div>Hello!</div>',
+                    },
+                    secret: false,
+                    description: '',
+                    templating: 'liquid',
+                },
+            ],
+        })
+
+        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+        hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+
+        eventsConsumer = new CdpEventsConsumer(hub, deps, {
+            hogQueue: kafkaQueue,
+            hogflowQueue,
+        })
+        await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
+
+        // Hogflow worker polls jobs with queue_name='hogflow' and re-stamps email
+        // jobs to queue_name='email' so the email worker picks them up
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+        await hogflowWorker.start()
+
+        // Email worker polls jobs with queue_name='email', sends via EmailService,
+        // and continues the workflow inline (until it hits a fetch or terminates)
+        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, hogflowQueue)
+        await emailWorker.start()
+    })
+
+    afterEach(async () => {
+        await Promise.all([
+            eventsConsumer?.stop() ?? Promise.resolve(),
+            hogflowWorker?.stop() ?? Promise.resolve(),
+            emailWorker?.stop() ?? Promise.resolve(),
+        ])
+        await kafkaProducer.disconnect()
+        await closeHub(hub)
+        mockProducerObserver.resetKafkaProducer()
+    })
+
+    async function queryCyclotronJobs(): Promise<any[]> {
+        const result = await cyclotronPool.query(`SELECT *, status AS status FROM cyclotron_jobs ORDER BY created ASC`)
+        return result.rows
+    }
+
+    function createGlobals(): HogFunctionInvocationGlobals {
+        return createHogExecutionGlobals({
+            project: { id: team.id } as any,
+            event: {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                event: '$pageview',
+                properties: {
+                    $current_url: 'https://posthog.com',
+                    $lib_version: '1.0.0',
+                },
+                timestamp: '2024-09-03T09:00:00Z',
+            } as any,
+        })
+    }
+
+    it('routes the email through the dedicated queue and continues the workflow', async () => {
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Test Email',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        // Trigger the workflow via the events consumer (real Kafka producer + v2 queue)
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // Verify both metric stages fire:
+        //   email_queued — emitted by the hogflow worker when it routes to 'email'
+        //   email_sent   — emitted by the email worker after SES/maildev returns
+        // Asserting both proves the hand-off happened across two workers.
+        await waitForExpect(() => {
+            const emailMetrics = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_kind === 'email')
+            const names = emailMetrics.map((m: any) => m.value.metric_name)
+            expect(names).toContain('email_queued')
+            expect(names).toContain('email_sent')
+        }, 15000)
+
+        // Workflow should reach a terminal state once the email worker has continued through exit
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
     })
 })
