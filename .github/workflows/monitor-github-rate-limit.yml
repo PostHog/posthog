@@ -11,6 +11,10 @@ name: Monitor GitHub Rate Limit
 #
 # Alerting belongs downstream in PostHog (windowed thresholds, attribution by
 # repo) — not in the workflow itself. Keep this file focused on emission.
+#
+# Burn-rate alert (DevEx project): insight iGGXQ1mF + an alert that fires when the
+# core bucket exceeds 80% utilization with >30 min left in the reset window —
+# i.e. burning early, not the harmless pre-reset sawtooth peak.
 
 on:
     pull_request:
