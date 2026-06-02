@@ -181,10 +181,9 @@ class KafkaProfileSettings:
 
 def _resolve_profile(profile: str) -> KafkaProfileSettings:
     # Any profile that has no hosts configured falls back to the dev-local
-    # `kafka.posthog.test:9092`. In prod, `KAFKA_DEFAULT_HOSTS` (or the legacy
-    # `KAFKA_HOSTS`) is always set, so this fallback only ever applies to local
-    # dev / tests.
-    hosts_raw = _env_for(profile, "HOSTS") or "kafka.posthog.test:9092"
+    # `kafka:9092`. In prod, `KAFKA_DEFAULT_HOSTS` (or the legacy `KAFKA_HOSTS`)
+    # is always set, so this fallback only ever applies to local dev / tests.
+    hosts_raw = _env_for(profile, "HOSTS") or "kafka:9092"
     return KafkaProfileSettings(
         name=profile,
         hosts=_parse_kafka_hosts(hosts_raw),

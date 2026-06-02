@@ -11,7 +11,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "127.0.0.1 kafka clickhouse objectstorage db kafka.posthog.test clickhouse.posthog.test objectstorage.posthog.test db.posthog.test" >> /etc/hosts
+echo "127.0.0.1 kafka clickhouse objectstorage db" >> /etc/hosts
 
 echo "🚀 Starting services..."
 docker compose -f docker-compose.dev.yml -p evals up -d db clickhouse objectstorage

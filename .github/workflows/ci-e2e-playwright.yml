@@ -235,7 +235,7 @@ jobs:
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal db.posthog.test redis7.posthog.test kafka.posthog.test clickhouse.posthog.test objectstorage.posthog.test seaweedfs.posthog.test temporal.posthog.test" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
