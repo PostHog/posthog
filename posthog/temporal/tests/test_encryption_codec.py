@@ -1,20 +1,111 @@
 import json
 import uuid
+import base64
 import dataclasses
+import collections.abc
 
 import pytest
 
 from django.conf import settings
 
 import temporalio.converter
+from cryptography.fernet import InvalidToken
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.codec import EncryptionCodec
+from posthog.temporal.common.codec import EncryptionCodec, _prepare_key, _resize_key
 
 from products.batch_exports.backend.service import NoOpInputs
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
+
+
+@pytest.mark.parametrize(
+    "key,size,expected",
+    [
+        (b"aaa", 32, b"aaa" + b"\0" * 29),
+        (b"aaa", 1, b"a"),
+    ],
+)
+def test_resize_key_to_size(key: bytes, size: int, expected: bytes) -> None:
+    result = _resize_key(key, size=size)
+    assert len(result) == size
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "key,expected",
+    [
+        (b"aaa", b"aaa" + b"\0" * 29),
+        (b"a" * 32, b"a" * 32),
+    ],
+)
+def test_resize_key(key: bytes, expected: bytes) -> None:
+    result = _resize_key(key)
+    assert len(result) == 32
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "key,expected",
+    [
+        (b"aaa", b"YWFhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        (b"a+" * 16, b"YSthK2ErYSthK2ErYSthK2ErYSthK2ErYSthK2ErYSs="),
+    ],
+)
+def test_prepare_key(key: bytes, expected: bytes) -> None:
+    result = _prepare_key(key)
+    assert result == expected
+    assert base64.urlsafe_b64decode(result) == _resize_key(key)
+
+
+class TestEncryptionSettings:
+    TEMPORAL_SECRET_KEY: str | bytes = b"aaabbbccc-111-222-333"
+    TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes] = [b"aaa-111", b"bbb-222"]
+
+
+@pytest.fixture
+def codec() -> EncryptionCodec:
+    codec = EncryptionCodec.from_settings(TestEncryptionSettings())
+    return codec
+
+
+def test_encrypt_decrypt_round_trip(codec: EncryptionCodec):
+    payload = b"very-secret"
+
+    encrypted = codec.encrypt(payload)
+    decrypted = codec.decrypt(encrypted)
+
+    assert payload == decrypted
+
+
+def test_encrypt_uses_main_key(codec: EncryptionCodec):
+    """Assert codec encrypts using main key."""
+    payload = b"very-secret"
+
+    token = codec.encrypt(payload)
+
+    main = codec.fernet._fernets[0]
+
+    assert main.decrypt(token) == payload
+
+    for fallback in codec.fernet._fernets[1:]:
+        with pytest.raises(InvalidToken):
+            fallback.decrypt(token)
+
+
+def test_decrypt_fallsback_to_fallback_keys(codec: EncryptionCodec):
+    """Assert codec can decrypt payloads encrypted with fallback keys."""
+    payload = b"very-secret"
+
+    tokens = []
+    for fallback in codec.fernet._fernets[1:]:
+        tokens.append(fallback.encrypt(payload))
+
+    assert len(tokens) > 0
+
+    for token in tokens:
+        assert codec.decrypt(token) == payload
 
 
 def get_history_event_payloads(event):
@@ -38,7 +129,7 @@ def get_history_event_payloads(event):
 @pytest.mark.asyncio
 async def test_payloads_are_encrypted():
     """Test the payloads of a Workflow are encrypted when running with EncryptionCodec."""
-    codec = EncryptionCodec(settings=settings)
+    codec = EncryptionCodec.from_settings(settings=settings)
     client = await Client.connect(
         f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}",
         namespace=settings.TEMPORAL_NAMESPACE,
