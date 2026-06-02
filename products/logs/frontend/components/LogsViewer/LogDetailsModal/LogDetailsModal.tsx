@@ -13,6 +13,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
+import { ViewTraceButton } from 'products/logs/frontend/components/LogsViewer/ViewTraceButton/ViewTraceButton'
 
 import { logsViewerLogic } from '../logsViewerLogic'
 import { LogComments } from './LogComments'
@@ -141,15 +142,18 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 </div>
                             </div>
                         </div>
-                        {sessionId && (
-                            <ViewRecordingButton
-                                sessionId={sessionId}
-                                timestamp={selectedLog.timestamp}
-                                size="xsmall"
-                                openPlayerIn={RecordingPlayerType.Modal}
-                                checkRecordingExists
-                            />
-                        )}
+                        <div className="flex items-center gap-1">
+                            <ViewTraceButton log={selectedLog} size="xsmall" label="View trace" />
+                            {sessionId && (
+                                <ViewRecordingButton
+                                    sessionId={sessionId}
+                                    timestamp={selectedLog.timestamp}
+                                    size="xsmall"
+                                    openPlayerIn={RecordingPlayerType.Modal}
+                                    checkRecordingExists
+                                />
+                            )}
+                        </div>
                     </div>
                 </LemonDrawer.Header>
                 <LemonDrawer.Content>

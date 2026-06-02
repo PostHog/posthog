@@ -14,6 +14,8 @@ import type { Span } from './types'
 
 interface TraceFlameChartProps {
     spans: Span[]
+    /** OTel span id (hex) to auto-select once the trace loads — used by deep links from other products. */
+    highlightSpanId?: string | null
 }
 
 interface SpanNode {
@@ -462,8 +464,20 @@ function FlameListRow({
     )
 }
 
-export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
+export function TraceFlameChart({ spans, highlightSpanId }: TraceFlameChartProps): JSX.Element {
     const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
+
+    // Auto-select the deep-linked span (matched by OTel span id) once its trace has loaded. The
+    // flame chart selects by row uuid, so resolve the span id to its uuid here.
+    useEffect(() => {
+        if (!highlightSpanId) {
+            return
+        }
+        const match = spans.find((s) => s.span_id === highlightSpanId)
+        if (match) {
+            setSelectedSpanId(match.uuid)
+        }
+    }, [highlightSpanId, spans])
     const [cursorPct, setCursorPct] = useState<number | null>(null)
     const [labelColumnWidth, setLabelColumnWidth] = useState(
         () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH

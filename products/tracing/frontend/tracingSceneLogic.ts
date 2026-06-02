@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -20,6 +21,10 @@ import type { Span } from './types'
 export interface TracingSceneLogicProps {
     tabId?: string
 }
+
+// Half-width of the time window used to bound a deep-linked trace lookup around the originating
+// event's timestamp. `trace_id` is not a sort-key prefix, so the by-id query must stay time-bounded.
+const TRACE_LINK_WINDOW_MINUTES = 30
 
 export const tracingSceneLogic = kea<tracingSceneLogicType>([
     props({} as TracingSceneLogicProps),
@@ -68,6 +73,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     actions({
         toggleExpandSpan: (uuid: string) => ({ uuid }),
         openTraceModal: (traceId: string) => ({ traceId }),
+        // Open a trace from a deep link (e.g. from the Logs viewer). `ts` bounds the lookup window;
+        // `spanId` (OTel span id, hex) is the span to auto-highlight once the trace loads.
+        openTraceFromLink: (traceId: string, spanId?: string, ts?: string) => ({ traceId, spanId, ts }),
         closeTraceModal: true,
         openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
         closeCompareFlame: true,
@@ -96,6 +104,16 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             null as string | null,
             {
                 openTraceModal: (_, { traceId }) => traceId,
+                openTraceFromLink: (_, { traceId }) => traceId,
+                closeTraceModal: () => null,
+            },
+        ],
+        // OTel span id (hex) to auto-highlight in the flame chart when a trace is opened via deep link.
+        linkedSpanId: [
+            null as string | null,
+            {
+                openTraceFromLink: (_, { spanId }) => spanId ?? null,
+                openTraceModal: () => null,
                 closeTraceModal: () => null,
             },
         ],
@@ -151,8 +169,22 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             posthog.capture('tracing trace opened')
             const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)
             if (prefetchedSpans.length >= PREFETCH_SPANS) {
-                actions.loadTraceSpans(traceId)
+                actions.loadTraceSpans({ traceId })
             }
+        },
+        openTraceFromLink: ({ traceId, ts }) => {
+            posthog.capture('tracing trace opened', { source: 'deep_link' })
+            // A deep link has no prefetched spans in the list, so always load the full trace.
+            // Bound the lookup to a window around the originating event's timestamp when provided.
+            let dateRange: { date_from: string; date_to: string } | undefined
+            const center = ts ? dayjs(ts) : null
+            if (center?.isValid()) {
+                dateRange = {
+                    date_from: center.subtract(TRACE_LINK_WINDOW_MINUTES, 'minute').toISOString(),
+                    date_to: center.add(TRACE_LINK_WINDOW_MINUTES, 'minute').toISOString(),
+                }
+            }
+            actions.loadTraceSpans({ traceId, dateRange })
         },
         openCompareFlame: ({ spanName, serviceName }) => {
             actions.fetchSpanTree({ spanName, serviceName })
@@ -249,6 +281,15 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 actions.setFilters(filtersFromUrl)
             } else if (!values.hasRunQuery) {
                 actions.runQuery()
+            }
+
+            // Deep link into a specific trace (e.g. from the Logs viewer): open the trace modal,
+            // scoped to a window around `ts`. Guarded so an unrelated URL change doesn't reopen it.
+            const traceId = typeof searchParams.traceId === 'string' ? searchParams.traceId : undefined
+            if (traceId && traceId !== values.selectedTraceId) {
+                const spanId = typeof searchParams.spanId === 'string' ? searchParams.spanId : undefined
+                const ts = searchParams.ts != null ? String(searchParams.ts) : undefined
+                actions.openTraceFromLink(traceId, spanId, ts)
             }
         },
     })),

@@ -250,9 +250,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
-                loadTraceSpans: async (traceId: string): Promise<Span[]> => {
+                // `dateRange` overrides the live filter range — a deep link from another product
+                // (e.g. Logs) passes a tight window around the originating event's timestamp so the
+                // by-trace-id lookup stays time-bounded and finds traces older than the current range.
+                loadTraceSpans: async ({
+                    traceId,
+                    dateRange,
+                }: {
+                    traceId: string
+                    dateRange?: { date_from: string; date_to?: string }
+                }): Promise<Span[]> => {
                     const response = await api.tracing.getTrace(traceId, {
-                        dateRange: {
+                        dateRange: dateRange ?? {
                             date_from: values.utcDateRange.date_from ?? '-24h',
                             date_to: values.utcDateRange.date_to ?? undefined,
                         },
