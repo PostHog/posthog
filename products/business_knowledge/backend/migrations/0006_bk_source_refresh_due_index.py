@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 CreateIndexConcurrently(
                     index_name="bk_source_refresh_due",
-                    table_name="business_knowledge_knowledgesource",
+                    table_name="posthog_business_knowledge_knowledgesource",
                     columns="(refresh_interval, last_refresh_at)",
                 ),
             ],

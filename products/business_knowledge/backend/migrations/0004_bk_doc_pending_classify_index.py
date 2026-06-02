@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 CreateIndexConcurrently(
                     index_name="bk_doc_pending_classify",
-                    table_name="business_knowledge_knowledgedocument",
+                    table_name="posthog_business_knowledge_knowledgedocument",
                     columns="(tombstoned_at)",
                     where="WHERE safety_verdict = 'unknown'",
                 ),

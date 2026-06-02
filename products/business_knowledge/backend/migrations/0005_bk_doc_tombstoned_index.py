@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 CreateIndexConcurrently(
                     index_name="bk_doc_tombstoned",
-                    table_name="business_knowledge_knowledgedocument",
+                    table_name="posthog_business_knowledge_knowledgedocument",
                     columns="(tombstoned_at)",
                 ),
             ],
