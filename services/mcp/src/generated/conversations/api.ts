@@ -129,14 +129,17 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),
-        sla_due_at: zod.iso.datetime({}).nullish().describe('SLA deadline set via workflows. Null means no SLA.'),
-        snoozed_until: zod.iso.datetime({}).nullish(),
+        sla_due_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('SLA deadline set via workflows. Null means no SLA.'),
+        snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')

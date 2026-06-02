@@ -37,6 +37,7 @@ PRODUCTS_APPS = [
     "products.links.backend.apps.LinksConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
+    "products.ai_observability.backend.apps.AIObservabilityConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
@@ -54,9 +55,11 @@ PRODUCTS_APPS = [
     "products.slack_app.backend.apps.SlackAppConfig",
     "products.product_tours.backend.apps.ProductToursConfig",
     "products.workflows.backend.apps.WorkflowsConfig",
+    "products.cdp.backend.apps.CdpConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
+    "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.logs.backend.apps.LogsConfig",
@@ -69,14 +72,26 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
-    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
+    "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
+    "products.web_analytics.backend.apps.WebAnalyticsConfig",
+    "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
+    "products.data_tools.backend.apps.DataToolsConfig",
+    "products.alerts.backend.apps.AlertsConfig",
+    "products.actions.backend.apps.ActionsConfig",
+    "products.product_analytics.backend.apps.ProductAnalyticsConfig",
+    "products.wizard.backend.apps.WizardConfig",
+    "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
 ]
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
-    "django.contrib.admin",
+    # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
+    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
+    # keeps every product/admin import out of `django.setup()`.
+    "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -220,7 +235,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/id-jag/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -335,7 +350,11 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if TEST
+            else "whitenoise.storage.ManifestStaticFilesStorage"
+        ),
     },
 }
 
@@ -355,7 +374,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
-    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
+    "EXCEPTION_HANDLER": "posthog.exceptions.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "posthog.api.documentation.PostHogAutoSchema",
     # These rate limits are defined in `rate_limit.py`, and they're only
@@ -375,6 +394,7 @@ if DEBUG:
 # DRF Spectacular
 
 SPECTACULAR_SETTINGS = {
+    "OAS_VERSION": "3.1.0",
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
@@ -387,18 +407,42 @@ SPECTACULAR_SETTINGS = {
         "posthog.api.documentation.lint_spec_consistency_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        # Overrides fall into two categories depending on how drf-spectacular hashes them:
+        # If CI is failing with "enum naming encountered a non-optimally resolvable
+        # collision" / "Format5eaEnum"-style warnings from `hogli build:openapi-schema`,
+        # this is the dict you need to add an entry to. The warning fails CI because
+        # `--fail-on-warn` is set on the `spectacular` invocation in hogli.yaml.
         #
-        # 1. Model class paths — used for ChoiceField-backed enums where drf-spectacular
-        #    injects x-spec-enum-id from (value, label) tuples.  The override must point
-        #    to the same Choices/Enum class so _load_enum_name_overrides hashes identically.
+        # Workflow to resolve a collision:
+        #   1. Run `python manage.py find_enum_collisions` — it prints the field name,
+        #      the auto-generated name (e.g. `Format5eaEnum`), the enum values, which
+        #      components share the hash, and a suggested override entry. The suggestion
+        #      is pastable as-is for inline-list collisions (type-hint enums and
+        #      ChoiceFields with plain `choices=["A", "B"]`); only ChoiceFields with
+        #      custom labels (TextChoices where labels differ from values) need the
+        #      Choices/Enum class path filled in.
+        #   2. Add the suggested entry below (pick the right category — see "hash trap"
+        #      note below). Optionally rename the key from the auto-generated name to a
+        #      more semantic one to improve the generated schema type's name.
+        #   3. Re-run `hogli build:openapi-schema` locally to confirm the warning is gone.
+        #
+        # Full guide (when to use which pattern, anti-patterns, MCP/typegen implications):
+        #   /improving-drf-endpoints  (skill — invoke it for the walkthrough)
+        #
+        # Hash trap — overrides fall into two categories depending on how drf-spectacular
+        # hashes them, and using the wrong format silently fails (the override is ignored
+        # and the warning persists):
+        #
+        # 1. Model class paths — used for ChoiceField-backed enums whose labels differ
+        #    from their values (typical `TextChoices` with explicit labels). The override
+        #    must point to the same Choices/Enum class so _load_enum_name_overrides hashes
+        #    identically to the x-spec-enum-id.
         #
         # 2. Inline value lists — used for Enum type-hint enums (SerializerMethodField
-        #    return types) where there is NO x-spec-enum-id.  Postprocessing hashes these
-        #    as (value, value) tuples, so the override must also be a plain value list
-        #    (which _load_enum_name_overrides normalizes to (value, value)).
-        #
-        # Getting this wrong means the override hash doesn't match and the warning persists.
+        #    return types) AND ChoiceFields whose choices are plain lists (labels equal
+        #    values). The override must be a plain value list, which
+        #    _load_enum_name_overrides normalizes to (value, value) tuples — matching
+        #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
+        #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
@@ -406,19 +450,29 @@ SPECTACULAR_SETTINGS = {
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
         "ConversationStatus": "ee.models.assistant.Conversation.Status",
         "ConversationType": "ee.models.assistant.Conversation.Type",
-        "DetailModeEnum": "products.llm_analytics.backend.summarization.models.SummarizationMode",
-        "SavedQueryStatusEnum": "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
+        "DetailModeEnum": "products.ai_observability.backend.summarization.models.SummarizationMode",
+        "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
         "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
         "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
+        "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
         "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
         "ExternalDataSourceTypeEnum": "products.data_warehouse.backend.types.ExternalDataSourceType",
-        "ExperimentMetricKindEnum": "products.llm_analytics.backend.models.score_definitions.ScoreDefinition.Kind",
+        "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
-        "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
-        "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
+        "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
+        "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
+        "ModelEnum": "posthog.batch_exports.models.BatchExport.Model",
+        "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
+        "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
+        "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
+        "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
+        "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
+        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
+        "BatchExportRunStatusEnum": "posthog.batch_exports.models.BatchExportRun.Status",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -451,10 +505,15 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "FileFormatEnum": ["Parquet", "JSONLines"],
+        "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+        "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
         "TaskExecutionModeEnum": ["interactive", "background"],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
+        "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
         "NotificationDestinationTypeEnum": ["slack", "webhook"],
         "TaskRunArtifactTypeEnum": [
@@ -621,6 +680,14 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
+# Query service SLO sampling rate. Each QueryRunner.run() call emits two events
+# (slo_operation_started + slo_operation_completed); unsampled, that's many millions of
+# events per day. The chosen rate is stamped on each event as `properties.sample_rate`
+# so dashboards can weight by 1/sample_rate to reconstruct true counts. Tunable via env
+# var without redeploy. 1.0 = emit every operation, 0.01 = 1% sample.
+# Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
+QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
+
 ####
 # Livestream
 
@@ -639,6 +706,9 @@ PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop"
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly
 DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)
+
+# one-click passwordless login on the login page (also requires DEBUG)
+ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 
 ####
 # Random/temporary
@@ -677,6 +747,10 @@ OAUTH2_PROVIDER = {
         "email": "Access to user's email address",
         "introspection": "Access to introspect tokens",
         "*": "Full access to all scopes",
+        # Strict-excludes INTERNAL_API_SCOPE_OBJECTS (e.g. `signal_scout_internal`) so they
+        # can never be granted via the OAuth consent flow. The Signals scout harness token
+        # is minted by direct DB insert (posthog/temporal/oauth.py) and never hits /authorize,
+        # so it does not need to appear here.
         **get_scope_descriptions(),
     },
     # Block dangerous URI schemes that could be used for attacks
@@ -711,6 +785,10 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
+ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
+ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS", 60 * 60, type_cast=int)
 
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10

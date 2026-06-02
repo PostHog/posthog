@@ -7,6 +7,7 @@
  * - OpenAI Responses API: flat `[].type="function_call"` with `name` at top level
  * - Normalized SDK: `[].content[].type="function"` with `function.name`
  * - Vercel AI SDK / OTel: `[].content[].type="tool-call"` with `function.name`
+ * - Pydantic AI OTel: `[].parts[].type="tool_call"` with `name`
  * - Anthropic: `[].message.content[].type="tool_use"` with `name`
  * - Python repr (OpenAI Agents SDK): `ResponseFunctionToolCall(name='...')`
  */
@@ -27,10 +28,12 @@ interface OutputItem {
     name?: string
     role?: string
     content?: ToolCallItem[]
+    parts?: ToolCallItem[]
     tool_calls?: ToolCallItem[]
     message?: {
         tool_calls?: ToolCallItem[]
         content?: ToolCallItem[]
+        parts?: ToolCallItem[]
     }
 }
 
@@ -67,26 +70,30 @@ function extractFromToolCalls(toolCalls: unknown[], names: string[], cap: number
     }
 }
 
-function extractFromContentBlocks(content: unknown[], names: string[], cap: number): void {
-    for (const block of content) {
+function extractFromMessageParts(parts: unknown[], names: string[], cap: number): void {
+    for (const part of parts) {
         if (names.length >= cap) {
             return
         }
-        if (typeof block !== 'object' || block === null) {
+        if (typeof part !== 'object' || part === null) {
             continue
         }
-        const cb = block as ToolCallItem
+        const messagePart = part as ToolCallItem
+        // Pydantic AI OTel: {type: "tool_call", name: "..."}
+        if (messagePart.type === 'tool_call' && messagePart.name && typeof messagePart.name === 'string') {
+            pushSanitized(names, messagePart.name)
+        }
         // Anthropic: {type: "tool_use", name: "..."}
-        if (cb.type === 'tool_use' && cb.name && typeof cb.name === 'string') {
-            pushSanitized(names, cb.name)
+        else if (messagePart.type === 'tool_use' && messagePart.name && typeof messagePart.name === 'string') {
+            pushSanitized(names, messagePart.name)
         }
         // Normalized OpenAI / Vercel AI SDK / OTel: {type: "function"|"tool-call", function: {name: "..."}}
         else if (
-            (cb.type === 'function' || cb.type === 'tool-call') &&
-            cb.function?.name &&
-            typeof cb.function.name === 'string'
+            (messagePart.type === 'function' || messagePart.type === 'tool-call') &&
+            messagePart.function?.name &&
+            typeof messagePart.function.name === 'string'
         ) {
-            pushSanitized(names, cb.function.name)
+            pushSanitized(names, messagePart.function.name)
         }
     }
 }
@@ -158,7 +165,10 @@ export function extractToolCallNames(outputChoices: unknown, rawString?: string)
                 extractFromToolCalls(c.message.tool_calls, names, MAX_TOOLS_PER_EVENT)
             }
             if ('content' in c.message && Array.isArray(c.message.content)) {
-                extractFromContentBlocks(c.message.content, names, MAX_TOOLS_PER_EVENT)
+                extractFromMessageParts(c.message.content, names, MAX_TOOLS_PER_EVENT)
+            }
+            if ('parts' in c.message && Array.isArray(c.message.parts)) {
+                extractFromMessageParts(c.message.parts, names, MAX_TOOLS_PER_EVENT)
             }
         } else {
             // Unwrapped: {tool_calls: [...], role: "assistant"} (no message wrapper)
@@ -168,7 +178,12 @@ export function extractToolCallNames(outputChoices: unknown, rawString?: string)
 
             // Normalized: {content: [...], role: "assistant"} (no message wrapper)
             if ('content' in c && Array.isArray(c.content)) {
-                extractFromContentBlocks(c.content, names, MAX_TOOLS_PER_EVENT)
+                extractFromMessageParts(c.content, names, MAX_TOOLS_PER_EVENT)
+            }
+
+            // Pydantic AI OTel: {parts: [{type: "tool_call", name: "..."}], role: "assistant"}
+            if ('parts' in c && Array.isArray(c.parts)) {
+                extractFromMessageParts(c.parts, names, MAX_TOOLS_PER_EVENT)
             }
         }
     }

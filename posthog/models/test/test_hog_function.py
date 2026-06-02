@@ -6,13 +6,14 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.tasks.hog_functions import refresh_affected_hog_functions
+
+from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -316,7 +317,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_any_call(cohort_id=cohort.id)
@@ -338,7 +339,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         ]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_not_called()
@@ -358,7 +359,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id + 9999}]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_not_called()

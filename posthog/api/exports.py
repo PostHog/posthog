@@ -19,7 +19,7 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, groups
-from posthog.models import Insight, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.models.organization import Organization
@@ -31,6 +31,8 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+
+from products.product_analytics.backend.models.insight import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
@@ -375,7 +377,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -388,9 +390,22 @@ class ExportedAssetViewSet(
     serializer_class = ExportedAssetSerializer
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(created_by=self.request.user)
+        """
+        List shows only exports you created (quota + history are per user).
 
+        Retrieve/content by id: exports without export_context.session_recording_id are only
+        readable by their author; session recording exports are readable by any project member
+        who passes recording viewer checks in safely_get_object.
+        """
         if self.action == "list":
+            queryset = queryset.filter(created_by=self.request.user)
+
+            session_recording_filter = self.request.query_params.get("session_recording_id")
+            if session_recording_filter:
+                queryset = queryset.filter(
+                    export_context__session_recording_id=session_recording_filter,
+                )
+
             context_path_filter = self.request.query_params.get("context_path")
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
@@ -405,18 +420,30 @@ class ExportedAssetViewSet(
     def safely_get_object(self, queryset):
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
 
-        resource = instance.dashboard or instance.insight
-        if not resource and instance.export_context:
-            session_recording_id = instance.export_context.get("session_recording_id")
-            if session_recording_id:
-                from posthog.session_recordings.models.session_recording import SessionRecording
-
-                resource = SessionRecording.objects.filter(
-                    team_id=instance.team_id, session_id=session_recording_id
-                ).first()
-
-        if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+        if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
             raise NotFound()
+
+        export_context = instance.export_context or {}
+        session_recording_id = export_context.get("session_recording_id")
+
+        resource = instance.dashboard or instance.insight
+        if not resource and session_recording_id:
+            from posthog.session_recordings.models.session_recording import SessionRecording
+
+            resource = SessionRecording.objects.filter(
+                team_id=instance.team_id, session_id=session_recording_id
+            ).first()
+
+        if resource is not None:
+            if not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+                raise NotFound()
+        elif session_recording_id:
+            # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
+            # session_recording resource default so detail/content are not fail-open.
+            if not self.user_access_control.check_access_level_for_resource(
+                "session_recording", required_level="viewer"
+            ):
+                raise NotFound()
 
         return instance
 

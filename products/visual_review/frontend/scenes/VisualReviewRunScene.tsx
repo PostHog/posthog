@@ -15,6 +15,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
@@ -53,7 +54,10 @@ function SnapshotThumbnail({
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
-    const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
+    // True iff the SnapshotChangeBadge will actually render. Mirrors
+    // its visibility predicate so we don't show "hasDiff = true but
+    // empty chip area" for sub-display-floor noise rows.
+    const hasDiff = hasSnapshotChangeBadge(snapshot)
 
     const imgSrc = thumbnailSrc ?? fallbackSrc
 
@@ -89,13 +93,13 @@ function SnapshotThumbnail({
                     </span>
                 </>
             )}
-            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
+            <div className="w-[125px] h-[86px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {imgSrc ? (
                     <img
                         src={imgSrc}
                         alt=""
-                        width={104}
-                        height={72}
+                        width={125}
+                        height={86}
                         loading="lazy"
                         decoding="async"
                         className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
@@ -112,14 +116,9 @@ function SnapshotThumbnail({
                     </span>
                 )}
             </div>
-            <div className="flex items-center gap-1 max-w-[108px] w-full">
+            <div className="flex items-center gap-1 max-w-[130px] w-full">
                 {hasDiff ? (
-                    <span className="shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-warning-dark leading-none">
-                        {snapshot.diff_percentage! < 1
-                            ? snapshot.diff_percentage!.toFixed(1)
-                            : Math.round(snapshot.diff_percentage!)}
-                        %
-                    </span>
+                    <SnapshotChangeBadge snapshot={snapshot} size="small" />
                 ) : (
                     <SnapshotStatusIndicator
                         result={snapshot.result || 'unchanged'}
@@ -196,7 +195,7 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         repoFullName,
-        isApproving,
+        isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
         isRunInProgress,
@@ -206,7 +205,7 @@ export function VisualReviewRunScene(): JSX.Element {
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
-        approveChanges,
+        finalizeRun,
         approveSnapshot,
         markAsTolerated,
         quarantineSnapshot,
@@ -325,6 +324,13 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
+    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; we only have that ID
+    // when the workflow wired `JOB_CHECK_RUN_ID=${{ job.check_run_id }}` into the CLI env.
+    // Older runs and runs from forks without that env var can't be re-triggered.
+    const ciRetriggerUnavailableReason = !run.metadata?.github_check_run_id
+        ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
+        : undefined
+
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {
             approveSnapshot(selectedSnapshot)
@@ -337,16 +343,14 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved &&
-                    !run.is_stale &&
-                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
+                    !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
                         <LemonButton
                             type="primary"
-                            onClick={approveChanges}
-                            loading={isApproving}
-                            data-attr="visual-review-commit-baseline"
+                            onClick={finalizeRun}
+                            loading={isFinalizing}
+                            data-attr="visual-review-finalize-run"
                         >
-                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
+                            {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
                         </LemonButton>
                     ) : undefined
                 }
@@ -364,7 +368,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesResolved && (
+            {allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -375,7 +379,8 @@ export function VisualReviewRunScene(): JSX.Element {
                         'data-attr': 'visual-review-recompute-run',
                     }}
                 >
-                    All changes are resolved — re-trigger to update the commit status and pass the gate.
+                    All changes are resolved by tolerating or quarantining — re-trigger to update the commit status and
+                    pass the gate. (No baseline commit needed; approved changes are shipped via Finalize run.)
                 </LemonBanner>
             )}
 
@@ -519,8 +524,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                         (!q.expires_at || new Date(q.expires_at) > new Date())
                                 ) ?? null
                             }
-                            onQuarantine={(reason, identifiers, expiresAt) =>
-                                quarantineSnapshot(reason, identifiers, expiresAt)
+                            onQuarantine={(reason, identifiers, expiresAt, sourceRunId) =>
+                                quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
@@ -534,7 +539,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                 run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
                             }
                             recomputeDisabledReason={
-                                !allChangesResolved ? 'Re-trigger would not change the outcome' : undefined
+                                ciRetriggerUnavailableReason ??
+                                (!allChangesResolved ? 'Re-trigger would not change the outcome' : undefined)
                             }
                         />
                     ) : snapshotsLoading ? (

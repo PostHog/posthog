@@ -33,7 +33,7 @@ class TestSlackAlertsRouting:
     def test_asset_job_with_mixed_steps_routes_to_web_analytics(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value}
+        mock_run.tags = {"owner": JobOwners.TEAM_DATA_MODELING.value}
 
         error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['some_other_asset', 'web_pre_aggregated_bounces', 'clickhouse_asset']."
 
@@ -44,13 +44,13 @@ class TestSlackAlertsRouting:
     def test_asset_job_without_web_steps_uses_original_owner(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "__ASSET_JOB"
-        mock_run.tags = {"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value}
+        mock_run.tags = {"owner": JobOwners.TEAM_DATA_MODELING.value}
 
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['revenue_analytics_daily', 'exchange_rates_hourly']."
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['exchange_rates_daily', 'exchange_rates_hourly']."
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_REVENUE_ANALYTICS.value
+        assert result == JobOwners.TEAM_DATA_MODELING.value
 
     def test_asset_job_no_failed_steps_uses_original_owner(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)

@@ -20,7 +20,7 @@ Creation is handled by the integration installation flows
 via the DELETE endpoint.
  */
 export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ zod
-    .object({})
+    .looseObject({})
     .describe('Serializer for organization-level integrations.')
 
 export const roleExternalReferencesCreateBodyProviderMax = 32
@@ -41,7 +41,7 @@ export const RoleExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
     provider_organization_id: zod
         .string()
         .max(roleExternalReferencesCreateBodyProviderOrganizationIdMax)
-        .describe('Provider organization/workspace/site identifier.'),
+        .describe('Provider organization\/workspace\/site identifier.'),
     provider_role_id: zod
         .string()
         .max(roleExternalReferencesCreateBodyProviderRoleIdMax)
@@ -79,7 +79,6 @@ export const IntegrationsCreateBody = /* @__PURE__ */ zod
                 'google-cloud-service-account',
                 'google-cloud-storage',
                 'google-pubsub',
-                'google-search-console',
                 'google-sheets',
                 'hubspot',
                 'intercom',
@@ -100,7 +99,7 @@ export const IntegrationsCreateBody = /* @__PURE__ */ zod
                 'vercel',
             ])
             .describe(
-                '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-search-console` - Google Search Console\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
+                '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `reddit-ads` - Reddit Ads\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel'
             ),
         config: zod.unknown().optional(),
     })
@@ -127,7 +126,6 @@ export const IntegrationsEmailPartialUpdateBody = /* @__PURE__ */ zod
                 'google-cloud-service-account',
                 'google-cloud-storage',
                 'google-pubsub',
-                'google-search-console',
                 'google-sheets',
                 'hubspot',
                 'intercom',
@@ -149,7 +147,7 @@ export const IntegrationsEmailPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-search-console` - Google Search Console\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
+                '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `reddit-ads` - Reddit Ads\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel'
             ),
         config: zod.unknown().optional(),
     })
@@ -176,7 +174,6 @@ export const IntegrationsEmailVerifyCreateBody = /* @__PURE__ */ zod
                 'google-cloud-service-account',
                 'google-cloud-storage',
                 'google-pubsub',
-                'google-search-console',
                 'google-sheets',
                 'hubspot',
                 'intercom',
@@ -197,7 +194,7 @@ export const IntegrationsEmailVerifyCreateBody = /* @__PURE__ */ zod
                 'vercel',
             ])
             .describe(
-                '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-search-console` - Google Search Console\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
+                '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `reddit-ads` - Reddit Ads\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel'
             ),
         config: zod.unknown().optional(),
     })
@@ -231,7 +228,6 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod
                 'google-cloud-service-account',
                 'google-cloud-storage',
                 'google-pubsub',
-                'google-search-console',
                 'google-sheets',
                 'hubspot',
                 'intercom',
@@ -252,7 +248,7 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod
                 'vercel',
             ])
             .describe(
-                '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-search-console` - Google Search Console\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
+                '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `reddit-ads` - Reddit Ads\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel'
             ),
         config: zod.unknown().optional(),
     })
@@ -282,7 +278,6 @@ export const IntegrationsGithubLinkExistingCreateBody = /* @__PURE__ */ zod
                 'google-cloud-service-account',
                 'google-cloud-storage',
                 'google-pubsub',
-                'google-search-console',
                 'google-sheets',
                 'hubspot',
                 'intercom',
@@ -303,7 +298,7 @@ export const IntegrationsGithubLinkExistingCreateBody = /* @__PURE__ */ zod
                 'vercel',
             ])
             .describe(
-                '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-search-console` - Google Search Console\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
+                '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `reddit-ads` - Reddit Ads\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel'
             ),
         config: zod.unknown().optional(),
     })
@@ -333,7 +328,6 @@ export const IntegrationsGithubOauthAuthorizeCreateBody = /* @__PURE__ */ zod
                 'google-cloud-service-account',
                 'google-cloud-storage',
                 'google-pubsub',
-                'google-search-console',
                 'google-sheets',
                 'hubspot',
                 'intercom',
@@ -354,40 +348,8 @@ export const IntegrationsGithubOauthAuthorizeCreateBody = /* @__PURE__ */ zod
                 'vercel',
             ])
             .describe(
-                '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-search-console` - Google Search Console\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
+                '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `reddit-ads` - Reddit Ads\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel'
             ),
         config: zod.unknown().optional(),
     })
     .describe('Standard Integration serializer.')
-
-/**
- * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-Usually returns ``install_url`` pointing at ``/installations/new`` so the
-user can pick any GitHub org (new or already connected).  GitHub's install
-page handles both cases: orgs where the app is installed show "Configure"
-(no admin needed), orgs where it isn't show "Install" (needs admin).
-
-**PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
-the current project already has a team-level GitHub installation, and the
-user has no ``UserIntegration`` for that installation yet, we skip the org
-picker and redirect straight to ``/login/oauth/authorize`` so the user
-only authorizes themselves and returns to PostHog Code immediately.
-
-In both cases the response key is ``install_url`` for compatibility with callers.
- * @summary Start GitHub personal integration linking
- */
-export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object({
-    team_id: zod
-        .number()
-        .nullish()
-        .describe("Optional team/project id (e.g. PostHog Code); web UI uses the session's current team."),
-    connect_from: zod
-        .string()
-        .optional()
-        .describe('Optional client hint (e.g. posthog_code) for return routing after OAuth.'),
-})

@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog import redis as redis_module
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -27,7 +28,9 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
-    def _collab_save(self, notebook, *, version, steps, content=None, text_content=None, client_id="test-client"):
+    def _collab_save(
+        self, notebook, *, version, steps, content=None, text_content=None, title=None, client_id="test-client"
+    ):
         payload = {
             "client_id": client_id,
             "version": version,
@@ -36,6 +39,8 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         }
         if text_content is not None:
             payload["text_content"] = text_content
+        if title is not None:
+            payload["title"] = title
         return self.client.post(
             f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/save/",
             data=payload,
@@ -100,6 +105,25 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         nb = Notebook.objects.get(short_id=notebook["short_id"])
         assert nb.title == "New Title"
 
+    def test_collab_save_allows_blank_title(self):
+        notebook = self._create_notebook(SAMPLE_DOC)
+        version = notebook["version"]
+
+        response = self._collab_save(
+            notebook,
+            version=version,
+            steps=[{"stepType": "replace", "from": 0, "to": 0}],
+            content={"type": "doc", "content": [{"type": "heading"}]},
+            text_content="",
+            title="",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == ""
+        nb = Notebook.objects.get(short_id=notebook["short_id"])
+        assert nb.title == ""
+        assert nb.text_content == ""
+
     def test_collab_save_rejected_stale_version(self):
         notebook = self._create_notebook(SAMPLE_DOC)
         version = notebook["version"]
@@ -163,12 +187,105 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
 
         response = self._collab_save(
             notebook,
-            version=0,
+            version=notebook["version"],
             steps=[{"stepType": "replace", "from": 0, "to": 0}],
         )
         assert response.status_code == status.HTTP_410_GONE
         data = response.json()
         assert data["code"] == "conflict_stale"
+
+    def test_collab_save_accepted_logs_diff_against_pre_update_snapshot(self):
+        # The activity log records a diff between `notebook_before` and `notebook`
+        # Django returns independent Python objects per `.get()`,
+        # so refreshing one must not bleed into the other
+        notebook = self._create_notebook(SAMPLE_DOC)
+        version = notebook["version"]
+
+        response = self._collab_save(
+            notebook,
+            version=version,
+            steps=[{"stepType": "replace", "from": 0, "to": 0}],
+            content=UPDATED_DOC,
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        log = ActivityLog.objects.get(
+            team_id=self.team.id,
+            scope="Notebook",
+            item_id=notebook["short_id"],
+            activity="updated",
+        )
+        assert log.detail is not None
+        changes_by_field = {c["field"]: c for c in log.detail["changes"]}
+
+        assert changes_by_field["content"]["action"] == "changed"
+        assert changes_by_field["content"]["before"] == SAMPLE_DOC
+        assert changes_by_field["content"]["after"] == UPDATED_DOC
+
+        assert changes_by_field["version"]["action"] == "changed"
+        assert changes_by_field["version"]["before"] == version
+        assert changes_by_field["version"]["after"] == version + 1
+
+        # text_content is excluded from Notebook diffs and should never surface
+        assert "text_content" not in changes_by_field
+
+    def test_collab_save_rejected_stale_logs_attempted_content(self):
+        notebook = self._create_notebook(SAMPLE_DOC)
+
+        with patch("products.notebooks.backend.api.notebook.submit_steps") as mock_submit:
+            mock_submit.return_value = SubmitResult(status="stale", version=5, steps_since=None)
+            self._collab_save(
+                notebook,
+                version=0,
+                steps=[{"stepType": "replace", "from": 0, "to": 0}],
+                content=UPDATED_DOC,
+            )
+
+        log = ActivityLog.objects.get(
+            team_id=self.team.id,
+            scope="Notebook",
+            item_id=notebook["short_id"],
+            activity="save_rejected_stale",
+        )
+        assert log.detail is not None
+        [change] = log.detail["changes"]
+        assert change["field"] == "content"
+        assert change["before"] == SAMPLE_DOC
+        assert change["after"] == UPDATED_DOC
+
+    def test_collab_save_rejected_conflict_logs_attempted_content(self):
+        notebook = self._create_notebook(SAMPLE_DOC)
+        version = notebook["version"]
+
+        self._collab_save(
+            notebook,
+            version=version,
+            steps=[{"stepType": "replace", "from": 0, "to": 0}],
+            client_id="client-1",
+        )
+
+        rejected_doc = {"type": "doc", "content": [{"type": "heading", "content": [{"type": "text", "text": "C2"}]}]}
+        response = self._collab_save(
+            notebook,
+            version=version,
+            steps=[{"stepType": "replace", "from": 1, "to": 1}],
+            content=rejected_doc,
+            client_id="client-2",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+        log = ActivityLog.objects.get(
+            team_id=self.team.id,
+            scope="Notebook",
+            item_id=notebook["short_id"],
+            activity="save_rejected_conflict",
+        )
+        assert log.detail is not None
+        [change] = log.detail["changes"]
+        assert change["field"] == "content"
+        # `before` is the server's content at rejection time (post client-1's accepted save)
+        assert change["before"] == UPDATED_DOC
+        assert change["after"] == rejected_doc
 
 
 # Keep the SSE generator lifetime tiny so tests terminate deterministically.
@@ -211,6 +328,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             notebook["version"],
+            last_saved_version=notebook["version"],
         )
 
         # Last-Event-ID=0-0 means "from the beginning of the stream", so the pre-populated
@@ -238,6 +356,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-A",
             [{"stepType": "replace", "from": 0, "to": 0}],
             base_version,
+            last_saved_version=base_version,
         )
         submit_steps(
             self.team.pk,
@@ -245,6 +364,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-B",
             [{"stepType": "replace", "from": 1, "to": 1}],
             base_version + 1,
+            last_saved_version=base_version + 1,
         )
 
         first_step_id = f"{base_version + 1}-0"

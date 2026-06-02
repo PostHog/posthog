@@ -28,10 +28,8 @@ from products.logs.backend.temporal.metrics import (
     record_cohort_save_duration,
     record_cohort_size,
     record_cohort_update_duration,
-    record_pending_alerts,
     record_schedule_to_start_latency,
     record_scheduler_lag,
-    record_semaphore_wait,
 )
 
 
@@ -48,7 +46,7 @@ class TestLogsAlertingMetricsInterceptor:
 
 class TestActivityTypes:
     def test_alerting_activity_types(self):
-        assert ALERTING_ACTIVITY_TYPES == frozenset({"check_alerts_activity"})
+        assert ALERTING_ACTIVITY_TYPES == frozenset({"discover_cohorts_activity", "evaluate_cohort_batch_activity"})
 
 
 class TestIncrementChecksTotal:
@@ -200,17 +198,6 @@ class TestRecordClickhouseDuration:
         )
 
 
-class TestRecordSemaphoreWait:
-    @patch("products.logs.backend.temporal.metrics._record_histogram")
-    def test_records_histogram_with_wait(self, mock_record: MagicMock):
-        record_semaphore_wait(800)
-        mock_record.assert_called_once_with(
-            "logs_alerting_semaphore_wait_ms",
-            "Time an alert spent waiting on the per-cycle concurrency semaphore",
-            800,
-        )
-
-
 class TestRecordCohortSaveSubstageDurations:
     @parameterized.expand(
         [
@@ -235,13 +222,6 @@ class TestRecordCohortSaveSubstageDurations:
                 "Postgres bulk_update time for LogsAlertConfiguration rows in a cohort",
                 28,
             ),
-            (
-                "cohort_size",
-                record_cohort_size,
-                "logs_alerting_cohort_size",
-                "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
-                17,
-            ),
         ]
     )
     @patch("products.logs.backend.temporal.metrics._record_histogram")
@@ -250,6 +230,26 @@ class TestRecordCohortSaveSubstageDurations:
     ):
         fn(sample_value)
         mock_record.assert_called_once_with(metric_name, description, sample_value)
+
+
+class TestRecordCohortSize:
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_records_count_histogram(self, mock_get_meter: MagicMock):
+        mock_meter = MagicMock()
+        mock_hist = MagicMock()
+        mock_meter.create_histogram.return_value = mock_hist
+        mock_get_meter.return_value = mock_meter
+
+        record_cohort_size(17)
+
+        kwargs = mock_meter.create_histogram.call_args.kwargs
+        assert kwargs["name"] == "logs_alerting_cohort_size"
+        assert kwargs["unit"] == "alerts"
+        assert (
+            kwargs["description"]
+            == "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save"
+        )
+        mock_hist.record.assert_called_once_with(17)
 
 
 class TestIncrementCohortSaveFallback:
@@ -268,31 +268,15 @@ class TestIncrementCohortSaveFallback:
         mock_counter.add.assert_called_once_with(1)
 
 
-class TestRecordPendingAlerts:
-    @pytest.mark.parametrize("count", [42, 0])
-    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
-    def test_sets_gauge_value(self, mock_get_meter: MagicMock, count: int):
-        mock_meter = MagicMock()
-        mock_gauge = MagicMock()
-        mock_meter.create_gauge.return_value = mock_gauge
-        mock_get_meter.return_value = mock_meter
-
-        record_pending_alerts(count)
-
-        (name, _description), _ = mock_meter.create_gauge.call_args
-        assert name == "logs_alerting_pending_alerts"
-        mock_gauge.set.assert_called_once_with(count)
-
-
 class TestRecordScheduleToStartLatency:
     @patch("products.logs.backend.temporal.metrics._record_histogram")
     def test_records_latency_with_activity_type(self, mock_record: MagicMock):
-        record_schedule_to_start_latency("check_alerts_activity", 250)
+        record_schedule_to_start_latency("discover_cohorts_activity", 250)
         mock_record.assert_called_once_with(
             "logs_alerting_schedule_to_start_ms",
             "Time between activity scheduling and start",
             250,
-            {"activity_type": "check_alerts_activity"},
+            {"activity_type": "discover_cohorts_activity"},
         )
 
 

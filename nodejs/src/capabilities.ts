@@ -17,6 +17,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
     cdpLegacyOnEvent: false, // most of the times not needed
+    cdpRerunWorker: true,
 }
 
 /** CDP + Workflows - full CDP with HogFlow workflow automation */
@@ -26,6 +27,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
+    cdpHogflowSubscriptionMatcher: isDevEnv(),
 }
 
 /** Realtime Cohorts - precalculated filters and cohort membership */
@@ -124,9 +126,17 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
+            return {
+                cdpCyclotronWorkerHogFlowLegacyPg: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
+            }
+        case PluginServerMode.cdp_hogflow_subscription_matcher:
+            return {
+                cdpHogflowSubscriptionMatcher: true,
             }
         case PluginServerMode.cdp_cohort_membership:
             return {
@@ -147,6 +157,7 @@ export function getPluginServerCapabilities(
                 evaluationScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
+        case PluginServerMode.ingestion_metrics:
         case PluginServerMode.ingestion_traces:
             throw new Error(`Mode ${mode} is handled by a dedicated server, not PluginServer`)
         case PluginServerMode.ingestion_error_tracking:
@@ -164,6 +175,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cyclotron_v2_janitor:
             return {
                 cdpCyclotronV2Janitor: true,
+            }
+        case PluginServerMode.cdp_rerun_worker:
+            return {
+                cdpRerunWorker: true,
             }
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_testing:

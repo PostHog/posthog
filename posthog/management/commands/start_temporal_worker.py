@@ -6,6 +6,7 @@ import datetime as dt
 import functools
 import threading
 import faulthandler
+import collections.abc
 from collections import defaultdict
 
 import structlog
@@ -20,6 +21,16 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
+from posthog.temporal.ai_observability import (
+    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
+    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
+    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
+    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
+    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
+)
 from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
@@ -38,6 +49,7 @@ from posthog.temporal.data_imports.settings import (
     EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
 )
+from posthog.temporal.data_imports.sources import load_all_sources
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
@@ -73,16 +85,6 @@ from posthog.temporal.health_checks import (
 from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
-)
-from posthog.temporal.llm_analytics import (
-    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
-    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
-    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
-    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
-    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
-    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
-    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
@@ -148,7 +150,7 @@ from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
 )
-from posthog.temporal.usage_reports import (
+from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
@@ -168,6 +170,10 @@ from products.batch_exports.backend.temporal import (
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
+from products.replay_vision.backend.temporal import (
+    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
+    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
@@ -214,7 +220,6 @@ _task_queue_specs = [
         settings.GENERAL_PURPOSE_TASK_QUEUE,
         PROXY_SERVICE_WORKFLOWS
         + DELETE_PERSONS_WORKFLOWS
-        + USAGE_REPORTS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
@@ -226,7 +231,6 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
-        + USAGE_REPORTS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
@@ -270,8 +274,8 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS,
-        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES,
+        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS,
+        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES + USAGE_REPORTS_ACTIVITIES,
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -302,6 +306,11 @@ _task_queue_specs = [
         + SESSION_SUMMARY_ACTIVITIES
         + SESSION_SUMMARY_GROUP_ACTIVITIES
         + SUMMARIZATION_SWEEP_ACTIVITIES,
+    ),
+    (
+        settings.REPLAY_VISION_TASK_QUEUE,
+        REPLAY_VISION_WORKFLOWS,
+        REPLAY_VISION_ACTIVITIES,
     ),
     (
         settings.MESSAGING_TASK_QUEUE,
@@ -353,6 +362,11 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
+
+
+def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
+    """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
+    return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
 if settings.DEBUG:
@@ -488,6 +502,16 @@ class Command(BaseCommand):
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
+        # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
+        # SDKs register protobuf descriptors into a process-global pool that rejects a second
+        # registration of the same symbol. They must be imported exactly once per process. Do it here
+        # — synchronously, at worker boot, on the main thread — for any queue that runs data syncs.
+        # Deferring to the first SourceRegistry.get_source() at runtime (the lazy path) let the
+        # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
+        # import the vendor SDKs, so they keep their fast startup.
+        if workflows_include_data_import_syncs(workflows):
+            load_all_sources()
+
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
 
@@ -503,7 +527,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        # Max AI traces span the Django request and the Temporal activity that runs the agent loop.
+        # Without the OTel plugin on the worker, every span emitted from an activity is a root span
+        # and the conversation trace splits across disconnected pieces. Force-enable for that queue
+        # so investigations don't depend on an operator flipping TEMPORAL_OTEL_PLUGIN_ENABLED.
+        enable_otel = (
+            settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True or task_queue == settings.MAX_AI_TASK_QUEUE
+        ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
             initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore

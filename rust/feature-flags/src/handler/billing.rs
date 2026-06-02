@@ -1,39 +1,14 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    billing::{aggregator::classify_redis_error, BillingAggregator},
     flags::{
-        flag_analytics::{increment_request_count, is_billable_flag_key},
-        flag_models::FeatureFlagList,
+        flag_analytics::is_billable_flag_key, flag_models::FeatureFlagList,
         flag_request::FlagRequestType,
     },
-    metrics::consts::{FLAG_BILLING_INCREMENT_TIME, FLAG_REQUEST_REDIS_ERROR},
 };
-use common_metrics::{histogram, inc};
-use common_redis::{Client as RedisClient, CustomRedisError};
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Instant;
 
-use super::canonical_log::with_canonical_log;
 use super::types::{Library, RequestContext};
-
-/// Emit the `flags_billing_increment_time_ms` histogram for a completed
-/// `increment_request_count` call, bucketing the Redis result into
-/// `outcome="ok" | "timeout" | "error"` to isolate the happy path from
-/// Redis timeouts.
-pub fn record_billing_increment_timing(result: &Result<(), CustomRedisError>, elapsed_ms: u64) {
-    let outcome = match result {
-        Ok(()) => "ok",
-        Err(CustomRedisError::Timeout) => "timeout",
-        Err(_) => "error",
-    };
-    histogram(
-        FLAG_BILLING_INCREMENT_TIME,
-        &[("outcome".to_string(), outcome.to_string())],
-        elapsed_ms as f64,
-    );
-}
 
 pub async fn check_limits(
     context: &RequestContext,
@@ -56,82 +31,43 @@ pub async fn check_limits(
     Ok(None)
 }
 
-/// Issues the authoritative synchronous billing HINCRBY plus, when present,
-/// the shadow-keyspace tee via the aggregator.
-///
-/// Caller is responsible for the predicate (skip_writes, billable flags,
-/// etc.) — by the time this is called the request is known to be billable.
-///
-/// The shadow tee only fires when the synchronous write succeeds. Recording
-/// a request the production keyspace did not capture would surface as a
-/// false "aggregator over-counted" signal during reconciliation — masking
-/// any real over-count bug in the aggregator behind whatever Redis-error
-/// noise was happening at the same time. Tying the two writes together
-/// keeps the reconciliation invariant a strict equality: if shadow > prod
-/// and `flag_request_redis_error` is flat, the aggregator is the cause.
-pub async fn record_billing_increment(
-    redis: Arc<dyn RedisClient + Send + Sync>,
-    aggregator: Option<&Arc<BillingAggregator>>,
-    team_id: i32,
-    request_type: FlagRequestType,
-    library: Library,
-) {
-    let start = Instant::now();
-    let result = increment_request_count(redis, team_id, 1, request_type, Some(library)).await;
-    let elapsed_ms = start.elapsed().as_millis() as u64;
-
-    record_billing_increment_timing(&result, elapsed_ms);
-    // No-op outside a canonical-log scope (e.g. /flags/definitions), so safe
-    // to call from every site.
-    with_canonical_log(|log| log.billing_duration_ms = Some(elapsed_ms));
-
-    match result {
-        Ok(()) => {
-            if let Some(aggregator) = aggregator {
-                aggregator.record(team_id, request_type, Some(library));
-            }
-        }
-        Err(e) => {
-            // Bounded `error_type` label (e.g. "timeout"/"transport") —
-            // never the raw error message. The full `CustomRedisError::Display`
-            // can include unbounded transport details that would explode
-            // metric cardinality if used as a Prometheus label.
-            inc(
-                FLAG_REQUEST_REDIS_ERROR,
-                &[(
-                    "error_type".to_string(),
-                    classify_redis_error(&e).to_string(),
-                )],
-                1,
-            );
-        }
-    }
-}
-
 /// Records usage metrics for feature flag requests. Survey and product tour
 /// targeting flags are not billable. The `library` parameter is detected
-/// once at the start of request processing and reused.
-pub async fn record_usage(
+/// once at the start of request processing and reused. The aggregator's
+/// periodic flush is the only writer of these counts —
+/// `flags_billing_pending_records` and
+/// `flags_billing_seconds_since_successful_flush` are billing-critical
+/// signals.
+pub fn record_usage(
     context: &RequestContext,
     filtered_flags: &FeatureFlagList,
     team_id: i32,
     library: Library,
+    is_internal: bool,
 ) {
-    if *context.state.config.skip_writes {
-        return;
+    if should_record_billable_request(
+        *context.state.config.skip_writes,
+        is_internal,
+        filtered_flags,
+    ) {
+        context
+            .state
+            .billing_aggregator
+            .record(team_id, FlagRequestType::Decide, Some(library));
     }
-    if !contains_billable_flags(filtered_flags) {
-        return;
-    }
+}
 
-    record_billing_increment(
-        context.state.redis_client.clone(),
-        context.state.billing_aggregator.as_ref(),
-        team_id,
-        FlagRequestType::Decide,
-        library,
-    )
-    .await;
+/// Predicate gate for `record_usage`. Extracted so the predicate ordering
+/// (`skip_writes` → internal-request → billable-flag) can be unit-tested
+/// without standing up a full `RequestContext`. Internal requests must
+/// short-circuit before the billable-flag check so an internal request with
+/// billable flags doesn't slip past.
+pub(crate) fn should_record_billable_request(
+    skip_writes: bool,
+    is_internal: bool,
+    filtered_flags: &FeatureFlagList,
+) -> bool {
+    !skip_writes && !is_internal && contains_billable_flags(filtered_flags)
 }
 
 /// Checks if the flag list contains any billable flags.
@@ -335,5 +271,23 @@ mod tests {
 
         // Should record usage: first flag doesn't START with prefix, second does start with prefix
         assert!(contains_billable_flags(&flag_list));
+    }
+
+    /// Pin the predicate ordering for `record_usage`: any of `skip_writes`,
+    /// `is_internal`, or "no billable flags" must skip the aggregator write.
+    /// Integration tests cover `skip_writes` but not `is_internal` (no header
+    /// path), so this unit test is the only guard for that branch.
+    #[test]
+    fn should_record_billable_request_obeys_each_guard() {
+        let billable: FeatureFlagList =
+            vec![mock!(FeatureFlag, id: 1, key: "billable-flag".mock_into())].mock_into();
+        let non_billable: FeatureFlagList =
+            vec![mock!(FeatureFlag, id: 1, key: format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"))]
+                .mock_into();
+
+        assert!(should_record_billable_request(false, false, &billable));
+        assert!(!should_record_billable_request(true, false, &billable));
+        assert!(!should_record_billable_request(false, true, &billable));
+        assert!(!should_record_billable_request(false, false, &non_billable));
     }
 }

@@ -8,6 +8,8 @@ from typing import Any
 import grpc
 from prometheus_client import Counter, Histogram
 
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
+
 _ClientCallDetails = namedtuple(
     "_ClientCallDetails",
     ["method", "timeout", "metadata", "credentials", "wait_for_ready", "compression"],
@@ -70,6 +72,29 @@ class ClientNameInterceptor(grpc.UnaryUnaryClientInterceptor):
         request: Any,
     ) -> Any:
         new_details = _with_metadata(client_call_details, [("x-client-name", self._client_name)])
+        return continuation(new_details, request)
+
+
+class ConsistencyHeaderInterceptor(grpc.UnaryUnaryClientInterceptor):
+    """Sets x-read-consistency gRPC metadata header based on the request's read_options field.
+
+    This allows the personhog-router to determine consistency level from
+    headers without deserializing the request body.
+    """
+
+    def intercept_unary_unary(
+        self,
+        continuation: Any,
+        client_call_details: grpc.ClientCallDetails,
+        request: Any,
+    ) -> Any:
+        consistency = "eventual"
+        try:
+            if request.HasField("read_options") and request.read_options.consistency == CONSISTENCY_LEVEL_STRONG:
+                consistency = "strong"
+        except ValueError:
+            pass
+        new_details = _with_metadata(client_call_details, [("x-read-consistency", consistency)])
         return continuation(new_details, request)
 
 

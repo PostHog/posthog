@@ -4,6 +4,7 @@ import time
 import base64
 import socket
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
@@ -13,6 +14,8 @@ from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
 if TYPE_CHECKING:
     import aiohttp
+    from anthropic import Anthropic
+    from stripe import StripeClient
 
 from django.conf import settings
 from django.db import models, transaction
@@ -21,7 +24,6 @@ from django.utils import timezone
 
 import requests
 import structlog
-from anthropic import Anthropic, APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
@@ -34,7 +36,6 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
-from stripe import StripeClient
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
@@ -759,6 +760,16 @@ class OauthIntegration:
                         "grant_type": "authorization_code",
                     },
                 )
+                if res.status_code == 200:
+                    # Use the sandbox config for downstream API calls (account name lookup)
+                    # and persist the flag so refresh / write_posthog_secrets / clear_posthog_secrets
+                    # pick the sandbox secret without retrying.
+                    oauth_config = sandbox_oauth_config
+                    stripe_is_sandbox = True
+                else:
+                    stripe_is_sandbox = False
+            else:
+                stripe_is_sandbox = False
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -926,6 +937,8 @@ class OauthIntegration:
         # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
         if kind == "stripe" and integration_id:
             try:
+                from stripe import StripeClient  # noqa: PLC0415
+
                 stripe_client = StripeClient(oauth_config.client_secret)
                 account = stripe_client.accounts.retrieve(str(integration_id))
                 business_profile = getattr(account, "business_profile", None)
@@ -965,6 +978,16 @@ class OauthIntegration:
             # Default to 1 hour for Salesforce if not provided (conservative)
             config["expires_in"] = 3600
 
+        # Stripe Apps OAuth tokens don't include expires_in in the response
+        if not config.get("expires_in") and kind == "stripe":
+            config["expires_in"] = 3600
+
+        if kind == "stripe":
+            # Persisted so downstream Stripe API calls (refresh_access_token,
+            # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
+            # pick the right developer secret without error-driven retries.
+            config["is_sandbox"] = stripe_is_sandbox
+
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -998,6 +1021,9 @@ class OauthIntegration:
             # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
             expires_in = 3600
 
+        if not expires_in and self.integration.kind == "stripe":
+            expires_in = 3600
+
         if not expires_in or not refreshed_at:
             return False
 
@@ -1010,7 +1036,8 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        is_sandbox = _stripe_integration_is_sandbox(self.integration)
+        oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -1098,10 +1125,11 @@ class OauthIntegration:
             if config.get("refresh_token"):
                 self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
 
-            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
-                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+            if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
 
             self.integration.config["expires_in"] = expires_in
@@ -1117,6 +1145,9 @@ class SlackIntegrationError(Exception):
 
 
 SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
+
+SLACK_CHANNELS_PAGE_SIZE = 1000
+SLACK_CHANNELS_MAX_PAGES = 10
 
 
 class SlackIntegration:
@@ -1134,6 +1165,14 @@ class SlackIntegration:
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
+
+    def granted_scopes(self) -> frozenset[str]:
+        """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
+        raw = self.integration.config.get("scope") or ""
+        return frozenset(scope.strip() for scope in raw.split(",") if scope.strip())
+
+    def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
+        return frozenset(required) - self.granted_scopes()
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
@@ -1177,17 +1216,23 @@ class SlackIntegration:
         should_include_private_channels: bool = False,
         authed_user: str | None = None,
     ) -> list[dict]:
-        max_page = 50
+        max_page = SLACK_CHANNELS_MAX_PAGES
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
             if type == "public_channel":
-                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+                res = self.client.conversations_list(
+                    exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
+                )
             else:
                 res = self.client.users_conversations(
-                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                    exclude_archived=True,
+                    types=type,
+                    limit=SLACK_CHANNELS_PAGE_SIZE,
+                    cursor=cursor,
+                    user=authed_user,
                 )
 
                 for channel in res["channels"]:
@@ -1231,6 +1276,18 @@ class SlackIntegration:
             "SLACK_POSTHOG_CODE_CLIENT_SECRET": settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
             "SLACK_POSTHOG_CODE_SIGNING_SECRET": settings.SLACK_POSTHOG_CODE_SIGNING_SECRET,
         }
+
+
+def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
+    """Sign a body with the Slack HMAC-SHA256 scheme; returns (signature, timestamp).
+
+    Used by both prod (PostHog→PostHog cross-region calls that reuse the Slack signing scheme)
+    and tests. The matching verifier is `validate_slack_request` below.
+    """
+    ts = str(int(time.time()))
+    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
+    signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
+    return signature, ts
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
@@ -2454,162 +2511,17 @@ class GitHubIntegration(GitHubIntegrationBase):
         oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         self.integration.save()
 
-    def get_access_token(self) -> str:
-        """Return a valid installation access token, refreshing it if expired."""
-        if self.access_token_expired():
-            self.refresh_access_token()
-        token = self.integration.sensitive_config.get("access_token")
-        if not token:
-            raise GitHubIntegrationError("Access token unavailable after refresh")
-        return token
-
     def _on_token_refreshed(self) -> None:
         logger.info(f"Refreshed access token for {self}")
         self.integration.errors = ""
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
         oauth_refresh_counter.labels(self.integration.kind, "success").inc()
 
-    @staticmethod
-    def _is_secondary_rate_limit(response: requests.Response) -> bool:
-        """GitHub signals secondary rate limits via 429, or 403 + ``Retry-After`` /
-        ``X-RateLimit-Remaining: 0``, or 403 with a body marker (no headers)."""
-        if response.status_code == 429:
-            return True
-        if response.status_code != 403:
-            return False
-        if response.headers.get("Retry-After"):
-            return True
-        if response.headers.get("X-RateLimit-Remaining") == "0":
-            return True
-        # Some 403s carry the secondary-limit signal only in the body.
-        body = (response.text or "").lower()
-        return "secondary rate limit" in body or "abuse detection" in body
-
-    @staticmethod
-    def _parse_retry_after_seconds(response: requests.Response) -> float | None:
-        header = response.headers.get("Retry-After")
-        if header:
-            try:
-                return max(0.0, float(header))
-            except ValueError:
-                return None
-        reset = response.headers.get("X-RateLimit-Reset")
-        if reset:
-            try:
-                return max(0.0, float(reset) - time.time())
-            except ValueError:
-                return None
-        return None
-
-    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
-        """Authenticated GET against ``https://api.github.com`` returning parsed JSON.
-
-        ``endpoint`` is the low-cardinality template label (e.g. ``/repos/{owner}/{repo}``)
-        forwarded to ``_github_api_get`` for prometheus instrumentation.
-        """
-        # 1. Validate path + assemble URL.
-        if not path.startswith("/"):
-            raise ValueError(f"_gh_api_get path must start with '/', got {path!r}")
-        url = f"https://api.github.com{path}"
-        transient_status_codes = {502, 503, 504}
-        # 2. Proactively refresh expiring tokens (failure here is non-fatal — fetch will retry on 401).
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch() -> requests.Response:
-            access_token = self.integration.sensitive_config.get("access_token")
-            return self._github_api_get(
-                url,
-                endpoint=endpoint,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                timeout=timeout,
-            )
-
-        # 3. Try up to twice — second attempt covers token refresh after 401 or one transient 5xx.
-        last_error_message = "GitHubIntegration: _gh_api_get exhausted retries"
-        for attempt in range(2):
-            # Network call (one retry on connection-level failure).
-            try:
-                response = fetch()
-            except requests.RequestException as exc:
-                if attempt == 0:
-                    logger.info(
-                        "GitHubIntegration: _gh_api_get retrying network error",
-                        path=path,
-                        exc_info=True,
-                    )
-                    continue
-                raise GitHubIntegrationError(f"GitHubIntegration: _gh_api_get network error on {path}") from exc
-            # Auth failure → refresh token and retry once.
-            if response.status_code == 401 and attempt == 0:
-                try:
-                    self.refresh_access_token()
-                except Exception as exc:
-                    raise GitHubIntegrationError(
-                        f"GitHubIntegration: token refresh after 401 failed on {path}"
-                    ) from exc
-                continue
-            # Secondary rate limit → bubble up with retry hint (no in-method retry).
-            if self._is_secondary_rate_limit(response):
-                # When headers don't give us a delay (body-only signal), GitHub recommends ≥60s.
-                retry_after = self._parse_retry_after_seconds(response) or 60.0
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: secondary rate limit on {path}",
-                    status_code=response.status_code,
-                    is_rate_limit=True,
-                    retry_after_seconds=retry_after,
-                )
-            # Transient 5xx → retry once.
-            if response.status_code in transient_status_codes and attempt == 0:
-                logger.info(
-                    "GitHubIntegration: _gh_api_get retrying transient error",
-                    path=path,
-                    status_code=response.status_code,
-                )
-                continue
-            # Any remaining non-2xx is terminal.
-            if response.status_code < 200 or response.status_code >= 300:
-                logger.warning(
-                    "GitHubIntegration: _gh_api_get non-2xx response",
-                    path=path,
-                    status_code=response.status_code,
-                )
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_api_get failed on {path}",
-                    status_code=response.status_code,
-                )
-            # 4. Parse + shape-check the response body.
-            try:
-                body = response.json()
-            except Exception as exc:
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_api_get non-JSON response on {path}",
-                    status_code=response.status_code,
-                ) from exc
-            if not isinstance(body, dict):
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_api_get unexpected payload on {path}",
-                    status_code=response.status_code,
-                )
-            return body
-        raise GitHubIntegrationError(last_error_message)
-
     @database_sync_to_async
     def list_cached_repositories_async(
         self, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[dict], bool]:
         return self.list_cached_repositories(search=search, limit=limit, offset=offset)
-
-    @database_sync_to_async
-    def list_all_cached_repositories_async(self, max_repos: int | None = None) -> list[dict]:
-        return self.list_all_cached_repositories(max_repos=max_repos)
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -3078,15 +2990,17 @@ class AnthropicIntegrationError(Exception):
     """Raised when the AnthropicIntegration is constructed with an invalid Integration row."""
 
 
-def _build_anthropic_client(api_key: str) -> Anthropic:
+def _build_anthropic_client(api_key: str) -> "Anthropic":
     # Tight timeouts and no SDK-side retries: we don't want a slow upstream to
     # multiply request time by 3 (default `max_retries=2`) inside a Django worker.
+    from anthropic import Anthropic  # noqa: PLC0415
+
     return Anthropic(api_key=api_key, timeout=ANTHROPIC_CLIENT_TIMEOUT_SECONDS, max_retries=0)
 
 
 class AnthropicIntegration:
     integration: Integration
-    _client: Anthropic
+    _client: "Anthropic"
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != Integration.IntegrationKind.ANTHROPIC.value:
@@ -3104,6 +3018,13 @@ class AnthropicIntegration:
     def validate_key(api_key: str) -> None:
         # Validate by hitting the actual managed-agents surface so a key without
         # beta access fails at create time instead of silently failing later.
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
+
         try:
             client = _build_anthropic_client(api_key)
             client.get(
@@ -3399,6 +3320,16 @@ class AzureBlobIntegration:
         return None
 
 
+def _stripe_integration_is_sandbox(integration: Integration) -> bool:
+    """True when this is a Stripe integration provisioned via the sandbox channel.
+
+    Strict identity check on the config flag - a malformed string write (e.g. "false")
+    fails closed to live rather than escalating to sandbox-secret usage. Returns
+    False for non-stripe integrations so non-Stripe call sites can pass through.
+    """
+    return integration.kind == "stripe" and integration.config.get("is_sandbox") is True
+
+
 class StripeIntegration:
     integration: Integration
 
@@ -3428,6 +3359,30 @@ class StripeIntegration:
         if integration.kind != "stripe":
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
         self.integration = integration
+
+    @property
+    def is_sandbox(self) -> bool:
+        return _stripe_integration_is_sandbox(self.integration)
+
+    def _stripe_client(self) -> "StripeClient | None":
+        # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
+        # Apps Secret Store and account-scoped API calls must authenticate with the matching
+        # developer secret. Returns None when the required env vars are missing so callers
+        # can skip Stripe API calls without raising past their per-secret error handling.
+        from stripe import StripeClient  # noqa: PLC0415
+
+        try:
+            oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+        except NotImplementedError as e:
+            capture_exception(
+                e,
+                {
+                    "stripe_user_id": self.integration.integration_id,
+                    "is_sandbox": self.is_sandbox,
+                },
+            )
+            return None
+        return StripeClient(oauth_config.client_secret)
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
         """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
@@ -3470,7 +3425,9 @@ class StripeIntegration:
             "posthog_oauth_client_id": oauth_app.client_id,
         }
 
-        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+        client = self._stripe_client()
+        if client is None:
+            return
 
         for name, payload in secrets.items():
             try:
@@ -3483,12 +3440,13 @@ class StripeIntegration:
                     options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
-                capture_exception(e)
-                logger.warning(
-                    "Failed to write secret to Stripe",
-                    secret_name=name,
-                    stripe_user_id=stripe_user_id,
-                    error=str(e),
+                capture_exception(
+                    e,
+                    {
+                        "secret_name": name,
+                        "stripe_user_id": stripe_user_id,
+                        "is_sandbox": self.is_sandbox,
+                    },
                 )
 
     def clear_posthog_secrets(self) -> None:
@@ -3497,7 +3455,10 @@ class StripeIntegration:
         if not stripe_user_id:
             raise ValueError("Missing stripe_user_id on integration")
 
-        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+        client = self._stripe_client()
+        if client is None:
+            self._destroy_posthog_oauth_tokens()
+            return
 
         for name in (
             "posthog_region",
@@ -3515,12 +3476,13 @@ class StripeIntegration:
                     options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
-                capture_exception(e)
-                logger.warning(
-                    "Failed to clear secret from Stripe",
-                    secret_name=name,
-                    stripe_user_id=stripe_user_id,
-                    error=str(e),
+                capture_exception(
+                    e,
+                    {
+                        "secret_name": name,
+                        "stripe_user_id": stripe_user_id,
+                        "is_sandbox": self.is_sandbox,
+                    },
                 )
 
         self._destroy_posthog_oauth_tokens()

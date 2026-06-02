@@ -927,6 +927,16 @@ describe('toolbar toolbarConfigLogic', () => {
                 '/#/dashboard&tab=1',
             ],
             ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            [
+                'restores ? when toolbar param was the first hash query on a SPA route',
+                '#/login?__posthog_toolbar=code:abc,client_id:xyz&foo=bar',
+                '/#/login?foo=bar',
+            ],
+            [
+                'preserves trailing hash query when toolbar param was last',
+                '#/login?foo=bar&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/login?foo=bar',
+            ],
         ])('%s', (_label, hash, expectedUrl) => {
             jest.useFakeTimers()
             window.history.pushState({}, '', `/${hash}`)
@@ -1377,6 +1387,110 @@ describe('toolbar toolbarConfigLogic', () => {
                 (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
             )
             expect(uploadAttempts).toHaveLength(0)
+        })
+    })
+
+    describe('hash-supplied prop type validation', () => {
+        it.each([
+            ['boolean true', true],
+            ['number 1', 1],
+            ['object', { foo: 'bar' }],
+            ['array', ['a']],
+            ['empty string', ''],
+            ['null', null],
+            ['undefined', undefined],
+        ])('rejects non-string accessToken: %s', (_label, badToken) => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                accessToken: badToken as any,
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: null, isAuthenticated: false })
+        })
+
+        it('accepts string accessToken', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                accessToken: 'pha_real',
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: 'pha_real', isAuthenticated: true })
+        })
+
+        it.each([
+            ['edit-experiment', 'edit-experiment'],
+            ['add-action', 'add-action'],
+            ['heatmaps', 'heatmaps'],
+        ])('accepts valid userIntent: %s', (_label, intent) => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                userIntent: intent as any,
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ userIntent: intent })
+        })
+
+        it.each([
+            ['unknown string', 'totally-not-a-real-intent'],
+            ['boolean', true],
+            ['number', 1],
+            ['empty', ''],
+        ])('rejects invalid userIntent: %s', (_label, intent) => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                userIntent: intent as any,
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ userIntent: null })
+        })
+    })
+
+    describe('toolbarFetch use-as-provided origin pin', () => {
+        beforeEach(() => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://us.posthog.com',
+                accessToken: 'pha_token',
+                refreshToken: 'phr_token',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+        })
+
+        it('allows URLs whose origin matches uiHost', async () => {
+            ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({ results: [{ id: 1 }] }),
+            } as any)
+            const res = await toolbarFetch(
+                'https://us.posthog.com/api/element/stats/?page=2',
+                'GET',
+                undefined,
+                'use-as-provided'
+            )
+            expect(res.status).toBe(200)
+            const sentUrl = (global.fetch as jest.Mock).mock.calls[0][0]
+            expect(sentUrl).toBe('https://us.posthog.com/api/element/stats/?page=2')
+        })
+
+        it('rejects cross-origin URLs with status 400 and results: []', async () => {
+            const res = await toolbarFetch('https://evil.example.com/leak', 'GET', undefined, 'use-as-provided')
+            expect(res.status).toBe(400)
+            const body = await res.json()
+            expect(body.detail).toBe('origin_mismatch')
+            expect(body.results).toEqual([])
+            // No outgoing fetch happened
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(0)
+        })
+
+        it('rejects malformed URLs with status 400', async () => {
+            const res = await toolbarFetch('not a url', 'GET', undefined, 'use-as-provided')
+            expect(res.status).toBe(400)
+            const body = await res.json()
+            expect(body.detail).toBe('invalid_url')
+            expect(body.results).toEqual([])
         })
     })
 })

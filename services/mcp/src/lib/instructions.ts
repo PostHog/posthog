@@ -20,11 +20,15 @@ export function buildActiveEnvironmentContextPrompt(
     if (org || project) {
         const projectName = project?.name ?? 'Unknown'
         const projectId = project?.id ?? 'unknown'
-        const orgName = org?.name ?? 'Unknown'
-        const orgId = org?.id ?? 'unknown'
-        lines.push(
-            `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
-        )
+        if (org) {
+            const orgName = org.name ?? 'Unknown'
+            const orgId = org.id ?? 'unknown'
+            lines.push(
+                `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+            )
+        } else {
+            lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
+        }
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
@@ -43,7 +47,7 @@ export function buildActiveEnvironmentContextPrompt(
         const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
         lines.push(`The user's name is ${fullName} (${user.email}).`)
     }
-    return `### Active environment\n\nAll tool calls and queries are scoped to this environment.\n\n${lines.join('\n')}`
+    return `### Active environment\n\nAll tool calls and queries default to this environment; you can switch projects or organizations at any time.\n\n${lines.join('\n')}`
 }
 
 export interface ToolInfo {

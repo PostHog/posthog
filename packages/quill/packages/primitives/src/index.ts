@@ -65,6 +65,7 @@ export {
 } from './context-menu'
 export {
     Dialog,
+    DialogBody,
     DialogClose,
     DialogContent,
     DialogDescription,
@@ -178,7 +179,14 @@ export {
     MenubarSubContent,
 } from './menubar'
 export { Popover, PopoverContent, PopoverTrigger } from './popover'
-export { Progress } from './progress'
+export {
+    Progress,
+    ProgressIndicator,
+    ProgressLabel,
+    ProgressTrack,
+    ProgressValue,
+    progressIndicatorVariants,
+} from './progress'
 export { RadioGroup, RadioGroupItem, RadioIndicator } from './radio-group'
 export { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
 export { ScrollArea, ScrollBar, scrollShadowsCss, SCROLL_SHADOWS_STYLE_ID } from './scroll-area'
@@ -210,6 +218,16 @@ export {
 } from './toast'
 export { Spinner } from './spinner'
 export { Switch } from './switch'
+export {
+    Table,
+    TableHeader,
+    TableBody,
+    TableFooter,
+    TableHead,
+    TableRow,
+    TableCell,
+    TableCaption,
+} from './table'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Textarea } from './textarea'
 export { Toggle, toggleVariants } from './toggle'

@@ -17,10 +17,9 @@ import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import {
+import type {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
@@ -59,10 +58,6 @@ const legacyPluginExecutionResultCounter = new Counter({
 export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
     Pick<PluginsServerConfig, 'CDP_LEGACY_EVENT_CONSUMER_TOPIC' | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID' | 'SITE_URL'>
 
-export interface CdpLegacyEventsConsumerDeps extends CdpConsumerBaseDeps {
-    groupTypeManager: GroupTypeManager
-}
-
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
@@ -79,7 +74,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
 
     constructor(
         config: CdpLegacyEventsConsumerConfig,
-        protected override deps: CdpLegacyEventsConsumerDeps
+        protected override deps: CdpConsumerBaseDeps
     ) {
         super(config, deps)
 
@@ -89,13 +84,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
 
         this.legacyPluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
-        this.legacyWebhookService = new LegacyWebhookService(
-            deps.postgres,
-            deps.teamManager,
-            deps.groupTypeManager,
-            deps.groupRepository,
-            deps.pubSub
-        )
+        this.legacyWebhookService = new LegacyWebhookService(deps.postgres, deps.teamManager, deps.pubSub)
 
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',

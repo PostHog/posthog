@@ -2,8 +2,8 @@ import type { z } from 'zod'
 
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
-import type { AnalyticsEvent } from '@/lib/analytics'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
@@ -26,6 +26,11 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    mcpClientName: string | undefined
+    mcpClientVersion: string | undefined
+    mcpProtocolVersion: string | undefined
+    mcpConsumer: string | undefined
+    mcpVendorClient: string | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -45,6 +50,16 @@ export type Env = {
      * Only set this for self-hosted PostHog deployments.
      */
     POSTHOG_API_BASE_URL: string | undefined
+    /**
+     * Public-facing PostHog URL used when rendering links the user clicks
+     * (e.g. `_posthogUrl` in tool responses).
+     *
+     * When `POSTHOG_API_BASE_URL` is set to a cluster-internal hostname for outbound
+     * API traffic (the Hono deployment in PostHog Production), this should be set to
+     * the corresponding public URL (e.g. https://us.posthog.com) so rendered links
+     * remain clickable. Falls back to `POSTHOG_API_BASE_URL` when unset.
+     */
+    POSTHOG_PUBLIC_URL: string | undefined
     /**
      * Base URL for serving MCP UI app static assets.
      * When using Workers Static Assets, this is the Worker's own public URL.
@@ -115,8 +130,6 @@ export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> =
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta
-    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
-    mcpVersion?: number
 }
 
 export type ZodObjectAny = z.ZodType<any>

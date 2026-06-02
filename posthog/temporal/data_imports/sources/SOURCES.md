@@ -22,7 +22,7 @@ new source / vendor-SDK / migration PR.
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **HTTP**                  | REST/JSON over HTTPS via the `requests` library. Routed through `make_tracked_session()` (see [common/http/](common/http/)).                                     |
 | **HTTP (vendor SDK)**     | The vendor ships its own SDK that wraps HTTP. Where the SDK exposes a session/transport hook, we inject `make_tracked_session()` so the calls are still tracked. |
-| **gRPC**                  | The vendor SDK uses gRPC over HTTP/2 (binary, not REST). The tracked HTTP transport does not currently apply.                                                    |
+| **gRPC**                  | The vendor SDK uses gRPC over HTTP/2 (binary, not REST). Routed through the [tracked gRPC transport](common/grpc/) via client interceptors (see `common/grpc/`). |
 | **DB protocol**           | Native database wire protocol via a driver (e.g. PostgreSQL, MySQL, Snowflake). Not HTTP.                                                                        |
 | **Webhook (S3-buffered)** | Vendor pushes events to a webhook endpoint; payloads are buffered to S3 by the `WebhookSourceManager` and consumed by the pipeline.                              |
 
@@ -35,7 +35,7 @@ the row lists both.
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | ✅ Tracked    | Outbound calls go through `make_tracked_session()` (or the equivalent vendor-SDK injection).                                            |
 | ⚠️ Vendor SDK | Vendor SDK has no session/transport hook we can use. Outbound HTTP bypasses our logging/metrics today. May need a `# nosemgrep` pragma. |
-| ➖ N/A        | Source uses a non-HTTP protocol (DB driver, gRPC, etc.) — the HTTP transport doesn't apply.                                             |
+| ➖ N/A        | Source uses a native DB wire protocol (Postgres, MySQL, Snowflake, …) — neither the HTTP nor gRPC transport applies.                    |
 | —             | Source is scaffolded; no transport in use yet.                                                                                          |
 
 ---
@@ -45,7 +45,7 @@ the row lists both.
 | Source        | Comm method                 | Primary library                                                 | Tracked transport           |
 | ------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | attio         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP), ➖ (gRPC)        |
+| bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -55,7 +55,7 @@ the row lists both.
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
-| google_ads    | gRPC                        | google-ads (googleads.client)                                   | ➖                          |
+| google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | hubspot       | HTTP                        | requests                                                        | ✅                          |
 | klaviyo       | HTTP                        | requests                                                        | ✅                          |
@@ -69,10 +69,12 @@ the row lists both.
 | paddle        | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads | HTTP                        | requests                                                        | ✅                          |
 | plain         | HTTP                        | requests                                                        | ✅                          |
+| polar         | HTTP                        | requests                                                        | ✅                          |
 | postgres      | DB protocol                 | psycopg                                                         | ➖                          |
 | reddit_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift      | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend        | HTTP                        | requests                                                        | ✅                          |
+| revenuecat    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shopify       | HTTP                        | requests                                                        | ✅                          |
@@ -81,9 +83,11 @@ the row lists both.
 | snowflake     | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | stripe        | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase      | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
+| temporalio    | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| workos        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
 ### Notes on partially-tracked sources
@@ -94,8 +98,18 @@ the row lists both.
 - **linkedin_ads** uses `linkedin-api`'s `RestliClient`, which constructs its own internal `requests.Session`.
   We don't yet have a session-injection seam on it, so outbound calls bypass the tracked transport. (The file
   imports `requests` only for exception types — those references are expected and don't need a pragma.)
-- **bigquery's** Storage Read API uses gRPC; only the metadata/management traffic via the BigQuery REST API
-  is HTTP, and that HTTP path is tracked via `AuthorizedSession` + a mounted `TrackedHTTPAdapter`.
+- **temporalio** talks gRPC, but the Python `temporalio` SDK runs its entire gRPC stack in a Rust core
+  (`temporalio.bridge`, a PyO3 module) — service RPCs dispatch through `ServiceClient._rpc_call` into the
+  bridge, so there is no Python `grpc.Channel` or client-interceptor seam for the tracked gRPC transport to
+  wrap. (`Client.connect(interceptors=...)` accepts high-level `temporalio.client.Interceptor`s, a different
+  abstraction that wouldn't feed the gRPC observer/metrics.) Outbound traffic bypasses the tracked transport.
+- **bigquery** uses two transports: the metadata/management traffic via the BigQuery REST API is HTTP,
+  tracked via `AuthorizedSession` + a mounted `TrackedHTTPAdapter`; the Storage Read API uses gRPC,
+  tracked via `BigQueryReadGrpcTransport(channel=make_tracked_channel(...))` so `create_read_session` and
+  `read_rows` ride the tracked gRPC interceptors.
+- **google_ads** is pure gRPC. Every `GoogleAdsClient.get_service(...)` call passes
+  `interceptors=tracked_interceptors(host)` so its unary calls (`search`, `search_google_ads_fields`) are
+  logged, metered, and eligible for sample capture.
 
 ---
 
@@ -111,9 +125,9 @@ drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, 
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
 instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
-pagerduty, pardot, paypal, pendo, pipedrive, plaid, polar, postmark, productboard, quickbooks, recharge,
-recurly, revenuecat, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
-square, surveymonkey, temporalio, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
+pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
+recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
+square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
 youtube_analytics, zoho_crm, zoom, zuora.
 
 ---
@@ -129,9 +143,16 @@ Update SOURCES.md whenever you:
 - **Switch a source's protocol** (e.g. swap a REST client for a gRPC SDK, or add webhook support
   alongside the pull API).
 
-The semgrep rule [`data-imports-http-transport`](/.semgrep/rules/data-imports-http-transport.yaml) enforces
-that direct `requests.<verb>` / `requests.Session()` / `httpx.*` calls inside `sources/` go through the
-tracked transport. Vendor SDKs that genuinely cannot be intercepted should both:
+Two semgrep rules enforce the tracked transports inside `sources/`:
 
-1. Carry a `# nosemgrep: data-imports-http-transport-...` pragma at the call site, with a one-line reason.
+- [`data-imports-http-transport`](/.semgrep/rules/data-imports-http-transport.yaml) bans direct
+  `requests.<verb>` / `requests.Session()` / `httpx.*` — route through `make_tracked_session()`.
+- [`data-imports-grpc-transport`](/.semgrep/rules/data-imports-grpc-transport.yaml) bans raw
+  `grpc.*_channel(...)` and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction —
+  route through `make_tracked_channel(...)` (for `channel=`/`transport=` SDKs) or
+  `tracked_interceptors(host)` (for `interceptors=` SDKs).
+
+Vendor SDKs that genuinely cannot be intercepted should both:
+
+1. Carry a `# nosemgrep: data-imports-...-transport-...` pragma at the call site, with a one-line reason.
 2. Be listed here under "Notes on partially-tracked sources" with the `⚠️ Vendor SDK` row state.

@@ -16,8 +16,8 @@ import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
+    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
-    createRateLimitToOverflowStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
@@ -90,8 +90,10 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Any steps that depend on the final distinct ID must run after this step.
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
-            // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
-            .pipeBatch(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Rate-limit only cookieless events using the hashed distinct_id assigned by the
+            // cookieless step. Non-cookieless events were rate-limited pre-parse in the joined
+            // pipeline via createSkipCookielessRateLimitToOverflowStep.
+            .pipeBatch(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs

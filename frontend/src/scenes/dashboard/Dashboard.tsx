@@ -27,6 +27,7 @@ import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsi
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
+import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -108,6 +109,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
+            <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />

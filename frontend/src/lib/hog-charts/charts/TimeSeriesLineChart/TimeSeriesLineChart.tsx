@@ -10,11 +10,19 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { LineChart } from '../LineChart'
-import { AnomalyPointsLayer, type AnomalyMarker } from './overlays/AnomalyPointsLayer'
-import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
-import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
-import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
+import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
+import {
+    useXTickFormatter,
+    useYTickFormatter,
+    type XAxisConfig,
+    type YAxisConfig,
+} from '../../utils/use-axis-formatters'
+import { LineChart } from '../LineChart/LineChart'
+import {
+    resolveValueLabelsConfig,
+    useSeriesWithValueLabelAllowlist,
+    type ValueLabelsConfig,
+} from '../utils/use-value-labels'
 import {
     useDerivedSeries,
     type ConfidenceIntervalConfig,
@@ -22,17 +30,11 @@ import {
     type TrendLineConfig,
 } from './utils/use-derived-series'
 
-export interface ValueLabelsConfig {
-    seriesKeys?: string[]
-    formatter?: (value: number) => string
-}
-
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
     yAxis?: YAxisConfig
-    inProgress?: InProgressConfig
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     confidenceIntervals?: ConfidenceIntervalConfig[]
@@ -40,8 +42,6 @@ export interface TimeSeriesLineChartConfig {
     trendLines?: TrendLineConfig[]
     /** Comparison series keys mapped to their primary. Comparison series render dimmed. */
     comparisonOf?: Record<string, string>
-    /** Anomaly markers rendered as filled circles on top of the chart. */
-    anomalies?: AnomalyMarker[]
     /** Render area-fill series as a 100% stacked view; y-axis becomes 0–100%. */
     percentStackView?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
@@ -63,16 +63,6 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-function resolveValueLabelsConfig(valueLabels: TimeSeriesLineChartConfig['valueLabels']): ValueLabelsConfig | null {
-    if (valueLabels === undefined || valueLabels === false) {
-        return null
-    }
-    if (valueLabels === true) {
-        return {}
-    }
-    return valueLabels
-}
-
 export function TimeSeriesLineChart<Meta = unknown>({
     series,
     labels,
@@ -88,14 +78,12 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const {
         xAxis,
         yAxis,
-        inProgress,
         valueLabels,
         goalLines,
         confidenceIntervals,
         movingAverage,
         trendLines,
         comparisonOf,
-        anomalies,
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
@@ -104,29 +92,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const yTickFormatter = useYTickFormatter(yAxis)
 
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-
-    const seriesWithInProgress = useMemo(
-        () => applyInProgressToSeries(series, inProgress),
-        // inProgress.fromIndex is the only field applyInProgressToSeries reads; depending
-        // on `inProgress` itself would invalidate on every inline-config render.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [series, inProgress?.fromIndex]
-    )
-
-    // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
-    // without re-running the transform on every render.
-    const seriesKeysSignature = valueLabelsConfig?.seriesKeys?.join(' ')
-    const seriesAfterValueLabels = useMemo(() => {
-        const seriesKeys = valueLabelsConfig?.seriesKeys
-        if (!seriesKeys) {
-            return seriesWithInProgress
-        }
-        const allowed = new Set(seriesKeys)
-        return seriesWithInProgress.map((s) =>
-            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, fromValueLabels: true } }
-        )
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [seriesWithInProgress, seriesKeysSignature])
+    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(series, valueLabelsConfig?.seriesKeys)
 
     const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
         confidenceIntervals,
@@ -139,16 +105,24 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, finalSeries), [goalLines, finalSeries])
 
+    // Extend the value axis to cover goal lines that sit outside the data range, so a goal line
+    // off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
+    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
+    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
+
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
+        xAxisLabel: xAxis?.label,
+        yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
+        valueDomain,
     }
 
     return (
@@ -165,7 +139,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
-            {anomalies && anomalies.length > 0 && <AnomalyPointsLayer markers={anomalies} />}
             {children}
         </LineChart>
     )

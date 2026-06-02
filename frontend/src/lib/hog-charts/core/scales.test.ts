@@ -1,13 +1,18 @@
 import { dimensions, makeSeries } from '../testing'
 import {
     autoFormatYTick,
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
+    computeDivergingStackData,
     computePercentStackData,
     computeStackData,
     createScales,
     createXScale,
     createYScale,
+    niceLogDomain,
     yTickCountForHeight,
 } from './scales'
+import type { StackedBand } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 describe('hog-charts scales', () => {
@@ -100,12 +105,116 @@ describe('hog-charts scales', () => {
             expect(domainMax).toBeLessThan(100)
         })
 
+        it.each([
+            {
+                description: 'clips baseline to 0 when an overlay dips below 0 but primary data is non-negative',
+                primaryData: [0, 0, 5000, 14500],
+                overlayData: [-1000, 4000, 7000, 10000],
+                expectedMin: 0,
+                expectMaxAtLeast: undefined as number | undefined,
+            },
+            {
+                description: 'preserves negative axis when primary data has genuine negatives',
+                primaryData: [-50, 0, 100],
+                overlayData: [-10, 50, 110],
+                expectedMin: 'negative' as const,
+                expectMaxAtLeast: undefined,
+            },
+            {
+                description: 'lets overlay extend max even when baseline is clipped to 0',
+                primaryData: [0, 50, 100],
+                overlayData: [200, 250, 300],
+                expectedMin: 0,
+                expectMaxAtLeast: 300,
+            },
+        ])('$description', ({ primaryData, overlayData, expectedMin, expectMaxAtLeast }) => {
+            const main = makeSeries({ key: 'main', data: primaryData })
+            const trendline = makeSeries({ key: 'trend', data: overlayData, overlay: true })
+            const [domainMin, domainMax] = createYScale([main, trendline], dimensions).domain()
+            if (expectedMin === 'negative') {
+                expect(domainMin).toBeLessThan(0)
+            } else {
+                expect(domainMin).toBe(expectedMin)
+            }
+            if (expectMaxAtLeast !== undefined) {
+                expect(domainMax).toBeGreaterThanOrEqual(expectMaxAtLeast)
+            }
+        })
+
         it('maps the output range from plotTop + plotHeight down to plotTop', () => {
             const series = [makeSeries({ key: 's1', data: [0, 100] })]
             const scale = createYScale(series, dimensions)
             const [rangeMax, rangeMin] = scale.range()
             expect(rangeMax).toBe(dimensions.plotTop + dimensions.plotHeight)
             expect(rangeMin).toBe(dimensions.plotTop)
+        })
+    })
+
+    describe('createYScale — valueDomain { include } (goal lines)', () => {
+        it('extends the domain upward to include a goal line above the data', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { valueDomain: { include: [100] } })
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(100)
+            expect(scale.domain()[0]).toBe(0)
+        })
+
+        it('extends the domain downward to include a negative goal line on positive data', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { valueDomain: { include: [-50] } })
+            expect(scale.domain()[0]).toBeLessThanOrEqual(-50)
+        })
+
+        it('still clips an overlay-driven negative baseline to 0 when include values are non-negative', () => {
+            const main = makeSeries({ key: 'main', data: [0, 5000, 14500] })
+            const trendline = makeSeries({ key: 'trend', data: [-1000, 7000, 10000], overlay: true })
+            const scale = createYScale([main, trendline], dimensions, { valueDomain: { include: [20000] } })
+            expect(scale.domain()[0]).toBe(0)
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(20000)
+        })
+
+        it('leaves the data-derived domain unchanged when the goal line is within range', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const withGoal = createYScale(series, dimensions, { valueDomain: { include: [50] } })
+            const withoutGoal = createYScale(series, dimensions)
+            expect(withGoal.domain()).toEqual(withoutGoal.domain())
+        })
+
+        it('extends the log-scale domain to include a goal line above the data', () => {
+            const series = [makeSeries({ key: 's1', data: [3, 50, 700] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain: { include: [9000] } })
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(9000)
+        })
+
+        it('is ignored under percent stack mode', () => {
+            const series = [makeSeries({ key: 's1', data: [50, 100] })]
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { include: [500] } })
+            expect(scale.domain()[0]).toBe(0)
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(1)
+            expect(scale.domain()[1]).toBeLessThan(2)
+        })
+
+        it.each([
+            ['a positive goal anchors to zero', [100], 100],
+            ['a zero goal still yields a unit span', [0], 0],
+        ])('stays well-formed with no data and only %s', (_name, include, goal) => {
+            const scale = createYScale([], dimensions, { valueDomain: { include } })
+            const [lo, hi] = scale.domain()
+            expect(lo).toBeLessThan(hi)
+            expect(isFinite(scale(goal))).toBe(true)
+        })
+    })
+
+    describe('createYScale — valueDomain [min, max] (fixed)', () => {
+        it('pins the domain regardless of data and skips nice()', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { valueDomain: [0, 40] })
+            expect(scale.domain()).toEqual([0, 40])
+        })
+
+        it('takes precedence over percent stack mode', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: [0, 200] })
+            expect(scale.domain()).toEqual([0, 200])
         })
     })
 
@@ -249,6 +358,15 @@ describe('hog-charts scales', () => {
             // nice() can extend the domain slightly but nowhere near 9999.
             expect(leftMax).toBeLessThan(100)
         })
+
+        it('extends only the primary axis for goal lines, leaving secondary axes untouched', () => {
+            const left = makeSeries({ key: 'left', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'right', data: [0, 500], yAxisId: 'y1' })
+            const result = createScales([left, right], ['a', 'b'], dimensions, { valueDomain: { include: [1000] } })
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBeGreaterThanOrEqual(1000)
+            // The right axis is unaffected — nice() can nudge 500 up a little, but nowhere near 1000.
+            expect(result.yAxes!.y1.scale.domain()[1]).toBeLessThan(1000)
+        })
     })
 
     describe('computePercentStackData', () => {
@@ -387,6 +505,18 @@ describe('hog-charts scales', () => {
             expect(result.get('s2')!.top).toEqual([30, 30])
         })
 
+        it('computeDivergingStackData preserves negative values, stacking them below 0', () => {
+            const positive = makeSeries({ key: 'pos', data: [10, 20] })
+            const negative = makeSeries({ key: 'neg', data: [-5, -7] })
+            const result = computeDivergingStackData([positive, negative], ['a', 'b'])
+            // Positive stacks above zero, negative stacks below zero — diverging offset
+            // keeps both signs intact instead of clamping the negative to 0.
+            expect(result.get('pos')!.bottom).toEqual([0, 0])
+            expect(result.get('pos')!.top).toEqual([10, 20])
+            expect(result.get('neg')!.bottom).toEqual([-5, -7])
+            expect(result.get('neg')!.top).toEqual([0, 0])
+        })
+
         it('stacks per yAxisId so series on different axes do not contaminate each others totals', () => {
             const left = makeSeries({ key: 'l', data: [10, 20], yAxisId: DEFAULT_Y_AXIS_ID })
             const right = makeSeries({ key: 'r', data: [1000, 2000], yAxisId: 'y1' })
@@ -418,12 +548,12 @@ describe('hog-charts scales', () => {
     describe('yTickCountForHeight', () => {
         it.each([
             { plotHeight: 0, expected: 2 },
-            { plotHeight: 80, expected: 2 },
-            { plotHeight: 160, expected: 2 },
-            { plotHeight: 240, expected: 3 },
-            { plotHeight: 480, expected: 6 },
-            { plotHeight: 640, expected: 8 },
-            { plotHeight: 1600, expected: 8 },
+            { plotHeight: 50, expected: 2 },
+            { plotHeight: 100, expected: 2 },
+            { plotHeight: 200, expected: 4 },
+            { plotHeight: 400, expected: 8 },
+            { plotHeight: 550, expected: 11 },
+            { plotHeight: 1600, expected: 11 },
         ])('plotHeight $plotHeight → $expected ticks', ({ plotHeight, expected }) => {
             expect(yTickCountForHeight(plotHeight)).toBe(expected)
         })
@@ -455,6 +585,120 @@ describe('hog-charts scales', () => {
 
         it('formats negative values correctly', () => {
             expect(autoFormatYTick(-5, 10)).toBe('-5')
+        })
+    })
+
+    describe('niceLogDomain', () => {
+        it.each([
+            { minPositive: 740, max: 4200, expected: [100, 5000] },
+            { minPositive: 1, max: 100, expected: [0.1, 100] },
+            { minPositive: 0.5, max: 9, expected: [0.1, 9] },
+            { minPositive: 25, max: 25, expected: [10, 30] },
+            { minPositive: 1000, max: 9999, expected: [100, 10000] },
+        ])('rounds [$minPositive, $max] to $expected', ({ minPositive, max, expected }) => {
+            const [niceMin, niceMax] = niceLogDomain(minPositive, max)
+            expect(niceMin).toBeCloseTo(expected[0], 5)
+            expect(niceMax).toBeCloseTo(expected[1], 5)
+        })
+
+        it('always rounds minPositive down past it (next decade lower)', () => {
+            const [niceMin] = niceLogDomain(50, 1000)
+            expect(niceMin).toBeLessThanOrEqual(50)
+        })
+    })
+
+    describe('buildStackedPositionValue', () => {
+        const series = makeSeries({ key: 'a', data: [10, 20, 30] })
+
+        it('returns undefined when stackedData is undefined', () => {
+            expect(buildStackedPositionValue(undefined)).toBeUndefined()
+        })
+
+        it('returns the stacked top when present and finite', () => {
+            const stacked = new Map<string, StackedBand>([['a', { top: [100, 200, 300], bottom: [0, 0, 0] }]])
+            const resolve = buildStackedPositionValue(stacked)!
+            expect(resolve(series, 0)).toBe(100)
+            expect(resolve(series, 2)).toBe(300)
+        })
+
+        it('falls back to the raw value when the series is not in the stack', () => {
+            const stacked = new Map<string, StackedBand>()
+            const resolve = buildStackedPositionValue(stacked)!
+            expect(resolve(series, 1)).toBe(20)
+        })
+
+        it('falls back to the raw value when the stacked top is non-finite', () => {
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, Infinity, 50], bottom: [0, 0, 0] }]])
+            const resolve = buildStackedPositionValue(stacked)!
+            expect(resolve(series, 0)).toBe(10)
+            expect(resolve(series, 1)).toBe(20)
+            expect(resolve(series, 2)).toBe(50)
+        })
+
+        it('returns 0 when both stacked top and raw value are non-finite', () => {
+            const nanSeries = makeSeries({ key: 'a', data: [NaN, Infinity, 0] })
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, NaN, 0], bottom: [0, 0, 0] }]])
+            const resolve = buildStackedPositionValue(stacked)!
+            expect(resolve(nanSeries, 0)).toBe(0)
+            expect(resolve(nanSeries, 1)).toBe(0)
+        })
+    })
+
+    describe('buildSegmentResolveValue', () => {
+        const series = makeSeries({ key: 'a', data: [10, 20, 30] })
+
+        it('returns undefined when stackedData is undefined', () => {
+            expect(buildSegmentResolveValue(undefined)).toBeUndefined()
+        })
+
+        it('returns the segment height (top − bottom), not the cumulative top', () => {
+            // `a` sits on top of 490 of other series, so its top is 980 but its own value is 490.
+            const stacked = new Map<string, StackedBand>([['a', { top: [490, 980, 1470], bottom: [0, 490, 980] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(series, 0)).toBe(490)
+            expect(resolve(series, 1)).toBe(490)
+            expect(resolve(series, 2)).toBe(490)
+        })
+
+        it('falls back to the raw value when the series is not in the stack', () => {
+            const resolve = buildSegmentResolveValue(new Map<string, StackedBand>())!
+            expect(resolve(series, 1)).toBe(20)
+        })
+
+        it('falls back to the raw value when either the segment top or bottom is non-finite', () => {
+            // The guard requires both top and bottom finite, so a NaN on either edge falls back to raw.
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, 20, 980], bottom: [0, NaN, 490] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(series, 0)).toBe(10) // top NaN → raw 10
+            expect(resolve(series, 1)).toBe(20) // bottom NaN → raw 20
+            expect(resolve(series, 2)).toBe(490) // both finite → 980 - 490
+        })
+
+        it('returns 0 when both the segment and the raw value are non-finite', () => {
+            const nanSeries = makeSeries({ key: 'a', data: [NaN, Infinity, 0] })
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, 10, 0], bottom: [NaN, NaN, 0] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(nanSeries, 0)).toBe(0) // segment NaN + raw NaN → 0
+            expect(resolve(nanSeries, 1)).toBe(0) // bottom NaN + raw Infinity → 0
+        })
+
+        it('resolves a negative-valued count-stacked series to 0 (buildStackData floors it)', () => {
+            // buildStackData clamps data to >= 0 before stacking, so a negative series has a
+            // zero-height segment — the resolver reports 0, not the raw negative value.
+            const negSeries = makeSeries({ key: 'a', data: [10, -50] })
+            const resolve = buildSegmentResolveValue(computeStackData([negSeries], ['x', 'y']))!
+            expect(resolve(negSeries, 0)).toBe(10)
+            expect(resolve(negSeries, 1)).toBe(0)
+        })
+
+        it('returns each series own fraction for a percent stack, not the cumulative fraction', () => {
+            // a=20, b=15 at index 1 → total 35. b sits on top of a, so b's cumulative top is 1.0,
+            // but its own fraction is 15/35 — that segment is what the tooltip must report.
+            const a = makeSeries({ key: 'a', data: [10, 20] })
+            const b = makeSeries({ key: 'b', data: [5, 15] })
+            const resolve = buildSegmentResolveValue(computePercentStackData([a, b], ['x', 'y']))!
+            expect(resolve(a, 1)).toBeCloseTo(20 / 35, 5)
+            expect(resolve(b, 1)).toBeCloseTo(15 / 35, 5)
         })
     })
 })

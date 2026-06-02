@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Any
 
 import click
-from hogli.cli import cli
 
 LOGIN_TIMEOUT_SECONDS: float = 180.0
 LOGIN_POLL_INTERVAL_SECONDS: float = 1.0
@@ -238,7 +237,7 @@ def _login_region(region: str, browser: str | None, no_open: bool, timeout: floa
     click.echo(f"[{region}] saved cookie to {path}")
 
 
-@cli.command(name="metabase:login", help="Log in to Metabase via SSO and cache the session cookie")
+@click.command(name="metabase:login", help="Log in to Metabase via SSO and cache the session cookie")
 @click.option(
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
@@ -268,7 +267,7 @@ def metabase_login(region: str, browser: str | None, no_open: bool, timeout: flo
     _login_region(region, browser, no_open, timeout)
 
 
-@cli.command(name="metabase:cookie", help="Print the cached Metabase cookie header")
+@click.command(name="metabase:cookie", help="Print the cached Metabase cookie header")
 @click.option(
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
@@ -388,7 +387,7 @@ def _render_rows_tsv(body: dict[str, Any]) -> str:
     return "\n".join(out) + "\n"
 
 
-@cli.command(
+@click.command(
     name="metabase:databases",
     help="List Metabase databases (id, name, engine) for a region",
 )
@@ -422,7 +421,7 @@ def metabase_databases(region: str, output_format: str) -> None:
         click.echo(f"{e['id']:>4}  {e['name']:<40}  {e['engine']}")
 
 
-@cli.command(
+@click.command(
     name="metabase:query",
     help="Run a SQL query against Metabase /api/dataset; results to stdout",
 )

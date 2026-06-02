@@ -24,7 +24,12 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
+import {
+    extractValidationError,
+    extractValidationErrorCode,
+    getAllEventNames,
+    queryFromKind,
+} from '~/queries/nodes/InsightViz/utils'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -89,6 +94,7 @@ import {
     isWebOverviewQuery,
     isWebStatsTableQuery,
     nodeKindToFilterProperty,
+    supportsBarValueStacking,
     supportsPercentStackView,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
@@ -209,6 +215,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 dateRange?.date_from !== 'all',
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
+        supportsBarValueStacking: [(s) => [s.querySource], (q) => supportsBarValueStacking(q)],
         supportsValueOnSeries: [
             (s) => [s.isTrends, s.isFunnels, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isFunnels, isStickiness, isLifecycle, display) => {
@@ -496,6 +503,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         validationError: [
             (s) => [s.insightDataError],
             (insightDataError): string | null => extractValidationError(insightDataError),
+        ],
+        validationErrorCode: [
+            (s) => [s.insightDataError],
+            (insightDataError): string | null => extractValidationErrorCode(insightDataError),
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
@@ -803,7 +814,7 @@ const handleQuerySourceUpdateSideEffects = (
         maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
     ) {
         ;(mergedUpdate as LifecycleQuery).properties = undefined
-        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = undefined
+        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = false
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
     }
 
@@ -819,7 +830,7 @@ const handleQuerySourceUpdateSideEffects = (
         )
 
         ;(mergedUpdate as TrendsQuery).properties = undefined
-        ;(mergedUpdate as TrendsQuery).filterTestAccounts = undefined
+        ;(mergedUpdate as TrendsQuery).filterTestAccounts = false
         ;(mergedUpdate as TrendsQuery).samplingFactor = undefined
     }
 

@@ -30,6 +30,7 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
@@ -447,7 +448,7 @@ function CDCConfigSection(): JSX.Element {
                                 <div>
                                     <div className="flex items-center gap-2 mb-1">
                                         <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
-                                        <LemonTag type="success">Recommended</LemonTag>
+                                        <LemonTag type="completion">Alpha</LemonTag>
                                     </div>
                                     <p className="text-sm text-secondary mb-2">
                                         Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
@@ -743,17 +744,36 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             <Group name="payload">
-                {availableSources[sourceConfig.name].fields
-                    .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
-                    .map((field) =>
-                        sourceFieldToElement(
-                            field,
-                            sourceConfig,
-                            jobInputs?.[field.name],
-                            isUpdateMode,
-                            setSourceConnectionDetailsValue
+                {sourceConfig.name === 'Custom' ? (
+                    setSourceConfigValue ? (
+                        <CustomSourceManifestBuilder
+                            initialManifestJson={jobInputs?.manifest_json}
+                            setValue={setSourceConfigValue}
+                        />
+                    ) : setSourceConnectionDetailsValue ? (
+                        <CustomSourceManifestBuilder
+                            initialManifestJson={jobInputs?.manifest_json}
+                            setValue={setSourceConnectionDetailsValue}
+                        />
+                    ) : (
+                        <LemonBanner type="error">
+                            Custom source form is misconfigured: neither setSourceConfigValue nor sourceWizardLogicProps
+                            was provided to SourceForm.
+                        </LemonBanner>
+                    )
+                ) : (
+                    availableSources[sourceConfig.name].fields
+                        .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                        .map((field) =>
+                            sourceFieldToElement(
+                                field,
+                                sourceConfig,
+                                jobInputs?.[field.name],
+                                isUpdateMode,
+                                setSourceConnectionDetailsValue
+                            )
                         )
-                    )}
+                )}
             </Group>
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&
@@ -779,10 +799,9 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''
-                        const tableName = displayValue
-                            ? `${sourceConfig.name.toLowerCase()}.${displayValue}.table_name`
-                            : `${sourceConfig.name.toLowerCase()}.table_name`
+                        const cleanedPrefix = value ? value.trim() : ''
+                        const sourceType = sourceConfig.name.toLowerCase()
+                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
                         return (
                             <>
                                 <LemonInput

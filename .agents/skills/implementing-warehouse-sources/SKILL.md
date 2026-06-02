@@ -77,7 +77,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 10. **Add icon.** Place at `frontend/public/services/{source}.svg` (prefer SVG). If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Keep file size reasonable.
 11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
 12. **Rebuild schema types**: `pnpm run schema:build`. This updates `posthog/schema.py` from `schema-general.ts` and makes the source appear in frontend dropdowns. Re-run whenever `schema-general.ts` changes.
-13. **Release status.** For unfinished work, set `unreleasedSource=True`. Set `releaseStatus="alpha"` for new sources that haven't been extensively tested, `releaseStatus="beta"` once most rough edges are ironed out, and leave `releaseStatus` unset for general availability. For controlled rollout, set `featureFlag="dwh-{source_name}"` (kebab-case). When fully releasing, remove `unreleasedSource`, set `releaseStatus` to the appropriate stage (or omit for GA), and optionally drop the feature flag.
+13. **Release status.** Whenever you set `releaseStatus`, use the `ReleaseStatus` enum from `posthog.schema` — never a bare string literal. Add `ReleaseStatus` to your existing `from posthog.schema import (...)` block, then use `releaseStatus=ReleaseStatus.ALPHA` for new sources that haven't been extensively tested, `releaseStatus=ReleaseStatus.BETA` once most rough edges are ironed out, and `releaseStatus=ReleaseStatus.GA` for general availability (you may also leave `releaseStatus` unset for GA). For unfinished work, set `unreleasedSource=True`. For controlled rollout, set `featureFlag="dwh-{source_name}"` (kebab-case). When fully releasing, remove `unreleasedSource`, set `releaseStatus` to the appropriate stage (`ReleaseStatus.GA` or omit it), and optionally drop the feature flag.
 14. **Delete the template TODO comments** before PR.
 
 ## Source architecture contract
@@ -119,7 +119,11 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
+**Don't import or instantiate `Batcher` at the source layer.** The pipeline already runs one (`pipelines/pipeline/pipeline.py`) at the same 5000-row / 200 MiB thresholds. Yielding raw `dict` / `list[dict]` from your generator is the canonical path — reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g., a ClickHouse adapter). Source-level batching results in double-buffering with no behavioral win.
+
 For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `posthog/temporal/data_imports/pipelines/pipeline/utils.py`.
+
+**URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
 ### Resumable source pattern
 
@@ -183,13 +187,32 @@ log line and OTel metric, and participates in opt-in sample capture.
   gspread `authorize(credentials, session=...)`, BigQuery via `AuthorizedSession` + `TrackedHTTPAdapter`),
   inject one. Reference patterns live in `stripe/stripe.py`, `google_sheets/google_sheets.py`, and
   `bigquery/bigquery.py`.
-- For vendor SDKs with no injection seam (today: `bingads`, `linkedin-api`'s `RestliClient`, anything
-  pure-gRPC), add a `# nosemgrep: data-imports-http-transport-...` pragma with a one-line reason and record
-  the source as `⚠️ Vendor SDK` in `SOURCES.md`.
+- For vendor SDKs with no injection seam (today: `bingads`, `linkedin-api`'s `RestliClient`), add a
+  `# nosemgrep: data-imports-http-transport-...` pragma with a one-line reason and record the source as
+  `⚠️ Vendor SDK` in `SOURCES.md`.
+- gRPC SDKs are **not** exempt — they have their own tracked transport (see below).
 
 CI enforces this via `.semgrep/rules/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
 `requests.<verb>(...)`, and `httpx.Client/AsyncClient/<verb>` inside `sources/**`. Type-only imports
 (`from requests import Response`, `from requests.exceptions import HTTPError`) remain allowed.
+
+## Outbound gRPC must go through the tracked gRPC transport
+
+gRPC calls from `sources/**` ride client interceptors from
+`posthog.temporal.data_imports.sources.common.grpc`, which attach the same `JobContext` labels to logs and
+OTel metrics (`data_import_grpc_*`) and feed opt-in sample capture (protobuf → scrubbed JSON). Two seams:
+
+- For SDKs that accept an `interceptors=` list (google-ads `GoogleAdsClient.get_service(...)`), pass
+  `interceptors=tracked_interceptors(host)` on **every** `get_service` call — google-ads rebuilds the channel
+  per call, so the interceptors must be re-supplied each time. Reference: `google_ads/google_ads.py`.
+- For SDKs that accept a `channel=` / `transport=` (BigQuery Storage Read API), build the credential-bearing
+  channel, wrap it with `make_tracked_channel(channel, host=...)`, then hand it to the transport. Reference:
+  `bigquery/bigquery.py:bigquery_storage_read_client`.
+
+CI enforces this via `.semgrep/rules/data-imports-grpc-transport.yaml`, which bans raw `grpc.*_channel(...)`
+and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction inside `sources/**` (outside the
+`common/grpc/` package and the two reference source files). Operators arm sample capture with
+`python manage.py warehouse_sources_capture_grpc_samples enable ...`.
 
 ## Updating SOURCES.md
 
@@ -206,7 +229,8 @@ whenever you:
   or move from `requests` to a vendor SDK. Update both the comm method and tracked-transport columns.
 
 Keep the entries alphabetical within each table. If you add a partially-tracked source, also append a
-short "Notes on partially-tracked sources" entry explaining what blocks tracking (no SDK seam, gRPC, etc.).
+short "Notes on partially-tracked sources" entry explaining what blocks tracking (e.g. a vendor SDK with no
+session/interceptor seam).
 
 ## Required coding conventions
 
@@ -224,7 +248,11 @@ short "Notes on partially-tracked sources" entry explaining what blocks tracking
 
 ## Incremental sync guidance
 
+- **Only set `supports_incremental=True` when the API exposes a server-side timestamp filter** (`<field>_gte`, `since`, `modified_after`, etc.). A "client-side cursor" that fetches every page and skips already-seen rows in Python is **not** incremental — every run still hits every page, so the API cost of an "incremental" sync ends up identical to a full refresh. If the API has no server filter, ship full refresh only.
 - If the API supports server-side time filtering, use it and map from `db_incremental_field_last_value`.
+- **Honor `inputs.incremental_field`** — that's the user's chosen cursor field from the schema settings. `INCREMENTAL_FIELDS` per-endpoint is the menu of _advertised options_; don't reach into `INCREMENTAL_FIELDS[endpoint][0]` to pick a default and silently override the user's selection.
+- **Per-endpoint sort enums vary.** Don't hardcode `?sorting=created_at` (or whatever) globally. Verify each list endpoint's allowed sort values against the API spec **and** with a curl smoke-test against the live API — APIs frequently document one set of options and silently reject another, or use a different timestamp column on certain resources.
+- **Pass `?sorting=` explicitly on a stable monotonic field when paginating.** For incremental sources, the request sort must match `SourceResponse.sort_mode` (`"asc"` typically; `"desc"` only when forced by the API — see `stripe/stripe.py`, `github/settings.py`) so the pipeline's cursor watermark advances correctly. For full-refresh sources, an explicit sort prevents page-boundary skips/duplicates if the API's implicit default is unstable or shifts as rows are inserted during the sync.
 - If the API only supports cursor pagination, still declare incremental fields if reliable and let merge semantics dedupe.
 - `sort_mode="desc"` only if the endpoint truly cannot return ascending. For descending sources, handle `db_incremental_field_earliest_value` to scroll earlier rows before newer ones (see Stripe).
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
@@ -232,11 +260,13 @@ short "Notes on partially-tracked sources" entry explaining what blocks tracking
 
 ## API behavior verification checklist
 
-Before finalizing endpoint logic, verify from docs (or reliable API examples):
+Before finalizing endpoint logic, verify from docs **and** with curl against the live API (not just docs — APIs frequently silently ignore unknown params or document outdated enums):
 
 - Response shape: list vs object vs wrapped data (`{"data": [...]}`).
 - Pagination: Link header vs body cursor vs offset/page; how next-page termination is signaled.
-- Ordering guarantees: ascending/descending/undefined for time fields.
+- Ordering guarantees: ascending/descending/undefined for time fields, and the API's _default_ sort if you don't pass one.
+- **Sort enum per endpoint:** which `sorting=` values does each list endpoint accept? Some APIs vary the allowed enum per resource. Confirm with curl that the value you intend to pass returns 200, and probe with a future-date cutoff to confirm whether timestamp filters are honored or silently ignored.
+- **Server-side timestamp filter:** does `<field>_gte` / `since` / `modified_after` actually filter, or does the API accept it and ignore it? Test by passing a future date and checking whether the row drops out.
 - Rate-limit headers (window reset timestamp, concurrent limits).
 - Field stability: whether candidate incremental/partition fields can change over time.
 
@@ -320,6 +350,19 @@ def get_non_retryable_errors(self) -> dict[str, str | None]:
 
 Common cases: 401 Unauthorized, 403 Forbidden, invalid/expired tokens, OAuth tokens needing re-auth.
 
+## `validate_credentials`
+
+Called with `schema_name=None` at source-create (one cheap probe to confirm the token is genuine) and with `schema_name=<name>` from the per-schema `incremental_fields` action (confirm scope for that specific endpoint).
+
+If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), **accept 403 at source-create** — users may legitimately only grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set. Sync-time 403s are handled separately by `get_non_retryable_errors()`.
+
+## Document required token scopes
+
+If the API issues OAuth scopes or per-resource access tokens, declare every scope the source actually calls so users know what to grant — don't make them grant the full set defensively.
+
+- **OAuth sources:** set `requiredScopes` on `SourceFieldOauthConfig` (space-separated string, matches the OAuth `scope` parameter format). The frontend diffs it against the integration's granted scopes and warns the user with a Reconnect action when any are missing.
+- **Non-OAuth sources (PAT, API key):** there's no integration object to inspect, so list scopes in the `caption` instead. Captions render through `LemonMarkdown`, so backticks, bold, and links work.
+
 ## Mixins
 
 From `posthog/temporal/data_imports/sources/common/mixins.py`:
@@ -390,9 +433,10 @@ Tooling & assets:
 
 Release status:
 - [ ] unreleasedSource=True while WIP
-- [ ] releaseStatus="alpha" for new sources not yet extensively tested
-- [ ] releaseStatus="beta" when most rough edges have been ironed out
-- [ ] Omit releaseStatus (or set to "ga") on full release
+- [ ] When set, releaseStatus uses the `ReleaseStatus` enum, never a string literal
+- [ ] releaseStatus=ReleaseStatus.ALPHA for new sources not yet extensively tested
+- [ ] releaseStatus=ReleaseStatus.BETA when most rough edges have been ironed out
+- [ ] releaseStatus=ReleaseStatus.GA (or omit it) on full release
 - [ ] featureFlag="dwh-{source_name}" for controlled rollout
 - [ ] Flag removed / unreleasedSource removed on full release
 
@@ -414,7 +458,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `pnp
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
-- Webhook rows not landing: feature flag `warehouse-source-webhooks` disabled, or schema `is_webhook=False`, or `initial_sync_complete=False`.
+- Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.
 - Drift from refactors: unused function params/helpers left behind after endpoint behavior changes.

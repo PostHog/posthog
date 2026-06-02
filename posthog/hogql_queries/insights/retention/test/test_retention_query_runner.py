@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
@@ -35,16 +36,19 @@ from posthog.constants import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.insights.retention.test.retention_base_query_variant import (
+    RetentionBaseQueryVariantComparisonMixin,
+)
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import Action, Cohort
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.actions.backend.models.action import Action
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention"
@@ -78,7 +82,17 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
         i += 1
 
 
-class TestRetention(ClickhouseTestMixin, APIBaseTest):
+class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest):
+    retention_base_query_variant_comparison_excluded_tests = {
+        "test_month_interval_with_person_on_events_v2",
+        "test_week_interval",
+        "test_retention_event_action",
+        "test_retention_with_user_properties_via_action",
+        "test_timezones",
+        "test_retention_aggregation_sum",
+        "test_retention_aggregation_different_events_ignores_start_event_property_value",
+    }
+
     def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
@@ -99,28 +113,36 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = RetentionQueryRunner(team=self.team, query=query)
-        return runner.calculate().model_dump()["results"]
+
+        def calculate(query_for_variant):
+            runner = RetentionQueryRunner(team=self.team, query=query_for_variant)
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def run_actors_query(self, interval, query, select=None, search=None, breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = ActorsQueryRunner(
-            team=self.team,
-            query={
-                "search": search,
-                "select": ["person", "appearances", *(select or [])],
-                "orderBy": ["length(appearances) DESC", "actor_id"],
-                "source": {
-                    "kind": "InsightActorsQuery",
-                    "interval": interval,
-                    "source": query,
-                    "breakdown": breakdown,
+
+        def calculate(query_for_variant):
+            runner = ActorsQueryRunner(
+                team=self.team,
+                query={
+                    "search": search,
+                    "select": ["person", "appearances", *(select or [])],
+                    "orderBy": ["length(appearances) DESC", "actor_id"],
+                    "source": {
+                        "kind": "InsightActorsQuery",
+                        "interval": interval,
+                        "source": query_for_variant,
+                        "breakdown": breakdown,
+                    },
                 },
-            },
-        )
-        return runner.calculate().model_dump()["results"]
+            )
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def test_retention_default(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -3980,6 +4002,69 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    @parameterized.expand(
+        [
+            ("plain", "upper(properties.browser)"),
+            # The `AS` clause exercises strip_user_aliases: it must be dropped, not break the query.
+            ("with_alias", "upper(properties.browser) AS browser_upper"),
+        ]
+    )
+    def test_retention_with_breakdown_hogql_expression(self, _name: str, breakdown: str):
+        # upper(...) makes the buckets uppercased, which only happens if the expression
+        # is evaluated as SQL rather than treated as a property name.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort
+                ("person1", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person1", _date(1), {"browser": "Chrome"}),  # Day 1
+                ("person1", _date(3), {"browser": "Chrome"}),  # Day 3
+                ("person3", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person3", _date(2), {"browser": "Chrome"}),  # Day 2
+                # Safari cohort
+                ("person2", _date(0), {"browser": "Safari"}),  # Day 0
+                ("person2", _date(1), {"browser": "Safari"}),  # Day 1
+                ("person2", _date(4), {"browser": "Safari"}),  # Day 4
+                # Firefox cohort
+                ("person4", _date(0), {"browser": "Firefox"}),  # Day 0
+                ("person4", _date(5), {"browser": "Firefox"}),  # Day 5
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdown": breakdown, "breakdown_type": "hogql"},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"CHROME", "SAFARI", "FIREFOX"})
+
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "CHROME"], "values", "count")
+        self.assertEqual(
+            chrome_cohorts,
+            pad(
+                [
+                    [2, 1, 1, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
     def test_retention_with_breakdown_event_properties_and_minimum_occurrences(self):
         """Test retention with breakdown by event properties"""
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -4780,6 +4865,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Verify the cohort filter was actually merged into query properties
         assert runner.query.properties is not None
 
+    @snapshot_clickhouse_queries
     def test_retention_aggregation_sum(self):
         """Test retention with SUM aggregation on a property"""
         Person.objects.create(team=self.team, distinct_ids=["user1"])
@@ -5176,6 +5262,32 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Interval 1: user1(100) only — user2 didn't return on day 1
         self.assertEqual(day0_values[1]["aggregation_value"], 100)
 
+    @snapshot_clickhouse_queries
+    def test_retention_aggregation_different_events_ignores_start_event_property_value(self):
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+
+        _create_events(self.team, [("user1", _date(0, hour=10), {"revenue": 999})], event="signed_up")
+        _create_events(self.team, [("user1", _date(0, hour=12), {"revenue": 50})], event="purchased")
+
+        flush_persons_and_events()
+
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "purchased", "type": "events"},
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        day0_values = result_sum[0]["values"]
+        self.assertEqual(day0_values[0]["count"], 1)
+        self.assertEqual(day0_values[0]["aggregation_value"], 50)
+
     def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
         # Return events that happen BEFORE the start event in the same interval must NOT be
         # counted in interval 0, even when start and return events are different event types.
@@ -5419,31 +5531,48 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("properties", sql)
 
 
-class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
+class TestClickhouseRetentionGroupAggregation(
+    RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest
+):
+    retention_base_query_variant_comparison_excluded_tests = {
+        "test_groups_aggregating",
+        "test_groups_aggregating_person_on_events",
+        "test_limit_is_context_aware",
+        "test_retention_24h_window_calculation",
+    }
+
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)
-        return runner.calculate().model_dump()["results"]
+
+        def calculate(query_for_variant):
+            runner = RetentionQueryRunner(team=self.team, query=query_for_variant, limit_context=limit_context)
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def run_actors_query(self, interval, query, select=None, actor="person", breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = ActorsQueryRunner(
-            team=self.team,
-            query={
-                "select": [actor, "appearances", *(select or [])],
-                "orderBy": ["length(appearances) DESC", "actor_id"],
-                "source": {
-                    "kind": "InsightActorsQuery",
-                    "interval": interval,
-                    "source": query,
-                    "breakdown": breakdown,
+
+        def calculate(query_for_variant):
+            runner = ActorsQueryRunner(
+                team=self.team,
+                query={
+                    "select": [actor, "appearances", *(select or [])],
+                    "orderBy": ["length(appearances) DESC", "actor_id"],
+                    "source": {
+                        "kind": "InsightActorsQuery",
+                        "interval": interval,
+                        "source": query_for_variant,
+                        "breakdown": breakdown,
+                    },
                 },
-            },
-        )
-        return runner.calculate().model_dump()["results"]
+            )
+            return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
     def _create_groups_and_events(self):
         create_group_type_mapping_without_created_at(

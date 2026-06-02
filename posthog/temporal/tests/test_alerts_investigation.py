@@ -14,9 +14,10 @@ from parameterized import parameterized
 
 from posthog.schema import AlertState
 
-from posthog.models import Insight
-from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestShouldTriggerInvestigation(BaseTest):

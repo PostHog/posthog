@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import struct
 import asyncio
 import builtins
@@ -39,11 +40,13 @@ from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
 from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import (
+    HideViewedRecordings,
     MatchedRecordingEvent,
     MatchingEventsResponse,
     ProductIntentContext,
@@ -64,6 +67,7 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
@@ -75,7 +79,14 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.models.utils import hash_key_value
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalApiKeyRateThrottle,
+    is_rate_limit_enabled,
+    team_is_allowed_to_bypass_throttle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
@@ -685,6 +696,36 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
         return listing_rates()
 
 
+class SharingTokenReplayThrottle(SimpleRateThrottle):
+    """Per-token cap for replay endpoints reached via a sharing-token authenticator."""
+
+    scope = "replay_sharing_token"
+
+    def __init__(self) -> None:
+        # Read at instantiation so override_settings takes effect.
+        self.rate = settings.REPLAY_SHARING_TOKEN_RATE
+        super().__init__()
+
+    def get_cache_key(self, request, view) -> str | None:
+        auth = request.successful_authenticator
+        token = getattr(getattr(auth, "sharing_configuration", None), "access_token", None)
+        if not token:
+            return None
+        # Hash the bearer token before composing the key — mirrors PersonalApiKeyRateThrottle.
+        return self.cache_format % {"scope": self.scope, "ident": hash_key_value(token)}
+
+    def allow_request(self, request, view) -> bool:
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        if team_id is not None and team_is_allowed_to_bypass_throttle(team_id):
+            return True
+        if super().allow_request(request, view):
+            return True
+        SESSION_RECORDING_THROTTLED.labels(location=self.scope, auth_type="sharing_token").inc()
+        return False
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -747,6 +788,12 @@ class SessionRecordingViewSet(
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
     def get_throttles(self):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
+            # Sharing-token requests get a per-token cap instead of per-IP / per-team.
+            return [SharingTokenReplayThrottle()]
         if self.action == "list":
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
@@ -1440,6 +1487,7 @@ class SessionRecordingViewSet(
         user: User,
         tracking_id: str,
         product_context: str | None = None,
+        custom_tags: dict[str, str] | None = None,
         force_restart: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
@@ -1463,6 +1511,7 @@ class SessionRecordingViewSet(
                 team=self.team,
                 force_restart=force_restart,
                 product_context=product_context,
+                custom_tags=custom_tags,
             ):
                 if chunk.startswith("event: session-summary-stream"):
                     success = True
@@ -1495,10 +1544,11 @@ class SessionRecordingViewSet(
                     error_message=error_message,
                 )
 
-    def _load_team_product_context(self) -> str | None:
+    def _load_team_summary_config(self) -> tuple[str | None, dict[str, str] | None]:
         team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
-        product_context = (team_config.product_context or "").strip()
-        return product_context or None
+        product_context = (team_config.product_context or "").strip() or None
+        custom_tags = team_config.custom_tags or None
+        return product_context, custom_tags
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -1533,9 +1583,15 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
+
+        # Per-team monthly hard cap as a cost backstop is enforced inside
+        # `execute_summarize_session_video_stream`, just before a *fresh*
+        # workflow start — gating it here would 402 cached-summary fast-path
+        # hits and silent-attach (`id_conflict_policy=USE_EXISTING`) cases that
+        # don't issue any LLM work.
         tracking_id = generate_tracking_id()
         force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
-        product_context = self._load_team_product_context()
+        product_context, custom_tags = self._load_team_summary_config()
 
         capture_session_summary_started(
             user=user,
@@ -1548,7 +1604,7 @@ class SessionRecordingViewSet(
         )
         response = StreamingHttpResponse(
             self._generate_video_based_summary(
-                session_id, user, tracking_id, product_context, force_restart=force_restart
+                session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
             ),
             content_type=ServerSentEventRenderer.media_type,
         )
@@ -1933,11 +1989,22 @@ def list_recordings_from_query(
 
             query_for_list = query.model_copy(update=query_updates)
 
+            # Resolve the "hide viewed recordings" filter into a server-side exclusion set, so pagination
+            # and the cursor operate on the filtered set. Skip when explicit session_ids are requested
+            # (pinned recordings, comment search) since those are intentional and shouldn't be hidden.
+            session_ids_to_exclude: list[str] = []
+            if query_for_list.session_ids is None:
+                with timer("load_viewed_recordings_to_exclude"):
+                    session_ids_to_exclude = _viewed_session_ids_to_exclude(
+                        query_for_list.hide_viewed_recordings, user, team
+                    )
+
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
+                session_ids_to_exclude=session_ids_to_exclude,
             ).run()
             ch_session_recordings = query_result.results
 
@@ -2036,6 +2103,42 @@ def current_user_viewed(recording_ids_in_list: list[str], user: User | None, tea
         .values_list("session_id", flat=True)
     )
     return viewed_session_recordings
+
+
+# The exclusion list is inlined into the ClickHouse query, so an unbounded set (e.g. a large team in
+# 'any-user' mode) could exceed max_query_size and make the query fail or run slowly. Cap it; the
+# client-side filter still hides any viewed recordings beyond the cap.
+MAX_VIEWED_SESSION_IDS_TO_EXCLUDE = 10_000
+
+
+def _viewed_session_ids_to_exclude(
+    hide_viewed_recordings: HideViewedRecordings | None, user: User | None, team: Team
+) -> list[str]:
+    """
+    Resolve the "hide viewed recordings" filter into the set of session_ids to exclude server-side,
+    so pagination and the result cursor operate on the already-filtered set.
+
+    - 'current-user': recordings this user has viewed (empty when there is no user, e.g. Celery callers)
+    - 'any-user': recordings any team member has viewed
+
+    Not bounded by date: SessionRecordingViewed only stores the view time (created_at), which does not
+    correspond to the recording's start_time, so a date bound would exclude/include the wrong rows.
+    Bounded by count: see MAX_VIEWED_SESSION_IDS_TO_EXCLUDE. Ordered by session_id so the truncation
+    is deterministic across paginated requests rather than returning an arbitrary slice each time.
+    """
+    queryset = SessionRecordingViewed.objects.filter(team=team)
+    if hide_viewed_recordings == HideViewedRecordings.CURRENT_USER:
+        if not user:
+            return []
+        queryset = queryset.filter(user=user)
+    elif hide_viewed_recordings != HideViewedRecordings.ANY_USER:
+        return []
+
+    return list(
+        queryset.values_list("session_id", flat=True)
+        .distinct()
+        .order_by("session_id")[:MAX_VIEWED_SESSION_IDS_TO_EXCLUDE]
+    )
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:

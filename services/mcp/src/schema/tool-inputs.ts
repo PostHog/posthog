@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
+import { PropertyFilter } from './query'
 
 export const ExternalDataJobsAfterSchema = z
     .string()
@@ -68,6 +68,74 @@ export const UsageMetricFiltersSchema = z
     .union([UsageMetricDataWarehouseFiltersSchema, UsageMetricEventsFiltersSchema])
     .describe(
         'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
+    )
+
+const CategoricalScoreOptionSchema = z.object({
+    key: z
+        .string()
+        .min(1)
+        .max(128)
+        .describe(
+            'Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected.'
+        ),
+    label: z.string().min(1).max(256).describe('Human-readable label shown in the review UI.'),
+})
+
+const CategoricalScoreDefinitionConfigSchema = z
+    .object({
+        options: z
+            .array(CategoricalScoreOptionSchema)
+            .min(1)
+            .refine(
+                (options) => new Set(options.map((option) => option.key)).size === options.length,
+                'Categorical option keys must be unique.'
+            )
+            .describe('Ordered categorical options. Must contain at least one option with unique keys.'),
+        selection_mode: z
+            .enum(['single', 'multiple'])
+            .optional()
+            .describe('Whether reviewers select one option or many. Defaults to "single".'),
+        min_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Minimum selections required. Only valid when selection_mode is "multiple".'),
+        max_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "categorical".')
+
+const NumericScoreDefinitionConfigSchema = z
+    .object({
+        min: z.number().optional().describe('Optional inclusive minimum score.'),
+        max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
+        step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "numeric".')
+
+const BooleanScoreDefinitionConfigSchema = z
+    .object({
+        true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
+        false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "boolean".')
+
+export const ScoreDefinitionConfigSchema = z
+    .union([
+        CategoricalScoreDefinitionConfigSchema,
+        NumericScoreDefinitionConfigSchema,
+        BooleanScoreDefinitionConfigSchema,
+    ])
+    .describe(
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
 
 export const PromptListInputSchema = z.object({
@@ -373,15 +441,8 @@ export const ExperimentCreateSchema = z.object({
         .boolean()
         .optional()
         .describe(
-            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
+            "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
         ),
-})
-
-export const InsightGenerateHogQLFromQuestionSchema = z.object({
-    question: z
-        .string()
-        .max(1000)
-        .describe('Your natural language query describing the SQL insight (max 1000 characters).'),
 })
 
 export const InsightQueryInputSchema = z.object({
@@ -407,7 +468,7 @@ export const InsightQueryInputSchema = z.object({
         ),
 })
 
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
@@ -417,12 +478,6 @@ export const OrganizationSetActiveSchema = z.object({
 })
 
 export const ProjectGetAllSchema = z.object({})
-
-export const ProjectEventDefinitionsSchema = z.object({
-    q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
@@ -447,82 +502,11 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
-export const ProjectPropertyDefinitionsInputSchema = z.object({
-    type: z.enum(['event', 'person']).describe('Type of properties to get'),
-    eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
-    includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
-
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
 export const SurveyResponseCountsSchema = z.object({})
-
-const QueryRunQuerySchema = z.discriminatedUnion('kind', [
-    InsightVizNodeSchema,
-    DataVisualizationNodeSchema,
-    HogQLQuerySchema,
-])
-
-export const QueryRunInputSchema = z.object({
-    query: QueryRunQuerySchema,
-})
-
-export const HogQLSchemaInputSchema = z.object({
-    connectionId: z
-        .string()
-        .optional()
-        .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
-        ),
-})
-
-export const QueryValidateInputSchema = z.object({
-    query: z
-        .string()
-        .min(1)
-        .describe(
-            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
-        ),
-    language: z
-        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
-        .default('hogQL')
-        .describe(
-            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
-        ),
-    connectionId: z
-        .string()
-        .optional()
-        .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
-        ),
-})
-
-// Entity Search
-export const EntitySearchSchema = z.object({
-    query: z.string().min(1).describe('Search query to find entities by name or description'),
-    entities: z
-        .array(
-            z.enum([
-                'insight',
-                'dashboard',
-                'experiment',
-                'feature_flag',
-                'notebook',
-                'action',
-                'cohort',
-                'event_definition',
-                'survey',
-            ])
-        )
-        .optional()
-        .describe(
-            'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
-        ),
-})
 
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({
@@ -538,6 +522,12 @@ export const ExecuteSQLSchema = z.object({
         .default(true)
         .describe(
             'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
@@ -597,3 +587,25 @@ export const ReadDataSchemaSchema = z.object({
         ])
         .describe('The data schema query to execute.'),
 })
+
+// Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
+// instead of forwarding an empty/ambiguous body and waiting for a 400.
+export function validateDistinctIdPersonIdExclusive(
+    data: { distinct_id?: string | undefined; person_id?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    const hasDistinctId = typeof data.distinct_id === 'string' && data.distinct_id.length > 0
+    const hasPersonId = typeof data.person_id === 'string' && data.person_id.length > 0
+    if (!hasDistinctId && !hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Either distinct_id or person_id must be provided',
+        })
+    }
+    if (hasDistinctId && hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Cannot provide both distinct_id and person_id (they are mutually exclusive)',
+        })
+    }
+}

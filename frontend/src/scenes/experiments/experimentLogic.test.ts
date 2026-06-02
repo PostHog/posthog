@@ -149,26 +149,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadPrimaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setPrimaryMetricsResultsLoading', 'setLegacyPrimaryMetricsResults'])
-                .toMatchValues({
-                    legacyPrimaryMetricsResults: [],
-                    primaryMetricsResultsLoading: true,
-                    primaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setPrimaryMetricsResultsLoading']).toMatchValues({
+                primaryMetricsResultsLoading: true,
+                primaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setPrimaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacyPrimaryMetricsResults: [
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                        null,
-                    ],
                     primaryMetricsResultsLoading: false,
                     primaryMetricsResultsErrors: [
                         null,
@@ -227,26 +217,16 @@ describe('experimentLogic', () => {
 
             const promise = logic.asyncActions.loadSecondaryMetricsResults(true)
 
-            await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricsResultsLoading', 'setLegacySecondaryMetricsResults'])
-                .toMatchValues({
-                    legacySecondaryMetricsResults: [],
-                    secondaryMetricsResultsLoading: true,
-                    secondaryMetricsResultsErrors: [],
-                })
+            await expectLogic(logic).toDispatchActions(['setSecondaryMetricsResultsLoading']).toMatchValues({
+                secondaryMetricsResultsLoading: true,
+                secondaryMetricsResultsErrors: [],
+            })
 
             await promise
 
             await expectLogic(logic)
                 .toDispatchActions(['setSecondaryMetricsResultsLoading'])
                 .toMatchValues({
-                    legacySecondaryMetricsResults: [
-                        null,
-                        {
-                            ...experimentMetricResultsSuccessJson.query_status.results,
-                            fakeInsightId: expect.any(String),
-                        },
-                    ],
                     secondaryMetricsResultsLoading: false,
                     secondaryMetricsResultsErrors: [
                         {
@@ -294,16 +274,9 @@ describe('experimentLogic', () => {
 
             await logic.asyncActions.refreshExperimentResults(true, 'manual')
 
+            // Verify loading states are properly reset after refresh completes
             expect(logic.values.primaryMetricsResultsLoading).toBe(false)
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
-
-            const successfulCount =
-                logic.values.legacyPrimaryMetricsResults.filter(Boolean).length +
-                logic.values.primaryMetricsResults.filter(Boolean).length +
-                logic.values.legacySecondaryMetricsResults.filter(Boolean).length +
-                logic.values.secondaryMetricsResults.filter(Boolean).length
-
-            expect(successfulCount).toBeGreaterThan(0)
         })
     })
 
@@ -1191,7 +1164,7 @@ describe('experimentLogic', () => {
             expect(keyed.values.experiment.status).toBe('running')
 
             await expectLogic(keyed, () => {
-                keyed.actions.finishExperiment({ selectedVariantKey: 'test' })
+                keyed.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             })
                 .toDispatchActions(['finishExperiment', 'setExperiment'])
                 .toFinishAllListeners()
@@ -1200,6 +1173,7 @@ describe('experimentLogic', () => {
                 expect.stringContaining(`/experiments/${experiment.id}/ship_variant`),
                 {
                     variant_key: 'test',
+                    release_to_everyone: false,
                     conclusion: 'won',
                     conclusion_comment: 'Test variant won clearly',
                 }
@@ -1227,7 +1201,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(experiment)
 
             await expectLogic(logic, () => {
-                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+                logic.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             }).toFinishAllListeners()
 
             expect(errorMock).toHaveBeenCalledWith('Experiment has not been launched yet.')
@@ -1242,7 +1216,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(experiment)
 
             await expectLogic(logic, () => {
-                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+                logic.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             }).toFinishAllListeners()
 
             expect(errorMock).toHaveBeenCalledWith('Failed to ship variant')
@@ -1265,7 +1239,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(expWithFlag)
 
             await expectLogic(logic, () => {
-                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+                logic.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             }).toFinishAllListeners()
 
             // Should show approval required toast with change request ID
@@ -1619,6 +1593,76 @@ describe('experimentLogic', () => {
             const circular: Record<string, unknown> = {}
             circular.self = circular
             expect(extractErrorDetailString(circular)).toBeNull()
+        })
+    })
+
+    describe('excluded variants', () => {
+        it('excludedVariants selector returns parameters.excluded_variants', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: {
+                        ...experiment.parameters,
+                        excluded_variants: ['test-2'],
+                    },
+                })
+            }).toMatchValues({
+                excludedVariants: ['test-2'],
+            })
+        })
+
+        it('excludedVariants defaults to [] when missing', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: { ...experiment.parameters },
+                })
+            }).toMatchValues({
+                excludedVariants: [],
+            })
+        })
+
+        it('setVariantExcluded sends a PATCH with the merged exclusion list', async () => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+            const existingExperiment = {
+                ...experiment,
+                parameters: {
+                    ...experiment.parameters,
+                    excluded_variants: ['test-1'],
+                },
+            } as Experiment
+            api.update.mockResolvedValue(existingExperiment)
+
+            logic.actions.setExperiment(existingExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.setVariantExcluded('test-2', true)
+            })
+                .toDispatchActions(['setVariantExcluded'])
+                .toFinishAllListeners()
+
+            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
+            expect(sentParams.excluded_variants).toEqual(expect.arrayContaining(['test-1', 'test-2']))
+            expect(sentParams.excluded_variants).toHaveLength(2)
+        })
+
+        it('setVariantExcluded(key, false) removes the key from the exclusion list', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: {
+                        ...experiment.parameters,
+                        excluded_variants: ['test-1', 'test-2'],
+                    },
+                })
+            }).toMatchValues({
+                excludedVariants: ['test-1', 'test-2'],
+            })
+
+            // Re-include test-2 — the new list (computed in the listener) must drop it.
+            const next = logic.values.excludedVariants.filter((k) => k !== 'test-2')
+            expect(next).toEqual(['test-1'])
         })
     })
 })

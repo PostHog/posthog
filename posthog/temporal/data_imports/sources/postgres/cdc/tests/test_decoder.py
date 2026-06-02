@@ -145,6 +145,20 @@ class TestPgOutputDecoder:
         events = decoder.decode_message(commit, "0/200")
         assert events == []
 
+    def test_event_table_name_is_schema_qualified(self):
+        # ChangeEvent.table_name must be `schema.table` to match the qualified
+        # ExternalDataSchema.name the CDC extraction activity filters on. A bare table
+        # name silently drops every change for multi-schema-era (qualified) schemas.
+        decoder = self._setup_decoder_with_relation(
+            relation_id=7, table="cdc_test_orders", columns=[("id", _OID_INT4, -1)]
+        )
+        decoder.decode_message(_make_begin(), "0/100")
+        decoder.decode_message(_make_insert(7, [("t", "1")]), "0/150")
+        events = decoder.decode_message(_make_commit(), "0/200")
+
+        assert len(events) == 1
+        assert events[0].table_name == "public.cdc_test_orders"
+
     def test_insert_event(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
 
@@ -159,7 +173,7 @@ class TestPgOutputDecoder:
         assert len(events) == 1
         event = events[0]
         assert event.operation == "I"
-        assert event.table_name == "users"
+        assert event.table_name == "public.users"
         assert event.columns["id"] == 42
         assert event.columns["name"] == "Alice"
 
@@ -177,7 +191,7 @@ class TestPgOutputDecoder:
         assert len(events) == 1
         event = events[0]
         assert event.operation == "U"
-        assert event.table_name == "users"
+        assert event.table_name == "public.users"
         assert event.columns["id"] == 42
         assert event.columns["name"] == "Bob"
 
@@ -214,7 +228,7 @@ class TestPgOutputDecoder:
         assert len(events) == 1
         event = events[0]
         assert event.operation == "D"
-        assert event.table_name == "users"
+        assert event.table_name == "public.users"
         assert event.columns["id"] == 42
         assert event.columns.get("name") is None
 
@@ -359,7 +373,7 @@ class TestPgOutputDecoder:
         truncate = _make_truncate([1])
         decoder.decode_message(truncate, "0/100")
 
-        assert decoder.truncated_tables == ["users"]
+        assert decoder.truncated_tables == ["public.users"]
 
         decoder.clear_truncated_tables()
         assert decoder.truncated_tables == []
@@ -378,9 +392,9 @@ class TestPgOutputDecoder:
         events = decoder.decode_message(_make_commit(), "0/200")
 
         assert len(events) == 2
-        assert events[0].table_name == "users"
+        assert events[0].table_name == "public.users"
         assert events[0].columns["id"] == 1
-        assert events[1].table_name == "orders"
+        assert events[1].table_name == "public.orders"
         assert events[1].columns["id"] == 100
         assert events[1].columns["user_id"] == 1
 

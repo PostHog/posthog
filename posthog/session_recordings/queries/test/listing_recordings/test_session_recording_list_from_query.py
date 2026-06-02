@@ -32,7 +32,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Person
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
@@ -48,6 +47,8 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
@@ -4120,6 +4121,59 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # Test filtering
         self._assert_query_matches_session_ids(query={"distinct_ids": distinct_ids}, expected=expected)
 
+    @snapshot_clickhouse_queries
+    def test_person_profile_finds_anonymous_distinct_id_sessions(self):
+        """
+        Regression test: the person profile replay tab sends both distinct_ids
+        (from person.distinct_ids) and person_uuid. Before the fix, distinct_ids
+        took priority and sessions recorded under an anonymous distinct_id that
+        wasn't in person.distinct_ids were missed. With the OR fix, both paths
+        are used so the anonymous session is found via the POE person_id lookup.
+        """
+        identified_id = "identified-user"
+        anonymous_id = "anon-uuid-123"
+
+        person = Person.objects.create(team=self.team, distinct_ids=[identified_id, anonymous_id])
+
+        identified_session = f"identified-session-{uuid4()}"
+        anonymous_session = f"anonymous-session-{uuid4()}"
+
+        # session recorded under the identified distinct_id
+        produce_replay_summary(
+            distinct_id=identified_id,
+            session_id=identified_session,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        # session recorded under the anonymous distinct_id
+        produce_replay_summary(
+            distinct_id=anonymous_id,
+            session_id=anonymous_session,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        # an event linking the anonymous distinct_id to the person (for POE)
+        create_event(
+            distinct_id=anonymous_id,
+            timestamp=self.an_hour_ago,
+            team=self.team,
+            event_name="$pageview",
+            properties={"$session_id": anonymous_session, "$window_id": "1"},
+        )
+
+        # simulate the person profile replay tab: sends only the identified
+        # distinct_id (as if the anonymous one isn't in person.distinct_ids)
+        # plus the person_uuid
+        self._assert_query_matches_session_ids(
+            query={
+                "distinct_ids": [identified_id],
+                "person_uuid": str(person.uuid),
+            },
+            expected=[identified_session, anonymous_session],
+        )
+
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
@@ -4300,6 +4354,29 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    def test_session_property_filter_is_applied_to_query(self) -> None:
+        # Regression test for the cross-sell flow: web analytics opens session replay
+        # with a session-scoped UTM filter, which previously got stripped from the
+        # recordings query and silently returned all sessions.
+        query = RecordingsQuery.model_validate(
+            {
+                "properties": [
+                    {
+                        "key": "$entry_utm_source",
+                        "value": ["google"],
+                        "operator": "exact",
+                        "type": "session",
+                    }
+                ]
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromQuery(
+            query=query, team=self.team, hogql_query_modifiers=None
+        )
+        printed_query = self._print_query(session_recording_list_instance.get_query())
+
+        assert "entry_utm_source" in printed_query
 
     @property
     def base_time(self):
@@ -4707,3 +4784,80 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
         self.assertEqual(len(result2.results), 2)
         self.assertTrue(result2.has_more_recording)
+
+    def _produce_sessions(self, base_session_id: str, count: int) -> list[str]:
+        session_ids = []
+        for i in range(count):
+            session_id = f"{base_session_id}-{i}"
+            session_ids.append(session_id)
+            produce_replay_summary(
+                session_id=session_id,
+                team_id=self.team.pk,
+                first_timestamp=self.base_time + relativedelta(seconds=i * 10),
+                last_timestamp=self.base_time + relativedelta(seconds=i * 10 + 30),
+            )
+        return session_ids
+
+    def test_session_ids_to_exclude_removes_those_sessions(self):
+        session_ids = self._produce_sessions(f"exclude-{uuid4()}", 3)
+
+        query = RecordingsQuery.model_validate({"limit": 10})
+        result = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=[session_ids[1]],
+        ).run()
+
+        assert sorted(r["session_id"] for r in result.results) == sorted([session_ids[0], session_ids[2]])
+
+    @parameterized.expand([("empty_list", []), ("none", None)])
+    def test_session_ids_to_exclude_no_op_when_empty(self, _name: str, exclude):
+        session_ids = self._produce_sessions(f"no-exclude-{uuid4()}", 3)
+
+        query = RecordingsQuery.model_validate({"limit": 10})
+        result = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=exclude,
+        ).run()
+
+        assert sorted(r["session_id"] for r in result.results) == sorted(session_ids)
+
+    def test_session_ids_to_exclude_is_and_combined_with_or_operand(self):
+        # Even with an OR operand the exclusion must always be AND'd, otherwise it could be OR'd away.
+        session_ids = self._produce_sessions(f"exclude-or-{uuid4()}", 2)
+
+        query = RecordingsQuery.model_validate({"limit": 10, "operand": "OR"})
+        instance = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=[session_ids[0]],
+        )
+        # the printer renders NOT IN as the function form notin(...), and it must sit inside the
+        # top-level and(...) so the OR operand can't cancel the exclusion
+        printed_query = self._print_query(instance.get_query())
+        assert "notin(s.session_id" in printed_query.lower()
+
+        result = instance.run()
+        assert [r["session_id"] for r in result.results] == [session_ids[1]]
+
+    def test_session_ids_to_exclude_paginates_over_filtered_set(self):
+        # Sessions are produced oldest-to-newest; with DESC order the two newest are excluded, so a
+        # page of size 2 must still surface the older unexcluded sessions rather than an empty page.
+        session_ids = self._produce_sessions(f"exclude-page-{uuid4()}", 4)
+        newest_two = session_ids[2:]
+        oldest_two = session_ids[:2]
+
+        query = RecordingsQuery.model_validate({"limit": 2, "order": "start_time", "order_direction": "DESC"})
+        result = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=newest_two,
+        ).run()
+
+        assert sorted(r["session_id"] for r in result.results) == sorted(oldest_two)
+        assert result.has_more_recording is False

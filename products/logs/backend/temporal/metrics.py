@@ -26,23 +26,39 @@ _NOTIFICATION_FAILURE_LABELS: dict[NotificationAction, str] = {
 
 ALERTING_ACTIVITY_TYPES = frozenset(
     {
-        "check_alerts_activity",
+        "discover_cohorts_activity",
+        "evaluate_cohort_batch_activity",
     }
 )
 
 Attributes = dict[str, str | int | float | bool]
 
+# Consumed by `posthog/temporal/common/worker.py` to override Prometheus default
+# buckets per-metric. Keep in sync with the latency histograms emitted below.
 LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_check_duration_ms",
     "logs_alerting_cycle_duration_ms",
     "logs_alerting_scheduler_lag_ms",
     "logs_alerting_schedule_to_start_ms",
     "logs_alerting_clickhouse_duration_ms",
-    "logs_alerting_semaphore_wait_ms",
-    "logs_alerting_alert_save_ms",
-    "logs_alerting_alert_event_create_ms",
-    "logs_alerting_alert_update_ms",
+    "logs_alerting_cohort_save_ms",
+    "logs_alerting_cohort_event_insert_ms",
+    "logs_alerting_cohort_update_ms",
 )
+
+LOGS_ALERTING_COUNT_HISTOGRAM_METRICS = ("logs_alerting_cohort_size",)
+
+LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS = [
+    1.0,
+    5.0,
+    10.0,
+    20.0,
+    30.0,
+    50.0,
+    100.0,
+    250.0,
+    500.0,
+]
 
 LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
     100.0,
@@ -127,15 +143,6 @@ def record_alerts_active(count: int) -> None:
     gauge.set(count)
 
 
-def record_pending_alerts(count: int) -> None:
-    meter = get_metric_meter()
-    gauge = meter.create_gauge(
-        "logs_alerting_pending_alerts",
-        "Number of due alerts still waiting to be evaluated at end of cycle (backlog)",
-    )
-    gauge.set(count)
-
-
 def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
     meter = get_metric_meter()
     gauge = meter.create_gauge(
@@ -171,14 +178,6 @@ def record_clickhouse_duration(duration_ms: int) -> None:
     )
 
 
-def record_semaphore_wait(wait_ms: int) -> None:
-    _record_histogram(
-        "logs_alerting_semaphore_wait_ms",
-        "Time an alert spent waiting on the per-cycle concurrency semaphore",
-        wait_ms,
-    )
-
-
 def record_cohort_save_duration(duration_ms: int) -> None:
     _record_histogram(
         "logs_alerting_cohort_save_ms",
@@ -204,11 +203,14 @@ def record_cohort_update_duration(duration_ms: int) -> None:
 
 
 def record_cohort_size(size: int) -> None:
-    _record_histogram(
-        "logs_alerting_cohort_size",
-        "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
-        size,
+    """Record a non-timedelta histogram observation — cohort size is a count, not a duration."""
+    meter = get_metric_meter()
+    hist = meter.create_histogram(
+        name="logs_alerting_cohort_size",
+        description="Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+        unit="alerts",
     )
+    hist.record(size)
 
 
 CohortSaveFallbackReason = typing.Literal["integrity_error"]
@@ -282,7 +284,7 @@ def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> Non
 
 
 # TODO: Extract ExecutionTimeRecorder to posthog/temporal/common/ — copied from
-# posthog/temporal/llm_analytics/metrics.py to avoid cross-product import.
+# posthog/temporal/ai_observability/metrics.py to avoid cross-product import.
 class ExecutionTimeRecorder:
     """Context manager to record execution time to a histogram metric."""
 

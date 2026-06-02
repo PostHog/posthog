@@ -16,13 +16,14 @@ from django.test import override_settings
 from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
-from posthog.models import GroupTypeMapping, Insight, Organization, OrganizationMembership, Team, User
+from posthog.models import GroupTypeMapping, Organization, OrganizationMembership, Team, User
 from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from products.dashboards.backend.models import Dashboard, DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models.assistant import CoreMemory
 

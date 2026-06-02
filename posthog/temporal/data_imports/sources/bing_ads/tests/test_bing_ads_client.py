@@ -1,6 +1,8 @@
+import pytest
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.bing_ads.client import BingAdsClient
+from posthog.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 
 
 class TestBingAdsClient:
@@ -32,6 +34,50 @@ class TestBingAdsClient:
         assert result == self.customer_id
         assert client._customer_id == self.customer_id
         mock_client_instance.GetUser.assert_called_once_with(UserId=None)
+
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_customer_id_preserves_underlying_exception_details(self, mock_service_client):
+        """Underlying exception's class name and message must be embedded in the raised ValueError so
+        the retry framework can selectively match auth-related substrings as non-retryable while
+        keeping transient SDK errors (network/timeouts) retryable.
+        """
+
+        class OAuthTokenRequestException(Exception):
+            pass
+
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetUser.side_effect = OAuthTokenRequestException(
+            "invalid_grant The provided authorization grant has expired or been revoked."
+        )
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            client.get_customer_id()
+
+        message = str(exc_info.value)
+        assert "Failed to fetch customer ID" in message
+        assert "OAuthTokenRequestException" in message
+        assert "invalid_grant" in message
+        # __cause__ preserves the original exception for stack traces / logging.
+        assert isinstance(exc_info.value.__cause__, OAuthTokenRequestException)
+
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_customer_id_transient_failure_message_has_no_auth_substring(self, mock_service_client):
+        """A network/timeout failure must not coincidentally match the non-retryable auth patterns."""
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetUser.side_effect = ConnectionError(
+            "HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded"
+        )
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            client.get_customer_id()
+
+        message = str(exc_info.value)
+        assert "ConnectionError" in message
+
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert not any(pattern in message for pattern in non_retryable_patterns)
 
     @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_campaigns_success(self, mock_service_client):

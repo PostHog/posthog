@@ -34,7 +34,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         super().setUp()
         self.organization.available_product_features = [
             *(self.organization.available_product_features or []),
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
@@ -65,6 +65,90 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
+
+    def test_member_cannot_list_invites_when_members_can_invite_false(self):
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="hidden@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_member_can_list_invites_when_members_can_invite_true(self):
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="visible@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertIn(str(invite.id), ids)
+
+    def test_member_cannot_list_invites_for_higher_levels(self):
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        member_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="peer@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        admin_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="future-admin@posthog.com",
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertIn(str(member_invite.id), ids)
+        self.assertNotIn(str(admin_invite.id), ids)
+
+    def test_admin_can_list_invites_for_all_levels(self):
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin_user)
+
+        member_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="peer@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        admin_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="another-admin@posthog.com",
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertIn(str(member_invite.id), ids)
+        self.assertIn(str(admin_invite.id), ids)
 
     # Creating invites
 
@@ -1413,7 +1497,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         org_b = Organization.objects.create(name="Org B")
         org_b.available_product_features = [
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         org_b.members_can_invite = False
         org_b.save()
@@ -1424,7 +1508,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Org A allows members to invite
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.members_can_invite = True
         self.organization.save()

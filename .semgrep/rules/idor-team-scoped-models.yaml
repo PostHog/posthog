@@ -55,6 +55,7 @@ rules:
                       regex: |
                           (?x)(
                               AccessControl
+                              |Account
                               |Action
                               |AgentArtifact
                               |Alert
@@ -64,6 +65,7 @@ rules:
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
+                              |BatchExportOnDemand
                               |BatchImport
                               |ButtonTile
                               |ChangeRequest
@@ -79,6 +81,7 @@ rules:
                               |DAG
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
                               |Dataset
@@ -91,6 +94,9 @@ rules:
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
+                              |Deployment
+                              |DeploymentEvent
+                              |DeploymentProject
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -141,6 +147,10 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
+                              |IntervieweeContext
+                              |KnowledgeChunk
+                              |KnowledgeDocument
+                              |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -156,6 +166,8 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |MCPAnalyticsSubmission
+                              |MCPIntentClusterSnapshot
+                              |MCPSession
                               |OptOutSyncConfig
                               |Node
                               |NotificationEvent
@@ -165,9 +177,13 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayObservation
+                              |ReplayScanner
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -183,8 +199,13 @@ rules:
                               |SignalReportTask
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalScoutConfig
+                              |SignalScoutRun
+                              |SignalScratchpad
+                              |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SourceBatch
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -194,11 +215,13 @@ rules:
                               |Tagger
                               |Task
                               |TaskAutomation
+                              |TaskPresence
                               |TaskRun
                               |EmailChannel
                               |EvaluationReport
                               |Text
                               |Threshold
+                              |ToleratedHash
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
@@ -208,8 +231,10 @@ rules:
                               |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
+                              |UserInterviewTopic
                               |UserRepoPreference
                               |WebAnalyticsFilterPreset
+                              |WizardSession
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -262,6 +287,7 @@ rules:
                 regex: |
                     (?x)(
                         AccessControl
+                        |Account
                         |Action
                         |AgentArtifact
                         |Alert
@@ -271,6 +297,7 @@ rules:
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
+                        |BatchExportOnDemand
                         |BatchImport
                         |ButtonTile
                         |ChangeRequest
@@ -286,6 +313,7 @@ rules:
                         |DAG
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
                         |Dataset
@@ -298,6 +326,9 @@ rules:
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
+                        |Deployment
+                        |DeploymentEvent
+                        |DeploymentProject
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
@@ -348,6 +379,10 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -359,6 +394,8 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |MCPIntentClusterSnapshot
+                        |MCPSession
                         |OptOutSyncConfig
                         |Node
                         |NotificationEvent
@@ -368,9 +405,13 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayObservation
+                        |ReplayScanner
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -386,8 +427,13 @@ rules:
                         |SignalReportTask
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalScoutConfig
+                        |SignalScoutRun
+                        |SignalScratchpad
+                        |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SourceBatch
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -397,11 +443,13 @@ rules:
                         |Tagger
                         |Task
                         |TaskAutomation
+                        |TaskPresence
                         |TaskRun
                         |EmailChannel
                         |EvaluationReport
                         |Text
                         |Threshold
+                        |ToleratedHash
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
@@ -411,8 +459,10 @@ rules:
                         |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
+                        |UserInterviewTopic
                         |UserRepoPreference
                         |WebAnalyticsFilterPreset
+                        |WizardSession
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
@@ -497,7 +547,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              LegalDocument
+                              CIMDVerificationToken
+                              |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -560,7 +611,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        LegalDocument
+                        CIMDVerificationToken
+                        |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
@@ -660,6 +712,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |UserPushToken
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -711,6 +764,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |UserPushToken
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)
