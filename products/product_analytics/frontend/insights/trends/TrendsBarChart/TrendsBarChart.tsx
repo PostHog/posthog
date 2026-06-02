@@ -27,6 +27,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -118,13 +119,12 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
               )
             : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
 
-    const stackBreakdowns = !!trendsFilter?.stackBreakdownValues
+    const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 
     const getAggregatedDisplayLabel = useCallback(
         (r: IndexedTrendResult): string => {
             if (stackBreakdowns) {
-                // Stacked mode labels the whole band by the series/formula name; individual
-                // breakdown values are distinguished by color and the tooltip.
+                // Breakdown values within the band are distinguished by color and the tooltip.
                 return getDisplayNameFromEntityFilter(r.action) ?? r.label ?? ''
             }
             if (r.breakdown_value != null) {

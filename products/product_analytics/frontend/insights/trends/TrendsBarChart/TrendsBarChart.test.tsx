@@ -316,7 +316,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
 
         await waitFor(
             () => {
-                // Five hedgehog breakdowns of one series collapse onto a single category band.
                 expect(getHogChart().yTicks()).toHaveLength(1)
             },
             { timeout: 5000 }

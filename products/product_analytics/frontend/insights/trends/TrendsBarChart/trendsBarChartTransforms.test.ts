@@ -128,7 +128,6 @@ describe('buildTrendsBarAggregatedSeries', () => {
             mkResult({ id: 'c', label: 'F', order: 0, compare_label: 'previous', breakdown_value: 'Chrome' }),
         ]
         const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
-        // The two current rows share a band; previous gets its own → 2 bands.
         expect(new Set(labels).size).toBe(2)
     })
 

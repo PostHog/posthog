@@ -35,10 +35,7 @@ export interface BuildTrendsBarAggregatedSeriesOpts<
     R extends TrendsBarResultLike,
     M = unknown,
 > extends BuildTrendsBarSeriesOpts<R, M> {
-    // When true, breakdown rows of a series/formula share a band and stack into a single bar.
-    // When false (default), each result gets its own band — one bar per breakdown value.
     stackBreakdowns?: boolean
-    // Human-readable category label for a result. Defaults to the raw result label.
     getDisplayLabel?: (r: R, index: number) => string
 }
 
@@ -109,7 +106,7 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     }
 }
 
-/** Separator between display label and series id in synthetic band keys. */
+/** Separator between the series id and compare label in synthetic stacked-mode band keys. */
 const BAND_KEY_SEP = '\u001f'
 
 // Sparse-stacked: hog-charts BarChart allows one color per series, so we emit N series with
