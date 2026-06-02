@@ -26,12 +26,15 @@ const deps = (overrides?: Partial<AggregatedDisplayLabelDeps>): AggregatedDispla
 
 describe('getAggregatedDisplayLabel', () => {
     it('prefers the series custom name over the event name when there is no breakdown', () => {
-        const r = mkResult({ label: 'Job Created', action: { id: '0', name: 'Job Created', custom_name: 'Articles' } })
+        const r = mkResult({
+            label: 'Job Created',
+            action: { id: '0', type: 'events', name: 'Job Created', custom_name: 'Articles' },
+        })
         expect(getAggregatedDisplayLabel(r, deps())).toBe('Articles')
     })
 
     it('falls back to the event name when no custom name is set', () => {
-        const r = mkResult({ label: 'Job Created', action: { id: '0', name: 'Job Created' } })
+        const r = mkResult({ label: 'Job Created', action: { id: '0', type: 'events', name: 'Job Created' } })
         expect(getAggregatedDisplayLabel(r, deps())).toBe('Job Created')
     })
 
@@ -40,7 +43,7 @@ describe('getAggregatedDisplayLabel', () => {
         const r = mkResult({
             label: 'Chrome',
             breakdown_value: 'Chrome',
-            action: { id: '0', name: 'Job Created', custom_name: 'Job Created' },
+            action: { id: '0', type: 'events', name: 'Job Created', custom_name: 'Job Created' },
         })
         expect(getAggregatedDisplayLabel(r, deps({ breakdownFilter }))).toBe('Chrome')
     })
@@ -49,7 +52,7 @@ describe('getAggregatedDisplayLabel', () => {
         const r = mkResult({
             label: 'Chrome',
             breakdown_value: 'Chrome',
-            action: { id: '0', name: 'Job Created', custom_name: 'Articles' },
+            action: { id: '0', type: 'events', name: 'Job Created', custom_name: 'Articles' },
         })
         expect(getAggregatedDisplayLabel(r, deps({ stackBreakdowns: true }))).toBe('Articles')
     })
