@@ -1,6 +1,7 @@
 """DRF serializers for business_knowledge."""
 
 from django.core.files.uploadedfile import UploadedFile
+from django.utils import timezone
 
 from rest_framework import serializers
 
@@ -99,8 +100,13 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
 
     def get_next_refresh_at(self, obj: KnowledgeSource) -> str | None:
         delta = REFRESH_INTERVAL_TIMEDELTAS.get(obj.refresh_interval)
-        if delta is None or obj.last_refresh_at is None:
+        if delta is None:
+            # `manual` (or unknown) interval — no auto-refresh scheduled.
             return None
+        if obj.last_refresh_at is None:
+            # On a cadence but never refreshed: `list_due_refresh_sources`
+            # treats this as immediately due, so surface "now" not null.
+            return timezone.now().isoformat()
         return (obj.last_refresh_at + delta).isoformat()
 
     def get_has_unsafe_documents(self, obj: KnowledgeSource) -> bool:
