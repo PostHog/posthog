@@ -6066,6 +6066,7 @@ export const externalDataSources = [
     'Plain',
     'Resend',
     'PgAnalyze',
+    'WorkOS',
     'Custom',
 ] as const
 

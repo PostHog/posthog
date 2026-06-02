@@ -2261,6 +2261,7 @@ class ExternalDataSourceType(StrEnum):
     PLAIN = "Plain"
     RESEND = "Resend"
     PG_ANALYZE = "PgAnalyze"
+    WORK_OS = "WorkOS"
     CUSTOM = "Custom"
 
 
