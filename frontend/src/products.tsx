@@ -1171,11 +1171,11 @@ export const productUrls = {
     slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
-    tracingTrace: (traceId: string, options?: { spanId?: string; timestamp?: string | number }): string =>
+    tracingTrace: (traceId: string, spanId?: string, timestamp?: string | number): string =>
         combineUrl('/tracing', {
             traceId,
-            ...(options?.spanId ? { spanId: options.spanId } : {}),
-            ...(options?.timestamp ? { ts: options.timestamp } : {}),
+            ...(spanId ? { spanId } : {}),
+            ...(timestamp ? { ts: timestamp } : {}),
         }).url,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,

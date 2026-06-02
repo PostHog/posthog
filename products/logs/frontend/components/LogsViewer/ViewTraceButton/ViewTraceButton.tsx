@@ -41,12 +41,7 @@ export function ViewTraceButton({ log, size, noPadding, className, label }: View
             data-attr="logs-viewer-view-trace"
             onClick={(e) => {
                 e.preventDefault()
-                newInternalTab(
-                    urls.tracingTrace(log.trace_id, {
-                        spanId: log.span_id || undefined,
-                        timestamp: log.timestamp,
-                    })
-                )
+                newInternalTab(urls.tracingTrace(log.trace_id, log.span_id || undefined, log.timestamp))
             }}
         >
             {label}
