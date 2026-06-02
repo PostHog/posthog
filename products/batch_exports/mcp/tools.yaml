@@ -208,6 +208,9 @@ tools:
     file-download-batch-exports-download-retrieve:
         operation: file_download_batch_exports_download_retrieve
         enabled: false
+    file-download-batch-exports-list:
+        operation: file_download_batch_exports_list
+        enabled: false
     file-download-batch-exports-logs-retrieve:
         operation: file_download_batch_exports_logs_retrieve
         enabled: false

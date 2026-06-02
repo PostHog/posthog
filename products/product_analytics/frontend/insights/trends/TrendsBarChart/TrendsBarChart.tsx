@@ -16,14 +16,18 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -98,6 +102,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
@@ -113,12 +119,37 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
               )
             : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
 
-    const { series, labels } = useMemo(() => {
+    const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
+
+    const getAggregatedDisplayLabel = useCallback(
+        (r: IndexedTrendResult): string => {
+            if (stackBreakdowns) {
+                // Breakdown values within the band are distinguished by color and the tooltip.
+                return getDisplayNameFromEntityFilter(r.action) ?? r.label ?? ''
+            }
+            if (r.breakdown_value != null) {
+                return formatBreakdownLabel(
+                    r.breakdown_value,
+                    breakdownFilter,
+                    allCohorts?.results,
+                    formatPropertyValueForDisplay,
+                    undefined,
+                    r.label
+                )
+            }
+            return r.label ?? ''
+        },
+        [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
+
+    const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
+                stackBreakdowns,
+                getDisplayLabel: getAggregatedDisplayLabel,
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -126,8 +157,20 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             getHidden: getTrendsHidden,
             buildMeta: buildTrendsSeriesMeta,
         })
-        return { series: timeSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
-    }, [isAggregated, indexedResults, getTrendsColor, getTrendsHidden, currentPeriodResult?.labels])
+        return {
+            series: timeSeries,
+            labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+            displayLabels: undefined,
+        }
+    }, [
+        isAggregated,
+        indexedResults,
+        getTrendsColor,
+        getTrendsHidden,
+        currentPeriodResult?.labels,
+        stackBreakdowns,
+        getAggregatedDisplayLabel,
+    ])
 
     const valueLabelFormatter = useCallback(
         (value: number) => {
@@ -180,19 +223,39 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const aggregatedConfig: BarChartConfig = useMemo(
-        () => ({
+    const aggregatedConfig: BarChartConfig = useMemo(() => {
+        // Band keys are synthetic per-series; render the human label via the categorical-axis
+        // formatter and skip repeats so band-shared breakdown rows don't double-paint.
+        let xTickFormatter: BarChartConfig['xTickFormatter']
+        if (displayLabels && labels) {
+            const firstIndexOf = new Map<string, number>()
+            labels.forEach((l, i) => {
+                if (!firstIndexOf.has(l)) {
+                    firstIndexOf.set(l, i)
+                }
+            })
+            xTickFormatter = (label: string, i: number) =>
+                firstIndexOf.get(label) === i ? (displayLabels[i] ?? null) : null
+        }
+        return {
             showGrid: true,
             tooltip: AGGREGATED_TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
             yTickFormatter: aggregatedYTickFormatter,
+            xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
-        }),
-        [yAxisScaleType, aggregatedYTickFormatter, trendsFilter?.xAxisLabel, trendsFilter?.yAxisLabel]
-    )
+        }
+    }, [
+        yAxisScaleType,
+        aggregatedYTickFormatter,
+        trendsFilter?.xAxisLabel,
+        trendsFilter?.yAxisLabel,
+        displayLabels,
+        labels,
+    ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -242,14 +305,11 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            // Sparse-stacked: drop sibling series with data=0 at this band so the tooltip shows one row.
+            // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
             const tooltipCtx: TooltipContext<TrendsSeriesMeta> = isAggregated
                 ? {
                       ...ctx,
-                      seriesData: ctx.seriesData.filter((entry) => {
-                          const raw = entry.series.data[ctx.dataIndex]
-                          return typeof raw === 'number' && raw !== 0
-                      }),
+                      seriesData: ctx.seriesData.slice(0, 1),
                   }
                 : ctx
             const onRowClick = canHandleClick

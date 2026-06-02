@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import unittest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -26,17 +27,19 @@ from posthog.models import Team
 from posthog.models.cohort.cohort import Cohort
 
 from products.feature_flags.backend.flags_cache import (
+    _compare_flag_fields,
     _compute_flag_dependencies,
     _extract_cohort_ids_from_flag_filters,
     _extract_direct_dependency_ids,
     _get_feature_flags_for_service,
     _get_feature_flags_for_teams_batch,
     _get_referenced_cohorts,
-    _get_team_ids_with_recently_updated_flags,
     _serialize_cohort,
+    _strip_null_values,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
+    get_team_ids_with_recently_updated_flags,
     get_teams_with_flags_queryset,
     update_flags_cache,
 )
@@ -2556,11 +2559,11 @@ class TestServiceFlagsGuards(BaseTest):
 
 @override_settings(FLAGS_REDIS_URL="redis://test", FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5)
 class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
-    """Test _get_team_ids_with_recently_updated_flags batch helper for grace period logic."""
+    """Test get_team_ids_with_recently_updated_flags batch helper for grace period logic."""
 
     def test_returns_empty_set_for_team_with_no_flags(self):
         """Test returns empty set for team with no flags."""
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     def test_returns_team_id_for_recently_updated_flag(self):
@@ -2572,7 +2575,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == {self.team.id}
 
     def test_returns_empty_set_for_old_flag(self):
@@ -2590,7 +2593,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         # Manually set updated_at to outside grace period
         FeatureFlag.objects.filter(id=flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
@@ -2603,12 +2606,12 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     def test_returns_empty_set_for_empty_team_ids_list(self):
         """Test returns empty set when given empty list of team IDs."""
-        result = _get_team_ids_with_recently_updated_flags([])
+        result = get_team_ids_with_recently_updated_flags([])
         assert result == set()
 
     def test_returns_team_id_if_any_flag_is_recent(self):
@@ -2635,7 +2638,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         )
 
         # Should return team ID because at least one flag is recent
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == {self.team.id}
 
     def test_batch_returns_only_teams_with_recent_flags(self):
@@ -2665,7 +2668,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
 
         # Query both teams - should only return team 1
-        result = _get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
         assert result == {self.team.id}
 
     def test_ignores_recently_deleted_flags(self):
@@ -2684,7 +2687,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         # Ensure updated_at is recent (within grace period)
         assert flag.updated_at is not None
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     def test_ignores_recently_deactivated_flags(self):
@@ -2705,7 +2708,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         # Ensure updated_at is recent (within grace period)
         assert flag.updated_at is not None
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
 
@@ -3415,3 +3418,263 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.name = "updated"
         cohort.save()
         mock_task.delay.assert_not_called()
+
+
+class TestStripNullValues(unittest.TestCase):
+    """Pure-function tests for ``_strip_null_values``.
+
+    The helper normalizes the absent-vs-explicit-null divergence between the
+    Django JSONB passthrough and the Rust typed deserializer before
+    ``_compare_flag_fields`` runs ``!=``. See
+    plans/verify-flags-cache-loose-comparison.md.
+    """
+
+    @parameterized.expand(
+        [
+            ("scalar_string_unchanged", "hello", "hello"),
+            ("scalar_none_unchanged", None, None),
+            ("scalar_zero_unchanged", 0, 0),
+            ("scalar_false_unchanged", False, False),
+            ("empty_dict_unchanged", {}, {}),
+            ("empty_list_unchanged", [], []),
+            ("dict_drops_top_level_null", {"a": 1, "b": None}, {"a": 1}),
+            (
+                "dict_recurses_into_nested_dict",
+                {"outer": {"keep": 1, "drop": None}},
+                {"outer": {"keep": 1}},
+            ),
+            (
+                "list_preserves_null_elements",
+                [None, {"a": None, "b": 1}],
+                [None, {"b": 1}],
+            ),
+            (
+                "list_of_dicts_strips_nulls_in_each",
+                [{"variant": None, "rp": 100}, {"variant": "x", "rp": None}],
+                [{"rp": 100}, {"variant": "x"}],
+            ),
+            (
+                "deeply_nested_filters_shape",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "a", "operator": None},
+                            ],
+                            "rollout_percentage": None,
+                            "variant": None,
+                        }
+                    ],
+                    "payloads": None,
+                },
+                {
+                    "groups": [
+                        {
+                            "properties": [{"key": "email", "value": "a"}],
+                        }
+                    ],
+                },
+            ),
+            (
+                # filters-level ``aggregation_group_type_index: null`` is stripped because
+                # the Rust ``FlagFilters`` field is plain ``Option<i32>`` with no
+                # ``skip_serializing_if`` — the warmer always emits ``null`` here for
+                # both PG-null and PG-absent, so preserving it would flag every
+                # PG-absent team as drifted.
+                "filters_level_aggregation_group_type_index_null_stripped",
+                {"groups": [], "aggregation_group_type_index": None},
+                {"groups": []},
+            ),
+            (
+                # group-level ``aggregation_group_type_index: null`` is preserved because
+                # the Rust ``FlagPropertyGroup`` field is ``Option<Option<i32>>`` with
+                # ``skip_serializing_if`` — null and absent are semantically distinct
+                # (null forces person-level aggregation; absent falls back to the
+                # flag-level group type).
+                "group_level_aggregation_group_type_index_null_preserved",
+                {"groups": [{"properties": [], "aggregation_group_type_index": None}]},
+                {"groups": [{"properties": [], "aggregation_group_type_index": None}]},
+            ),
+            (
+                # Same rule applies inside ``super_groups``: they hold the same
+                # ``FlagPropertyGroup`` shape so the same group-level distinction holds.
+                "super_groups_aggregation_group_type_index_null_preserved",
+                {"super_groups": [{"properties": [], "aggregation_group_type_index": None}]},
+                {"super_groups": [{"properties": [], "aggregation_group_type_index": None}]},
+            ),
+        ]
+    )
+    def test_strip_null_values(self, _name, value, expected):
+        self.assertEqual(_strip_null_values(value), expected)
+
+
+def _flag(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "id": 1,
+        "key": "test-flag",
+        "filters": {"groups": []},
+    }
+    base.update(overrides)
+    return base
+
+
+class TestCompareFlagFieldsLooseness(unittest.TestCase):
+    """Pure-function tests for ``_compare_flag_fields`` after the looseness fix.
+
+    Covers the absent-vs-explicit-null collapse that previously caused
+    ~66k flags to report spurious ``FIELD_MISMATCH`` against the Rust warmer.
+    See plans/verify-flags-cache-loose-comparison.md.
+    """
+
+    @parameterized.expand(
+        [
+            (
+                # db has ``variant: null``, cache has the key absent → no mismatch.
+                "absent_vs_explicit_null_at_group_level",
+                _flag(filters={"groups": [{"properties": [], "variant": None, "rollout_percentage": 100}]}),
+                _flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                # Pre-existing equal-null case still passes after null-stripping.
+                "aggregation_group_type_index_null_on_both_sides",
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+            ),
+            (
+                # Filters-level ``aggregation_group_type_index`` lacks
+                # ``skip_serializing_if`` in the Rust ``FlagFilters`` struct, so the
+                # warmer emits ``null`` whether the PG value was null or absent. The
+                # verifier must tolerate PG-absent vs cache-null at this level so it
+                # doesn't flag every PG-absent team as drifted.
+                "filters_level_agg_index_absent_vs_null",
+                _flag(filters={"groups": []}),
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+            ),
+            (
+                # Symmetry check: PG-null vs cache-absent at the filters level (rarely
+                # reachable today since the warmer always emits the key, but the
+                # normalization should still be symmetric).
+                "filters_level_agg_index_null_vs_absent",
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+                _flag(filters={"groups": []}),
+            ),
+            (
+                # Rust's ``#[serde(flatten)]`` round-trips unknown keys, so both
+                # sides carry ``cohort_name``. See Layer 2 in the plan.
+                "cohort_name_runtime_annotation_on_both_sides",
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [{"key": "id", "type": "cohort", "value": 5, "cohort_name": "QA users"}],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    }
+                ),
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [{"key": "id", "type": "cohort", "value": 5, "cohort_name": "QA users"}],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    }
+                ),
+            ),
+            (
+                # Pre-existing tolerance: extras in the cache that aren't in db are ignored.
+                "extra_key_in_cache",
+                _flag(),
+                {**_flag(), "legacy_field": True},
+            ),
+            (
+                # Per-property ``operator: null`` vs absent across a properties list.
+                "properties_array_per_property_null_drops",
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "a", "operator": None},
+                                    {"key": "name", "value": "b", "operator": None},
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    }
+                ),
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "a"},
+                                    {"key": "name", "value": "b"},
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    }
+                ),
+            ),
+        ]
+    )
+    def test_no_diff(self, _name: str, db_flag: dict[str, Any], cached_flag: dict[str, Any]) -> None:
+        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
+
+    @parameterized.expand(
+        [
+            (
+                # db has ``variant: "x"``, cache lacks the key → real divergence.
+                "absent_vs_non_null_value",
+                "filters",
+                _flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]}),
+                _flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                # db has ``variant: "x"``, cache has ``variant: "y"`` → real divergence.
+                "different_non_null_values",
+                "filters",
+                _flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]}),
+                _flag(filters={"groups": [{"properties": [], "variant": "y", "rollout_percentage": 100}]}),
+            ),
+            (
+                # 0 (explicit group aggregation) vs absent → real divergence.
+                "aggregation_group_type_index_value_vs_absent",
+                "filters",
+                _flag(filters={"groups": [], "aggregation_group_type_index": 0}),
+                _flag(filters={"groups": []}),
+            ),
+            (
+                # Group-level absent-vs-null is the semantic distinction the Rust
+                # matcher actually cares about (``Option<Option<i32>>`` +
+                # ``skip_serializing_if`` on ``FlagPropertyGroup.aggregation_group_type_index``):
+                # absent falls back to the flag-level group type, explicit null
+                # forces person-level aggregation. The verifier must keep flagging
+                # this as a real diff.
+                "group_level_agg_index_absent_vs_null",
+                "filters",
+                _flag(filters={"groups": [{"properties": []}]}),
+                _flag(filters={"groups": [{"properties": [], "aggregation_group_type_index": None}]}),
+            ),
+            (
+                # Top-level scalar mismatch is reported as such.
+                "top_level_scalar_mismatch",
+                "key",
+                _flag(key="renamed-flag"),
+                _flag(key="test-flag"),
+            ),
+        ]
+    )
+    def test_single_field_diff(
+        self,
+        _name: str,
+        expected_field: str,
+        db_flag: dict[str, Any],
+        cached_flag: dict[str, Any],
+    ) -> None:
+        diffs = _compare_flag_fields(db_flag, cached_flag)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(diffs[0]["field"], expected_field)

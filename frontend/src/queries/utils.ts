@@ -5,6 +5,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
+    AccountsQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -660,6 +661,12 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
+export const supportsBarValueStacking = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && getDisplay(q) === ChartDisplayType.ActionsBarValue && hasBreakdownFilter(getBreakdown(q))
+
+export const getStackBreakdownValues = (query: InsightQueryNode): boolean | undefined =>
+    supportsBarValueStacking(query) && (query as TrendsQuery)?.trendsFilter?.stackBreakdownValues
+
 export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
@@ -902,6 +909,10 @@ export function isValidQueryForExperiment(query: Node): boolean {
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
     return node?.kind === NodeKind.GroupsQuery
+}
+
+export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
+    return node?.kind === NodeKind.AccountsQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

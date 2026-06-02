@@ -26,6 +26,10 @@ export const FeatureFlagsCreate: Story = {
     args: { surfaceKey: 'feature_flags.create' },
 }
 
+export const FeatureFlagsUpdateWithName: Story = {
+    args: { surfaceKey: 'feature_flags.update', context: { entityName: 'jovan-test-flag' } },
+}
+
 export const DashboardsCreate: Story = {
     args: { surfaceKey: 'dashboards.create' },
 }

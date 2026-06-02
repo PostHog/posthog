@@ -31,7 +31,11 @@ FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
+
     from posthog.models.team import Team
+
+    from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
 
 def default_filters() -> dict:
@@ -44,6 +48,10 @@ class FeatureFlagManager(RootTeamManager):
 
 
 class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+    # Reverse relation from FeatureFlagEvaluationContext.feature_flag (related_name="flag_evaluation_contexts").
+    if TYPE_CHECKING:
+        flag_evaluation_contexts: RelatedManager[FeatureFlagEvaluationContext]
+
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(
@@ -185,11 +193,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     def conditions(self):
         "Each feature flag can have multiple conditions to match, they are OR-ed together."
         return self.get_filters().get("groups", []) or []
-
-    @property
-    def super_conditions(self):
-        "Each feature flag can have multiple super conditions to match, they are OR-ed together."
-        return self.get_filters().get("super_groups", []) or []
 
     @property
     def has_feature_enrollment(self) -> bool:

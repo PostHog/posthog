@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 
 import { yTickCountForHeight } from './scales'
-import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
+import type { ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -478,8 +478,15 @@ export interface BarRect {
 
 export const DEFAULT_BAR_CORNER_RADIUS = 4
 
-/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`; callers may
- *  pre-filter `bars` without shifting the hatch boundary. */
+export interface BarShadow {
+    color: string
+    blur: number
+    offsetX?: number
+    offsetY?: number
+}
+
+/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`. Any ctx
+ *  state (shadow / clip / globalAlpha) is the caller's responsibility. */
 export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,
@@ -525,6 +532,40 @@ function fillTrackRects(ctx: CanvasRenderingContext2D, tracks: BarRect[], corner
         traceRoundedBarPath(ctx, track.x, track.y, track.width, track.height, cornerRadius, track.corners)
         ctx.fill()
     }
+}
+
+/** Clips subsequent drawing to the union of the given rounded rects — used to mask the bar
+ *  layer to the funnel pill so a stack's outer corners round even when the edge segment is too
+ *  thin to round on its own. Caller owns save/restore. */
+export function clipToRoundedRects(ctx: CanvasRenderingContext2D, rects: BarRect[], cornerRadius: number): void {
+    const renderableRects = rects.filter((r) => r.width > 0 && r.height > 0)
+    if (renderableRects.length === 0) {
+        return
+    }
+    ctx.beginPath()
+    for (const r of renderableRects) {
+        traceRoundedBarPath(ctx, r.x, r.y, r.width, r.height, cornerRadius, r.corners)
+    }
+    ctx.clip()
+}
+
+/** Paints each track rect as a single solid colour — the neutral "remainder of the whole"
+ *  backdrop for funnel-style stacked bars (one track per band behind the stack), as opposed
+ *  to {@link drawBarTracks}'s per-series tinted+hatched treatment for grouped layouts. */
+export function drawSolidBarTracks(
+    ctx: CanvasRenderingContext2D,
+    tracks: BarRect[],
+    color: string,
+    cornerRadius: number
+): void {
+    const renderableTracks = tracks.filter((t) => t.width > 0 && t.height > 0)
+    if (renderableTracks.length === 0) {
+        return
+    }
+    ctx.save()
+    ctx.fillStyle = color
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
+    ctx.restore()
 }
 
 /** Paints each track rect as a tinted base under hatched stripes. Takes laid-out rects
@@ -587,7 +628,137 @@ export function drawHighlightPoint(
     ctx.fill()
 }
 
-type DrawHoverFn = (args: ChartDrawArgs) => void
+export interface DrawBoxOptions {
+    /** Series base color — used for the box outline, whisker, median, and mean stroke. */
+    color: string
+    /** Box fill — typically the series color at reduced alpha. */
+    fillColor: string
+    /** Optional explicit median stroke color. Defaults to `color`. */
+    medianColor?: string
+    /** Optional mean marker fill. Defaults to `fillColor`. */
+    meanFillColor?: string
+    /** Mean marker radius in CSS pixels. Defaults to 3. */
+    meanRadius?: number
+    /** Line width for the box outline, whiskers, and median. Defaults to 1.5. */
+    lineWidth?: number
+    /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
+    whiskerCapRatio?: number
+}
+
+/** A laid-out box-and-whisker for a single (series, x) slot. Same shape contract as
+ *  {@link BarRect} — pre-computed pixel coordinates so the draw primitives don't touch scales. */
+export interface BoxRect {
+    x: number
+    width: number
+    top: number
+    bottom: number
+    medianY: number
+    mean: { x: number; y: number }
+    whiskerTop: number
+    whiskerBottom: number
+    dataIndex: number
+}
+
+/** Paint a whole series of box-and-whiskers, batching path operations so the number of
+ *  `beginPath`/`stroke` pairs is `4 + N` instead of `5N` (whisker stems, caps, box outlines,
+ *  and medians are each one shared path; mean markers stay per-box since each needs both
+ *  fill and stroke). Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
+export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], options: DrawBoxOptions): void {
+    if (boxes.length === 0) {
+        return
+    }
+    const {
+        color,
+        fillColor,
+        medianColor = color,
+        meanFillColor = fillColor,
+        meanRadius = 3,
+        lineWidth = 1.5,
+        whiskerCapRatio = 0.6,
+    } = options
+
+    ctx.lineWidth = lineWidth
+    ctx.strokeStyle = color
+    ctx.setLineDash([])
+
+    // 1. Whisker stems — only emit a stem when the whisker extends past the box edge.
+    ctx.beginPath()
+    for (const box of boxes) {
+        const centerX = box.x + box.width / 2
+        if (box.whiskerTop < box.top) {
+            ctx.moveTo(centerX, box.whiskerTop)
+            ctx.lineTo(centerX, box.top)
+        }
+        if (box.whiskerBottom > box.bottom) {
+            ctx.moveTo(centerX, box.bottom)
+            ctx.lineTo(centerX, box.whiskerBottom)
+        }
+    }
+    ctx.stroke()
+
+    // 2. Whisker caps — skip the cap whenever the corresponding stem was skipped, otherwise
+    //    a cross-bar would paint on top of the box outline for collapsed distributions
+    //    (`min == p25` / `max == p75`).
+    ctx.beginPath()
+    for (const box of boxes) {
+        const centerX = box.x + box.width / 2
+        const capHalfWidth = (box.width * whiskerCapRatio) / 2
+        if (box.whiskerTop < box.top) {
+            ctx.moveTo(centerX - capHalfWidth, box.whiskerTop)
+            ctx.lineTo(centerX + capHalfWidth, box.whiskerTop)
+        }
+        if (box.whiskerBottom > box.bottom) {
+            ctx.moveTo(centerX - capHalfWidth, box.whiskerBottom)
+            ctx.lineTo(centerX + capHalfWidth, box.whiskerBottom)
+        }
+    }
+    ctx.stroke()
+
+    // 3. Box rectangles (p25 → p75) — fill then outline. `fillRect` / `strokeRect` are
+    //    already optimal — no `beginPath` accumulation needed.
+    ctx.fillStyle = fillColor
+    for (const box of boxes) {
+        const boxHeight = Math.max(0, box.bottom - box.top)
+        if (boxHeight > 0 && box.width > 0) {
+            ctx.fillRect(box.x, box.top, box.width, boxHeight)
+            ctx.strokeRect(box.x, box.top, box.width, boxHeight)
+        }
+    }
+
+    // 4. Median lines.
+    ctx.strokeStyle = medianColor
+    ctx.beginPath()
+    for (const box of boxes) {
+        const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
+        ctx.moveTo(box.x, medianClamped)
+        ctx.lineTo(box.x + box.width, medianClamped)
+    }
+    ctx.stroke()
+
+    // 5. Mean markers — filled circle outlined in the series color. Stays per-box because
+    //    each marker requires both a fill and a stroke pass.
+    ctx.fillStyle = meanFillColor
+    ctx.strokeStyle = color
+    for (const box of boxes) {
+        ctx.beginPath()
+        ctx.arc(box.mean.x, box.mean.y, meanRadius, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+    }
+}
+
+/** Translucent highlight overlay for a hovered box. Drawn on the overlay canvas so it
+ *  composites over the static box without disturbing it — mirrors {@link drawBarHighlight}. */
+export function drawBoxHighlight(ctx: CanvasRenderingContext2D, box: BoxRect, overlayColor: string): void {
+    const boxHeight = Math.max(0, box.bottom - box.top)
+    if (box.width <= 0 || boxHeight <= 0) {
+        return
+    }
+    ctx.fillStyle = overlayColor
+    ctx.fillRect(box.x, box.top, box.width, boxHeight)
+}
+
+type DrawHoverFn = (args: ChartDrawArgs) => DrawHoverResult
 
 interface ComposeDrawHoverOptions {
     crosshairColor: string | undefined
@@ -610,6 +781,6 @@ export function composeDrawHoverWithCrosshair(
                 drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation)
             }
         }
-        getDrawHover()(args)
+        return getDrawHover()(args)
     }
 }

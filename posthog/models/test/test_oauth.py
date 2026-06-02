@@ -48,6 +48,58 @@ class TestOAuthModels(TestCase):
         self.assertEqual(app.client_id, "test_client_id")
         self.assertEqual(app.algorithm, "RS256")
 
+    def _make_app(self, name: str, client_id: str, **overrides) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=name,
+            client_id=client_id,
+            client_secret=f"{client_id}_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+            **overrides,
+        )
+
+    def test_oauth_application_scopes_defaults_to_empty_list(self):
+        app = self._make_app("Scopes Default", "scopes_default_client")
+        self.assertEqual(app.scopes, [])
+        app.refresh_from_db()
+        self.assertEqual(app.scopes, [])
+
+    def test_oauth_application_scopes_persists_explicit_list(self):
+        app = self._make_app(
+            "Scopes Explicit",
+            "scopes_explicit_client",
+            scopes=["insight:read", "llm_gateway:read"],
+        )
+        app.refresh_from_db()
+        self.assertEqual(app.scopes, ["insight:read", "llm_gateway:read"])
+
+    def test_oauth_access_token_label_defaults_to_empty_string(self):
+        app = self._make_app("Token Label Default", "token_label_default_client")
+        token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="default_label_token",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        self.assertEqual(token.label, "")
+        token.refresh_from_db()
+        self.assertEqual(token.label, "")
+
+    def test_oauth_access_token_label_persists_explicit_value(self):
+        app = self._make_app("Token Label Explicit", "token_label_explicit_client")
+        token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="labeled_token",
+            expires=timezone.now() + timedelta(minutes=5),
+            label="laptop-2026",
+        )
+        token.refresh_from_db()
+        self.assertEqual(token.label, "laptop-2026")
+
     @freeze_time("2024-01-01 00:00:00")
     def test_create_oauth_application_with_skip_authorization_fails(self):
         # Test that creating an application with skip_authorization=True raises an error

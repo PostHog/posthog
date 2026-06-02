@@ -7,6 +7,7 @@ export {
     toCloudRegion,
     getBaseUrlForRegion,
     getCustomApiBaseUrl,
+    getPublicBaseUrl,
     isCloudApi,
     isLocalApi,
     MCP_DOCS_URL,
