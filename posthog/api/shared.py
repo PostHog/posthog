@@ -112,6 +112,12 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
 
     instance: Optional[Project]
 
+    # Declared explicitly (not a passthrough): Team.project_id is an FK attname the model-field merge can't
+    # resolve, and a Project's own id equals its primary Team's project_id (Project ↔ Team is 1:1).
+    project_id = serializers.IntegerField(
+        source="id", read_only=True, help_text="ID of the project this environment belongs to."
+    )
+
     class Meta:
         model = Project
         fields = (
@@ -132,7 +138,6 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
         team_passthrough_fields = {
             "uuid",
             "api_token",
-            "project_id",
             "completed_snippet_onboarding",
             "has_completed_onboarding_for",
             "ingested_event",
