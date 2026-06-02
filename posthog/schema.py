@@ -1426,6 +1426,12 @@ class DataWarehouseSyncWarning(BaseModel):
         ...,
         description="Name of the ExternalDataSchema responsible for syncing the table",
     )
+    source_id: str | None = Field(
+        default=None,
+        description=(
+            "ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables."
+        ),
+    )
     source_type: str = Field(..., description='Source type, e.g. "Stripe", "Hubspot"')
     status: str = Field(
         ...,
@@ -2261,6 +2267,7 @@ class ExternalDataSourceType(StrEnum):
     PLAIN = "Plain"
     RESEND = "Resend"
     PG_ANALYZE = "PgAnalyze"
+    WORK_OS = "WorkOS"
     CUSTOM = "Custom"
 
 
@@ -9595,6 +9602,13 @@ class TrendsFilter(BaseModel):
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
+    stackBreakdownValues: bool | None = Field(
+        default=False,
+        description=(
+            "On the horizontal bar-value chart, stack a series' breakdown values into a"
+            " single bar instead of rendering one bar per breakdown value."
+        ),
+    )
     xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
     yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
