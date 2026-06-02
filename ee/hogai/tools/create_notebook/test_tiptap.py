@@ -577,6 +577,16 @@ class TestTiptapDocToText(SimpleTestCase):
         assert '<insight title="Untitled"' in result
         assert 'query_kind="unknown"' in result
 
+    def test_ph_ai_node(self):
+        doc = {"type": "doc", "content": [{"type": "ph-ai", "attrs": {"id": "placeholder-1"}}]}
+        result = tiptap_doc_to_text(doc)
+        assert result == '<AI id="placeholder-1">Thinking...</AI>'
+
+    def test_ph_ai_node_escapes_id(self):
+        doc = {"type": "doc", "content": [{"type": "ph-ai", "attrs": {"id": 'bad"id'}}]}
+        result = tiptap_doc_to_text(doc)
+        assert result == '<AI id="bad&quot;id">Thinking...</AI>'
+
     @parameterized.expand(
         [
             ("string_node", "stray string"),

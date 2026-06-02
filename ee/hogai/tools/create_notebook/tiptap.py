@@ -508,6 +508,11 @@ def _tiptap_node_to_text(node: Any) -> str:
     if node_type == "ph-duck-sql":
         return _format_code_node("ducksql", attrs)
 
+    if node_type == "ph-ai":
+        placeholder_id = attrs.get("id")
+        id_attribute = f' id="{html.escape(str(placeholder_id), quote=True)}"' if placeholder_id else ""
+        return f"<AI{id_attribute}>Thinking...</AI>"
+
     if node_type == "ph-recording":
         session_id = attrs.get("id", "unknown")
         return f'<session_replay id="{session_id}" />'

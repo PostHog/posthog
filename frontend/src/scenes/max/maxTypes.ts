@@ -72,6 +72,7 @@ export interface MaxEvaluationContext {
 export interface MaxNotebookRequestLocationContext {
     type: 'notebook_position'
     position: integer
+    current_block_text?: string | null
     previous_block_text?: string | null
     next_block_text?: string | null
 }

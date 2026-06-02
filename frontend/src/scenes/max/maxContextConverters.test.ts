@@ -110,6 +110,7 @@ describe('maxContextConverters', () => {
                         request_location: {
                             type: 'notebook_position' as const,
                             position: 42,
+                            current_block_text: '<AI id="placeholder-1">Thinking...</AI>',
                             previous_block_text: 'Previous paragraph',
                             next_block_text: 'Next paragraph',
                         },
@@ -123,6 +124,7 @@ describe('maxContextConverters', () => {
                             request_location: {
                                 type: 'notebook_position',
                                 position: 42,
+                                current_block_text: '<AI id="placeholder-1">Thinking...</AI>',
                                 previous_block_text: 'Previous paragraph',
                                 next_block_text: 'Next paragraph',
                             },

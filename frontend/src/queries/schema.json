@@ -27249,6 +27249,9 @@
         "MaxNotebookRequestLocationContext": {
             "additionalProperties": false,
             "properties": {
+                "current_block_text": {
+                    "type": ["string", "null"]
+                },
                 "next_block_text": {
                     "type": ["string", "null"]
                 },

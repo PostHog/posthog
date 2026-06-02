@@ -629,6 +629,7 @@ class TestAssistantContextManager(BaseTest):
                     name=notebook.title,
                     request_location=MaxNotebookRequestLocationContext(
                         position=42,
+                        current_block_text='<AI id="placeholder-1">Thinking...</AI>',
                         previous_block_text="Previous paragraph",
                         next_block_text="Next paragraph",
                     ),
@@ -643,7 +644,14 @@ class TestAssistantContextManager(BaseTest):
             result = await self.context_manager._format_ui_context(ui_context)
 
         assert result is not None
+        self.assertIn("If a notebook includes a `Request location` block", result)
         self.assertIn("Request location:", result)
+        self.assertIn("Treat this as the insertion target", result)
+        self.assertIn('When the user says "here"', result)
+        self.assertIn("where they typed `/ai`", result)
+        self.assertIn("visible Thinking... placeholder", result)
+        self.assertIn("Do not move the edit to a semantically related section", result)
+        self.assertIn('<AI id="placeholder-1">Thinking...</AI>', result)
         self.assertIn("Previous paragraph", result)
         self.assertIn("Next paragraph", result)
         self.assertIn("ProseMirror position: 42", result)

@@ -7877,6 +7877,7 @@ class MaxNotebookRequestLocationContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    current_block_text: str | None = None
     next_block_text: str | None = None
     position: int
     previous_block_text: str | None = None

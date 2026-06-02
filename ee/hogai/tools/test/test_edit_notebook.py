@@ -4,7 +4,7 @@ from unittest.mock import patch
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import HumanMessage, MaxNotebookContext, MaxUIContext
+from posthog.schema import HumanMessage, MaxNotebookContext, MaxNotebookRequestLocationContext, MaxUIContext
 
 from products.notebooks.backend.models import Notebook
 
@@ -40,6 +40,13 @@ def _hogql_node(code: str, title: str = "Recent events", return_variable: str = 
 
 def _query_node(query: dict, title: str = "Query") -> dict:
     return {"type": "ph-query", "attrs": {"query": query, "title": title}}
+
+
+def test_edit_notebook_prompt_explains_request_location_language():
+    assert '"here", "there", "this spot", "this place"' in EDIT_NOTEBOOK_PROMPT
+    assert "where I typed /ai" in EDIT_NOTEBOOK_PROMPT
+    assert "not at an existing dad-joke section and not at the end" in EDIT_NOTEBOOK_PROMPT
+    assert '<AI id="placeholder-123">Thinking...</AI>' in EDIT_NOTEBOOK_PROMPT
 
 
 def test_build_edit_plan_replace_text_updates_document_content():
@@ -410,6 +417,117 @@ class TestEditNotebookTool(BaseTest):
         assert artifact == {"short_id": notebook.short_id, "applied_edits": 1}
         notebook.refresh_from_db()
         assert notebook.content["content"][-1] == _paragraph("Added by AI")
+
+    def test_append_replaces_current_ai_placeholder_from_ui_context(self):
+        placeholder_anchor = '<AI id="placeholder-1">Thinking...</AI>'
+        notebook = Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            last_modified_by=self.user,
+            short_id="ctxai1",
+            title="Original notebook",
+            content={
+                "type": "doc",
+                "content": [
+                    {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Notebook"}]},
+                    {"type": "ph-ai", "attrs": {"id": "placeholder-1"}},
+                    _paragraph("Keep this paragraph"),
+                ],
+            },
+            text_content=f"Notebook\n{placeholder_anchor}\nKeep this paragraph",
+        )
+        state = AssistantState(
+            messages=[
+                HumanMessage(
+                    id="human-1",
+                    content="add a haiku here",
+                    ui_context=MaxUIContext(
+                        notebooks=[
+                            MaxNotebookContext(
+                                id=notebook.short_id,
+                                name=notebook.title,
+                                request_location=MaxNotebookRequestLocationContext(
+                                    position=10,
+                                    current_block_text=placeholder_anchor,
+                                ),
+                            )
+                        ]
+                    ),
+                )
+            ],
+            start_id="human-1",
+        )
+        args = EditNotebookToolArgs.model_validate(
+            {"edits": [{"type": "append", "content": "Added by AI", "content_format": "plain_text"}]}
+        )
+
+        result, artifact = async_to_sync(self._tool(state)._arun_impl)(edits=args.edits)
+
+        assert result == f"Updated notebook {notebook.short_id} with 1 edit."
+        assert artifact == {"short_id": notebook.short_id, "applied_edits": 1}
+        notebook.refresh_from_db()
+        assert notebook.content["content"] == [
+            {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Notebook"}]},
+            _paragraph("Added by AI"),
+            _paragraph("Keep this paragraph"),
+        ]
+        assert notebook.text_content == "Notebook\nAdded by AI\nKeep this paragraph"
+
+    def test_append_inserts_at_notebook_request_location_when_placeholder_is_missing(self):
+        notebook = Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            last_modified_by=self.user,
+            short_id="ctxpos1",
+            title="Original notebook",
+            content={
+                "type": "doc",
+                "content": [
+                    {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Notebook"}]},
+                    _paragraph("Previous paragraph"),
+                    _paragraph("Next paragraph"),
+                ],
+            },
+            text_content="Notebook\nPrevious paragraph\nNext paragraph",
+        )
+        state = AssistantState(
+            messages=[
+                HumanMessage(
+                    id="human-1",
+                    content="drop a sick dad joke here",
+                    ui_context=MaxUIContext(
+                        notebooks=[
+                            MaxNotebookContext(
+                                id=notebook.short_id,
+                                name=notebook.title,
+                                request_location=MaxNotebookRequestLocationContext(
+                                    position=24,
+                                    previous_block_text="Previous paragraph",
+                                    next_block_text="Next paragraph",
+                                ),
+                            )
+                        ]
+                    ),
+                )
+            ],
+            start_id="human-1",
+        )
+        args = EditNotebookToolArgs.model_validate(
+            {"edits": [{"type": "append", "content": "Added by AI", "content_format": "plain_text"}]}
+        )
+
+        result, artifact = async_to_sync(self._tool(state)._arun_impl)(edits=args.edits)
+
+        assert result == f"Updated notebook {notebook.short_id} with 1 edit."
+        assert artifact == {"short_id": notebook.short_id, "applied_edits": 1}
+        notebook.refresh_from_db()
+        assert notebook.content["content"] == [
+            {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Notebook"}]},
+            _paragraph("Previous paragraph"),
+            _paragraph("Added by AI"),
+            _paragraph("Next paragraph"),
+        ]
+        assert notebook.text_content == "Notebook\nPrevious paragraph\nAdded by AI\nNext paragraph"
 
     def test_requires_short_id_when_no_single_notebook_context(self):
         args = EditNotebookToolArgs.model_validate(

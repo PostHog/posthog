@@ -144,7 +144,7 @@ describe('SlashCommands', () => {
         ])
     })
 
-    it('opens Max and leaves a status placeholder after a question is typed in the /ai prompt', () => {
+    it('opens Max and leaves a pending AI placeholder after a question is typed in the /ai prompt', () => {
         const { editor, promptChain, deleteChain } = createEditor()
         const onClose = jest.fn()
         const query = 'ai how many users signed up yesterday?'
@@ -155,12 +155,10 @@ describe('SlashCommands', () => {
 
         expect(editor.deleteRange).not.toHaveBeenCalled()
         expect(deleteChain.run).not.toHaveBeenCalled()
-        expect(promptChain.insertContentAt).toHaveBeenCalledWith(range, [
-            {
-                type: NotebookNodeType.AIPromptStatus,
-                attrs: { prompt: 'how many users signed up yesterday?' },
-            },
-        ])
+        expect(promptChain.insertContentAt).toHaveBeenCalledWith(range, {
+            type: NotebookNodeType.AI,
+            attrs: { id: expect.any(String) },
+        })
         expect(promptChain.run).toHaveBeenCalled()
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)

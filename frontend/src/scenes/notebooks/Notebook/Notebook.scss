@@ -657,6 +657,32 @@
         white-space: nowrap;
     }
 
+    .NotebookAI {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        width: fit-content;
+        max-width: 100%;
+        padding: 0.125rem 0.375rem;
+        margin: 0.25rem 0;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--color-text-secondary);
+        background: var(--color-bg-3000);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 4px;
+    }
+
+    .NotebookAI--failed {
+        padding: 0.125rem;
+    }
+
+    .NotebookAI__spinner {
+        flex-shrink: 0;
+        font-size: 0.75rem;
+    }
+
     // Overrides for insight controls
 
     .InsightVizDisplay {

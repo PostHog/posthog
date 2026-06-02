@@ -52,6 +52,16 @@ function renderNode(node: JSONContent, key: string): JSX.Element | null {
             </span>
         )
     }
+    if (node.type === NotebookNodeType.AI) {
+        return (
+            <span
+                key={key}
+                className="inline-flex items-center gap-1 text-secondary bg-fill-highlight-100 px-1 rounded"
+            >
+                Thinking...
+            </span>
+        )
+    }
     if (node.type === NotebookNodeType.AIPromptStatus) {
         const prompt = typeof node.attrs?.prompt === 'string' ? node.attrs.prompt : ''
 

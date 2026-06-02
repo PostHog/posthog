@@ -22,12 +22,6 @@ const Component = ({ editor }: InsertionSuggestionViewProps): JSX.Element => {
 
     return (
         <div className="flex items-center gap-1">
-            <LemonButton
-                size="xsmall"
-                icon={<IconSparkles className="text-ai" />}
-                tooltip="Ask PostHog AI"
-                onClick={onAIClick}
-            />
             <SlashCommandsPopover
                 mode="add"
                 visible={visible}
@@ -36,6 +30,12 @@ const Component = ({ editor }: InsertionSuggestionViewProps): JSX.Element => {
             >
                 <LemonButton size="xsmall" icon={<IconPlus />} tooltip="Add block" onClick={onClick} />
             </SlashCommandsPopover>
+            <LemonButton
+                size="xsmall"
+                icon={<IconSparkles className="text-ai" />}
+                tooltip="Ask PostHog AI"
+                onClick={onAIClick}
+            />
         </div>
     )
 }

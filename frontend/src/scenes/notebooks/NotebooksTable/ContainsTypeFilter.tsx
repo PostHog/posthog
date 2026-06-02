@@ -13,6 +13,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.GroupProperties
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
+    | NotebookNodeType.AI
     | NotebookNodeType.AIPrompt
     | NotebookNodeType.AIPromptStatus
     | NotebookNodeType.Embed

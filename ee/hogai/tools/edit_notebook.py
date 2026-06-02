@@ -1,5 +1,6 @@
 import copy
 import uuid
+import asyncio
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Self, cast
 
@@ -9,7 +10,7 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, model_validator
 
-from posthog.schema import AssistantTool, MaxUIContext
+from posthog.schema import AssistantTool, MaxNotebookContext, MaxNotebookRequestLocationContext, MaxUIContext
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel
@@ -78,13 +79,22 @@ Use `<insight>artifact_id</insight>` in `content` to insert a visualization arti
 
 {content_guidance}
 
+# Notebook request locations and AI placeholders
+- Notebook context may include a `Request location` block. This is the exact place where the user invoked PostHog AI.
+- If the user's message says "here", "there", "this spot", "this place", "at this location", "where I typed /ai", or any similar location language, it refers to the `Request location`.
+- If `Current block text` is an `<AI id="...">Thinking...</AI>` tag, it is the notebook's visible `Thinking...` placeholder. Use `replace_block` with that exact tag as the `anchor`.
+- If there is a request location but no current placeholder tag, insert at that location using `insert_between` with the previous and next block texts, or `insert_after` / `insert_before` when only one side is available.
+- Do not use `append` when a request location is present unless the user explicitly asked to add content to the end of the notebook.
+- Nearby headings and notebook sections are context. They are not the target unless the user's request specifically names them as the target.
+- Do not relocate the edit to a semantically related section elsewhere in the notebook. For example, if the user types `/ai drop a dad joke here` in the middle of the notebook, add the joke at the `Request location` / `<AI ...>Thinking...</AI>` placeholder, not at an existing dad-joke section and not at the end.
+
 Example:
 {{
   "edits": [
     {{
       "type": "replace_block",
-      "anchor": "replace this block with an insight showing number of active users last 30 days",
-      "content": "<insight>abc123</insight>"
+      "anchor": "<AI id=\"placeholder-123\">Thinking...</AI>",
+      "content": "The content the user asked to add here"
     }}
   ]
 }}
@@ -108,6 +118,8 @@ ReplaceStep = dict[str, Any]
 
 LEAF_NODE_TYPES = {"hardBreak", "horizontalRule"}
 MAX_TEXT_REPLACEMENTS = 100
+AI_PLACEHOLDER_PREFIX = "<AI"
+AI_PLACEHOLDER_SUFFIX = "</AI>"
 
 
 def utf16_length(value: str) -> int:
@@ -935,6 +947,83 @@ def markdown_to_plain_text(markdown: str) -> str:
     return document_text_content(doc)
 
 
+def rewrite_first_append_for_notebook_request_location(
+    edits: list[NotebookEdit], request_location: MaxNotebookRequestLocationContext | None
+) -> list[NotebookEdit]:
+    if not request_location:
+        return edits
+    if not any(isinstance(edit, AppendEdit) for edit in edits):
+        return edits
+
+    placeholder_anchor = ai_placeholder_anchor_from_request_location(request_location)
+    if placeholder_anchor and any(
+        isinstance(edit, ReplaceBlockEdit) and edit.anchor.strip() == placeholder_anchor for edit in edits
+    ):
+        return edits
+
+    replaced = False
+    rewritten_edits: list[NotebookEdit] = []
+    for edit in edits:
+        if not replaced and isinstance(edit, AppendEdit):
+            rewritten_edit = request_location_append_replacement(edit, request_location, placeholder_anchor)
+            rewritten_edits.append(rewritten_edit)
+            replaced = True
+            continue
+
+        rewritten_edits.append(edit)
+
+    return rewritten_edits
+
+
+def ai_placeholder_anchor_from_request_location(request_location: MaxNotebookRequestLocationContext) -> str | None:
+    current_block_text = request_location.current_block_text
+    if not current_block_text:
+        return None
+
+    anchor = current_block_text.strip()
+    if anchor.startswith(AI_PLACEHOLDER_PREFIX) and AI_PLACEHOLDER_SUFFIX in anchor:
+        return anchor
+    return None
+
+
+def request_location_append_replacement(
+    edit: AppendEdit, request_location: MaxNotebookRequestLocationContext, placeholder_anchor: str | None
+) -> NotebookEdit:
+    if placeholder_anchor:
+        return ReplaceBlockEdit(
+            anchor=placeholder_anchor,
+            content=edit.content,
+            content_format=edit.content_format,
+            nodes=edit.nodes,
+        )
+
+    previous_block_text = request_location.previous_block_text.strip() if request_location.previous_block_text else ""
+    next_block_text = request_location.next_block_text.strip() if request_location.next_block_text else ""
+    if previous_block_text and next_block_text:
+        return InsertBetweenEdit(
+            after=previous_block_text,
+            before=next_block_text,
+            content=edit.content,
+            content_format=edit.content_format,
+            nodes=edit.nodes,
+        )
+    if previous_block_text:
+        return InsertAfterEdit(
+            anchor=previous_block_text,
+            content=edit.content,
+            content_format=edit.content_format,
+            nodes=edit.nodes,
+        )
+    if next_block_text:
+        return InsertBeforeEdit(
+            anchor=next_block_text,
+            content=edit.content,
+            content_format=edit.content_format,
+            nodes=edit.nodes,
+        )
+    return edit
+
+
 class EditNotebookTool(MaxTool):
     name: Literal[AssistantTool.EDIT_NOTEBOOK] = AssistantTool.EDIT_NOTEBOOK
     args_schema: type[BaseModel] = EditNotebookToolArgs
@@ -967,11 +1056,21 @@ class EditNotebookTool(MaxTool):
             description=description,
         )
 
-    def _current_context_notebook_id(self) -> str | None:
+    def _current_context_notebook(self) -> MaxNotebookContext | None:
         ui_context = self._context_manager.get_ui_context(self._state)
         if not isinstance(ui_context, MaxUIContext) or not ui_context.notebooks or len(ui_context.notebooks) != 1:
             return None
-        return ui_context.notebooks[0].id
+        return ui_context.notebooks[0]
+
+    def _current_context_notebook_id(self) -> str | None:
+        notebook = self._current_context_notebook()
+        return notebook.id if notebook else None
+
+    def _current_context_notebook_request_location(self) -> MaxNotebookRequestLocationContext | None:
+        notebook = self._current_context_notebook()
+        if not notebook or not notebook.request_location:
+            return None
+        return notebook.request_location
 
     async def _get_notebook(self, short_id: str) -> Notebook:
         try:
@@ -1029,9 +1128,15 @@ class EditNotebookTool(MaxTool):
                 None,
             )
 
-        viz_lookup = await build_visualization_lookup(self._team.pk, referenced_visualization_ids(edits))
+        request_location = self._current_context_notebook_request_location()
+        placeholder_anchor = (
+            ai_placeholder_anchor_from_request_location(request_location) if request_location is not None else None
+        )
+        edits_to_apply = rewrite_first_append_for_notebook_request_location(edits, request_location)
+
+        viz_lookup = await build_visualization_lookup(self._team.pk, referenced_visualization_ids(edits_to_apply))
         allow_executable_analysis_blocks = has_notebook_python_feature_flag(self._team, self._user)
-        if not allow_executable_analysis_blocks and edits_use_executable_analysis_blocks(edits):
+        if not allow_executable_analysis_blocks and edits_use_executable_analysis_blocks(edits_to_apply):
             return (
                 "Error: Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. "
                 "Use <query> nodes or <insight> artifacts instead.",
@@ -1040,12 +1145,18 @@ class EditNotebookTool(MaxTool):
 
         for _attempt in range(max_retries + 1):
             notebook = await self._get_notebook(target_short_id)
-            plan = build_edit_plan(
-                notebook.content,
-                edits,
-                viz_lookup,
-                allow_executable_analysis_blocks=allow_executable_analysis_blocks,
-            )
+            try:
+                plan = build_edit_plan(
+                    notebook.content,
+                    edits_to_apply,
+                    viz_lookup,
+                    allow_executable_analysis_blocks=allow_executable_analysis_blocks,
+                )
+            except MaxToolRetryableError as error:
+                if placeholder_anchor and placeholder_anchor in str(error) and _attempt < max_retries:
+                    await asyncio.sleep(1)
+                    continue
+                raise
 
             if not plan.steps:
                 if title is None:
@@ -1058,8 +1169,8 @@ class EditNotebookTool(MaxTool):
                 continue
 
             return (
-                f"Updated notebook {saved_notebook.short_id} with {len(edits)} edit{'s' if len(edits) != 1 else ''}.",
-                {"short_id": saved_notebook.short_id, "applied_edits": len(edits)},
+                f"Updated notebook {saved_notebook.short_id} with {len(edits_to_apply)} edit{'s' if len(edits_to_apply) != 1 else ''}.",
+                {"short_id": saved_notebook.short_id, "applied_edits": len(edits_to_apply)},
             )
 
         raise MaxToolRetryableError(

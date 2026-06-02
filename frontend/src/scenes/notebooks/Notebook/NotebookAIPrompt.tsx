@@ -1,9 +1,10 @@
 import { Extension, Node, type NodeViewProps, mergeAttributes } from '@tiptap/core'
-import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { useValues } from 'kea'
+import { NodeViewWrapper, ReactNodeViewRenderer, getExtensionField } from '@tiptap/react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconRefresh, IconSparkles } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import {
     EditorCommands,
@@ -13,17 +14,21 @@ import {
     RichContentNode,
     TTEditor,
 } from 'lib/components/RichContentEditor/types'
+import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
+import { maxThreadLogic, type ThreadMessage } from 'scenes/max/maxThreadLogic'
 import type { MaxNotebookRequestLocationContext } from 'scenes/max/maxTypes'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { SidePanelTab } from '~/types'
 
 import { NotebookNodeType } from '../types'
 import { textContent } from '../utils'
 
 const NOTEBOOK_AI_PROMPT_LABEL = 'Ask PostHog AI:'
+const NOTEBOOK_AI_PLACEHOLDER_TEXT = 'Thinking...'
 const MAX_REQUEST_LOCATION_BLOCK_TEXT_LENGTH = 500
 
 type NotebookAIPromptOptions = {
@@ -39,12 +44,76 @@ type NotebookAIPromptStatusAttrs = {
     prompt?: string
 }
 
+type NotebookAIAttrs = {
+    id?: string | null
+}
+
 function NotebookAIPromptComponent(): JSX.Element {
     return (
         <NodeViewWrapper as="span" className="NotebookAIPrompt" contentEditable={false}>
             <IconSparkles className="NotebookAIPrompt__icon" />
             <span>{NOTEBOOK_AI_PROMPT_LABEL}</span>
         </NodeViewWrapper>
+    )
+}
+
+function NotebookAIComponent(props: NodeViewProps): JSX.Element {
+    const { deleteNode } = props
+    const { activeStreamingThreads, threadLogicKey } = useValues(maxLogic({ tabId: 'sidepanel' }))
+    const threadLogic = maxThreadLogic({ tabId: 'sidepanel', conversationId: threadLogicKey })
+    const { streamingActive, threadRaw } = useValues(threadLogic)
+    const { retryLastMessage } = useActions(threadLogic)
+    const isStreaming = activeStreamingThreads > 0 || streamingActive
+    const hasSeenStreaming = useRef(isStreaming)
+    const [retryRequested, setRetryRequested] = useState(false)
+    const hasRetriableFailure = hasSeenStreaming.current && !isStreaming && hasRetriableMaxFailure(threadRaw)
+
+    useEffect(() => {
+        if (isStreaming) {
+            hasSeenStreaming.current = true
+            setRetryRequested(false)
+            return
+        }
+
+        if (hasSeenStreaming.current && !hasRetriableFailure) {
+            deleteNode()
+        }
+    }, [deleteNode, hasRetriableFailure, isStreaming])
+
+    if (hasRetriableFailure) {
+        return (
+            <NodeViewWrapper className="NotebookAI NotebookAI--failed" contentEditable={false}>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    loading={retryRequested}
+                    disabled={retryRequested}
+                    onClick={() => {
+                        setRetryRequested(true)
+                        retryLastMessage()
+                    }}
+                >
+                    Retry
+                </LemonButton>
+            </NodeViewWrapper>
+        )
+    }
+
+    return (
+        <NodeViewWrapper className="NotebookAI" contentEditable={false}>
+            <Spinner textColored className="NotebookAI__spinner" />
+            <span>{NOTEBOOK_AI_PLACEHOLDER_TEXT}</span>
+        </NodeViewWrapper>
+    )
+}
+
+export function hasRetriableMaxFailure(threadRaw: ThreadMessage[]): boolean {
+    const lastNonHumanMessage = [...threadRaw].reverse().find((message) => message.type !== AssistantMessageType.Human)
+
+    return !!(
+        lastNonHumanMessage &&
+        (lastNonHumanMessage.status === 'error' || lastNonHumanMessage.type === AssistantMessageType.Failure)
     )
 }
 
@@ -96,6 +165,45 @@ function NotebookAIPromptSubmittedStatus({ prompt }: { prompt: string }): JSX.El
         </NodeViewWrapper>
     )
 }
+
+export const NotebookAI = Node.create({
+    name: NotebookNodeType.AI,
+    group: 'block',
+    atom: true,
+    selectable: false,
+    draggable: false,
+
+    serializedText: (attrs: NotebookAIAttrs): string => buildNotebookAIText(attrs.id),
+
+    extendNodeSchema(extension) {
+        const context = {
+            name: extension.name,
+            options: extension.options,
+            storage: extension.storage,
+        }
+        return {
+            serializedText: getExtensionField(extension, 'serializedText', context),
+        }
+    },
+
+    addAttributes() {
+        return {
+            id: { default: null },
+        }
+    },
+
+    parseHTML() {
+        return [{ tag: NotebookNodeType.AI }]
+    },
+
+    renderHTML({ HTMLAttributes }) {
+        return [NotebookNodeType.AI, mergeAttributes(HTMLAttributes)]
+    },
+
+    addNodeView() {
+        return ReactNodeViewRenderer(NotebookAIComponent)
+    },
+})
 
 export const NotebookAIPrompt = Node.create({
     name: NotebookNodeType.AIPrompt,
@@ -177,14 +285,21 @@ export function buildSubmittedNotebookAIPromptContent(prompt: string): JSONConte
     return [{ type: NotebookNodeType.AIPromptStatus, attrs: { prompt: prompt.trim() } }]
 }
 
+export function buildNotebookAIContent(id: string = uuid()): JSONContent {
+    return { type: NotebookNodeType.AI, attrs: { id } }
+}
+
 export function submitNotebookAIPromptFromRange(
     editor: Pick<RichContentEditorType, 'chain' | 'getAdjacentNodes'>,
     range: EditorRange,
     prompt: string,
     options: NotebookAIPromptOptions
 ): void {
-    addNotebookContext(editor, range.from, options)
-    editor.chain().insertContentAt(range, buildSubmittedNotebookAIPromptContent(prompt)).run()
+    const placeholderId = uuid()
+    const placeholderText = buildNotebookAIText(placeholderId)
+
+    addNotebookContext(editor, range.from, options, placeholderText)
+    editor.chain().insertContentAt(range, buildNotebookAIContent(placeholderId)).run()
     sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, `!${prompt}`)
 }
 
@@ -208,6 +323,15 @@ export const NotebookAIPromptExtension = Extension.create<NotebookAIPromptOption
 
 function buildNotebookAIPromptInlineContent(): JSONContent[] {
     return [{ type: NotebookNodeType.AIPrompt }, { type: 'text', text: ' ' }]
+}
+
+function buildNotebookAIText(id?: string | null): string {
+    const idAttribute = id ? ` id="${escapeAttribute(id)}"` : ''
+    return `<AI${idAttribute}>${NOTEBOOK_AI_PLACEHOLDER_TEXT}</AI>`
+}
+
+function escapeAttribute(value: string): string {
+    return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 function getQuestionFromSidePanelOptions(options: string | null): string {
@@ -250,19 +374,12 @@ function submitActiveNotebookAIPrompt(editor: TTEditor, options: NotebookAIPromp
 
     const from = $from.before($from.depth)
     const to = $from.after($from.depth)
-    addNotebookContextFromTiptap(editor, $from.index(0), from, options)
+    const placeholderId = uuid()
+    const placeholderText = buildNotebookAIText(placeholderId)
 
-    editor
-        .chain()
-        .focus()
-        .insertContentAt(
-            { from, to },
-            {
-                type: 'paragraph',
-                content: buildSubmittedNotebookAIPromptContent(prompt),
-            }
-        )
-        .run()
+    addNotebookContextFromTiptap(editor, $from.index(0), from, options, placeholderText)
+
+    editor.chain().focus().insertContentAt({ from, to }, buildNotebookAIContent(placeholderId)).run()
 
     sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, `!${prompt}`)
     return true
@@ -293,7 +410,8 @@ function getPromptTextFromAIPromptParagraph(node: RichContentNode): string {
 function addNotebookContext(
     editor: Pick<RichContentEditorType, 'getAdjacentNodes'>,
     position: number,
-    options: NotebookAIPromptOptions
+    options: NotebookAIPromptOptions,
+    currentBlockText: string
 ): void {
     const { previous, next } = editor.getAdjacentNodes(position)
     addOrUpdateContextNotebook({
@@ -302,6 +420,7 @@ function addNotebookContext(
         request_location: {
             type: 'notebook_position',
             position,
+            current_block_text: currentBlockText,
             previous_block_text: getAnchorText(previous),
             next_block_text: getAnchorText(next),
         },
@@ -312,7 +431,8 @@ function addNotebookContextFromTiptap(
     editor: TTEditor,
     currentBlockIndex: number,
     position: number,
-    options: NotebookAIPromptOptions
+    options: NotebookAIPromptOptions,
+    currentBlockText: string
 ): void {
     const { doc } = editor.state
     addOrUpdateContextNotebook({
@@ -321,6 +441,7 @@ function addNotebookContextFromTiptap(
         request_location: {
             type: 'notebook_position',
             position,
+            current_block_text: currentBlockText,
             previous_block_text: getAnchorText(doc.maybeChild(currentBlockIndex - 1)),
             next_block_text: getAnchorText(doc.maybeChild(currentBlockIndex + 1)),
         },
