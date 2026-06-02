@@ -186,16 +186,18 @@ class TestMonitorScanner:
 
     def test_output_rejects_unknown_verdict_value(self) -> None:
         with pytest.raises(ValidationError):
-            MonitorOutput(verdict="maybe", reasoning="x", confidence=0.5)  # type: ignore[arg-type]
+            MonitorOutput.model_validate({"verdict": "maybe", "reasoning": "x", "confidence": 0.5})
 
     def test_validate_semantics_rejects_inconclusive_when_disallowed(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
+        assert isinstance(scanner, MonitorScanner)
         assert scanner.allow_inconclusive is False
         out = MonitorOutput(verdict="inconclusive", reasoning="not sure", confidence=0.4)
         assert scanner.validate_semantics(out) is not None
 
     def test_validate_semantics_accepts_inconclusive_when_allowed(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner(scanner_config={"prompt": "p", "allow_inconclusive": True}))
+        assert isinstance(scanner, MonitorScanner)
         assert scanner.allow_inconclusive is True
         out = MonitorOutput(verdict="inconclusive", reasoning="ambiguous", confidence=0.4)
         assert scanner.validate_semantics(out) is None
@@ -203,6 +205,8 @@ class TestMonitorScanner:
     def test_prompt_context_propagates_allow_inconclusive(self) -> None:
         on_scanner = scanner_from_db(_build_replay_scanner(scanner_config={"prompt": "p", "allow_inconclusive": True}))
         off_scanner = scanner_from_db(_build_replay_scanner())
+        assert isinstance(on_scanner, MonitorScanner)
+        assert isinstance(off_scanner, MonitorScanner)
         assert on_scanner.prompt_context()["allow_inconclusive"] is True
         assert off_scanner.prompt_context()["allow_inconclusive"] is False
 
