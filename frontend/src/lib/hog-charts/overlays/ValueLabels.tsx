@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react'
 
-import { useChartLayout } from '../core/chart-context'
-import { DEFAULT_Y_AXIS_ID } from '../core/types'
-import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
+import { useChartHover, useChartLayout } from '../core/chart-context'
+import { resolveYScaleForSeries } from '../core/scales'
+import type { ChartDimensions, ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
+import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
@@ -16,31 +17,28 @@ export interface ValueLabelsProps {
 const LABEL_FONT =
     '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_HEIGHT = 22
+const LABEL_PADDING_X = 4
+const LABEL_PADDING_Y = 2
+const LABEL_BORDER = 2
+const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
-
-let measureCtx: CanvasRenderingContext2D | null = null
-function getMeasureCtx(): CanvasRenderingContext2D | null {
-    if (!measureCtx) {
-        measureCtx = document.createElement('canvas').getContext('2d')
-    }
-    return measureCtx
-}
 
 interface Candidate {
     key: string
     seriesIndex: number
+    /** Matched against `hoverIndex` so the hovered candidate can lift. */
+    dataIndex: number
     text: string
     x: number
     y: number
     width: number
     color: string
     above: boolean
+    /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
+    centerAnchor: boolean
 }
 
-function resolveYScale(s: { yAxisId?: string }, scales: ChartScales): (value: number) => number {
-    const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-    return scales.yAxes?.[axisId]?.scale ?? scales.y
-}
+const HOVER_LIFT_PX = 6
 
 function defaultLocaleFormatter(v: number): string {
     return v.toLocaleString()
@@ -50,7 +48,7 @@ interface BuildCandidatesArgs {
     series: ResolvedSeries[]
     labels: string[]
     scales: ChartScales
-    resolveValue: ResolveValueFn
+    resolvePositionValue: ResolveValueFn
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     isHorizontal: boolean
     mode: ValueLabelsMode
@@ -63,27 +61,32 @@ function pushCandidate(
     isHorizontal: boolean,
     key: string,
     seriesIndex: number,
+    dataIndex: number,
     color: string,
     text: string,
     categoricalCoord: number,
     valueCoord: number,
-    above: boolean
+    above: boolean,
+    centerAnchor: boolean = false
 ): void {
-    const width = ctx ? ctx.measureText(text).width : text.length * 6
+    const textWidth = ctx ? ctx.measureText(text).width : text.length * 6
+    const width = textWidth + LABEL_HORIZONTAL_CHROME
     out.push({
         key,
         seriesIndex,
+        dataIndex,
         text,
         x: isHorizontal ? valueCoord : categoricalCoord,
         y: isHorizontal ? categoricalCoord : valueCoord,
         width,
         color,
         above,
+        centerAnchor,
     })
 }
 
 function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
-    const ctx = getMeasureCtx()
+    const ctx = getTextMeasureCtx()
     if (ctx) {
         ctx.font = LABEL_FONT
     }
@@ -119,12 +122,12 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     if (isPercent) {
         return out
     }
-    const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
+    const visible = series.filter((s) => !s.visibility?.excluded && s.visibility?.valueLabel !== false)
     if (visible.length === 0) {
         return out
     }
     const topSeries = visible[visible.length - 1]
-    const yScale = resolveYScale(topSeries, scales)
+    const yScale = resolveYScaleForSeries(scales, topSeries)
     const topColor = topSeries.color
 
     for (let dIdx = 0; dIdx < labels.length; dIdx++) {
@@ -143,6 +146,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             isHorizontal,
             `${STACK_TOTAL_KEY}-${dIdx}`,
             -1,
+            dIdx,
             topColor,
             valueFormatter(total, -1, dIdx),
             categoricalCoord,
@@ -154,25 +158,53 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
+
+    // In percent layout each band sums to 1, so we need the band total to convert each segment's
+    // raw value into the fraction d3 uses for placement (`raw / total`). Match the d3 stack's own
+    // denominator — every non-excluded stacked series — even if some have `valueLabel: false`,
+    // since those still contribute to the visual stack height.
+    const visibleForTotal = isPercent
+        ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+        : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
+        if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
             continue
         }
-        const yScale = resolveYScale(s, scales)
+        const yScale = resolveYScaleForSeries(scales, s)
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
             if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
-            const yValue = resolveValue(s, dIdx)
+            const yValue = resolvePositionValue(s, dIdx)
             if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
-            const categoricalCoord = scales.x(labels[dIdx])
+
+            let displayValue = rawValue
+            // In percent layout we center the label across the segment's stacked top (see
+            // `centerAnchor` below), so `above` is unused — keep it false to be explicit.
+            let above = isPercent ? false : yValue >= 0
+
+            if (isPercent) {
+                const total = bandTotal(visibleForTotal, dIdx)
+                if (total == null || total === 0) {
+                    continue
+                }
+                // Pass the fraction (0..1) so consumers can use the same percentage formatter
+                // (`percentage_scaled`, BarChart's default tick formatter, etc.) they already use
+                // for the value axis.
+                displayValue = rawValue / total
+            }
+
+            // Pass `s.key` so grouped bar charts (compare-against-previous) anchor each
+            // label on its own bar rather than the band center between bars. Other chart
+            // types ignore the second arg and fall back to the band/point center.
+            const categoricalCoord = scales.x(labels[dIdx], s.key)
             const valueCoord = yScale(yValue)
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
@@ -183,11 +215,13 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 isHorizontal,
                 `${s.key}-${dIdx}`,
                 sIdx,
+                dIdx,
                 s.color,
-                valueFormatter(rawValue, sIdx, dIdx),
+                valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
                 valueCoord,
-                yValue >= 0
+                above,
+                isPercent
             )
         }
     }
@@ -204,16 +238,59 @@ interface Rect {
 function labelRect(c: Candidate, isHorizontal: boolean): Rect {
     if (isHorizontal) {
         const halfH = LABEL_HEIGHT / 2
-        const left = c.above ? c.x : c.x - c.width
+        let left: number
+        if (c.centerAnchor) {
+            left = c.x - c.width / 2
+        } else {
+            left = c.above ? c.x : c.x - c.width
+        }
         return { left, right: left + c.width, top: c.y - halfH, bottom: c.y + halfH }
     }
     const halfW = c.width / 2
-    const top = c.above ? c.y - LABEL_HEIGHT : c.y
+    let top: number
+    if (c.centerAnchor) {
+        top = c.y - LABEL_HEIGHT / 2
+    } else {
+        top = c.above ? c.y - LABEL_HEIGHT : c.y
+    }
     return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
 }
 
 function rectsOverlap(a: Rect, b: Rect, gap: number): boolean {
     return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
+}
+
+function fitsWithinWrapper(c: Candidate, above: boolean, dimensions: ChartDimensions, isHorizontal: boolean): boolean {
+    if (isHorizontal) {
+        const left = above ? c.x : c.x - c.width
+        return left >= 0 && left + c.width <= dimensions.width
+    }
+    const top = above ? c.y - LABEL_HEIGHT : c.y
+    return top >= 0 && top + LABEL_HEIGHT <= dimensions.height
+}
+
+// If the default placement (above/right of the bar) would push the label past the chart
+// wrapper edge — which has `overflow: hidden` — flip it inside the bar instead. Avoids
+// reserving global plot-area headroom (which would shrink every chart vertically) for a
+// case that only hits when a bar reaches the axis top/right. Only flips when the flipped
+// position actually fits — if neither side fits, keep the original choice.
+function flipClippedCandidates(
+    candidates: Candidate[],
+    dimensions: ChartDimensions,
+    isHorizontal: boolean
+): Candidate[] {
+    for (const c of candidates) {
+        if (c.centerAnchor) {
+            continue
+        }
+        if (fitsWithinWrapper(c, c.above, dimensions, isHorizontal)) {
+            continue
+        }
+        if (fitsWithinWrapper(c, !c.above, dimensions, isHorizontal)) {
+            c.above = !c.above
+        }
+    }
+    return candidates
 }
 
 function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHorizontal: boolean): Candidate[] {
@@ -273,19 +350,36 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     fontSize: 12,
     fontWeight: 600,
     lineHeight: 1.2,
-    padding: '2px 4px',
+    padding: `${LABEL_PADDING_Y}px ${LABEL_PADDING_X}px`,
     borderRadius: 4,
-    borderWidth: 2,
+    borderWidth: LABEL_BORDER,
     borderStyle: 'solid',
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
+    transition: 'transform 150ms ease-out',
 }
 
-function transformFor(c: Candidate, isHorizontal: boolean): string {
-    if (isHorizontal) {
-        return c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)'
+function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
+    // Lift direction depends on which side of the value-axis the label sits on.
+    let liftX = 0
+    let liftY = 0
+    if (hovered) {
+        if (c.centerAnchor) {
+            liftY = -HOVER_LIFT_PX
+        } else if (isHorizontal) {
+            liftX = c.above ? HOVER_LIFT_PX : -HOVER_LIFT_PX
+        } else {
+            liftY = c.above ? -HOVER_LIFT_PX : HOVER_LIFT_PX
+        }
     }
-    return c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+    const lift = liftX === 0 && liftY === 0 ? '' : ` translate(${liftX}px, ${liftY}px)`
+    if (c.centerAnchor) {
+        return `translate(-50%, -50%)${lift}`
+    }
+    if (isHorizontal) {
+        return (c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)') + lift
+    }
+    return (c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)') + lift
 }
 
 export function ValueLabels({
@@ -293,29 +387,55 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axisOrientation, isPercent } = useChartLayout()
-    const isHorizontal = axisOrientation === 'horizontal'
+    const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
+    const { hoverIndex } = useChartHover()
+    const isHorizontal = axis.orientation === 'horizontal'
+    const isPercent = axis.isPercent
 
     const formatter = valueFormatter ?? defaultLocaleFormatter
 
     const visible = useMemo(
         () =>
             applyCollisionAvoidance(
-                buildCandidates({
-                    series,
-                    labels,
-                    scales,
-                    resolveValue,
-                    valueFormatter: formatter,
-                    isHorizontal,
-                    mode,
-                    isPercent,
-                }),
+                flipClippedCandidates(
+                    buildCandidates({
+                        series,
+                        labels,
+                        scales,
+                        resolvePositionValue,
+                        valueFormatter: formatter,
+                        isHorizontal,
+                        mode,
+                        isPercent,
+                    }),
+                    dimensions,
+                    isHorizontal
+                ),
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolveValue, formatter, minGap, isHorizontal, mode, isPercent]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent, dimensions]
     )
+
+    // Skip the lift when a dataIndex has labels at multiple distinct x positions
+    // (grouped bars) — hoverIndex can't disambiguate which bar the cursor is on, so
+    // lifting all of them is worse than lifting none. Labels sharing the same x
+    // (stacked / multi-series at band center) are one visual column and lift together.
+    const liftableIndices = useMemo(() => {
+        const xsByIndex = new Map<number, Set<number>>()
+        for (const c of visible) {
+            const xs = xsByIndex.get(c.dataIndex) ?? new Set<number>()
+            xs.add(Math.round(c.x))
+            xsByIndex.set(c.dataIndex, xs)
+        }
+        const set = new Set<number>()
+        for (const [dIdx, xs] of xsByIndex) {
+            if (xs.size === 1) {
+                set.add(dIdx)
+            }
+        }
+        return set
+    }, [visible])
 
     if (visible.length === 0) {
         return null
@@ -325,22 +445,26 @@ export function ValueLabels({
 
     return (
         <>
-            {visible.map((c) => (
-                <div
-                    key={c.key}
-                    data-attr="hog-chart-value-label"
-                    style={{
-                        ...LABEL_STYLE_BASE,
-                        backgroundColor: c.color,
-                        borderColor,
-                        left: Math.round(c.x),
-                        top: Math.round(c.y),
-                        transform: transformFor(c, isHorizontal),
-                    }}
-                >
-                    {c.text}
-                </div>
-            ))}
+            {visible.map((c) => {
+                const isHovered = c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)
+                return (
+                    <div
+                        key={c.key}
+                        data-attr="hog-chart-value-label"
+                        style={{
+                            ...LABEL_STYLE_BASE,
+                            backgroundColor: c.color,
+                            borderColor,
+                            left: Math.round(c.x),
+                            top: Math.round(c.y),
+                            transform: transformFor(c, isHorizontal, isHovered),
+                            willChange: isHovered ? 'transform' : undefined,
+                        }}
+                    >
+                        {c.text}
+                    </div>
+                )
+            })}
         </>
     )
 }

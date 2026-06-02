@@ -27,6 +27,7 @@ import {
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
 import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
+import { splitChoicesOnPaste } from '../../utils'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
@@ -194,9 +195,26 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
             } as Partial<MultipleSurveyQuestion>)
         }
 
+        const handlePasteIntoChoice = (event: React.ClipboardEvent<HTMLInputElement>, choiceIndex: number): void => {
+            const merged = splitChoicesOnPaste(
+                event.clipboardData.getData('text'),
+                choices,
+                choiceIndex,
+                hasOpenChoice ?? false
+            )
+            if (!merged) {
+                return
+            }
+            event.preventDefault()
+            onUpdate({ choices: merged } as Partial<MultipleSurveyQuestion>)
+        }
+
         return (
             <div className="space-y-2 pt-2 border-t border-border mt-3">
-                <span className="text-xs text-secondary">Choices:</span>
+                <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-secondary">Choices:</span>
+                    <span className="text-[10px] text-muted">Paste a list to add many at once</span>
+                </div>
                 <div className="space-y-1.5">
                     {choices.map((choice, choiceIndex) => {
                         const isOpenChoice = hasOpenChoice && choiceIndex === choices.length - 1
@@ -207,6 +225,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                     value={choice}
                                     placeholder={isOpenChoice ? 'Other (open-ended)' : `Choice ${choiceIndex + 1}`}
                                     onChange={(val) => updateChoice(choiceIndex, val)}
+                                    onPaste={(event) => handlePasteIntoChoice(event, choiceIndex)}
                                     className="flex-1"
                                     suffix={
                                         isOpenChoice ? (
@@ -497,7 +516,7 @@ interface QuestionsStepProps {
 
 export function QuestionsStep({ editingLanguage, setEditingLanguage }: QuestionsStepProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, moveQuestion, removeQuestion } = useActions(surveyLogic)
     const { selectedTemplate } = useValues(surveyWizardLogic)
     const { restoreDefaultQuestions } = useActions(surveyWizardLogic)
 
@@ -515,8 +534,7 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
     }
 
     const deleteQuestion = (index: number): void => {
-        const newQuestions = questions.filter((_, i) => i !== index)
-        setSurveyValue('questions', newQuestions)
+        removeQuestion(index)
     }
 
     const addQuestion = (type: SurveyQuestionType): void => {
@@ -553,11 +571,7 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
         if (over && active.id !== over.id) {
             const oldIndex = sortedItemIds.indexOf(active.id.toString())
             const newIndex = sortedItemIds.indexOf(over.id.toString())
-
-            const newQuestions = [...questions]
-            const [removed] = newQuestions.splice(oldIndex, 1)
-            newQuestions.splice(newIndex, 0, removed)
-            setSurveyValue('questions', newQuestions)
+            moveQuestion(oldIndex, newIndex)
         }
     }
 

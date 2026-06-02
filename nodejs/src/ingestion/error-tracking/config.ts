@@ -30,6 +30,16 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     /** TTL in seconds for local cache entries */
     ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    /**
+     * When true (default, matching the previous hardcoded behavior), redirects
+     * to the overflow lane keep the event's original partition key. When
+     * false, the overflow producer emits with a null key and Kafka spreads
+     * events across overflow-topic partitions. Cymbal cache locality is
+     * enforced one layer down — by team_id consistent hashing inside
+     * `CymbalClient` — so the partition key on the overflow lane doesn't
+     * affect symbolication cache hits.
+     */
+    ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean
 
     /** Max HTTP body size in bytes per Cymbal API request. Used to proactively
      *  split large batches before they hit Cymbal's body limit. */
@@ -45,12 +55,16 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: string
     ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: number
     ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: boolean
-    /** Token bucket capacity (events per key burst). */
-    ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE: number
-    /** Token bucket replenish rate (events per second). */
-    ERROR_TRACKING_RATE_LIMITER_REFILL_RATE: number
     /** TTL in seconds for the Redis bucket key. */
     ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: number
+
+    /** Max new per-issue bucket keys a single team can create per window before
+     *  cooldown engages and per-issue limiting is bypassed for that team. */
+    ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD: number
+    /** Length of the new-key counter window (seconds). */
+    ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS: number
+    /** Cooldown duration once a team trips the guard (seconds). */
+    ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: number
 
     /** Pipeline name for metrics labeling */
     INGESTION_PIPELINE: string | null
@@ -72,15 +86,17 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED: false,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
+        ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: true,
         ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
         ERROR_TRACKING_RATE_LIMITER_ENABLED: false,
         ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: true,
         ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: '',
         ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: 6379,
         ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: false,
-        ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE: 100_000,
-        ERROR_TRACKING_RATE_LIMITER_REFILL_RATE: 1_000,
         ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: 86_400,
+        ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD: 1000,
+        ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS: 3600,
+        ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: 300,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
     }

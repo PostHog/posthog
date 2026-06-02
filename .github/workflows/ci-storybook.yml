@@ -27,12 +27,20 @@ jobs:
             # every file NOT at that path — effectively matching ALL changes
             # including backend files. Instead we use two positive filters and
             # compare counts to exclude generated-only PRs.
+            #
+            # Additionally skip when a bot commits only frontend/snapshots.yml on
+            # a PR — that file is updated automatically after human review and CI
+            # approval, so re-running the full storybook suite is pure waste.
             frontend: >-
                 ${{
                     github.event_name == 'push'
                     || (steps.filter.outputs.frontend == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
-                           > fromJSON(steps.filter.outputs.frontend_generated_count || '0'))
+                           > fromJSON(steps.filter.outputs.frontend_generated_count || '0')
+                        && !(github.event_name == 'pull_request'
+                             && (contains(github.actor, '[bot]') || github.actor == 'posthog-bot')
+                             && fromJSON(steps.filter.outputs.snapshots_count || '0')
+                                == fromJSON(steps.filter.outputs.frontend_count || '0')))
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
@@ -61,6 +69,8 @@ jobs:
                       frontend_generated:
                         - 'frontend/src/generated/**'
                         - 'products/**/frontend/generated/**'
+                      snapshots:
+                        - 'frontend/snapshots.yml'
 
             # Build the visual-regression matrix.
             # On PRs, only run chromium shards — no story currently opts into webkit snapshots
@@ -89,27 +99,19 @@ jobs:
                   echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
     build-storybook:
-        name: Build Storybook (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Build Storybook (depot-ubuntu-latest)
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 15
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -124,7 +126,7 @@ jobs:
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Restore webpack build cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
@@ -138,16 +140,13 @@ jobs:
                   pnpm --filter=@posthog/storybook build --test
 
             - name: Save webpack build cache
-              # Avoid cross-runner pollution
-              if: github.ref == 'refs/heads/master' && !matrix.is_shadow
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
-              # Shadow skips upload, would conflict with storybook-build artifact name
-              if: ${{ !matrix.is_shadow }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-build
@@ -175,7 +174,7 @@ jobs:
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
@@ -201,6 +200,11 @@ jobs:
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
+                  # PRs are gating ("review"); master pushes are tracking-only ("observe") since
+                  # there's no PR to approve and we don't want master runs to block or prompt for approval.
+                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  # Recorded on the run so the VR UI can re-trigger this job via the GitHub API.
+                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
                   RUN_ID=$(vr run create \
                     --type storybook \
@@ -208,12 +212,13 @@ jobs:
                     --branch "$VR_BRANCH" \
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR" \
+                    --purpose "$VR_PURPOSE" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup]
         if: >-
             always()
@@ -235,28 +240,39 @@ jobs:
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-storybook.yml
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -363,25 +379,29 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-storybook.yml
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -454,7 +474,7 @@ jobs:
         needs: [visual-regression, vr-setup]
         if: needs.vr-setup.outputs.run_id != '' && needs.visual-regression.result == 'success'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
@@ -474,6 +494,12 @@ jobs:
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
+              # On master pushes the run was created with --purpose observe (tracking-only),
+              # but `vr run complete` still exits 1 whenever visual changes are detected.
+              # That makes the Storybook check fail on master even though observe runs are
+              # not gating by design. Treat exit 1 as informational on push events; PRs
+              # still gate as before.
+              continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
@@ -536,9 +562,10 @@ jobs:
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 0
+                  filter: blob:none
+                  fetch-depth: 500
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
@@ -556,6 +583,7 @@ jobs:
 
             - name: Compute affected stories
               id: selection
+              continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
@@ -563,7 +591,7 @@ jobs:
                   # base.sha is captured at webhook time and goes stale if the branch later
                   # merges a newer master, which makes `base.sha...HEAD` balloon to include
                   # every merged-in master change.
-                  git fetch --no-tags --depth=50 origin "$BASE_REF"
+                  git fetch --no-tags origin "$BASE_REF"
                   echo "### Changed files" >&2
                   git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
@@ -576,6 +604,7 @@ jobs:
                   echo "result=$COMPACT" >> "$GITHUB_OUTPUT"
 
             - name: Write summary
+              if: steps.selection.outcome == 'success'
               env:
                   RESULT: ${{ steps.selection.outputs.result }}
                   CURRENT_SHARDS: 20

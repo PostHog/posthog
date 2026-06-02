@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import os
-import time
 import atexit
-import socket
 import asyncio
 import logging
 import threading
 import subprocess
 from collections.abc import Generator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
 from django.conf import settings
+
+from temporalio.testing import WorkflowEnvironment
 
 from posthog.temporal.common.worker import create_worker
 
@@ -27,6 +28,7 @@ from products.tasks.backend.temporal import (
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
 from ee.hogai.eval.data_setup import copy_demo_data_to_new_team, create_core_memory, ensure_master_demo_team
+from ee.hogai.eval.sandboxed.long_lived_subprocess import LongLivedSubprocessManager
 
 logger = logging.getLogger(__name__)
 
@@ -34,30 +36,28 @@ MCP_PORT = 18787  # Non-default port to avoid conflicts with dev MCP
 DJANGO_LIVE_PORT = 18000  # Non-default port for in-process Django server
 LLM_GATEWAY_PORT = 13308  # Non-default port to avoid conflicts with dev LLM gateway
 
-# Sandboxed evals issue HogQL validation that touches the `persons_db_*`
-# replicas (the validator opens connections even when the query itself
-# doesn't read persons). pytest-django defaults a test's allowed
-# databases to ``{"default"}`` only, so without this whitelist
-# `execute-sql` raises an internal error. Applied via
-# ``pytest_collection_modifyitems`` below so individual evals don't have
-# to repeat it on every ``@pytest.mark.django_db`` marker.
-SANDBOXED_EVAL_DATABASES = ("default", "persons_db_writer", "persons_db_reader")
+# pytest-django normally derives this from ``@pytest.mark.django_db`` markers.
+# Sandboxed evals intentionally strip those markers to avoid per-test DB
+# transactions/flushes, so the local ``django_db_setup`` override below forces
+# setup of the base Django DB explicitly. Person DB setup is handled by
+# PostHog's eval setup after the default test DB name is known.
+SANDBOXED_EVAL_SETUP_DATABASES: dict[str, None] = {"default": None}
 
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
-    """Auto-extend ``@pytest.mark.django_db`` for every sandboxed eval.
+    """Keep sandboxed evals out of pytest-django's per-test DB wrappers.
 
-    Tests under this directory transparently get access to the persons
-    replicas. If a test ever needs a narrower whitelist it can set
-    ``databases=...`` on its own marker — explicit kwargs win.
+    The sandbox harness starts a live Django server and Temporal worker that
+    use separate DB connections. They must see committed rows immediately, so
+    normal pytest-django test transactions do not work. ``transaction=True``
+    makes the rows visible, but also puts every eval on the transactional test
+    path, which flushes/re-initializes state between tests and defeats the
+    long-lived eval database.
 
-    Prepended via ``append=False`` so it beats the function-level
-    ``@pytest.mark.django_db`` in pytest's ``iter_markers``/``get_closest_marker``
-    resolution; otherwise the original (no-kwargs) marker is read first
-    and pytest-django defaults ``databases`` back to ``{"default"}``.
-
-    This piggybacks on the same ``pytest_collection_modifyitems`` hook
-    that ``mcp_mode`` parametrization uses.
+    Instead, ``_sandboxed_eval_database_access`` below creates the DB once and
+    leaves access unblocked for the whole eval session. Strip accidental
+    ``django_db`` markers so pytest-django does not add transactional fixtures
+    back in.
     """
     base_dir = Path(__file__).parent
     for item in items:
@@ -66,16 +66,75 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             test_path.relative_to(base_dir)
         except (TypeError, ValueError):
             continue
-        existing = item.get_closest_marker("django_db")
-        if existing is not None and "databases" in existing.kwargs:
-            continue  # respect explicit per-test override
-        args = existing.args if existing is not None else ()
-        kwargs = {**(existing.kwargs if existing is not None else {}), "databases": list(SANDBOXED_EVAL_DATABASES)}
-        item.add_marker(pytest.mark.django_db(*args, **kwargs), append=False)
+        node = item
+        while node is not None:
+            own_markers = getattr(node, "own_markers", None)
+            if own_markers is not None:
+                node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
+            node = node.parent
+
+
+@pytest.fixture(scope="session")
+def django_db_setup(
+    request: pytest.FixtureRequest,
+    django_test_environment: None,
+    django_db_blocker,
+    django_db_use_migrations: bool,
+    django_db_keepdb: bool,
+    django_db_createdb: bool,
+    django_db_modify_db_settings: None,
+) -> Generator[None, None, None]:
+    """Create the eval test DB even though eval items have no django_db marker."""
+    from django.test.utils import setup_databases, teardown_databases
+
+    from pytest_django.fixtures import _disable_migrations
+
+    if not django_db_use_migrations:
+        _disable_migrations()
+
+    with django_db_blocker.unblock():
+        db_cfg = setup_databases(
+            verbosity=request.config.option.verbose,
+            interactive=False,
+            keepdb=django_db_keepdb and not django_db_createdb,
+            aliases=SANDBOXED_EVAL_SETUP_DATABASES,
+            serialized_aliases=set(),
+        )
+
+    yield
+
+    if not django_db_keepdb:
+        with django_db_blocker.unblock():
+            teardown_databases(db_cfg, verbosity=request.config.option.verbose)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sandboxed_eval_database_access(set_up_evals, django_db_blocker) -> Generator[None, None, None]:  # noqa: F811
+    """Use one committed eval database instead of per-test transactions."""
+    django_db_blocker.unblock()
+    yield
+    django_db_blocker.restore()
 
 
 # Sandbox container name prefix used by the eval harness (set in SandboxConfig.name)
 _EVAL_CONTAINER_PREFIX = "task-sandbox-"
+_LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
+
+
+def pytest_keyboard_interrupt(excinfo: object) -> None:  # noqa: ARG001
+    _LONG_LIVED_SUBPROCESSES.stop_all()
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:  # noqa: ARG001
+    _LONG_LIVED_SUBPROCESSES.stop_all()
+
+
+def _temporal_client_target(env: WorkflowEnvironment) -> tuple[str, str]:
+    config = env.client.config()
+    service_client = config["service_client"]
+    target_host = service_client.config.target_host
+    host, port = target_host.rsplit(":", maxsplit=1)
+    return host, port
 
 
 def _cleanup_eval_containers():
@@ -119,7 +178,7 @@ def _cleanup_sandbox_containers(pytestconfig):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _django_live_server(django_db_setup, django_db_blocker):
+def _django_live_server(_sandboxed_eval_database_access):
     """Start an in-process Django HTTP server on the test database.
 
     Uses Django's ``LiveServerThread`` (same mechanism as pytest-django's
@@ -127,12 +186,10 @@ def _django_live_server(django_db_setup, django_db_blocker):
     calls this server via ``host.docker.internal`` for API requests,
     log persistence, and the LLM gateway.
 
-    Depends on ``django_db_setup`` so the test database is created before
-    any subprocess (LLM gateway, MCP) tries to connect to it.
+    Depends on ``_sandboxed_eval_database_access`` so the PostHog eval database
+    setup has completed before any subprocess (LLM gateway, MCP) connects.
     """
     from pytest_django.live_server_helper import LiveServer
-
-    django_db_blocker.unblock()
 
     server = LiveServer(f"localhost:{DJANGO_LIVE_PORT}")
     logger.info("Django live server started at %s", server.url)
@@ -140,7 +197,6 @@ def _django_live_server(django_db_setup, django_db_blocker):
     yield server
 
     server.stop()
-    django_db_blocker.restore()
     logger.info("Django live server stopped")
 
 
@@ -171,12 +227,47 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandbox_settings(_django_live_server, _llm_gateway):
+def _temporal_test_server() -> Generator[tuple[str, str, str], None, None]:
+    """Start an isolated Temporal dev server for sandboxed eval workflows."""
+    loop = asyncio.new_event_loop()
+    temporal_namespace = settings.TEMPORAL_NAMESPACE
+    env: WorkflowEnvironment | None = None
+
+    try:
+        env = loop.run_until_complete(
+            WorkflowEnvironment.start_local(
+                namespace=temporal_namespace,
+                ip="127.0.0.1",
+                port=None,
+                dev_server_log_level="warn",
+            )
+        )
+        host, port = _temporal_client_target(env)
+        logger.info("Sandboxed eval Temporal server ready at %s:%s namespace=%s", host, port, temporal_namespace)
+
+        yield host, port, temporal_namespace
+    finally:
+        if env is not None:
+            logger.info("Shutting down sandboxed eval Temporal server")
+            loop.run_until_complete(env.shutdown())
+        loop.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sandbox_settings(
+    _django_live_server: object,
+    _llm_gateway: object,
+    _temporal_test_server: tuple[str, str, str],
+) -> Generator[None, None, None]:
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
     Docker sandbox containers. Points at the in-process Django live server
     which shares the test database.
+
+    Temporal is pointed at a per-session local dev server and task queue. That
+    keeps eval workflows away from any dev worker already polling the normal
+    tasks queue in the developer's environment.
 
     Also patches ``posthoganalytics.feature_enabled`` to return True for all
     flags so permission checks (TasksAccessPermission) and workflow guards pass.
@@ -188,6 +279,8 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
     # Docker containers reach the host via host.docker.internal
     docker_api_url = f"http://host.docker.internal:{DJANGO_LIVE_PORT}"
     docker_llm_gateway_url = f"http://host.docker.internal:{LLM_GATEWAY_PORT}"
+    temporal_host, temporal_port, temporal_namespace = _temporal_test_server
+    temporal_task_queue = f"sandboxed-evals-tasks-{os.getpid()}"
 
     import posthoganalytics
 
@@ -198,6 +291,12 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
             SANDBOX_MCP_URL=f"http://host.docker.internal:{MCP_PORT}/mcp",
+            TEMPORAL_HOST=temporal_host,
+            TEMPORAL_PORT=temporal_port,
+            TEMPORAL_NAMESPACE=temporal_namespace,
+            TEMPORAL_CLIENT_CERT=None,
+            TEMPORAL_CLIENT_KEY=None,
+            TASKS_TASK_QUEUE=temporal_task_queue,
         ),
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
@@ -280,7 +379,7 @@ def _terminate_stale_workflows(_sandbox_settings):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, django_db_blocker):
+def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, _sandboxed_eval_database_access):
     """Start an in-process temporal worker for the tasks queue.
 
     Mirrors the dev worker (``manage.py start_temporal_worker``) using
@@ -318,14 +417,10 @@ def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, django_db_bl
         await managed.shutdown()
         worker_task.cancel()
 
-    # Unblock DB access for the worker thread and its activity thread pool
-    django_db_blocker.unblock()
-
     thread = threading.Thread(target=loop.run_until_complete, args=(_run(),), daemon=True)
     thread.start()
 
     if not ready_event.wait(timeout=30):
-        django_db_blocker.restore()
         pytest.fail(
             f"Temporal worker failed to start within 30s. "
             f"Is temporal running at {settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}?"
@@ -336,7 +431,6 @@ def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, django_db_bl
 
     loop.call_soon_threadsafe(stop_event.set)
     thread.join(timeout=10)
-    django_db_blocker.restore()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -380,8 +474,10 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
     }
 
     logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
-    proc = subprocess.Popen(
-        [
+    _, stop = _LONG_LIVED_SUBPROCESSES.start(
+        name="LLM gateway",
+        port=LLM_GATEWAY_PORT,
+        cmd=[
             str(uvicorn_bin),
             "llm_gateway.main:app",
             "--host",
@@ -391,41 +487,13 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
         ],
         cwd=gateway_dir,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        log_prefix="llm-gateway",
     )
-
-    def _pipe_to_logger(pipe, level):
-        for line in iter(pipe.readline, b""):
-            text = line.decode("utf-8", errors="replace").rstrip()
-            if text:
-                logger.log(level, "[llm-gateway] %s", text)
-        pipe.close()
-
-    threading.Thread(target=_pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
-    threading.Thread(target=_pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
-
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            sock = socket.create_connection(("localhost", LLM_GATEWAY_PORT), timeout=1)
-            sock.close()
-            break
-        except OSError:
-            time.sleep(0.5)
-    else:
-        proc.terminate()
-        proc.wait(timeout=5)
-        pytest.fail(f"LLM gateway failed to start on port {LLM_GATEWAY_PORT} within 30s.")
 
     logger.info("LLM gateway ready on port %d", LLM_GATEWAY_PORT)
     yield
 
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    stop()
     logger.info("LLM gateway stopped")
 
 
@@ -463,46 +531,19 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         var_args.extend(["--var", v])
 
     logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
-    proc = subprocess.Popen(
-        ["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
+    _, stop = _LONG_LIVED_SUBPROCESSES.start(
+        name="MCP server",
+        port=MCP_PORT,
+        cmd=["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
         cwd=mcp_dir,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        log_prefix="mcp",
     )
-
-    # Stream subprocess output to logger in background threads
-    def _pipe_to_logger(pipe, level):
-        for line in iter(pipe.readline, b""):
-            text = line.decode("utf-8", errors="replace").rstrip()
-            if text:
-                logger.log(level, "[mcp] %s", text)
-        pipe.close()
-
-    threading.Thread(target=_pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
-    threading.Thread(target=_pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
-
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            sock = socket.create_connection(("localhost", MCP_PORT), timeout=1)
-            sock.close()
-            break
-        except OSError:
-            time.sleep(0.5)
-    else:
-        proc.terminate()
-        proc.wait(timeout=5)
-        pytest.fail(f"MCP server failed to start on port {MCP_PORT} within 30s.")
 
     logger.info("MCP server ready on port %d", MCP_PORT)
     yield
 
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    stop()
     logger.info("MCP server stopped")
 
 
@@ -538,6 +579,39 @@ class SandboxedDemoData:
         )
 
 
+# Event-level properties the error-tracking ``searchQuery`` test cases match on
+# (see ``products/error_tracking/backend/hogql_queries/error_tracking_query_runner_utils.py``).
+# These are stored as JSON arrays (``["TypeError"]``); without materialized
+# columns the bare ``properties.$exception_types`` lookup goes through
+# ``JSONExtractString`` which returns ``""`` for non-string JSON values, so
+# ``searchQuery`` filtering on these properties silently never matches anything.
+# Materializing and backfilling once per session makes the sandbox behave like
+# prod for error-tracking searchQuery, including reused local ClickHouse state
+# where the columns already exist but older demo rows still need values.
+_EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
+    "$exception_types",
+    "$exception_values",
+)
+
+
+def _ensure_event_search_columns_materialized(django_db_blocker) -> None:
+    from ee.clickhouse.materialized_columns.columns import (
+        backfill_materialized_columns,
+        get_materialized_columns,
+        materialize,
+    )
+
+    with django_db_blocker.unblock():
+        existing_columns = get_materialized_columns("events")
+        columns = []
+        for property_name in _EVAL_MATERIALIZED_EVENT_PROPERTIES:
+            column = existing_columns.get((property_name, "properties"))
+            if column is None:
+                column = materialize("events", property_name)
+            columns.append(column)
+        backfill_materialized_columns("events", columns, timedelta(days=180))
+
+
 @pytest.fixture(scope="session", autouse=True)
 def sandboxed_demo_data(
     set_up_evals,  # noqa: F811
@@ -548,6 +622,7 @@ def sandboxed_demo_data(
     from posthog.clickhouse.client import sync_execute
 
     master_team_id = ensure_master_demo_team(django_db_blocker)
+    _ensure_event_search_columns_materialized(django_db_blocker)
     with django_db_blocker.unblock():
         rows = sync_execute(
             "SELECT event, count() FROM events WHERE team_id = %(team_id)s GROUP BY event ORDER BY 2 DESC LIMIT 20",

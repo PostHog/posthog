@@ -361,7 +361,7 @@ describe('logsAlertFormLogic', () => {
                 logic.actions.submitAlertForm()
             }).toFinishAllListeners()
 
-            const calledWith = mockLogsAlertsCreate.mock.calls[0][1]
+            const calledWith = mockLogsAlertsCreate.mock.calls[0][1]!
             expect((calledWith.filters as Record<string, unknown>).serviceNames).toBeUndefined()
             expect((calledWith.filters as Record<string, unknown>).filterGroup).toBeUndefined()
         })

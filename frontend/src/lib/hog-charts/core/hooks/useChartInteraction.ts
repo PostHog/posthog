@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import {
     buildLabelPositions,
@@ -17,35 +17,7 @@ import type {
     TooltipContext,
 } from '../types'
 import { useLatest } from './useLatest'
-
-function isTooltipContextEquivalent<Meta>(a: TooltipContext<Meta>, b: TooltipContext<Meta>): boolean {
-    if (a.dataIndex !== b.dataIndex || a.label !== b.label) {
-        return false
-    }
-    if (a.position.x !== b.position.x || a.position.y !== b.position.y) {
-        return false
-    }
-    if (a.seriesData.length !== b.seriesData.length) {
-        return false
-    }
-    for (let i = 0; i < a.seriesData.length; i++) {
-        const ai = a.seriesData[i]
-        const bi = b.seriesData[i]
-        // Compare series by stable `key` rather than identity: the parent rebuilds
-        // `coloredSeries` (and so each entry's `series` reference) on every render, so
-        // an identity check would defeat the equivalence bail. `label` is also compared
-        // because it's user-visible in the tooltip and can change while the key stays.
-        if (
-            ai.value !== bi.value ||
-            ai.color !== bi.color ||
-            ai.series.key !== bi.series.key ||
-            ai.series.label !== bi.series.label
-        ) {
-            return false
-        }
-    }
-    return true
-}
+import { useTooltipLifecycle } from './useTooltipLifecycle'
 
 interface UseChartInteractionOptions<Meta> {
     scales: ChartScales | null
@@ -58,12 +30,21 @@ interface UseChartInteractionOptions<Meta> {
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     resolveValue?: ResolveValueFn
+    /** Value used to *anchor* the tooltip per series. Defaults to `resolveValue`. Stacked
+     *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
+     *  segment while each tooltip row still shows its own value via `resolveValue`. */
+    resolvePositionValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
+    /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
+     *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
+     *  Chart-type adapters provide this; consumers do not. */
+    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
 }
 
 interface UseChartInteractionResult<Meta> {
     hoverIndex: number
+    hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -83,52 +64,31 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     onPointClick,
     resolveValue = defaultResolveValue,
+    resolvePositionValue,
     interactionAxis = 'x',
     labelToCoord,
+    wrapClickData,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
-    const [hoverIndex, setHoverIndex] = useState<number>(-1)
-    const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
-    // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the
-    // most recent commit, so an effect-deferred ref is correct here.
-    const hoverIndexRef = useLatest(hoverIndex)
+    // Falls back to the value resolver when the chart doesn't distinguish position from
+    // value (i.e. non-stacked charts, where the two are identical).
+    const effectivePositionResolve = resolvePositionValue ?? resolveValue
 
-    const clearTooltip = useCallback(() => {
-        setHoverIndex(-1)
-        setTooltipCtx(null)
-    }, [])
-
-    const unpin = useCallback(() => {
-        setTooltipCtx((prev) => (prev?.isPinned ? null : prev))
-    }, [])
-
-    const isPinned = tooltipCtx?.isPinned ?? false
-
-    // Precompute the (coord, index) lookup table once per (labels, scale) change.
-    const labelPositions = useMemo(
-        () => (scales ? buildLabelPositions(labels, labelToCoord ?? scales.x) : []),
-        [labels, scales, labelToCoord]
-    )
-
-    // Rebuild or clear the pinned tooltip when its underlying inputs change.
-    // Without this, the pin keeps stale values at stale pixel positions after the
-    // parent updates series/labels/scales/dimensions. resolveValue is read live via
-    // a ref so unmemoized closures don't trigger a rebuild every render — see the
-    // contract on `ChartProps.resolveValue`: any external toggle that changes the
-    // resolver's output must also update series or scales.
+    // resolveValue / effectivePositionResolve are read live in the pinned-rebuild path so an
+    // unmemoized closure on either doesn't trigger a rebuild every render — see the contract
+    // on `ChartProps.resolveValue`.
     const resolveValueRef = useLatest(resolveValue)
-    useEffect(() => {
-        if (!isPinned || !scales || !dimensions) {
-            return
-        }
-        setTooltipCtx((prev) => {
-            if (!prev || !prev.isPinned) {
+    const effectivePositionResolveRef = useLatest(effectivePositionResolve)
+
+    const rebuildPinnedCtx = useCallback(
+        (prev: TooltipContext<Meta>): TooltipContext<Meta> | null => {
+            if (!scales || !dimensions) {
                 return prev
             }
             if (prev.dataIndex >= labels.length) {
                 return null
             }
             const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-            const fresh = buildTooltipContext(
+            return buildTooltipContext(
                 prev.dataIndex,
                 series,
                 labels,
@@ -137,87 +97,43 @@ export function useChartInteraction<Meta = unknown>({
                 canvasBounds,
                 resolveValueRef.current,
                 scales.yAxes,
-                interactionAxis
+                interactionAxis,
+                prev.hoverPosition,
+                effectivePositionResolveRef.current,
+                scales.extent?.(labels[prev.dataIndex])
             )
-            if (!fresh) {
-                return null
-            }
-            // Bail when the rebuilt context is value-equal to prev. Avoids identity churn
-            // re-rendering the tooltip overlay when the parent rerenders for unrelated
-            // reasons (e.g. dashboard-level state) while the pin is held.
-            if (isTooltipContextEquivalent(prev, fresh)) {
-                return prev
-            }
-            return { ...fresh, isPinned: true, onUnpin: unpin }
+        },
+        // resolveValueRef / effectivePositionResolveRef are stable
+        [
+            scales,
+            dimensions,
+            labels,
+            series,
+            canvasRef,
+            labelToCoord,
+            interactionAxis,
+            resolveValueRef,
+            effectivePositionResolveRef,
+        ]
+    )
+
+    const { hoverIndex, hoverPosition, tooltipCtx, setHover, setTooltipCtx, isPinned, clearTooltip, pin } =
+        useTooltipLifecycle<Meta>({
+            wrapperRef,
+            rebuildPinnedCtx,
+            rebuildDeps: [series, labels, scales, dimensions],
         })
-        // Omitted on purpose:
-        //   - isPinned / tooltipCtx: would feedback-loop with setTooltipCtx
-        //   - unpin / canvasRef: stable for the lifetime of the hook (useCallback([])/useRef)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [series, labels, scales, dimensions])
 
-    // Dismiss the tooltip on scroll — pinned or not — since the anchor moves
-    // with the page and a stale tooltip is worse than no tooltip.
-    const tooltipShown = tooltipCtx !== null
-    useEffect(() => {
-        if (!tooltipShown) {
-            return
-        }
-        const handleScroll = (e: Event): void => {
-            // Allow scrolling inside the tooltip itself (long pinned content)
-            // or the chart wrapper (a nested legend) without dismissing.
-            const target = e.target
-            if (target instanceof Element) {
-                if (target.closest('[data-hog-charts-tooltip]')) {
-                    return
-                }
-                if (wrapperRef.current?.contains(target)) {
-                    return
-                }
-            }
-            clearTooltip()
-        }
-        window.addEventListener('scroll', handleScroll, { passive: true, capture: true })
-        return () => {
-            window.removeEventListener('scroll', handleScroll, true)
-        }
-    }, [tooltipShown, wrapperRef, clearTooltip])
+    // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the most
+    // recent commit, so an effect-deferred ref is correct here.
+    const hoverIndexRef = useLatest(hoverIndex)
+    const hoverPositionRef = useLatest(hoverPosition)
 
-    // Dismiss listeners for pinned tooltip
-    useEffect(() => {
-        if (!isPinned) {
-            return
-        }
-
-        const handleClickOutside = (e: MouseEvent): void => {
-            const target = e.target
-            if (target instanceof Element && target.closest('[data-hog-charts-tooltip]')) {
-                return
-            }
-            const wrapper = wrapperRef.current
-            if (wrapper && !wrapper.contains(target as Node)) {
-                clearTooltip()
-            }
-        }
-
-        const handleKeyDown = (e: KeyboardEvent): void => {
-            if (e.key === 'Escape') {
-                clearTooltip()
-            }
-        }
-
-        // Delay click listener so the pinning click doesn't immediately unpin
-        const timer = setTimeout(() => {
-            document.addEventListener('click', handleClickOutside, { passive: true })
-        }, 0)
-        document.addEventListener('keydown', handleKeyDown, { passive: true })
-
-        return () => {
-            clearTimeout(timer)
-            document.removeEventListener('click', handleClickOutside)
-            document.removeEventListener('keydown', handleKeyDown)
-        }
-    }, [isPinned, wrapperRef, clearTooltip])
+    // Precompute the (coord, index) lookup table once per (labels, scale) change.
+    const labelPositions = useMemo(
+        () => (scales ? buildLabelPositions(labels, labelToCoord ?? scales.x) : []),
+        [labels, scales, labelToCoord]
+    )
 
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -236,7 +152,7 @@ export function useChartInteraction<Meta = unknown>({
 
             const probe = interactionAxis === 'y' ? mouseY : mouseX
             const index = findNearestIndexFromPositions(probe, labelPositions)
-            setHoverIndex(index)
+            setHover(index, { x: mouseX, y: mouseY })
 
             if (index >= 0 && showTooltip) {
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
@@ -251,7 +167,10 @@ export function useChartInteraction<Meta = unknown>({
                         canvasBounds,
                         resolveValue,
                         scales.yAxes,
-                        interactionAxis
+                        interactionAxis,
+                        { x: mouseX, y: mouseY },
+                        effectivePositionResolve,
+                        scales.extent?.(labels[index])
                     )
                 )
             }
@@ -263,12 +182,15 @@ export function useChartInteraction<Meta = unknown>({
             series,
             showTooltip,
             resolveValue,
+            effectivePositionResolve,
             canvasRef,
             isPinned,
             clearTooltip,
             labelPositions,
             labelToCoord,
             interactionAxis,
+            setHover,
+            setTooltipCtx,
         ]
     )
 
@@ -295,19 +217,33 @@ export function useChartInteraction<Meta = unknown>({
         // consumer's own row handler. With a single series there's nothing to pin, so
         // onPointClick fires immediately instead.
         if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
-            setTooltipCtx({ ...tooltipCtx, isPinned: true, onUnpin: unpin })
+            pin()
             return
         }
 
         if (onPointClick) {
-            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue)
+            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, hoverPositionRef.current)
             if (clickData) {
-                onPointClick(clickData)
+                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
             }
         }
-    }, [onPointClick, series, labels, resolveValue, pinnable, tooltipCtx, isPinned, clearTooltip, unpin, hoverIndexRef])
+    }, [
+        onPointClick,
+        series,
+        labels,
+        resolveValue,
+        pinnable,
+        tooltipCtx,
+        isPinned,
+        clearTooltip,
+        pin,
+        hoverIndexRef,
+        hoverPositionRef,
+        wrapClickData,
+        scales,
+    ])
 
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
 
-    return { hoverIndex, tooltipCtx, handlers }
+    return { hoverIndex, hoverPosition, tooltipCtx, handlers }
 }

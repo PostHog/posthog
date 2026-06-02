@@ -1,4 +1,3 @@
-import { getPostHogClient } from '@/lib/analytics'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import {
     buildInsufficientScopeChallenge,
@@ -6,13 +5,32 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from '@/lib/errors'
+import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { getPostHogClient } from '@/lib/posthog'
+import { MCP_ANALYTICS_VERSION } from '@/lib/posthog/analytics'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
+import { proxyToHono, shouldProxyToHono } from './proxy'
+
+function extendMcpServerLog(log: RequestLogger, props: RequestProperties): void {
+    const mcpServerLog: Record<string, unknown> = {
+        ...(props.mcpAnalyticsInitAction ? { mcpAnalyticsInitAction: props.mcpAnalyticsInitAction } : {}),
+        ...(props.mcpAnalyticsInitReason ? { mcpAnalyticsInitReason: props.mcpAnalyticsInitReason } : {}),
+        ...(props.mcpAnalyticsInitErrorName ? { mcpAnalyticsInitErrorName: props.mcpAnalyticsInitErrorName } : {}),
+        ...(props.mcpAnalyticsInitErrorMessage
+            ? { mcpAnalyticsInitErrorMessage: props.mcpAnalyticsInitErrorMessage }
+            : {}),
+    }
+
+    if (Object.keys(mcpServerLog).length > 0) {
+        log.extend(mcpServerLog)
+    }
+}
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -118,7 +136,7 @@ const onCatchErrorHandler = async (
             team: 'posthog_ai',
             source: 'mcp_request_handler',
             mcp_transport: ctx.props?.transport,
-            mcp_version: ctx.props?.version,
+            mcp_version: MCP_ANALYTICS_VERSION,
             has_organization_id: !!ctx.props?.organizationId,
             has_project_id: !!ctx.props?.projectId,
         })
@@ -169,6 +187,15 @@ const handleRequest = async (
                 'Cache-Control': 'no-store',
             },
         })
+    }
+
+    // Static MCP UI app bundles (`/ui-apps/<app>/main.js`,
+    // `/ui-apps/<app>/styles.css`). Production's Cloudflare edge already
+    // routes these to the asset binding before the Worker runs, but
+    // `wrangler dev` invokes the Worker first — without this short-circuit,
+    // the OAuth gate below 401s the request before assets get a chance.
+    if (url.pathname.startsWith('/ui-apps/')) {
+        return env.ASSETS.fetch(request)
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
@@ -273,7 +300,7 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
+    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
@@ -307,10 +334,31 @@ const handleRequest = async (
     // synchronously via `RequestProperties`.
     const clientInfo = await extractClientInfoFromBody(request)
 
+    // Streamable-HTTP transport session id, minted by the MCP server on
+    // initialize and echoed back on every subsequent request. Absent on the
+    // initialize call itself. Distinct from `sessionId` (above), which is the
+    // wrapper-app-provided analytics correlation id.
+    const mcpSessionId = sanitizeHeaderValue(request.headers.get('mcp-session-id') || undefined)
+    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14.
+    // Caller-supplied for now (wrapper apps can pass it via the header even
+    // before the SDK lands). Once the SDK is bumped with `enableConversationId`,
+    // the same value will also flow in from tool args — both sources land on
+    // the same `requestProperties.mcpConversationId` slot.
+    const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
+
+    // Anthropic-set per-request identifier for the inner upstream client (e.g.
+    // `ClaudeCode`, `ClaudeAI`, `Cowork`). Distinct from `mcpClientName` (the
+    // MCP `initialize` body's `clientInfo.name`) because Claude pools MCP
+    // transports — the same `mcpSessionId` can carry requests from multiple
+    // upstream products, and only this header tracks the live one.
+    const mcpVendorClient = sanitizeHeaderValue(request.headers.get('x-anthropic-client') || undefined)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
         sessionId: sessionId || undefined,
+        mcpSessionId,
+        mcpConversationId,
         organizationId,
         projectId,
         clientUserAgent,
@@ -318,6 +366,7 @@ const handleRequest = async (
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient,
         requestStartTime: Date.now(),
     })
 
@@ -337,7 +386,7 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnlyRaw = request.headers.get('x-posthog-read-only') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the
@@ -366,12 +415,26 @@ const handleRequest = async (
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
+        const proxyResult = await shouldProxyToHono(token, ctx.props.userHash, env.MCP_KV)
+        if (proxyResult.proxy) {
+            log.extend({ proxy: 'hono', region: proxyResult.region })
+            return proxyToHono(request, proxyResult.region)
+        }
         Object.assign(ctx.props, { transport: 'streamable-http' })
         server = MCP.serve('/mcp').fetch(request, env, ctx)
     }
 
     if (server !== null) {
-        return server.then(onThenErrorHandler).catch((error: Error) => onCatchErrorHandler(error, log, ctx))
+        return server
+            .then(async (response) => {
+                const handledResponse = await onThenErrorHandler(response)
+                extendMcpServerLog(log, ctx.props)
+                return handledResponse
+            })
+            .catch((error: Error) => {
+                extendMcpServerLog(log, ctx.props)
+                return onCatchErrorHandler(error, log, ctx)
+            })
     }
 
     log.extend({ error: 'route_not_found' })

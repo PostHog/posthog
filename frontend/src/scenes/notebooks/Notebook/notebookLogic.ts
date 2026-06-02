@@ -14,7 +14,8 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -70,12 +71,13 @@ import {
 } from '../types'
 import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
-const SYNC_DELAY = 1000
+export const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -168,7 +170,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }),
             ['setItemContext', 'maybeLoadComments', 'setSelectedComment', 'setCommentContexts'],
             notebookCollabLogic({ shortId: props.shortId }),
-            ['ackLocalSteps', 'applyRemoteSteps'],
+            ['ackLocalSteps', 'applyRemoteSteps', 'rebaseFailed'],
         ],
     })),
     actions({
@@ -212,6 +214,10 @@ export const notebookLogic = kea<notebookLogicType>([
             insightShortId,
             insertionPosition,
         }),
+        addExperimentToNotebook: (experimentId: number, insertionPosition: number | null = null) => ({
+            experimentId,
+            insertionPosition,
+        }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -221,6 +227,11 @@ export const notebookLogic = kea<notebookLogicType>([
         openShareModal: true,
         closeShareModal: true,
         setAccessDeniedToNotebook: true,
+        showCollabConflict: (params: { serverContent: JSONContent; localContent: JSONContent; localText: string }) =>
+            params,
+        dismissCollabConflict: true,
+        discardLocalChanges: true,
+        copyUnsavedToNewNotebook: true,
     }),
     reducers(({ props }) => ({
         isShareModalOpen: [
@@ -263,6 +274,17 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 showConflictWarning: () => true,
                 loadNotebookSuccess: () => false,
+            },
+        ],
+        collabConflict: [
+            null as {
+                serverContent: JSONContent
+                localContent: JSONContent
+                localText: string
+            } | null,
+            {
+                showCollabConflict: (_, params) => params,
+                dismissCollabConflict: () => null,
             },
         ],
         editingNodeIds: [
@@ -383,8 +405,13 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     const notebook = await migrate(response, { skipApiUpgrade: !!values.isShared })
 
-                    if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
-                        // If this is the first load we need to override the content fully
+                    if (
+                        !values.collabEnabled &&
+                        notebook.content &&
+                        (!values.notebook || values.notebook.version !== notebook.version)
+                    ) {
+                        // Push fresh server content into the editor on polling refresh (no-op on first load).
+                        // Collab notebooks update via SSE, not setContent.
                         values.editor?.setContent(notebook.content)
                     }
 
@@ -393,6 +420,13 @@ export const notebookLogic = kea<notebookLogicType>([
 
                 saveNotebook: async ({ notebook }) => {
                     if (!values.notebook) {
+                        return values.notebook
+                    }
+
+                    // While the stale-conflict modal is open, the user's local content has diverged
+                    // from the server beyond what we can merge. Don't keep retrying saves until
+                    // they choose to discard or force-save — otherwise we'd loop on 410s.
+                    if (values.collabConflict) {
                         return values.notebook
                     }
 
@@ -424,8 +458,8 @@ export const notebookLogic = kea<notebookLogicType>([
                             return response
                         } catch (error: any) {
                             if (error.status === 409 && error.data?.steps) {
-                                // Apply the missed range (deduped by version against SSE), then retry
-                                // PM-collab rebases our pending steps against the new state
+                                // prosemirror-collab rebases our pending steps over the missed range.
+                                // If receiveTransaction throws, `rebaseFailed` opens the conflict modal.
                                 const steps = error.data.steps as Record<string, any>[]
                                 const clientIds = error.data.client_ids as string[]
                                 const serverVersion = error.data.version as number
@@ -437,6 +471,9 @@ export const notebookLogic = kea<notebookLogicType>([
                                         version: firstMissedVersion + i,
                                     }))
                                 )
+                                if (values.collabConflict) {
+                                    return values.notebook
+                                }
                                 actions.saveNotebook({
                                     content: values.editor?.getJSON() ?? notebook.content,
                                     title: notebook.title,
@@ -444,8 +481,11 @@ export const notebookLogic = kea<notebookLogicType>([
                                 return values.notebook
                             }
                             if (error.status === 410) {
-                                actions.clearLocalContent()
-                                actions.loadNotebook()
+                                // Stream trimmed
+                                actions.rebaseFailed({
+                                    localContent: values.editor?.getJSON() ?? notebook.content ?? {},
+                                    localText: values.editor?.getText() ?? '',
+                                })
                                 return values.notebook
                             }
                             throw error
@@ -774,6 +814,17 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        experimentIdsInNotebook: [
+            (s) => [s.content],
+            (content): number[] => {
+                if (!content) {
+                    return []
+                }
+                const experimentNodes = content?.content?.filter((node) => node.type === NotebookNodeType.Experiment)
+                return experimentNodes?.map((node) => node?.attrs?.id).filter(Boolean) as number[]
+            },
+        ],
+
         personUUIDFromCanvasOverride: [
             () => [(_, props) => props],
             (props: NotebookLogicProps): string | null => {
@@ -879,6 +930,48 @@ export const notebookLogic = kea<notebookLogicType>([
                 lemonToast.success('Insight added to notebook')
             } else {
                 lemonToast.warning('Could not add insight to notebook')
+            }
+        },
+        addExperimentToNotebook: async ({ experimentId, insertionPosition }) => {
+            const content = {
+                type: NotebookNodeType.Experiment,
+                attrs: {
+                    id: experimentId,
+                },
+            }
+
+            let inserted = false
+
+            if (insertionPosition !== null && values.editor) {
+                try {
+                    values.editor.insertContentAt(insertionPosition, content)
+                    inserted = true
+                } catch (e) {
+                    console.warn('Failed to insert at position, appending to end instead', e)
+                }
+            }
+
+            if (!inserted) {
+                const result = await runWhenEditorIsReady(
+                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                    () => {
+                        let pos = 0
+                        let nextNode = values.editor?.nextNode(pos)
+                        while (nextNode) {
+                            pos = nextNode.position
+                            nextNode = values.editor?.nextNode(pos)
+                        }
+                        values.editor?.insertContentAfterNode(pos, content)
+                        return true
+                    }
+                )
+                inserted = result === true
+            }
+
+            if (inserted) {
+                lemonToast.success('Experiment added to notebook')
+            } else {
+                lemonToast.warning('Could not add experiment to notebook')
             }
         },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
@@ -995,6 +1088,51 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+
+        discardLocalChanges: () => {
+            // Reload remounts the editor so it re-initialises with the server's content.
+            actions.clearLocalContent()
+            window.location.reload()
+        },
+
+        rebaseFailed: async ({ localContent, localText }) => {
+            // prosemirror-collab couldn't apply a remote step; the modal lets the user copy or discard.
+            if (!values.notebook) {
+                return
+            }
+            // Fetch fresh server content for the side-by-side preview of the changes.
+            let serverContent: JSONContent = {}
+            try {
+                const fresh = await api.notebooks.get(values.notebook.short_id, undefined, {})
+                serverContent = (fresh.content as JSONContent) ?? {}
+            } catch (e) {
+                posthog.captureException(e as Error, { action: 'notebook collab fetch server content' })
+                lemonToast.warning('Could not load the latest saved version.')
+            }
+            actions.showCollabConflict({ serverContent, localContent, localText })
+        },
+
+        copyUnsavedToNewNotebook: async () => {
+            // Save unsaved edits to a fresh notebook, then navigate to it.
+            if (!values.notebook || !values.collabConflict) {
+                return
+            }
+            try {
+                const sourceTitle = values.notebook.title || 'Untitled'
+                const newTitle = `${sourceTitle} (copy)`
+                const created = await api.notebooks.create({
+                    content: updateContentHeading(values.collabConflict.localContent, newTitle),
+                    text_content: values.collabConflict.localText,
+                    title: newTitle,
+                })
+                lemonToast.success('Saved your unsaved changes to a new notebook.')
+                actions.dismissCollabConflict()
+                actions.clearLocalContent()
+                await openNotebook(created.short_id, NotebookTarget.Scene)
+            } catch {
+                lemonToast.error('Could not copy your changes to a new notebook.')
+            }
         },
 
         onEditorSelectionUpdate: () => {
@@ -1134,6 +1272,18 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.setLocalContent(JSON.parse(base64Decode(hashParams['🦔'])))
             }
         },
+    })),
+
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) =>
+            shouldWarnBeforeLeavingNotebook({
+                isLocalOnly: logic.values.isLocalOnly,
+                isEditable: logic.values.isEditable,
+                syncStatus: logic.values.syncStatus,
+                currentPathname: router.values.location.pathname,
+                newPathname: newLocation?.pathname,
+            }),
+        message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 
     afterMount(({ props }) => {

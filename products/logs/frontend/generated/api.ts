@@ -33,11 +33,9 @@ import type {
     PaginatedLogsAlertEventListApi,
     PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
-    PaginatedPluginLogEntryListApi,
     PatchedLogsAlertConfigurationApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
-    PluginConfigsLogsListParams,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
@@ -68,149 +66,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-/**
- * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
- */
-export const getLogsExplainLogWithAICreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/explainLogWithAI/`
-}
-
-export const logsExplainLogWithAICreate = async (
-    projectId: string,
-    explainRequestApi: ExplainRequestApi,
-    options?: RequestInit
-): Promise<ExplainRequestApi> => {
-    return apiMutator<ExplainRequestApi>(getLogsExplainLogWithAICreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(explainRequestApi),
-    })
-}
-
-export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/logs/views/?${stringifiedParams}`
-        : `/api/environments/${projectId}/logs/views/`
-}
-
-export const logsViewsList = async (
-    projectId: string,
-    params?: LogsViewsListParams,
-    options?: RequestInit
-): Promise<PaginatedLogsViewListApi> => {
-    return apiMutator<PaginatedLogsViewListApi>(getLogsViewsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsViewsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/views/`
-}
-
-export const logsViewsCreate = async (
-    projectId: string,
-    logsViewApi: NonReadonly<LogsViewApi>,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(logsViewApi),
-    })
-}
-
-export const getLogsViewsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsViewsUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsUpdate = async (
-    projectId: string,
-    shortId: string,
-    logsViewApi: NonReadonly<LogsViewApi>,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsUpdateUrl(projectId, shortId), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(logsViewApi),
-    })
-}
-
-export const getLogsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsPartialUpdate = async (
-    projectId: string,
-    shortId: string,
-    patchedLogsViewApi: NonReadonly<PatchedLogsViewApi>,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsPartialUpdateUrl(projectId, shortId), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedLogsViewApi),
-    })
-}
-
-export const getLogsViewsDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsViewsDestroyUrl(projectId, shortId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
-}
-
-export const domainsScimLogsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
 
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -245,7 +100,7 @@ export const getLogsAlertsCreateUrl = (projectId: string) => {
 
 export const logsAlertsCreate = async (
     projectId: string,
-    logsAlertConfigurationApi: NonReadonly<LogsAlertConfigurationApi>,
+    logsAlertConfigurationApi?: NonReadonly<LogsAlertConfigurationApi>,
     options?: RequestInit
 ): Promise<LogsAlertConfigurationApi> => {
     return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsCreateUrl(projectId), {
@@ -278,7 +133,7 @@ export const getLogsAlertsUpdateUrl = (projectId: string, id: string) => {
 export const logsAlertsUpdate = async (
     projectId: string,
     id: string,
-    logsAlertConfigurationApi: NonReadonly<LogsAlertConfigurationApi>,
+    logsAlertConfigurationApi?: NonReadonly<LogsAlertConfigurationApi>,
     options?: RequestInit
 ): Promise<LogsAlertConfigurationApi> => {
     return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsUpdateUrl(projectId, id), {
@@ -296,7 +151,7 @@ export const getLogsAlertsPartialUpdateUrl = (projectId: string, id: string) => 
 export const logsAlertsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedLogsAlertConfigurationApi: NonReadonly<PatchedLogsAlertConfigurationApi>,
+    patchedLogsAlertConfigurationApi?: NonReadonly<PatchedLogsAlertConfigurationApi>,
     options?: RequestInit
 ): Promise<LogsAlertConfigurationApi> => {
     return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsPartialUpdateUrl(projectId, id), {
@@ -318,13 +173,13 @@ export const logsAlertsDestroy = async (projectId: string, id: string, options?:
     })
 }
 
-/**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
- */
 export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/logs/alerts/${id}/destinations/`
 }
 
+/**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ */
 export const logsAlertsDestinationsCreate = async (
     projectId: string,
     id: string,
@@ -339,13 +194,13 @@ export const logsAlertsDestinationsCreate = async (
     })
 }
 
-/**
- * Delete a notification destination by deleting its HogFunction group atomically.
- */
 export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/logs/alerts/${id}/destinations/delete/`
 }
 
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
 export const logsAlertsDestinationsDeleteCreate = async (
     projectId: string,
     id: string,
@@ -360,9 +215,6 @@ export const logsAlertsDestinationsDeleteCreate = async (
     })
 }
 
-/**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
- */
 export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params?: LogsAlertsEventsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -379,6 +231,9 @@ export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params
         : `/api/projects/${projectId}/logs/alerts/${id}/events/`
 }
 
+/**
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
+ */
 export const logsAlertsEventsList = async (
     projectId: string,
     id: string,
@@ -391,13 +246,13 @@ export const logsAlertsEventsList = async (
     })
 }
 
-/**
- * Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.
- */
 export const getLogsAlertsResetCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/logs/alerts/${id}/reset/`
 }
 
+/**
+ * Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.
+ */
 export const logsAlertsResetCreate = async (
     projectId: string,
     id: string,
@@ -409,13 +264,13 @@ export const logsAlertsResetCreate = async (
     })
 }
 
-/**
- * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
- */
 export const getLogsAlertsSimulateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/alerts/simulate/`
 }
 
+/**
+ * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
+ */
 export const logsAlertsSimulateCreate = async (
     projectId: string,
     logsAlertSimulateRequestApi: LogsAlertSimulateRequestApi,
@@ -487,6 +342,28 @@ export const logsCountRangesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsCountRangesRequestApi),
+    })
+}
+
+export const getLogsExplainLogWithAICreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/explainLogWithAI/`
+}
+
+/**
+ * Explain a log entry using AI.
+
+POST /api/environments/:id/logs/explainLogWithAI/
+ */
+export const logsExplainLogWithAICreate = async (
+    projectId: string,
+    explainRequestApi: ExplainRequestApi,
+    options?: RequestInit
+): Promise<ExplainRequestApi> => {
+    return apiMutator<ExplainRequestApi>(getLogsExplainLogWithAICreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(explainRequestApi),
     })
 }
 
@@ -616,7 +493,7 @@ export const getLogsSamplingRulesPartialUpdateUrl = (projectId: string, id: stri
 export const logsSamplingRulesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedLogsSamplingRuleApi: NonReadonly<PatchedLogsSamplingRuleApi>,
+    patchedLogsSamplingRuleApi?: NonReadonly<PatchedLogsSamplingRuleApi>,
     options?: RequestInit
 ): Promise<LogsSamplingRuleApi> => {
     return apiMutator<LogsSamplingRuleApi>(getLogsSamplingRulesPartialUpdateUrl(projectId, id), {
@@ -638,13 +515,13 @@ export const logsSamplingRulesDestroy = async (projectId: string, id: string, op
     })
 }
 
-/**
- * Dry-run estimate for how much volume this rule would remove (placeholder response until CH-backed simulation is wired).
- */
 export const getLogsSamplingRulesSimulateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/logs/sampling_rules/${id}/simulate/`
 }
 
+/**
+ * Dry-run estimate for how much volume this rule would remove (placeholder response until CH-backed simulation is wired).
+ */
 export const logsSamplingRulesSimulateCreate = async (
     projectId: string,
     id: string,
@@ -656,9 +533,6 @@ export const logsSamplingRulesSimulateCreate = async (
     })
 }
 
-/**
- * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
- */
 export const getLogsSamplingRulesReorderCreateUrl = (
     projectId: string,
     params?: LogsSamplingRulesReorderCreateParams
@@ -678,6 +552,9 @@ export const getLogsSamplingRulesReorderCreateUrl = (
         : `/api/projects/${projectId}/logs/sampling_rules/reorder/`
 }
 
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
 export const logsSamplingRulesReorderCreate = async (
     projectId: string,
     logsSamplingRuleReorderApi: LogsSamplingRuleReorderApi,
@@ -753,11 +630,7 @@ export const logsValuesRetrieve = async (
     })
 }
 
-export const getPluginConfigsLogsListUrl = (
-    projectId: string,
-    pluginConfigId: number,
-    params?: PluginConfigsLogsListParams
-) => {
+export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -769,30 +642,108 @@ export const getPluginConfigsLogsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+        ? `/api/projects/${projectId}/logs/views/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/views/`
 }
 
-export const pluginConfigsLogsList = async (
+export const logsViewsList = async (
     projectId: string,
-    pluginConfigId: number,
-    params?: PluginConfigsLogsListParams,
+    params?: LogsViewsListParams,
     options?: RequestInit
-): Promise<PaginatedPluginLogEntryListApi> => {
-    return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
+): Promise<PaginatedLogsViewListApi> => {
+    return apiMutator<PaginatedLogsViewListApi>(getLogsViewsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
+}
+
+export const getLogsViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/views/`
+}
+
+export const logsViewsCreate = async (
+    projectId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsViewsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsUpdate = async (
+    projectId: string,
+    shortId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedLogsViewApi?: NonReadonly<PatchedLogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsViewApi),
+    })
+}
+
+export const getLogsViewsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsViewsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
 }
 
 /**
  * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
  * @summary Get task run logs
  */
-export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
-}
-
 export const tasksRunsLogsRetrieve = async (
     projectId: string,
     taskId: string,

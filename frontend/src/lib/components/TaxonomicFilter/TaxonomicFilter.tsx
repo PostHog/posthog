@@ -22,11 +22,20 @@ import { urls } from 'scenes/urls'
 
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
+import { TaxonomicFilterAdapter } from './TaxonomicFilterAdapter'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
-export function TaxonomicFilter({
+export function TaxonomicFilter(props: TaxonomicFilterProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_HEADLESS]) {
+        return <TaxonomicFilterAdapter {...props} />
+    }
+    return <TaxonomicFilterLegacy {...props} />
+}
+
+function TaxonomicFilterLegacy({
     taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
     groupType,
     value,
@@ -59,6 +68,7 @@ export function TaxonomicFilter({
     hideSearchInput,
     searchQuery: controlledSearchQuery,
     enableKeywordShortcuts,
+    excludedOperators,
     selectingKeyOnly,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
@@ -105,6 +115,7 @@ export function TaxonomicFilter({
         minSearchQueryLength,
         suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
+        excludedOperators,
         selectingKeyOnly,
     }
 
@@ -250,6 +261,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                     {categoryDropdown}
                     {showNumericalPropsOnly && (
                         <Tooltip
+                            interactive
                             title={
                                 <span>
                                     This filter only shows numerical properties. If you're not seeing your property

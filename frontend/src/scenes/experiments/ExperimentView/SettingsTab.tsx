@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/types'
@@ -14,14 +13,15 @@ import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/t
 import { DEFAULT_LOOKBACK_DAYS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { CupedModal } from './CupedModal'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { experimentsConfig } = useValues(experimentsConfigLogic)
     const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
@@ -30,14 +30,20 @@ export function SettingsTab(): JSX.Element {
         ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
         : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`
 
-    const cupedEnabled = experiment.stats_config?.cuped?.enabled ?? false
-    const cupedLookbackDays = experiment.stats_config?.cuped?.lookback_days ?? DEFAULT_LOOKBACK_DAYS
+    const teamDefaultCupedEnabled = experimentsConfig?.default_cuped_enabled ?? false
+    const teamDefaultCupedLookbackDays = experimentsConfig?.default_cuped_lookback_days ?? null
+    const cupedExplicitlySet = getCupedSelection(experiment.stats_config?.cuped) !== 'default'
+    const cupedEnabled = resolveCupedEnabled(experiment.stats_config?.cuped, teamDefaultCupedEnabled)
+    const cupedLookbackDays = resolveCupedLookbackDays(
+        experiment.stats_config?.cuped,
+        teamDefaultCupedLookbackDays,
+        DEFAULT_LOOKBACK_DAYS
+    )
 
     const returnTo = urls.experiment(experiment.id)
 
     // Only show alerts section for saved experiments, as the alert relies on experiment.id for filtering
-    const shouldShowSignificanceAlerts =
-        featureFlags[FEATURE_FLAGS.EXPERIMENT_SIGNIFICANCE_ALERTS] && typeof experiment.id === 'number'
+    const shouldShowSignificanceAlerts = typeof experiment.id === 'number'
 
     return (
         <div className="flex flex-col gap-8">
@@ -63,7 +69,21 @@ export function SettingsTab(): JSX.Element {
                     </div>
                     <p className="text-muted text-xs mt-1">
                         Use pre-experiment data to detect significant effects faster. Currently supported for mean and
-                        funnel metrics.
+                        funnel metrics.{' '}
+                        {!cupedExplicitlySet && (
+                            <>
+                                Default is set in{' '}
+                                <Link
+                                    to={urls.settings(
+                                        'environment-experiments',
+                                        'environment-experiment-cuped-enabled'
+                                    )}
+                                >
+                                    environment settings
+                                </Link>
+                                .
+                            </>
+                        )}
                     </p>
                     <CupedModal />
                 </div>
@@ -72,16 +92,15 @@ export function SettingsTab(): JSX.Element {
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">
                     <LemonCheckbox
-                        label="Require completed conversion window"
+                        label="Require completed conversion or retention window"
                         checked={experiment.only_count_matured_users ?? false}
                         onChange={(checked) => {
-                            updateExperiment({ only_count_matured_users: checked })
+                            updateExperimentSettings({ only_count_matured_users: checked })
                         }}
                     />
                 </div>
                 <p className="text-muted text-xs mt-1">
-                    Only count participants whose full conversion window has elapsed. Applies to metrics with a custom
-                    time window. Default is set in{' '}
+                    Exclude participants whose conversion or retention window hasn't elapsed yet. Default is set in{' '}
                     <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
                         environment settings
                     </Link>

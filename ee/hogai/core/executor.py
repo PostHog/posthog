@@ -8,6 +8,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from opentelemetry import trace
 from prometheus_client import Histogram
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -35,6 +36,7 @@ from ee.hogai.utils.types import AssistantOutput
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_django_event_loop_latency_seconds",
@@ -85,23 +87,40 @@ class AgentExecutor:
     async def start_workflow(
         self, workflow: type[AgentBaseWorkflow], inputs: Any
     ) -> AsyncGenerator[AssistantOutput, Any]:
-        try:
-            # Delete the stream to ensure we start fresh
-            # since there might be a stale stream from a previous conversation gone wrong
-            await self._redis_stream.delete_stream()
+        # Capture the failure outcome inside the span and yield outside it — yielding from
+        # an async generator while a span is "current" leaks that span into the consumer
+        # task's contextvars. See stream_conversation for the longer note.
+        failed = False
+        with _tracer.start_as_current_span(
+            "posthog_ai.executor.start_workflow",
+            attributes={
+                "posthog_ai.conversation_id": str(self._conversation.id),
+                "posthog_ai.workflow_id": self._workflow_id,
+                "posthog_ai.workflow_class": workflow.__name__,
+            },
+        ):
+            try:
+                # Delete the stream to ensure we start fresh
+                # since there might be a stale stream from a previous conversation gone wrong
+                with _tracer.start_as_current_span("posthog_ai.executor.delete_stale_stream"):
+                    await self._redis_stream.delete_stream()
 
-            client = await async_connect()
+                with _tracer.start_as_current_span("posthog_ai.executor.temporal_connect"):
+                    client = await async_connect()
 
-            handle = await self._start_workflow_with_retry(client, workflow, inputs)
+                handle = await self._start_workflow_with_retry(client, workflow, inputs)
 
-            # Wait for the workflow to start running before streaming
-            is_workflow_running = await self._wait_for_workflow_to_start(handle)
-            if not is_workflow_running:
-                raise Exception(f"Workflow failed to start within timeout: {self._workflow_id}")
+                # Wait for the workflow to start running before streaming
+                is_workflow_running = await self._wait_for_workflow_to_start(handle)
+                if not is_workflow_running:
+                    raise Exception(f"Workflow failed to start within timeout: {self._workflow_id}")
 
-        except Exception as e:
-            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
-            logger.exception("Error starting workflow", error=e)
+            except Exception as e:
+                posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                logger.exception("Error starting workflow", error=e)
+                failed = True
+
+        if failed:
             yield self._failure_message()
             return
 
@@ -117,16 +136,23 @@ class AgentExecutor:
         where starting a new workflow with the same ID fails even with USE_EXISTING policy.
         This method handles that by waiting for the existing workflow to complete and retrying.
         """
+        span = trace.get_current_span()
         for attempt in range(max_retries):
             try:
-                return await client.start_workflow(
-                    workflow.run,
-                    inputs,
-                    id=self._workflow_id,
-                    task_queue=settings.MAX_AI_TASK_QUEUE,
-                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                )
+                with _tracer.start_as_current_span(
+                    "posthog_ai.executor.temporal_start_workflow",
+                    attributes={"posthog_ai.attempt": attempt},
+                ):
+                    handle = await client.start_workflow(
+                        workflow.run,
+                        inputs,
+                        id=self._workflow_id,
+                        task_queue=settings.MAX_AI_TASK_QUEUE,
+                        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    )
+                span.set_attribute("posthog_ai.start_workflow.attempts", attempt + 1)
+                return handle
             except WorkflowAlreadyStartedError:
                 if attempt < max_retries - 1:
                     # Get handle to existing workflow and wait for it to complete
@@ -145,6 +171,7 @@ class AgentExecutor:
                             "Existing workflow still running, using existing handle",
                             workflow_id=self._workflow_id,
                         )
+                        span.set_attribute("posthog_ai.start_workflow.attempts", attempt + 1)
                         return existing_handle
                     except Exception:
                         # Workflow completed (possibly with error), retry starting a new one
@@ -168,18 +195,25 @@ class AgentExecutor:
         max_attempts = 10 * 60  # 60 seconds total with 0.1s sleep
         attempts = 0
 
-        while attempts < max_attempts:
-            description = await handle.describe()
-            if description.status is None:
-                attempts += 1
-                await asyncio.sleep(0.1)
-            elif description.status == WorkflowExecutionStatus.RUNNING:
-                # Temporal only has one Open execution status, see: https://docs.temporal.io/workflow-execution
-                return True
-            else:
-                return False
+        with _tracer.start_as_current_span("posthog_ai.executor.wait_for_workflow_start") as span:
+            while attempts < max_attempts:
+                description = await handle.describe()
+                if description.status is None:
+                    attempts += 1
+                    await asyncio.sleep(0.1)
+                elif description.status == WorkflowExecutionStatus.RUNNING:
+                    # Temporal only has one Open execution status, see: https://docs.temporal.io/workflow-execution
+                    span.set_attribute("posthog_ai.poll_attempts", attempts)
+                    span.set_attribute("posthog_ai.outcome", "running")
+                    return True
+                else:
+                    span.set_attribute("posthog_ai.poll_attempts", attempts)
+                    span.set_attribute("posthog_ai.outcome", "not_running")
+                    return False
 
-        return False
+            span.set_attribute("posthog_ai.poll_attempts", attempts)
+            span.set_attribute("posthog_ai.outcome", "timeout")
+            return False
 
     async def stream_conversation(self) -> AsyncGenerator[AssistantOutput, Any]:
         """Stream conversation updates from Redis stream.
@@ -187,29 +221,55 @@ class AgentExecutor:
         Returns:
             AssistantOutput generator
         """
+        chunk_count = 0
+        # Use start_span + use_span (without making the span "current" across yields).
+        # `start_as_current_span` inside an async generator attaches the span to the running
+        # task's contextvars; when the generator yields, the consumer task resumes with that
+        # context still set, leaking this span as the consumer's "current span". We scope
+        # the current-span context only around the non-yielding bookkeeping so child spans
+        # still parent correctly, while yields run outside the attached context.
+        # See https://github.com/open-telemetry/opentelemetry-python/issues/2606.
+        span = _tracer.start_span(
+            "posthog_ai.executor.stream_conversation",
+            attributes={"posthog_ai.conversation_id": str(self._conversation.id)},
+        )
         try:
-            # Wait for stream to be created
-            is_stream_available = await self._redis_stream.wait_for_stream()
-            if not is_stream_available:
-                raise StreamError("Stream for this conversation not available - Temporal workflow might have failed")
-            last_chunk_time = time.time()
-            async for chunk in self._redis_stream.read_stream():
-                message = await self._redis_stream_to_assistant_output(chunk)
+            try:
+                with trace.use_span(span, end_on_exit=False):
+                    # Wait for stream to be created
+                    is_stream_available = await self._redis_stream.wait_for_stream()
+                    if not is_stream_available:
+                        raise StreamError(
+                            "Stream for this conversation not available - Temporal workflow might have failed"
+                        )
+                    last_chunk_time = time.time()
+                read_iter = self._redis_stream.read_stream().__aiter__()
+                while True:
+                    with trace.use_span(span, end_on_exit=False):
+                        try:
+                            chunk = await read_iter.__anext__()
+                        except StopAsyncIteration:
+                            break
+                        message = await self._redis_stream_to_assistant_output(chunk)
 
-                temporal_to_code_latency = last_chunk_time - chunk.timestamp
-                if temporal_to_code_latency > 0:
-                    STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
-                last_chunk_time = time.time()
+                        temporal_to_code_latency = last_chunk_time - chunk.timestamp
+                        if temporal_to_code_latency > 0:
+                            STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
+                        last_chunk_time = time.time()
+                        chunk_count += 1
 
-                if message:
-                    yield message
-        except Exception as e:
-            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
-            logger.exception("Error streaming conversation", error=e)
-            yield self._failure_message()
-
+                    if message:
+                        yield message
+            except Exception as e:
+                with trace.use_span(span, end_on_exit=False):
+                    posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                    logger.exception("Error streaming conversation", error=e)
+                yield self._failure_message()
         finally:
-            await self._redis_stream.delete_stream()
+            with trace.use_span(span, end_on_exit=False):
+                span.set_attribute("posthog_ai.stream_conversation.chunks", chunk_count)
+                await self._redis_stream.delete_stream()
+            span.end()
 
     async def _redis_stream_to_assistant_output(self, message: StreamEvent) -> AssistantOutput | None:
         """Convert Redis stream event to Assistant output.
@@ -223,8 +283,12 @@ class AgentExecutor:
         if isinstance(message.event, MessageEvent):
             return (AssistantEventType.MESSAGE, message.event.payload)
         elif isinstance(message.event, ConversationEvent):
-            # nosemgrep: idor-lookup-without-team (ID from internal Redis stream, caller validates user+team ownership)
-            conversation = await Conversation.objects.select_related("user").aget(id=message.event.payload)
+            with _tracer.start_as_current_span(
+                "posthog_ai.executor.conversation_aget",
+                attributes={"posthog_ai.conversation_id": str(message.event.payload)},
+            ):
+                # nosemgrep: idor-lookup-without-team (ID from internal Redis stream, caller validates user+team ownership)
+                conversation = await Conversation.objects.select_related("user").aget(id=message.event.payload)
             return (AssistantEventType.CONVERSATION, conversation)
         elif isinstance(message.event, UpdateEvent):
             return (AssistantEventType.UPDATE, message.event.payload)

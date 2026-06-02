@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
+import { DescriptionList, formatDate } from '@posthog/mcp-ui'
+import { Badge, Card, CardContent } from '@posthog/quill'
 
 export interface CohortData {
     id: number
@@ -22,42 +23,43 @@ export interface CohortViewProps {
 export function CohortView({ cohort }: CohortViewProps): ReactElement {
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <Stack gap="xs">
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold text-text-primary">{cohort.name}</span>
-                        <Badge variant={cohort.is_static ? 'neutral' : 'info'} size="md">
+                        <span className="text-lg font-semibold">{cohort.name}</span>
+                        <Badge variant={cohort.is_static ? 'default' : 'info'}>
                             {cohort.is_static ? 'Static' : 'Dynamic'}
                         </Badge>
-                        {cohort.is_calculating && (
-                            <Badge variant="warning" size="sm">
-                                Calculating...
-                            </Badge>
-                        )}
+                        {cohort.is_calculating && <Badge variant="warning">Calculating...</Badge>}
                     </div>
-                    {cohort.description && <span className="text-sm text-text-secondary">{cohort.description}</span>}
-                </Stack>
+                    {cohort.description && <span className="text-sm text-muted-foreground">{cohort.description}</span>}
+                </div>
 
-                <Card padding="md">
-                    <DescriptionList
-                        columns={2}
-                        items={[
-                            ...(cohort.count != null
-                                ? [{ label: 'Persons', value: cohort.count.toLocaleString() }]
-                                : []),
-                            ...(cohort.created_at ? [{ label: 'Created', value: formatDate(cohort.created_at) }] : []),
-                            ...(cohort.created_by
-                                ? [
-                                      {
-                                          label: 'Created by',
-                                          value: cohort.created_by.first_name || cohort.created_by.email || 'Unknown',
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                    />
+                <Card>
+                    <CardContent>
+                        <DescriptionList
+                            columns={2}
+                            items={[
+                                ...(cohort.count != null
+                                    ? [{ label: 'Persons', value: cohort.count.toLocaleString() }]
+                                    : []),
+                                ...(cohort.created_at
+                                    ? [{ label: 'Created', value: formatDate(cohort.created_at) }]
+                                    : []),
+                                ...(cohort.created_by
+                                    ? [
+                                          {
+                                              label: 'Created by',
+                                              value:
+                                                  cohort.created_by.first_name || cohort.created_by.email || 'Unknown',
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
+                    </CardContent>
                 </Card>
-            </Stack>
+            </div>
         </div>
     )
 }

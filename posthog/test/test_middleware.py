@@ -9,10 +9,14 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponseRedirect
-from django.test import Client as DjangoClient
+from django.http import HttpResponse, HttpResponseRedirect
+from django.test import (
+    Client as DjangoClient,
+    RequestFactory,
+)
 from django.urls import reverse
 
+import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
@@ -21,13 +25,17 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.models import Action, Cohort, FeatureFlag, Insight
+from posthog.middleware import per_request_logging_context_middleware
+from posthog.models import Cohort
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _social_auth_backend() -> BaseAuth:
@@ -777,6 +785,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
+            (
+                "external_data_schemas_incremental_fields",
+                "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
+                {},
+            ),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -1250,6 +1263,46 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         assert response_data["type"] == "authentication_error"
         assert response_data["code"] == "impersonation_path_blocked"
 
+    def test_impersonation_blocks_post_to_personal_api_keys_without_trailing_slash(self):
+        """The DefaultRouterPlusPlus router accepts paths with or without a trailing slash
+        (trailing_slash = r"/?"), so /api/personal_api_keys reaches the same viewset as
+        /api/personal_api_keys/. The middleware must block both forms — a startswith
+        check against "/api/personal_api_keys/" alone is bypassed by the slashless variant."""
+        self.login_as_other_user()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            data={"label": "Test Key"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403, (
+            f"expected 403 (impersonation block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        response_data = response.json()
+        assert response_data["type"] == "authentication_error"
+        assert response_data["code"] == "impersonation_path_blocked"
+
+    def test_impersonation_blocks_patch_to_users_api_without_trailing_slash(self):
+        """Same bypass class as the personal_api_keys slashless test: /api/users/@me
+        (no trailing slash) must be blocked just like /api/users/@me/."""
+        self.login_as_other_user()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.patch(
+            "/api/users/@me",
+            data={"first_name": "Changed"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403, (
+            f"expected 403 (impersonation block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        assert response.json()["code"] == "impersonation_path_blocked"
+
 
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
@@ -1647,6 +1700,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         def get_response(request):
             self.captured["client"] = activity_storage.get_client()
             self.captured["user"] = activity_storage.get_user()
+            self.captured["ip_address"] = activity_storage.get_ip_address()
             from django.http import HttpResponse
 
             return HttpResponse()
@@ -1675,6 +1729,31 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+
+    def test_captures_ip_address_from_remote_addr(self):
+        request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["ip_address"], "203.0.113.42")
+        # Storage is cleared after the request finishes
+        self.assertIsNone(self.activity_storage.get_ip_address())
+
+    def test_captures_ip_address_from_x_forwarded_for(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_FORWARDED_FOR="198.51.100.7, 10.0.0.1",
+            REMOTE_ADDR="10.0.0.1",
+        )
+        request.user = self.user
+        self.middleware(request)
+        # leftmost XFF entry wins
+        self.assertEqual(self.captured["ip_address"], "198.51.100.7")
+
+    def test_invalid_ip_stored_as_none(self):
+        request = self.factory.get("/", REMOTE_ADDR="not-an-ip")
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["ip_address"])
 
 
 class TestCSPMiddleware(APIBaseTest):
@@ -1889,6 +1968,160 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     assert captured["feature"] is None
 
 
+@parameterized.expand(
+    [
+        ("api_path_emits", "/api/projects/@current/query/", True),
+        ("api_capture_excluded", "/api/projects/@current/capture/", False),
+        ("non_api_path_excluded", "/login", False),
+    ]
+)
+def test_chqueries_middleware_api_latency_histogram_scope(name, path, should_emit):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": "2xx",
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    request = RequestFactory().get(path)
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(lambda r: HttpResponse("ok"))(request)
+
+    delta = sample_count() - before
+    expected = 1.0 if should_emit else 0.0
+    assert delta == expected, f"{name}: expected delta {expected}, got {delta}"
+
+
+@parameterized.expand(
+    [
+        ("source_mcp", "posthog/mcp-server v1", None, "mcp", ""),
+        ("source_web", "Mozilla/5.0", None, "web", ""),
+        ("access_method_personal_api_key", "Mozilla/5.0", "personal_api_key", "web", "personal_api_key"),
+        ("access_method_oauth", "Mozilla/5.0", "oauth", "web", "oauth"),
+    ]
+)
+def test_chqueries_middleware_api_latency_labels(name, user_agent, access_method, expected_source, expected_access):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.clickhouse.query_tagging import tag_queries
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": expected_source,
+        "access_method": expected_access,
+        "status_class": "2xx",
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    def get_response(req):
+        if access_method is not None:
+            tag_queries(access_method=access_method)
+        return HttpResponse("ok")
+
+    request = RequestFactory().get("/api/projects/@current/query/", HTTP_USER_AGENT=user_agent)
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(get_response)(request)
+
+    assert sample_count() - before == 1.0, f"{name}: histogram not observed for labels {labels}"
+
+
+@parameterized.expand(
+    [
+        ("ok_2xx", 200, "2xx"),
+        ("redirect_3xx", 301, "3xx"),
+        ("client_error_4xx", 404, "4xx"),
+        ("server_error_5xx", 503, "5xx"),
+    ]
+)
+def test_chqueries_middleware_api_latency_status_class(name, status_code, expected_class):
+    from django.http import HttpResponse
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": expected_class,
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    request = RequestFactory().get("/api/projects/@current/query/")
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    CHQueries(lambda r: HttpResponse("body", status=status_code))(request)
+
+    assert sample_count() - before == 1.0, f"{name}: expected 1 observation at status_class={expected_class}"
+
+
+def test_chqueries_middleware_api_latency_records_on_raise():
+    from django.test import RequestFactory
+
+    from prometheus_client import REGISTRY
+
+    from posthog.middleware import CHQueries
+
+    labels = {
+        "view": "project_query-list",
+        "method": "GET",
+        "source": "web",
+        "access_method": "",
+        "status_class": "error",
+    }
+
+    def sample_count() -> float:
+        return REGISTRY.get_sample_value("posthog_api_requests_latency_seconds_count", labels=labels) or 0.0
+
+    before = sample_count()
+
+    def boom(req):
+        raise RuntimeError("view exploded")
+
+    request = RequestFactory().get("/api/projects/@current/query/")
+    request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
+
+    with pytest.raises(RuntimeError, match="view exploded"):
+        CHQueries(boom)(request)
+
+    assert sample_count() - before == 1.0, "exception path must still record latency at status_class=error"
+
+
 def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> None:
     from posthog.middleware import QueryTimeCountingMiddleware
 
@@ -1926,3 +2159,75 @@ def test_query_time_counting_middleware_should_instrument(path, expected) -> Non
     request = RequestFactory().get(path)
 
     assert middleware._should_instrument(request) is expected
+
+
+class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
+    """Covers MCP session header binding inside `per_request_logging_context_middleware`."""
+
+    def _run_middleware(self, **headers):
+        captured: dict[str, Any] = {}
+
+        def get_response(request):
+            captured["ctx"] = dict(structlog.contextvars.get_contextvars())
+            return HttpResponse()
+
+        try:
+            structlog.contextvars.clear_contextvars()
+            middleware = per_request_logging_context_middleware(get_response)
+            request = RequestFactory().get("/", **headers)
+            middleware(request)
+        finally:
+            structlog.contextvars.clear_contextvars()
+        return captured["ctx"]
+
+    @parameterized.expand(
+        [
+            (
+                "both_headers_present",
+                {
+                    "HTTP_X_POSTHOG_MCP_SESSION_ID": "abc123session",
+                    "HTTP_X_POSTHOG_MCP_CONVERSATION_ID": "01984ad9-bda4-7000-8000-abcdef012345",
+                },
+                "abc123session",
+                "01984ad9-bda4-7000-8000-abcdef012345",
+            ),
+            (
+                "session_id_alone",
+                {"HTTP_X_POSTHOG_MCP_SESSION_ID": "abc123session"},
+                "abc123session",
+                None,
+            ),
+            (
+                "conversation_id_alone",
+                {"HTTP_X_POSTHOG_MCP_CONVERSATION_ID": "01984ad9-bda4-7000-8000-abcdef012345"},
+                None,
+                "01984ad9-bda4-7000-8000-abcdef012345",
+            ),
+        ]
+    )
+    def test_binds_mcp_ids_when_present(self, _name, headers, expected_session, expected_conversation):
+        with patch("posthog.middleware.trace") as mock_trace:
+            span = MagicMock()
+            mock_trace.get_current_span.return_value = span
+            ctx = self._run_middleware(**headers)
+
+        if expected_session is not None:
+            assert ctx["mcp_session_id"] == expected_session
+            span.set_attribute.assert_any_call("mcp.session_id", expected_session)
+        else:
+            assert "mcp_session_id" not in ctx
+        if expected_conversation is not None:
+            assert ctx["mcp_conversation_id"] == expected_conversation
+            span.set_attribute.assert_any_call("mcp.conversation_id", expected_conversation)
+        else:
+            assert "mcp_conversation_id" not in ctx
+
+    def test_no_mcp_keys_bound_when_headers_absent(self):
+        with patch("posthog.middleware.trace") as mock_trace:
+            span = MagicMock()
+            mock_trace.get_current_span.return_value = span
+            ctx = self._run_middleware()
+
+        assert "mcp_session_id" not in ctx
+        assert "mcp_conversation_id" not in ctx
+        span.set_attribute.assert_not_called()

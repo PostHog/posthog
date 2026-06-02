@@ -2,6 +2,12 @@ import type { ReactElement } from 'react'
 
 import { formatNumber } from '../utils'
 
+// TODO(quill): replace with a Quill primitive (e.g. `BigNumber` /
+// `Stat` / `Metric`) once Quill ships one. The current "large value +
+// optional label" shape is a common stat-card pattern that Quill doesn't
+// cover yet — Quill ships content primitives (Card, Item, Field) but no
+// metric-emphasis component.
+
 export interface BigNumberProps {
     value: number
     label?: string | undefined

@@ -1,5 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -13,6 +15,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
@@ -364,6 +367,52 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
+    MALFORMED_FILTERS_CASES = [
+        ("filter_group_is_list", {"filterGroup": [{"type": "AND", "values": []}]}),
+        ("filter_group_is_string", {"filterGroup": "AND"}),
+        ("filter_group_missing_type", {"filterGroup": {"values": []}}),
+        ("filter_group_invalid_operator", {"filterGroup": {"type": "XOR", "values": []}}),
+        ("severity_levels_not_a_list", {"severityLevels": "error"}),
+        ("unknown_top_level_key", {"unknownKey": "value", "severityLevels": ["error"]}),
+    ]
+
+    @parameterized.expand(MALFORMED_FILTERS_CASES)
+    def test_create_rejects_malformed_filters_shape(self, _name, filters):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=filters),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(MALFORMED_FILTERS_CASES)
+    def test_patch_rejects_malformed_filters_shape(self, _name, filters):
+        created = self._create_via_api()
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": filters},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(MALFORMED_FILTERS_CASES)
+    def test_simulate_rejects_malformed_filters_shape(self, _name, filters):
+        response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": filters,
+                "threshold_count": 100,
+                "threshold_operator": "above",
+                "window_minutes": 5,
+                "date_from": "-24h",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
     @parameterized.expand(
         [
             ("severity_levels", {"severityLevels": ["error"]}),
@@ -676,7 +725,8 @@ class TestLogsAlertAPI(APIBaseTest):
         # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
         from posthog.cdp.templates.hog_function_template import sync_template_to_db
         from posthog.cdp.templates.slack.template_slack import template as template_slack
-        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
         sync_template_to_db(template_slack)
         HogFunctionTemplate.objects.get_or_create(
@@ -698,7 +748,7 @@ class TestLogsAlertAPI(APIBaseTest):
     @patch("products.logs.backend.alerts_api.report_user_action")
     def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
         self._sync_destination_templates()
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         created = self._create_via_api()
         response = self.client.post(
@@ -742,7 +792,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(reset_calls) == 1
 
     def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -794,7 +844,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_delete_destination_removes_hog_functions(self):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1677,7 +1727,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
     def _make_alert(self, **overrides: object) -> LogsAlertConfiguration:
         from products.logs.backend.alert_state_machine import AlertState
 
-        defaults = {
+        defaults: dict[str, Any] = {
             "team": self.team,
             "name": "Lifecycle test alert",
             "filters": {"serviceNames": [self.service]},
@@ -1692,6 +1742,17 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
             "state": AlertState.NOT_FIRING.value,
         }
         defaults.update(overrides)
+        # Pin the test alert to shard 0 so its evaluator NCAs align with the
+        # simulator's canonical-grid bucket boundaries. Without this, the
+        # evaluator advances NCAs onto the alert's shard offset (e.g. :02/:07
+        # instead of :00/:05) and the simulator's :00/:05 bucket evaluations
+        # disagree on event timing.
+        cadence = int(defaults["check_interval_minutes"])
+        while True:
+            candidate = uuid4()
+            if compute_shard_offset_seconds(candidate, cadence) == 0:
+                defaults["id"] = candidate
+                break
         return LogsAlertConfiguration.objects.create(**defaults)
 
     def _drive_evaluator(
@@ -1700,15 +1761,46 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         start_nca: datetime,
         end_nca: datetime,
     ) -> list[tuple[datetime, str]]:
-        from products.logs.backend.temporal.activities import _check_alerts_sync
+        # Run the sync helpers directly rather than the async activities. The
+        # async path uses `database_sync_to_async_pool`, whose thread-pool
+        # dispatch loses freezegun's clock-patching for this lifecycle test.
+        # The async orchestration is covered by `test_logs_alerting_workflow.py`.
+        from products.logs.backend.temporal.activities import (
+            _cohort_from_manifest,
+            _discover_cohorts_sync,
+            _dispatch_for_alert,
+            _evaluate_single_alert,
+            _finalize_alert,
+            _load_alerts_for_batch,
+            _run_cohort_query,
+            _save_cohort_outcomes,
+        )
 
         alert.next_check_at = start_nca
         alert.save(update_fields=["next_check_at"])
 
+        def _one_cycle() -> None:
+            discovery = _discover_cohorts_sync()
+            if not discovery.manifests:
+                return
+            all_ids = {aid for m in discovery.manifests for aid in m.alert_ids}
+            alerts_by_id = _load_alerts_for_batch(all_ids)
+            now = datetime.now(UTC)
+            stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+            for manifest in discovery.manifests:
+                cohort = _cohort_from_manifest(manifest, alerts_by_id)
+                query_result = _run_cohort_query(cohort)
+                for a in cohort.alerts:
+                    evaluation = _evaluate_single_alert(a, now, prefetched=query_result.for_alert(a))
+                    dispatched = _dispatch_for_alert(evaluation, now)
+                    saved, _failed = _save_cohort_outcomes([dispatched], now)
+                    for d in saved:
+                        _finalize_alert(d, 0, stats)
+
         nca = start_nca
         while nca <= end_nca:
             with freeze_time(nca):
-                _check_alerts_sync()
+                _one_cycle()
             nca += timedelta(minutes=alert.check_interval_minutes)
 
         events: list[tuple[datetime, str]] = []

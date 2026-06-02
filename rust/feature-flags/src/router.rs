@@ -9,6 +9,7 @@ use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimite
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
+    extract::DefaultBodyLimit,
     http::{Method, StatusCode},
     routing::{any, get},
     Router,
@@ -33,6 +34,7 @@ use tower_http::{
 
 use crate::{
     api::{
+        body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
@@ -44,6 +46,7 @@ use crate::{
         flag_definitions_cache::FlagDefinitionsCache,
         flag_group_type_mapping::GroupTypeCacheManager,
     },
+    handler::body_logger::BodyLogger,
     metrics::{
         buckets::bucket_overrides,
         consts::{
@@ -53,6 +56,7 @@ use crate::{
         utils::team_id_label_filter,
     },
     rayon_dispatcher::RayonDispatcher,
+    utils::bot_detection,
 };
 
 #[derive(Clone)]
@@ -101,9 +105,12 @@ pub struct State {
     pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
-    /// Shadow-keyspace billing aggregator. See `crate::billing` for the
-    /// dual-write contract.
-    pub billing_aggregator: Option<Arc<BillingAggregator>>,
+    /// Authoritative writer for the production billing keyspace. See
+    /// `crate::billing` for the aggregation/flush contract.
+    pub billing_aggregator: Arc<BillingAggregator>,
+    /// Per-team request/response body logging for `/flags`. Refreshed
+    /// every ~60s from `posthog_instancesetting`.
+    pub body_logger: Arc<BodyLogger>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -128,7 +135,7 @@ pub fn router(
     team_negative_cache: NegativeCache,
     auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
-    billing_aggregator: Option<Arc<BillingAggregator>>,
+    billing_aggregator: Arc<BillingAggregator>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -192,6 +199,21 @@ pub fn router(
         config.rate_limiter_cleanup_interval_secs,
     );
 
+    // Force eager construction of the bot UA matcher and IP-range table so
+    // the first `/flags` request after a pod restart doesn't pay the
+    // (sub-ms) build cost on its hot path.
+    bot_detection::warm_caches();
+
+    let body_logger = Arc::new(BodyLogger::new(
+        config.flags_log_bodies_teams.clone(),
+        config.flags_log_bodies_request_max_bytes,
+    ));
+
+    // 1 query per pod per interval regardless of /flags RPS.
+    body_logger
+        .clone()
+        .spawn_refresh_task(database_pools.non_persons_reader.clone());
+
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -217,6 +239,7 @@ pub fn router(
         cohort_membership_provider,
         auth_token_cache,
         billing_aggregator,
+        body_logger,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -255,41 +278,33 @@ pub fn router(
             get(move || startup(db_pools_for_startup.clone())),
         );
 
-    // flags endpoint
-    // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    // Layer ordering (outermost to innermost, last `.layer()` is outermost):
+    //   HandleErrorLayer → TimeoutLayer → record_concurrency_enter →
+    //   ConcurrencyLimitLayer → record_concurrency_wait → (per-sub-router).
     //
-    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
-    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
-    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
-    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
-    // 3. record_concurrency_enter: stamps the request with `Instant::now()`
-    //    just before permit acquisition. Inside `TimeoutLayer` so timeouts
-    //    still fire while the request is parked at the limiter.
-    // 4. ConcurrencyLimitLayer: bounds in-flight requests.
-    // 5. record_concurrency_wait (innermost): computes elapsed permit-wait
-    //    immediately after the layer hands off a permit, before the handler.
-    //
-    // Note: this entire chain wraps both `/flags|/decide` AND
-    // `/flags/definitions|/api/feature_flag/local_evaluation`. The shim pair
-    // is harmless on definitions (the handler never extracts the wait
-    // extension), but does add ~one extension-insert + one extension-read
-    // per definitions request. If that overhead ever becomes load-bearing,
-    // scope the shims to `/flags|/decide` via a dedicated sub-router.
-    let mut flags_router = Router::new();
-
+    // The body-read shim and `DefaultBodyLimit` are per-sub-router and only
+    // attached to `/flags|/decide`. `/flags/definitions` is GET-only and
+    // 405s non-GET before any body is read. `DefaultBodyLimit::max` is the
+    // marker the handler's `Bytes` extractor reads; the shim's `to_bytes`
+    // cap (see `MAX_FLAGS_BODY_BYTES`) handles the same boundary while the
+    // body is being buffered. Both are required.
+    let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
-        flags_router = flags_router
+        flags_endpoints = flags_endpoints
             .route("/flags", any(endpoint::flags))
             .route("/flags/", any(endpoint::flags))
             .route("/decide", any(endpoint::flags))
-            .route("/decide/", any(endpoint::flags));
+            .route("/decide/", any(endpoint::flags))
+            .layer(axum::middleware::from_fn(record_body_read))
+            .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES));
     }
 
+    let mut definitions_endpoints: Router<State> = Router::new();
     if matches!(
         config.service_mode,
         ServiceMode::All | ServiceMode::Definitions
     ) {
-        flags_router = flags_router
+        definitions_endpoints = definitions_endpoints
             .route(
                 "/flags/definitions",
                 any(flag_definitions::flags_definitions),
@@ -310,15 +325,14 @@ pub fn router(
             );
     }
 
-    let flags_router = flags_router
-        // Innermost: runs *after* `ConcurrencyLimitLayer` releases a
-        // permit, so it can compute the elapsed permit-wait before the
-        // handler runs.
+    let flags_router = flags_endpoints
+        .merge(definitions_endpoints)
+        // After `ConcurrencyLimitLayer` releases a permit, so this measures
+        // permit wait excluding body buffering.
         .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
-        // Sandwiched between `TimeoutLayer` and `ConcurrencyLimitLayer`:
-        // captures `Instant::now()` *after* timeout deadline propagation
-        // but *before* permit acquisition.
+        // Stamps `Instant::now()` after timeout-deadline propagation but
+        // before permit acquisition.
         .layer(axum::middleware::from_fn(record_concurrency_enter))
         .layer(
             ServiceBuilder::new()

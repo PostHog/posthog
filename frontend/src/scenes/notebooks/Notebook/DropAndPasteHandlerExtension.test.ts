@@ -1,4 +1,10 @@
-import { detectTabularFormat, isTabularData, parseTabularDataToTipTapTable } from './DropAndPasteHandlerExtension'
+import {
+    detectMarkdown,
+    detectTabularFormat,
+    isTabularData,
+    parseMarkdownToTipTap,
+    parseTabularDataToTipTapTable,
+} from './DropAndPasteHandlerExtension'
 
 describe('DropAndPasteHandlerExtension', () => {
     describe('detectTabularFormat', () => {
@@ -127,6 +133,101 @@ describe('DropAndPasteHandlerExtension', () => {
             const dataRow = result.content![1]
             expect(dataRow.content![0].content![0].content![0].text).toBe('Alice')
             expect(dataRow.content![1].content![0].content![0].text).toBe('hello, world')
+        })
+    })
+
+    describe('detectMarkdown', () => {
+        it.each([
+            { input: '# Heading', expected: true, desc: 'ATX h1' },
+            { input: '### Heading three', expected: true, desc: 'ATX h3' },
+            { input: '- item one\n- item two', expected: true, desc: 'unordered list' },
+            { input: '* item one\n* item two', expected: true, desc: 'asterisk list' },
+            { input: '1. first\n2. second', expected: true, desc: 'ordered list' },
+            { input: '> quoted line', expected: true, desc: 'blockquote' },
+            { input: '```ts\nconst a = 1\n```', expected: true, desc: 'fenced code block' },
+            { input: 'before\n\n---\n\nafter', expected: true, desc: 'horizontal rule' },
+            { input: '| a | b |\n| - | - |\n| 1 | 2 |', expected: true, desc: 'markdown table' },
+            { input: 'just a plain paragraph of text', expected: false, desc: 'plain paragraph' },
+            { input: 'some *inline* emphasis only', expected: false, desc: 'inline emphasis only' },
+            { input: '', expected: false, desc: 'empty string' },
+            { input: '#nospace', expected: false, desc: 'hash without space (not a heading)' },
+        ])('returns $expected for $desc', ({ input, expected }) => {
+            expect(detectMarkdown(input)).toBe(expected)
+        })
+
+        it('detects markdown in the example pasted by the user', () => {
+            const markdown = [
+                '# Phase 6: Tool migration and deprecation',
+                '',
+                '## Purpose',
+                '',
+                'Decide which existing analytics paths can move to PostHog.',
+                '',
+                '- Every existing tool path has a decision.',
+                '- Migration decisions are backed by evidence.',
+            ].join('\n')
+            expect(detectMarkdown(markdown)).toBe(true)
+        })
+    })
+
+    describe('parseMarkdownToTipTap', () => {
+        it('returns an empty array for empty input', () => {
+            expect(parseMarkdownToTipTap('')).toEqual([])
+            expect(parseMarkdownToTipTap('   \n  ')).toEqual([])
+        })
+
+        it('parses headings into heading nodes', () => {
+            const result = parseMarkdownToTipTap('# Title\n\n## Subtitle')
+
+            expect(result[0].type).toBe('heading')
+            expect(result[0].attrs?.level).toBe(1)
+            expect(result[0].content?.[0].text).toBe('Title')
+            expect(result[1].type).toBe('heading')
+            expect(result[1].attrs?.level).toBe(2)
+            expect(result[1].content?.[0].text).toBe('Subtitle')
+        })
+
+        it('parses unordered lists into bulletList nodes', () => {
+            const result = parseMarkdownToTipTap('- one\n- two')
+
+            expect(result[0].type).toBe('bulletList')
+            expect(result[0].content).toHaveLength(2)
+            expect(result[0].content?.[0].type).toBe('listItem')
+        })
+
+        it('parses ordered lists into orderedList nodes', () => {
+            const result = parseMarkdownToTipTap('1. first\n2. second')
+
+            expect(result[0].type).toBe('orderedList')
+            expect(result[0].content).toHaveLength(2)
+        })
+
+        it('parses inline bold into a strong mark', () => {
+            const result = parseMarkdownToTipTap('This is **bold** text.')
+
+            const paragraph = result[0]
+            expect(paragraph.type).toBe('paragraph')
+            const boldNode = paragraph.content?.find((node) => node.marks?.some((mark) => mark.type === 'bold'))
+            expect(boldNode?.text).toBe('bold')
+        })
+
+        it('parses fenced code blocks', () => {
+            const result = parseMarkdownToTipTap('```\nconst x = 1\n```')
+
+            expect(result[0].type).toBe('codeBlock')
+            expect(result[0].content?.[0].text).toBe('const x = 1')
+        })
+
+        it('parses a flattened table whose rows were joined on a single line', () => {
+            const result = parseMarkdownToTipTap('| a | b | |---|---| | 1 | 2 | | 3 | 4 |')
+
+            expect(result[0].type).toBe('table')
+            expect(result[0].content).toHaveLength(3)
+            const headerRow = result[0].content?.[0]
+            expect(headerRow?.content?.[0].type).toBe('tableHeader')
+            expect(headerRow?.content?.[0].content?.[0].content?.[0].text).toBe('a')
+            const lastRow = result[0].content?.[2]
+            expect(lastRow?.content?.[1].content?.[0].content?.[0].text).toBe('4')
         })
     })
 })

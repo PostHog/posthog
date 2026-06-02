@@ -56,10 +56,10 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'monitor_ai',
         title: 'Monitor AI applications',
-        description: 'Track and analyze LLM usage, costs, and performance for AI applications',
+        description: 'Track and analyze AI usage, costs, and performance for AI applications',
         iconKey: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
-        products: [ProductKey.LLM_ANALYTICS, ProductKey.PRODUCT_ANALYTICS],
+        products: [ProductKey.AI_OBSERVABILITY, ProductKey.PRODUCT_ANALYTICS],
     },
 ] as const
 

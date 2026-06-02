@@ -11,15 +11,42 @@ export interface BarChartPrivate {
 export type SeriesBarLayout = (BarRect | null)[]
 
 /** Cap is the side away from the value-axis baseline; pass `shouldRoundCap: false` for stacked
- *  layers below the topmost. */
-export function cornersFor(isHorizontal: boolean, isPositive: boolean, shouldRoundCap: boolean): BarRoundedCorners {
-    if (!shouldRoundCap) {
-        return {}
+ *  layers below the topmost. `shouldRoundBaseline` rounds the side *towards* the baseline — used
+ *  for the bottom-of-stack layer so a funnel-style bar reads as one rounded pill on both ends. */
+export function cornersFor(
+    isHorizontal: boolean,
+    isPositive: boolean,
+    shouldRoundCap: boolean,
+    shouldRoundBaseline: boolean = false
+): BarRoundedCorners {
+    const corners: BarRoundedCorners = {}
+    if (shouldRoundCap) {
+        if (isHorizontal) {
+            if (isPositive) {
+                corners.topRight = corners.bottomRight = true
+            } else {
+                corners.topLeft = corners.bottomLeft = true
+            }
+        } else if (isPositive) {
+            corners.topLeft = corners.topRight = true
+        } else {
+            corners.bottomLeft = corners.bottomRight = true
+        }
     }
-    if (isHorizontal) {
-        return isPositive ? { topRight: true, bottomRight: true } : { topLeft: true, bottomLeft: true }
+    if (shouldRoundBaseline) {
+        if (isHorizontal) {
+            if (isPositive) {
+                corners.topLeft = corners.bottomLeft = true
+            } else {
+                corners.topRight = corners.bottomRight = true
+            }
+        } else if (isPositive) {
+            corners.bottomLeft = corners.bottomRight = true
+        } else {
+            corners.topLeft = corners.topRight = true
+        }
     }
-    return isPositive ? { topLeft: true, topRight: true } : { bottomLeft: true, bottomRight: true }
+    return corners
 }
 
 function makeBarRect(
@@ -47,6 +74,13 @@ export interface ComputeSeriesBarsOptions {
     /** Required for `stacked` and `percent` layouts. Must be omitted for `grouped`. */
     stackedBand?: StackedBand
     isTopOfStack: boolean
+    /** Per-index override for cap rounding — funnels round whichever segment is the topmost
+     *  *non-zero* one at each band, which varies by band (e.g. a 100% first step has no
+     *  filler). When omitted, falls back to the per-series `isTopOfStack`. */
+    capRoundedAtIndex?: (dataIndex: number) => boolean
+    /** Per-index override for baseline rounding — rounds the side towards the value-axis
+     *  baseline for the bottom-of-stack segment. When omitted, the baseline is never rounded. */
+    baseRoundedAtIndex?: (dataIndex: number) => boolean
 }
 
 export function computeSeriesBars({
@@ -57,6 +91,8 @@ export function computeSeriesBars({
     isHorizontal,
     stackedBand,
     isTopOfStack,
+    capRoundedAtIndex,
+    baseRoundedAtIndex,
 }: ComputeSeriesBarsOptions): SeriesBarLayout {
     const result: SeriesBarLayout = new Array(labels.length)
     for (let i = 0; i < labels.length; i++) {
@@ -65,10 +101,12 @@ export function computeSeriesBars({
             label: labels[i],
             dataIndex: i,
             scales,
-            layout,
             isHorizontal,
+            layout,
             stackedBand,
             isTopOfStack,
+            capRounded: capRoundedAtIndex?.(i),
+            baseRounded: baseRoundedAtIndex?.(i),
         })
     }
     return result
@@ -84,6 +122,10 @@ export interface ComputeBarAtIndexOptions {
     /** Required for `stacked` and `percent` layouts. Must be omitted for `grouped`. */
     stackedBand?: StackedBand
     isTopOfStack: boolean
+    /** Resolved cap-rounding for this bar. Overrides the `isGrouped || isTopOfStack` default. */
+    capRounded?: boolean
+    /** Resolved baseline-rounding for this bar. Defaults to `false`. */
+    baseRounded?: boolean
 }
 
 /** Single-bar fast path for `drawHover` so the overlay redraw doesn't recompute every bar
@@ -97,10 +139,15 @@ export function computeBarAtIndex({
     isHorizontal,
     stackedBand,
     isTopOfStack,
+    capRounded,
+    baseRounded,
 }: ComputeBarAtIndexOptions): BarRect | null {
     const isGrouped = layout === 'grouped'
     if (!isGrouped && !stackedBand) {
-        throw new Error(`computeBarAtIndex: stackedBand is required for layout '${layout}'`)
+        // Overlay / CI-band series are intentionally excluded from buildStackData, so they
+        // have no stackedBand entry. Treat them as non-renderable for the bar layer rather
+        // than throwing — hover/tooltip paths iterate every series in the chart context.
+        return null
     }
 
     const bandStart = scales.band(label)
@@ -109,7 +156,8 @@ export function computeBarAtIndex({
         return null
     }
 
-    const shouldRoundCap = isGrouped || isTopOfStack
+    const shouldRoundCap = capRounded ?? (isGrouped || isTopOfStack)
+    const shouldRoundBaseline = isGrouped ? false : (baseRounded ?? false)
     const bandWidth = scales.band.bandwidth()
 
     if (isGrouped) {
@@ -132,6 +180,30 @@ export function computeBarAtIndex({
     // For stacked/percent the bar's "positive direction" depends on which pixel is further from baseline,
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
     const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
-    const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap)
+    const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap, shouldRoundBaseline)
     return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, dataIndex)
+}
+
+/** The track rect behind a bar — the bar's band slot stretched across the whole value
+ *  axis. `axisRangeA`/`axisRangeB` are the two endpoints of the value scale's pixel range
+ *  (in either order — for a vertical Y scale d3 returns `[bottomPx, topPx]`). Used by
+ *  funnel-style charts to draw and hit-test the faint "remainder to 100%" region. */
+export function computeBarTrackRect(
+    bar: BarRect,
+    axisRangeA: number,
+    axisRangeB: number,
+    isHorizontal: boolean
+): BarRect {
+    const valueMin = Math.min(axisRangeA, axisRangeB)
+    const valueSize = Math.abs(axisRangeB - axisRangeA)
+    return isHorizontal
+        ? {
+              x: valueMin,
+              y: bar.y,
+              width: valueSize,
+              height: bar.height,
+              corners: bar.corners,
+              dataIndex: bar.dataIndex,
+          }
+        : { x: bar.x, y: valueMin, width: bar.width, height: valueSize, corners: bar.corners, dataIndex: bar.dataIndex }
 }

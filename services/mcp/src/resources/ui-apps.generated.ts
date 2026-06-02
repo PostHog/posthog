@@ -13,6 +13,7 @@ export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
 export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.html'
 export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
+export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-testing.html'
 export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
@@ -24,6 +25,7 @@ export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
 export const SURVEY_STATS_RESOURCE_URI = 'ui://posthog/survey-stats.html'
 export const TRACE_SPAN_RESOURCE_URI = 'ui://posthog/trace-span.html'
 export const TRACE_SPAN_LIST_RESOURCE_URI = 'ui://posthog/trace-span-list.html'
+export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-snapshots.html'
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
 
@@ -41,6 +43,7 @@ export type UiAppKey =
     | 'experiment-results'
     | 'feature-flag'
     | 'feature-flag-list'
+    | 'feature-flag-testing'
     | 'insight-actors'
     | 'llm-costs'
     | 'query-results'
@@ -52,6 +55,7 @@ export type UiAppKey =
     | 'survey-stats'
     | 'trace-span'
     | 'trace-span-list'
+    | 'visual-review-snapshots'
     | 'workflow'
     | 'workflow-list'
 
@@ -69,6 +73,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'experiment-results': EXPERIMENT_RESULTS_RESOURCE_URI,
     'feature-flag': FEATURE_FLAG_RESOURCE_URI,
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
+    'feature-flag-testing': FEATURE_FLAG_TESTING_RESOURCE_URI,
     'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
@@ -80,6 +85,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'survey-stats': SURVEY_STATS_RESOURCE_URI,
     'trace-span': TRACE_SPAN_RESOURCE_URI,
     'trace-span-list': TRACE_SPAN_LIST_RESOURCE_URI,
+    'visual-review-snapshots': VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
     workflow: WORKFLOW_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
 }
@@ -169,6 +175,12 @@ export const UI_APPS: Array<{
         appDir: 'generated/feature-flag-list',
     },
     {
+        name: 'PostHog Feature Flag Testing',
+        uri: FEATURE_FLAG_TESTING_RESOURCE_URI,
+        description: 'Feature Flag Testing detail view',
+        appDir: 'generated/feature-flag-testing',
+    },
+    {
         name: 'PostHog Insight Actors',
         uri: INSIGHT_ACTORS_RESOURCE_URI,
         description: 'Insight Actors detail view',
@@ -233,6 +245,12 @@ export const UI_APPS: Array<{
         uri: TRACE_SPAN_LIST_RESOURCE_URI,
         description: 'Trace Span List view',
         appDir: 'generated/trace-span-list',
+    },
+    {
+        name: 'PostHog Visual Review Snapshots',
+        uri: VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
+        description: 'Visual review run snapshots — diff viewer with approve/tolerate actions',
+        appDir: 'visual-review-snapshots',
     },
     {
         name: 'PostHog Workflow',

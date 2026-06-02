@@ -42,7 +42,7 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
     if (resource === AccessControlResourceType.CustomerAnalytics) {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
-        return 'LLM analytics'
+        return 'AI observability'
     } else if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
@@ -89,7 +89,7 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
     if (resourceType === AccessControlResourceType.CustomerAnalytics) {
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
-        return 'LLM analytics resource'
+        return 'AI observability resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {

@@ -3,10 +3,11 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Insight, Organization, Tag, Team
+from posthog.models import Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestTaggedItemSerializerMixin(APIBaseTest):

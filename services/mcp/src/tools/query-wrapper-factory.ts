@@ -21,8 +21,6 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     outputFormat?: 'optimized' | 'json'
     /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
     urlPrefix?: string
-    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
-    mcpVersion?: number
 }
 
 function buildInsightUrl(
@@ -42,7 +40,6 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
     return () => ({
         name: config.name,
         schema: config.schema,
-        ...(config.mcpVersion !== undefined ? { mcpVersion: config.mcpVersion } : {}),
         handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const params = config.schema.parse(rawParams)
@@ -56,7 +53,19 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
 
             if (config.kind.endsWith('ActorsQuery')) {
-                const data = await context.api.query({ projectId }).trendsActors({ query })
+                const sourceKind = (query.source as Record<string, unknown> | undefined)?.kind
+                const queryClient = context.api.query({ projectId })
+                let data
+                switch (sourceKind) {
+                    case 'LifecycleQuery':
+                        data = await queryClient.lifecycleActors({ query })
+                        break
+                    case 'TrendsQuery':
+                        data = await queryClient.trendsActors({ query })
+                        break
+                    default:
+                        throw new Error(`Unsupported source kind for actors query: ${sourceKind}`)
+                }
                 return {
                     ...data,
                     _posthogUrl: buildInsightUrl('DataTableNode', data.query, baseUrl, config.urlPrefix),
@@ -65,7 +74,11 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
+            // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
+            // `trendsFilter.display`.
             return {
+                query,
                 results: data.results,
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),

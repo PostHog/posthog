@@ -248,8 +248,9 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 if (!changesMade) {
                     return 'No changes to save'
                 }
-                if (config.events.some((event) => !event.revenueProperty)) {
-                    return 'Revenue property must be set'
+                const eventMissingRevenueProperty = config.events.find((event) => !event.revenueProperty)
+                if (eventMissingRevenueProperty) {
+                    return `Select a numeric revenue property for "${eventMissingRevenueProperty.eventName}". If you don't see your property, make sure it's marked as numeric in Property Definitions.`
                 }
 
                 return null
