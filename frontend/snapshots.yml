@@ -1320,6 +1320,14 @@ snapshots:
         hash: v1.k794b7964.51cbbaf0fc021a2b1b6a958c86aac9552cf416284578013cebf588db847744a3.-kTEDvju2zH1YGEuPTb6FOtlGQ1PcoXOYuIrIaPAK7o
     components-sharing--recording-sharing-licensed--light:
         hash: v1.k794b7964.346704155419478fe5d7a4f91c20f581582cdc7a0f171da6a248bd88b7cce13c.FBW3MvZx9uaB72cb_zINeWYmxxkiOxhb8OpKfHXBuVE
+    components-slack-channel-picker--alphabetical--dark:
+        hash: v1.k794b7964.c5f45d681dad559cdf8bed1c8e9d31c5dca4d0973e1fbf5d1515ab30c393b554.SYg7auYBsl2kTK9lzMylWzKKRJ9Bf3sT0lwtvlfXx24
+    components-slack-channel-picker--alphabetical--light:
+        hash: v1.k794b7964.726967267332758d5771d2230a569cf7a29bdb38d1244aeb8dcacd86f25f433e.n9EALYKR_pt88G2ZCdyZ4V12Br9qoNbP3w7j2bNQ0Wk
+    components-slack-channel-picker--recently-subscribed-first--dark:
+        hash: v1.k794b7964.de1b275c97b6eac538ac35f64bf4cf3ec79f224cf500d0078f748c063eb83601.qqYmyCsR4ryfUqltT9sX9UikOHaAkMvWoWGDrQZ164s
+    components-slack-channel-picker--recently-subscribed-first--light:
+        hash: v1.k794b7964.54bc88c73e7d32bbab8a32b91162eab1fb1ba78215aa188aa748b65b9fb531b8.YkOXS4kFGcgECAArUGil25uNoJVbhGKe_zYYmpzzu44
     components-sparkline--bar-chart--dark:
         hash: v1.k794b7964.cb1d1d3239f78521823c1278cadb102e136422579a910c3a691c2b6b17ebb962.aj9xFX3wR7NQKuqnk4Tgypbsd2Ase4rHeCGuKjORB3w
     components-sparkline--bar-chart--light:
@@ -4895,7 +4903,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.414326f685dca45885b93d728ae8a75c7d8b600af35d76c9512a74a27e453006.IyZ8qHUwOv6qsBYvdUR1ZsK1Md_GNFCftDGvNZj78BQ
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
-        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.gaL7vRk-pWoOUkiPi-NGCd1W72x-M5l9jk5Qu-UcjwI
+        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.xupnP9sdcp25xPBOMzrhSHwtRpKPLKHaqLDBncapvQA
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
         hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.3gc3UBg-8GVo4HkNBH7UrogK2q1uh9pXPDjTdYGT8nc
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
