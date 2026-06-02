@@ -1,7 +1,8 @@
-import { IconCheck, IconWarning } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useEffect, useRef, useState } from 'react'
+
+import { IconCheck, IconWarning } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
