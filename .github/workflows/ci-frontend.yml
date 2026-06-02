@@ -456,27 +456,29 @@ jobs:
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         steps:
             - run: exit 0
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.jest.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.jest.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.jest.result }}" != "success" && "${{ needs.jest.result }}" != "skipped" ) ]]; then
                     echo "Frontend jest tests failed."
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
-                  if [[ "${{ needs.frontend-format.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.frontend-format.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ) ]]; then
                     echo "Frontend linting failed."
                     exit 1
                   fi
                   echo "Frontend linting passed."
-                  if [[ "${{ needs.frontend-bundle-size.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.frontend-bundle-size.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.frontend-bundle-size.result }}" != "success" && "${{ needs.frontend-bundle-size.result }}" != "skipped" ) ]]; then
                     echo "Frontend bundle size checks failed."
                     exit 1
                   fi
                   echo "Frontend bundle size checks passed."
-                  if [[ "${{ needs.frontend-typescript-checks.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.frontend-typescript-checks.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.frontend-typescript-checks.result }}" != "success" && "${{ needs.frontend-typescript-checks.result }}" != "skipped" ) ]]; then
                     echo "Frontend TypeScript checks failed."
                     exit 1
                   fi

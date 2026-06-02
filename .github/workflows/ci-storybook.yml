@@ -446,11 +446,13 @@ jobs:
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         steps:
             - name: Check matrix outcome
               run: |
-                  if [[ "${{ needs.visual-regression.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.visual-regression.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ) ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
@@ -460,7 +462,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-complete.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.vr-complete.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ) ]]; then
                     echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi

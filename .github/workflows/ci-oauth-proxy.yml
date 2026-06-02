@@ -76,7 +76,7 @@ jobs:
         name: OAuth Proxy Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         steps:
             - name: Check all oauth-proxy jobs
               run: |
@@ -90,7 +90,9 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build-and-test.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.build-and-test.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.build-and-test.result }}" != "success" && "${{ needs.build-and-test.result }}" != "skipped" ) ]]; then
                     echo "OAuth proxy build/test failed."
                     exit 1
                   fi

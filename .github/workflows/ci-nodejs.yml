@@ -357,22 +357,24 @@ jobs:
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         steps:
             - run: exit 0
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.tests.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.tests.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.tests.result }}" != "success" && "${{ needs.tests.result }}" != "skipped" ) ]]; then
                     echo "One or more jobs in the Node.js test matrix failed."
                     exit 1
                   fi
                   echo "All jobs in the Node.js test matrix passed."
-                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.build.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ) ]]; then
                     echo "Node.js build failed."
                     exit 1
                   fi
                   echo "Node.js build passed."
-                  if [[ "${{ needs.lint.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.lint.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ) ]]; then
                     echo "Node.js lint failed."
                     exit 1
                   fi

@@ -636,7 +636,7 @@ jobs:
         name: MCP Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         steps:
             - name: Check all MCP jobs
               run: |
@@ -652,17 +652,19 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.build.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ) ]]; then
                     echo "MCP build failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.unit-tests.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ) ]]; then
                     echo "MCP unit tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.integration-tests.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ) ]]; then
                     echo "MCP integration tests failed."
                     exit 1
                   fi

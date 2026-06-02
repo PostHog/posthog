@@ -123,7 +123,7 @@ jobs:
         name: Proto Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         steps:
             - name: Check all proto jobs
               run: |
@@ -137,17 +137,19 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.lint.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.lint.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ) ]]; then
                     echo "Proto lint failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.breaking.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.breaking.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ) ]]; then
                     echo "Proto breaking change check failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.python-codegen.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.python-codegen.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.python-codegen.result }}" != "success" && "${{ needs.python-codegen.result }}" != "skipped" ) ]]; then
                     echo "Python proto codegen staleness check failed."
                     exit 1
                   fi

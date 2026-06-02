@@ -416,7 +416,7 @@ jobs:
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         permissions: {}
         steps:
             - name: Check all Rust jobs
@@ -433,17 +433,19 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.build.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ) ]]; then
                     echo "Rust build failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.test.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.test.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ) ]]; then
                     echo "Rust tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.linting.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.linting.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ) ]]; then
                     echo "Rust linting failed."
                     exit 1
                   fi

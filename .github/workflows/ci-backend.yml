@@ -2067,49 +2067,51 @@ jobs:
         name: Django Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        if: always()
         steps:
             - name: Check matrix outcome
               run: |
                   # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
                   # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.django.result }}" == "failure" ]]; then
+                  # A cancelled dep is a superseded/evicted run: concurrency noise on master pushes
+                  # (pass), but on PRs it must block so a cancelled run can't merge an unvalidated head.
+                  if [[ "${{ needs.django.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ) ]]; then
                     echo "One or more jobs in the Django test matrix failed."
                     exit 1
                   fi
 
                   # Check migration validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-migrations.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.check-migrations.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ) ]]; then
                     echo "Migration checks failed."
                     exit 1
                   fi
 
                   # Check OpenAPI type validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-openapi-types.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.check-openapi-types.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.check-openapi-types.result }}" != "success" && "${{ needs.check-openapi-types.result }}" != "skipped" ) ]]; then
                     echo "OpenAPI type checks failed."
                     exit 1
                   fi
 
                   # Check async migrations - must pass for Django Tests to be green
-                  if [[ "${{ needs.async-migrations.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.async-migrations.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ) ]]; then
                     echo "Async migrations tests failed."
                     exit 1
                   fi
 
                   # Check repo checks (product lint, IDOR, operator parity, tach)
-                  if [[ "${{ needs.repo-checks.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.repo-checks.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.repo-checks.result }}" != "success" && "${{ needs.repo-checks.result }}" != "skipped" ) ]]; then
                     echo "Repo checks failed."
                     exit 1
                   fi
 
                   # Check Turbo discover - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-discover.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.turbo-discover.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.turbo-discover.result }}" != "success" && "${{ needs.turbo-discover.result }}" != "skipped" ) ]]; then
                     echo "Turbo discover failed."
                     exit 1
                   fi
 
                   # Check Turbo tests (products) - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-tests.result }}" == "failure" ]]; then
+                  if [[ "${{ needs.turbo-tests.result }}" == "failure" || ( "${{ github.event_name }}" == "pull_request" && "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ) ]]; then
                     echo "Turbo tests failed."
                     exit 1
                   fi
