@@ -134,6 +134,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectDomain,
         requiredAccessLevel,
         authorizationComplete,
+        authorizationError,
         isRedirecting,
         redirectUrl,
         scopesWereDefaulted,
@@ -281,6 +282,23 @@ export const OAuthAuthorize = (): JSX.Element => {
                     <LemonBanner type="info" className="mb-4">
                         <strong>No permissions requested.</strong> This application didn't request specific permissions.
                         Showing all permissions supported by this resource.
+                    </LemonBanner>
+                )}
+
+                {authorizationError && (
+                    <LemonBanner type="error" className="mb-4">
+                        <div className="font-semibold">{authorizationError.title}</div>
+                        <p className="mt-1 mb-0">{authorizationError.detail}</p>
+                        {authorizationError.rejectedScopeDescriptions.length > 0 && (
+                            <>
+                                <p className="mt-2 mb-1">{oauthApplication.name} requested:</p>
+                                <ul className="list-disc list-inside m-0">
+                                    {authorizationError.rejectedScopeDescriptions.map((description, idx) => (
+                                        <li key={idx}>{description}</li>
+                                    ))}
+                                </ul>
+                            </>
+                        )}
                     </LemonBanner>
                 )}
 

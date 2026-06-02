@@ -24,6 +24,14 @@ export type OAuthAuthorizationFormValues = {
     access_type: 'all' | 'organizations' | 'teams'
 }
 
+/** A persistent, recoverable failure surfaced inline on the authorize screen. */
+export type OAuthAuthorizationError = {
+    title: string
+    detail: string
+    /** Human-readable descriptions of the permissions the application requested, shown when a scope is rejected. */
+    rejectedScopeDescriptions: string[]
+}
+
 const isNativeProtocol = (url: string): boolean => {
     try {
         const parsed = new URL(url)
@@ -33,11 +41,52 @@ const isNativeProtocol = (url: string): boolean => {
     }
 }
 
-type OAuthAuthorizeResult = { redirectTo: string; isNative: boolean }
+/** Pull the OAuth `error` / `error_description` params out of a redirect URL, if any. */
+const oauthErrorFromRedirect = (redirectTo: string): { error: string; description: string | null } | null => {
+    try {
+        const params = new URL(redirectTo).searchParams
+        const error = params.get('error')
+        if (!error) {
+            return null
+        }
+        return { error, description: params.get('error_description') }
+    } catch {
+        return null
+    }
+}
+
+const describeScopes = (scopes: string[]): string[] =>
+    getMinimumEquivalentScopes(scopes).map(getScopeDescription).filter(Boolean) as string[]
+
+/** Build a user-facing error from an OAuth error code + description. */
+const buildAuthorizationError = (
+    errorCode: string | null,
+    description: string | null,
+    requestedScopes: string[]
+): OAuthAuthorizationError => {
+    if (errorCode === 'invalid_scope') {
+        return {
+            title: 'This application requested permissions it cannot be granted',
+            detail:
+                description ||
+                'One or more of the requested permissions exceed what this application is allowed to access. Contact the application developer to request a supported set of permissions.',
+            rejectedScopeDescriptions: describeScopes(requestedScopes),
+        }
+    }
+    return {
+        title: 'Authorization failed',
+        detail: description || 'Something went wrong while authorizing the application. Please try again.',
+        rejectedScopeDescriptions: [],
+    }
+}
+
+type OAuthAuthorizeResult =
+    | { type: 'redirect'; redirectTo: string; isNative: boolean }
+    | { type: 'error'; error: OAuthAuthorizationError }
 
 const oauthAuthorize = async (
     values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] }
-): Promise<OAuthAuthorizeResult | null> => {
+): Promise<OAuthAuthorizeResult> => {
     try {
         const response = await api.create('/oauth/authorize/', {
             client_id: router.values.searchParams['client_id'],
@@ -57,16 +106,38 @@ const oauthAuthorize = async (
         })
 
         if (response.redirect_to) {
+            // Redirectable OAuth errors (e.g. invalid_scope) come back as a 200 with the
+            // error embedded in redirect_to. When the user is trying to authorize, following
+            // that redirect to a loopback listener that can't recover just leaves them on a
+            // hung "Redirecting…" screen — surface the failure inline instead. A denial
+            // (allow=false) is expected to redirect back to the client with error=access_denied.
+            const redirectError = values.allow ? oauthErrorFromRedirect(response.redirect_to) : null
+            if (redirectError) {
+                return {
+                    type: 'error',
+                    error: buildAuthorizationError(redirectError.error, redirectError.description, values.scopes),
+                }
+            }
             return {
+                type: 'redirect',
                 redirectTo: response.redirect_to,
                 isNative: isNativeProtocol(response.redirect_to),
             }
         }
-        return null
+        return {
+            type: 'error',
+            error: buildAuthorizationError(null, null, values.scopes),
+        }
     } catch (error: any) {
-        const detail = error?.detail || error?.message || 'Something went wrong while authorizing the application'
-        lemonToast.error(detail)
-        throw error
+        // api throws ApiError; the OAuth error code lands in `error.data.error` and the
+        // human-readable text in `error.data.error_description`.
+        const errorCode: string | null = error?.data?.error ?? null
+        const description: string | null =
+            error?.data?.error_description ?? error?.detail ?? error?.message ?? null
+        return {
+            type: 'error',
+            error: buildAuthorizationError(errorCode, description, values.scopes),
+        }
     }
 }
 
@@ -84,6 +155,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setResourceScopesLoading: (loading: boolean) => ({ loading }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
+        setAuthorizationError: (error: OAuthAuthorizationError | null) => ({ error }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
         setRedirecting: (redirectUrl: string) => ({ redirectUrl }),
         setSelectedOrganization: (organizationId: string, preferredTeamId?: number) => ({
@@ -128,6 +200,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     listeners(({ values, actions }) => ({
         cancel: async () => {
             actions.setCanceling(true)
+            actions.setAuthorizationError(null)
             try {
                 const result = await oauthAuthorize({
                     scoped_organizations: values.oauthAuthorization.scoped_organizations,
@@ -136,9 +209,11 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     allow: false,
                     scopes: values.scopes,
                 })
-                if (result) {
-                    location.href = result.redirectTo
+                if (result.type === 'error') {
+                    actions.setAuthorizationError(result.error)
+                    return
                 }
+                location.href = result.redirectTo
             } finally {
                 actions.setCanceling(false)
             }
@@ -228,6 +303,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setCanceling: (_, { canceling }) => canceling,
+            },
+        ],
+        authorizationError: [
+            null as OAuthAuthorizationError | null,
+            {
+                setAuthorizationError: (_, { error }) => error,
             },
         ],
         authorizationComplete: [
@@ -326,13 +407,17 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
+                actions.setAuthorizationError(null)
                 const scopes = oauthAuthorizeLogic.values.scopes
                 const result = await oauthAuthorize({
                     ...values,
                     allow: true,
                     scopes,
                 })
-                if (!result) {
+                if (result.type === 'error') {
+                    // Persist the failure inline so the click never reads as dead — the
+                    // submitting flag is reset by kea-forms once this handler returns.
+                    actions.setAuthorizationError(result.error)
                     return
                 }
                 // Swap the form for a "Redirecting…" view so the user sees progress
