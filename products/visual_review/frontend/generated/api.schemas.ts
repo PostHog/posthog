@@ -310,15 +310,18 @@ export interface ApproveSnapshotInputApi {
 }
 
 export interface ApproveRunRequestInputApi {
-    /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
-    snapshots?: ApproveSnapshotInputApi[]
-    /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
+    /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+    snapshots: ApproveSnapshotInputApi[]
+}
+
+export interface FinalizeRunRequestInputApi {
+    /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean
-    /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
+    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
     commit_to_github?: boolean
 }
 
-export interface AutoApproveResultApi {
+export interface FinalizeResultApi {
     run: RunApi
     baseline_content: string
 }

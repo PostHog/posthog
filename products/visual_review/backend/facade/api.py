@@ -22,7 +22,6 @@ from django.contrib.auth import get_user_model
 from .. import logic
 from ..diff_metadata import DiffMetadata
 from . import contracts
-from .enums import ReviewDecision
 
 User = get_user_model()
 
@@ -54,6 +53,7 @@ GitHubCommitError = logic.GitHubCommitError
 GitHubRateLimitError = logic.GitHubRateLimitError
 PRSHAMismatchError = logic.PRSHAMismatchError
 StaleRunError = logic.StaleRunError
+RunNotFullyResolvedError = logic.RunNotFullyResolvedError
 BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
 
 
@@ -469,31 +469,11 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.Recompu
     )
 
 
-def approve_all(
-    run_id: UUID,
-    user_id: int,
-    team_id: int | None = None,
-    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
-    commit_to_github: bool = True,
-) -> contracts.AutoApproveResult:
-    run, baseline_content = logic.approve_all(
-        run_id=run_id,
-        user_id=user_id,
-        team_id=team_id,
-        review_decision=review_decision,
-        commit_to_github=commit_to_github,
-    )
-    return contracts.AutoApproveResult(
-        run=_to_run(run),
-        baseline_content=baseline_content,
-    )
+def approve_snapshots(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
+    """Mark specific snapshots reviewed (DB only — no baseline commit, no gate change).
 
-
-def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
-    """Approve specific snapshots (DB only).
-
-    For full run finalization with GitHub commit, use approve_all=true
-    which routes through auto_approve_run.
+    This is the per-snapshot "Accept change" triage action. Shipping the run (committing
+    the baseline and greening the gate) happens via finalize_run.
     """
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
     run = logic.approve_snapshots(
@@ -503,6 +483,30 @@ def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) ->
         team_id=team_id,
     )
     return _to_run(run)
+
+
+def finalize_run(
+    run_id: UUID,
+    user_id: int,
+    team_id: int | None = None,
+    approve_all: bool = False,
+    commit_to_github: bool = True,
+) -> contracts.FinalizeResult:
+    """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+
+    The single ship action. Commits exactly the snapshots approved in the DB (tolerated
+    ones are left alone) and only succeeds once every changed/new snapshot is resolved.
+    With ``approve_all=True`` any still-pending snapshot is approved first. The pushed
+    baseline commit SHA is surfaced on ``run.metadata["baseline_commit_sha"]``.
+
+    With ``commit_to_github=False`` the server skips the commit and returns the signed
+    baseline YAML on ``baseline_content`` instead (for tooling that commits it itself).
+    """
+    run = logic.finalize_run(
+        run_id=run_id, user_id=user_id, team_id=team_id, approve_all=approve_all, commit_to_github=commit_to_github
+    )
+    baseline_content = "" if commit_to_github else logic.build_signed_baseline(run_id, team_id=team_id)
+    return contracts.FinalizeResult(run=_to_run(run), baseline_content=baseline_content)
 
 
 # --- Quarantine ---

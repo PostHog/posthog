@@ -8,6 +8,7 @@ Called by api/api.py facade. Do not call from outside this module.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -85,6 +86,18 @@ class HashIntegrityError(Exception):
 
 class StaleRunError(Exception):
     """Approval blocked because a newer run exists for this PR."""
+
+    pass
+
+
+class RunNotFullyResolvedError(Exception):
+    """Finalize blocked because some changed/new snapshots are still unreviewed.
+
+    Visual review is all-or-nothing: the baseline is only committed once every
+    changed/new snapshot is approved or tolerated. Committing a subset is pointless
+    (CI re-detects the rest on the next run) and would green the gate over unreviewed
+    changes.
+    """
 
     pass
 
@@ -1048,6 +1061,21 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     return True
 
 
+def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
+    """The committed-baseline update set: approved changed/new snapshots, by approved hash.
+
+    Derived from DB state so the commit always reflects every approval regardless of how
+    many calls it took. Tolerated snapshots are excluded — toleration never updates the baseline.
+    """
+    return [
+        {"identifier": s.identifier, "new_hash": s.approved_hash}
+        for s in snapshots
+        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
+        and not s.is_quarantined
+        and s.review_state == ReviewState.APPROVED
+    ]
+
+
 def _update_counts_and_post_status(run: Run) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
@@ -1081,6 +1109,11 @@ def _update_counts_and_post_status(run: Run) -> int:
 
     unresolved = sum(1 for s in snapshots if _is_unresolved(s))
 
+    # Approved-but-uncommitted changes still block the gate: the baseline on the PR branch
+    # doesn't reflect them yet, so re-running CI would re-detect them. Only finalize commits
+    # the baseline (and posts success directly), so until then the gate must stay red.
+    pending_commit = 0 if run.approved else len(_approved_baseline_updates(snapshots))
+
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
@@ -1094,6 +1127,13 @@ def _update_counts_and_post_status(run: Run) -> int:
             parts.append(f"{run.removed_count} removed")
         _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
         _post_review_prompt_comment(run, repo)
+    elif pending_commit > 0:
+        _post_commit_status(
+            run,
+            repo,
+            "failure",
+            f"{pending_commit} approved change(s) awaiting commit — finalize the run to update the baseline",
+        )
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
 
@@ -1833,166 +1873,94 @@ def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> N
 
 
 @transaction.atomic(using=WRITER_DB)
-def approve_all(
+def finalize_run(
     run_id: UUID,
     user_id: int,
     team_id: int | None = None,
+    approve_all: bool = False,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
-) -> tuple[Run, str]:
-    """Approve all actionable snapshots and return signed baseline YAML.
+) -> Run:
+    """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
 
-    Collects all CHANGED + NEW snapshots, approves them via approve_run,
-    and builds a signed baseline YAML. REMOVED snapshots are handled by
-    approve_run (marked as approved + pruned from baseline).
+    All-or-nothing by design — a run finalizes only once every changed/new snapshot is
+    resolved (approved, tolerated, quarantined, or removed). The committed baseline is
+    derived from DB state — exactly the snapshots with ``review_state == APPROVED``, by
+    their approved hash — so a tolerated snapshot keeps its existing baseline and is
+    never silently overwritten, and the commit always contains the full approved set
+    regardless of how many calls it took to review them.
 
-    The caller controls review_decision:
-    - HUMAN_APPROVED: UI "Approve all changes" button
-    - AUTO_APPROVED: CLI --auto-approve during CI
+    With ``approve_all=True`` every still-pending changed/new snapshot is approved first
+    (tolerated ones are left untouched) — the "approve everything and ship" path. Without
+    it, the run must already be fully resolved or this raises RunNotFullyResolvedError.
 
-    Set commit_to_github=False for CLI (writes baseline locally).
+    Set ``commit_to_github=False`` for CLI auto-approve, which writes the baseline locally
+    instead of pushing it to the PR branch.
     """
     run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
+
+    if run.purpose == RunPurpose.OBSERVE:
+        raise ValueError("Observational runs cannot be approved")
+
+    # Idempotent: a finalized run already committed and posted status — don't redo the work
+    # (a second commit, status, and approval comment) on a repeat call.
+    if run.approved:
+        return run
 
     if run.status != RunStatus.COMPLETED:
         raise ValueError(f"Run must be completed before approval (current status: {run.status})")
 
     if is_run_stale(run):
-        raise StaleRunError("This run has been superseded by a newer run.")
+        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
 
-    # Collect all actionable snapshots (changed + new have hashes to approve)
-    needs_approval = [
-        {"identifier": s.identifier, "new_hash": s.current_hash}
-        for s in run.snapshots.all()
-        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
+    # Re-evaluate quarantine so resolution accounting reflects the current policy.
+    _stamp_quarantine(run)
+    now = timezone.now()
+
+    actionable = [
+        s
+        for s in run.snapshots.using(WRITER_DB).all()
+        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW) and not s.is_quarantined
     ]
 
-    if not run.approved:
-        approve_run(
-            run_id=run_id,
-            user_id=user_id,
-            team_id=team_id,
-            approved_snapshots=needs_approval,
-            review_decision=review_decision,
-            commit_to_github=commit_to_github,
+    if approve_all:
+        pending = [s for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)]
+        _validate_approval(run, {s.identifier: s.current_hash for s in pending})
+        for snapshot in pending:
+            snapshot.review_state = ReviewState.APPROVED
+            snapshot.reviewed_at = now
+            snapshot.reviewed_by_id = user_id
+            snapshot.approved_hash = snapshot.current_hash
+            snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
+
+    # All-or-nothing: refuse to commit while any actionable snapshot is still unreviewed.
+    unresolved = [
+        s.identifier for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)
+    ]
+    if unresolved:
+        raise RunNotFullyResolvedError(
+            f"Cannot finalize: {len(unresolved)} snapshot(s) still need review — approve or tolerate them first: "
+            f"{', '.join(sorted(unresolved)[:10])}"
         )
-        run = get_run_with_snapshots(run_id)
 
-    snapshots = list(run.snapshots.all().order_by("identifier"))
+    # Commit set is derived from DB state, not a caller-supplied list, so it always reflects
+    # the full approved set however many calls reviewed it.
+    approved_updates = _approved_baseline_updates(actionable)
+    has_removed = run.snapshots.using(WRITER_DB).filter(result=SnapshotResult.REMOVED).exists()
 
-    # Fetch current baseline from GitHub — the authoritative source.
-    # This ensures unchanged entries are preserved even in delta mode
-    # where unchanged snapshots have no RunSnapshot rows.
-    baseline_paths = repo.baseline_file_paths or {}
-    baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
-    current_baselines: dict[str, dict] = {}
+    # Commit first — before DB writes — so a GitHub failure aborts cleanly. Removed snapshots
+    # also need a commit, to prune them from the baseline, even when nothing was approved.
+    if commit_to_github and (approved_updates or has_removed) and run.pr_number and repo.repo_full_name:
+        _commit_baseline_to_github(run, repo, approved_updates, approver_user_id=user_id)
 
-    github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
-    current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
-
-    # Remove entries that are now REMOVED — they should not persist in the baseline
-    removed_identifiers = {s.identifier for s in snapshots if s.result == SnapshotResult.REMOVED}
-    for identifier in removed_identifiers:
-        current_baselines.pop(identifier, None)
-
-    # Apply changes from this run on top of the baseline
-    updates = [
-        {"identifier": s.identifier, "new_hash": s.current_hash}
-        for s in snapshots
-        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
-    ]
-
-    baseline_content = _build_snapshots_yaml(repo, current_baselines=current_baselines, updates=updates)
-    return run, baseline_content
-
-
-@transaction.atomic(using=WRITER_DB)
-def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
-    """Approve specific snapshots within a run (DB only, no GitHub commit).
-
-    Used for per-snapshot "Accept change" in the UI. Does not finalize
-    the run — that happens via approve_run.
-    """
-    run = _get_run_for_update(run_id, team_id=team_id)
-
-    if run.purpose == RunPurpose.OBSERVE:
-        raise ValueError("Observational runs cannot be approved")
-
-    if is_run_stale(run):
-        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
-
-    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
-    _validate_approval(run, approvals)
-
-    now = timezone.now()
-    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
-        new_hash = approvals[snapshot.identifier]
-        snapshot.review_state = ReviewState.APPROVED
-        snapshot.reviewed_at = now
-        snapshot.reviewed_by_id = user_id
-        snapshot.approved_hash = new_hash
-        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
-
-    return run
-
-
-@transaction.atomic(using=WRITER_DB)
-def approve_run(
-    run_id: UUID,
-    user_id: int,
-    approved_snapshots: list[dict],
-    team_id: int | None = None,
-    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
-    commit_to_github: bool = True,
-) -> Run:
-    """Approve snapshots and finalize the run — commit baseline, post status.
-
-    This is the full approval path: validate, commit to GitHub, mark
-    snapshots approved, mark removed as approved, mark run approved,
-    and post a success commit status.
-
-    Set commit_to_github=False only for CLI auto-approve (writes locally).
-    """
-    run = _get_run_for_update(run_id, team_id=team_id)
-    repo = run.repo
-
-    if run.purpose == RunPurpose.OBSERVE:
-        raise ValueError("Observational runs cannot be approved")
-
-    if is_run_stale(run):
-        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
-
-    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
-    _validate_approval(run, approvals)
-
-    # Commit to GitHub first — do this before DB changes so we can fail cleanly
-    if commit_to_github and run.pr_number and repo.repo_full_name:
-        _commit_baseline_to_github(run, repo, approved_snapshots, approver_user_id=user_id)
-
-    # Mark approved snapshots
-    now = timezone.now()
-    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
-        new_hash = approvals[snapshot.identifier]
-        snapshot.review_state = ReviewState.APPROVED
-        snapshot.reviewed_at = now
-        snapshot.reviewed_by_id = user_id
-        snapshot.approved_hash = new_hash
-        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
-
-    # Mark removed snapshots as approved (cleanup, not actionable)
+    # Removed snapshots are pruned from the baseline on commit; mark them approved for cleanup.
     run.snapshots.filter(result=SnapshotResult.REMOVED).update(
         review_state=ReviewState.APPROVED,
         reviewed_at=now,
         reviewed_by_id=user_id,
     )
 
-    # Re-evaluate quarantine at approval time
-    _stamp_quarantine(run)
-
-    # Finalize run
     run.approved = True
     run.review_decision = review_decision
     run.approved_at = now
@@ -2011,6 +1979,64 @@ def approve_run(
             lambda: post_approval_comment.delay(run_team_id, run_id_str),
             using=WRITER_DB,
         )
+
+    return run
+
+
+def build_signed_baseline(run_id: UUID, team_id: int | None = None) -> str:
+    """Build the signed baseline YAML for a finalized run, without committing it.
+
+    For callers that commit the baseline themselves (the CLI's auto-approve, which writes
+    the file and commits via git rather than the GitHub App). Mirrors the committed set:
+    the current baseline merged with the approved changed/new hashes, removed entries pruned.
+    """
+    run = get_run_with_snapshots(run_id, team_id=team_id)
+    repo = run.repo
+
+    baseline_paths = repo.baseline_file_paths or {}
+    baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
+
+    github = get_github_integration_for_repo(repo)
+    if github.access_token_expired():
+        github.refresh_access_token()
+    current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
+
+    snapshots = list(run.snapshots.all())
+    for s in snapshots:
+        if s.result == SnapshotResult.REMOVED:
+            current_baselines.pop(s.identifier, None)
+
+    return _build_snapshots_yaml(
+        repo, current_baselines=current_baselines, updates=_approved_baseline_updates(snapshots)
+    )
+
+
+@transaction.atomic(using=WRITER_DB)
+def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
+    """Approve specific snapshots within a run (DB only, no GitHub commit).
+
+    Used for per-snapshot "Accept change" in the UI. Does not finalize
+    the run — that happens via finalize_run.
+    """
+    run = _get_run_for_update(run_id, team_id=team_id)
+
+    if run.purpose == RunPurpose.OBSERVE:
+        raise ValueError("Observational runs cannot be approved")
+
+    if is_run_stale(run):
+        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
+
+    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
+    _validate_approval(run, approvals)
+
+    now = timezone.now()
+    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
+        new_hash = approvals[snapshot.identifier]
+        snapshot.review_state = ReviewState.APPROVED
+        snapshot.reviewed_at = now
+        snapshot.reviewed_by_id = user_id
+        snapshot.approved_hash = new_hash
+        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
 
     return run
 

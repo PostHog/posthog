@@ -193,7 +193,44 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Per-snapshot approval is DB only — run not finalized
-        self.assertFalse(response.json()["run"]["approved"])
+        self.assertFalse(response.json()["approved"])
+
+    def test_finalize_run(self):
+        logic.get_or_create_artifact(
+            repo_id=self.vr_project.id,
+            content_hash="new_hash",
+            storage_path="visual_review/new_hash",
+        )
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
+            team_id=self.team.id,
+        )
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+        logic.finish_processing(create_result.run_id)
+
+        # No PR on this run, so nothing is pushed, but approve_all + finalize marks it approved.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/finalize/",
+            {"approve_all": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["run"]["approved"])
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         logic.get_or_create_artifact(

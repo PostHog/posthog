@@ -258,6 +258,7 @@ export const commonConfig = {
         '.woff2': 'file',
         '.mp3': 'file',
         '.sql': 'text',
+        '.yaml': 'text',
     },
     metafile: true,
 }

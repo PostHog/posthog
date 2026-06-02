@@ -195,7 +195,7 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         repoFullName,
-        isApproving,
+        isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
         isRunInProgress,
@@ -205,7 +205,7 @@ export function VisualReviewRunScene(): JSX.Element {
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
-        approveChanges,
+        finalizeRun,
         approveSnapshot,
         markAsTolerated,
         quarantineSnapshot,
@@ -343,16 +343,14 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved &&
-                    !run.is_stale &&
-                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
+                    !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
                         <LemonButton
                             type="primary"
-                            onClick={approveChanges}
-                            loading={isApproving}
-                            data-attr="visual-review-commit-baseline"
+                            onClick={finalizeRun}
+                            loading={isFinalizing}
+                            data-attr="visual-review-finalize-run"
                         >
-                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
+                            {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
                         </LemonButton>
                     ) : undefined
                 }
@@ -370,7 +368,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesResolved && !ciRetriggerUnavailableReason && (
+            {allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -381,7 +379,8 @@ export function VisualReviewRunScene(): JSX.Element {
                         'data-attr': 'visual-review-recompute-run',
                     }}
                 >
-                    All changes are resolved — re-trigger to update the commit status and pass the gate.
+                    All changes are resolved by tolerating or quarantining — re-trigger to update the commit status and
+                    pass the gate. (No baseline commit needed; approved changes are shipped via Finalize run.)
                 </LemonBanner>
             )}
 
