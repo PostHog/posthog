@@ -387,6 +387,11 @@ export function createBarScales(
         stackedSeries?: Series[]
         /** Cap on the band-axis range in px — clusters bars at the start of the plot when set. */
         maxBandRange?: number
+        /** Horizontal fit-to-height mode: drop the rows that can't fit at `minBandSize` so bands
+         *  never crush below it and the plot fills the height it's given. Requires `minBandSize`. */
+        fitToHeight?: boolean
+        /** Minimum px per row — only consulted to compute the `fitToHeight` row cap. */
+        minBandSize?: number
         /** Fixed `[min, max]` or `{ include }` extra values the value axis must cover. */
         valueDomain?: ValueDomain
     } = {}
@@ -399,6 +404,8 @@ export function createBarScales(
         groupPadding = 0.1,
         stackedSeries,
         maxBandRange,
+        fitToHeight,
+        minBandSize,
         valueDomain,
     } = options
 
@@ -408,9 +415,20 @@ export function createBarScales(
     const bandAxisStart = isHorizontal ? dimensions.plotTop : dimensions.plotLeft
     const bandAxisExtent = isHorizontal ? dimensions.plotHeight : dimensions.plotWidth
     const cappedExtent = maxBandRange != null ? Math.min(bandAxisExtent, maxBandRange) : bandAxisExtent
+
+    // Fit-to-height: only keep the rows that fit at `minBandSize`. Labels arrive value-sorted, so
+    // slicing keeps the leading rows. Bars/labels/grid all resolve through `band(label)`, so a
+    // dropped label resolves to `undefined` and is skipped everywhere — no extra plumbing needed.
+    let domainLabels = labels
+    if (isHorizontal && fitToHeight && minBandSize && minBandSize > 0) {
+        const maxBands = Math.max(1, Math.floor(cappedExtent / minBandSize))
+        if (labels.length > maxBands) {
+            domainLabels = labels.slice(0, maxBands)
+        }
+    }
     const band = d3
         .scaleBand<string>()
-        .domain(labels)
+        .domain(domainLabels)
         .range([bandAxisStart, bandAxisStart + cappedExtent])
         .paddingInner(bandPadding)
         .paddingOuter(bandPadding / 2)
