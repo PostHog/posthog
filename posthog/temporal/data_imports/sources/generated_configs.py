@@ -207,7 +207,8 @@ class CalendlySourceConfig(config.Config):
 
 @config.config
 class CampaignMonitorSourceConfig(config.Config):
-    pass
+    api_key: str
+    client_id: str
 
 
 @config.config
