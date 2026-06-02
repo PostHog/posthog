@@ -282,7 +282,7 @@ describe('DashboardWidgetItem', () => {
 
     it('contains unknown widget errors in the card body while keeping the header', () => {
         const catalogEntryMock = getDashboardWidgetCatalogEntry as jest.Mock
-        ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValueOnce(undefined)
+        ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValue(undefined)
         catalogEntryMock.mockImplementation(() => {
             throw new Error('Unknown dashboard widget type: session_replay_list')
         })
@@ -294,6 +294,7 @@ describe('DashboardWidgetItem', () => {
                 dashboardId={99}
                 result={null}
                 loading={false}
+                error="Unknown widget type: session_replay_list"
                 onRefresh={jest.fn()}
                 onRemove={jest.fn()}
                 showEditingControls
@@ -303,7 +304,16 @@ describe('DashboardWidgetItem', () => {
         expect(within(container).getByText('My issues')).toBeInTheDocument()
         expect(within(container).getByText('An error has occurred')).toBeInTheDocument()
         expect(within(container).getByText(/Unknown dashboard widget type: session_replay_list/)).toBeInTheDocument()
+        expect(within(container).queryByText('Refresh data')).not.toBeInTheDocument()
 
+        ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValue({
+            titleHref: '/error_tracking',
+            headerLayout: 'dashboard_tile',
+            groupId: 'error_tracking',
+            label: 'Top issues',
+            headerTitle: 'Top issues',
+            headerMeta: { showWidgetType: true, showDateRange: true },
+        })
         catalogEntryMock.mockImplementation(() => ({
             titleHref: '/error_tracking',
             headerLayout: 'dashboard_tile',

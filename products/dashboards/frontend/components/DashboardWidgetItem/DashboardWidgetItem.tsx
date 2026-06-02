@@ -65,6 +65,7 @@ type DashboardWidgetItemContentProps = Omit<
     widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
     definition: DashboardWidgetDefinition | undefined
     headerCatalogEntry: ResolvedDashboardWidgetCatalogEntry
+    isUnknownWidgetType: boolean
     copyToDestinations: ReturnType<typeof useValues<typeof dashboardWidgetMenusLogic>>['copyToDestinations']
     editOpen: boolean
     setEditOpen: (open: boolean) => void
@@ -105,6 +106,7 @@ function DashboardWidgetItemContent({
     widget,
     definition,
     headerCatalogEntry,
+    isUnknownWidgetType,
     result,
     loading,
     error,
@@ -225,7 +227,7 @@ function DashboardWidgetItemContent({
                                 )}
                             </>
                         )}
-                        {onRefresh && headerLayout === 'dashboard_tile' && (
+                        {onRefresh && headerLayout === 'dashboard_tile' && !isUnknownWidgetType && (
                             <>
                                 <LemonDivider />
                                 <DashboardTileRefreshDataButton
@@ -241,9 +243,9 @@ function DashboardWidgetItemContent({
             />
             <WidgetCardBody
                 locked={!hasProductAccess}
-                error={hasProductAccess ? error : undefined}
-                onRefresh={onRefresh}
-                refreshing={loading}
+                error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
+                onRefresh={isUnknownWidgetType ? undefined : onRefresh}
+                refreshing={isUnknownWidgetType ? false : loading}
             >
                 <ErrorBoundary
                     className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
@@ -325,9 +327,10 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             tileId: tile.id,
             dashboardId: dashboardId ?? undefined,
         })
+        const catalogEntryOrUndefined = tryGetDashboardWidgetCatalogEntry(widget.widget_type)
         const headerCatalogEntry =
-            tryGetDashboardWidgetCatalogEntry(widget.widget_type) ??
-            getUnknownDashboardWidgetCatalogFallback(widget.widget_type)
+            catalogEntryOrUndefined ?? getUnknownDashboardWidgetCatalogFallback(widget.widget_type)
+        const isUnknownWidgetType = catalogEntryOrUndefined === undefined
 
         // react-grid-layout injects className/style via cloneElement — WidgetCard must be the root node
         // so decorative resize handles and RGL's .react-resizable-handle siblings share a parent (see InsightCard).
@@ -348,6 +351,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     widget={widget}
                     definition={definition}
                     headerCatalogEntry={headerCatalogEntry}
+                    isUnknownWidgetType={isUnknownWidgetType}
                     result={result}
                     loading={loading}
                     error={error}
