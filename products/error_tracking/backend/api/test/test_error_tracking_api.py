@@ -942,6 +942,47 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
 
+    def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(uuid7()): "hash"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "symbol_set_not_found"
+
+    @patch("posthog.storage.object_storage.head_object")
+    def test_bulk_finish_upload_preserves_pending_symbol_set_when_file_is_not_found(
+        self, patched_object_storage
+    ) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(team=self.team, ref=str(uuid7()), storage_ptr="file/name")
+        request_data = {"content_hashes": {str(symbol_set.id): "hash"}}
+
+        patched_object_storage.side_effect = [None, {"ContentLength": 1000}]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data=request_data,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_not_found"
+
+        symbol_set.refresh_from_db()
+        assert symbol_set.content_hash is None
+
+        retry_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data=request_data,
+            format="json",
+        )
+
+        assert retry_response.status_code == status.HTTP_201_CREATED
+        symbol_set.refresh_from_db()
+        assert symbol_set.content_hash == "hash"
+
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)
         activity: list[dict] = activity_response["results"]

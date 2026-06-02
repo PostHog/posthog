@@ -489,8 +489,15 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         file_count = len(content_hashes)
-        symbol_set_ids = content_hashes.keys()
-        symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids)
+        symbol_set_ids = set(content_hashes.keys())
+        symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids))
+        found_symbol_set_ids = {str(symbol_set.id) for symbol_set in symbol_sets}
+        missing_symbol_set_ids = symbol_set_ids - found_symbol_set_ids
+        if missing_symbol_set_ids:
+            raise ValidationError(
+                code="symbol_set_not_found",
+                detail=f"Unknown symbol set IDs: {', '.join(sorted(missing_symbol_set_ids))}",
+            )
 
         total_file_size = 0
         try:
@@ -521,14 +528,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 symbol_set.content_hash = content_hash
             ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
         except Exception as e:
-            for id in content_hashes.keys():
-                # Try to clean up the symbol sets preemptively if the upload fails
-                try:
-                    symbol_set = ErrorTrackingSymbolSet.objects.all().filter(id=id, team=self.team).get()
-                    symbol_set.delete()
-                except Exception:
-                    pass
-
             posthoganalytics.capture(
                 "error_tracking_symbol_set_uploaded",
                 properties={
