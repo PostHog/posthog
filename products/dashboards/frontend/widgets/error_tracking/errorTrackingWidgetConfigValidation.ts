@@ -1,54 +1,51 @@
-import type { ZodError } from 'zod'
+import { z, type ZodError } from 'zod'
 
 import { ApiError } from 'lib/api-error'
 
-import { errorTrackingWidgetConfigSchema } from '../../widget_types/configSchemas'
+import {
+    errorTrackingWidgetConfigSchema,
+    type ErrorTrackingWidgetConfig,
+    widgetDateFromSchema,
+    widgetLimitFieldSchema,
+} from '../../widget_types/configSchemas'
 
-export type ErrorTrackingWidgetFieldErrors = {
-    limit?: string
-    orderBy?: string
-    dateFrom?: string
+export type ErrorTrackingWidgetFieldErrors = Partial<Record<keyof ErrorTrackingWidgetFormInput, string>>
+
+export const errorTrackingWidgetFormSchema = z.object({
+    limit: widgetLimitFieldSchema,
+    orderBy: errorTrackingWidgetConfigSchema.shape.orderBy,
+    dateFrom: widgetDateFromSchema,
+    filterTestAccounts: z.boolean(),
+})
+
+export type ErrorTrackingWidgetFormInput = z.infer<typeof errorTrackingWidgetFormSchema>
+
+function fieldErrorsFromZodError(error: ZodError): ErrorTrackingWidgetFieldErrors {
+    const { fieldErrors } = z.flattenError(error)
+
+    return Object.fromEntries(
+        Object.entries(fieldErrors).flatMap(([field, messages]) =>
+            messages.length > 0 ? [[field, messages[0] as string]] : []
+        )
+    )
 }
 
-function zodIssuesToFieldErrors(error: ZodError): ErrorTrackingWidgetFieldErrors {
-    const fieldErrors: ErrorTrackingWidgetFieldErrors = {}
-
-    for (const issue of error.issues) {
-        if (issue.path[0] === 'dateRange' && issue.path[1] === 'date_from') {
-            fieldErrors.dateFrom ??= issue.message
-            continue
-        }
-
-        if (issue.path[0] === 'limit') {
-            fieldErrors.limit ??= issue.message
-        } else if (issue.path[0] === 'orderBy') {
-            fieldErrors.orderBy ??= issue.message
-        }
-    }
-
-    return fieldErrors
+export function parseErrorTrackingWidgetConfig(config: Record<string, unknown>): ErrorTrackingWidgetConfig {
+    const parsed = errorTrackingWidgetConfigSchema.safeParse(config)
+    return parsed.success ? parsed.data : errorTrackingWidgetConfigSchema.parse({})
 }
 
-export function buildErrorTrackingWidgetConfigInput({
-    limit,
-    orderBy,
-    dateFrom,
-    filterTestAccounts,
-    baseConfig,
-}: {
-    limit: number
-    orderBy: string
-    dateFrom: string
-    filterTestAccounts: boolean
-    baseConfig: Record<string, unknown>
-}): Record<string, unknown> {
-    return {
+export function buildErrorTrackingWidgetConfig(
+    formInput: ErrorTrackingWidgetFormInput,
+    baseConfig: ErrorTrackingWidgetConfig
+): ErrorTrackingWidgetConfig {
+    return errorTrackingWidgetConfigSchema.parse({
         ...baseConfig,
-        limit,
-        orderBy,
-        filterTestAccounts,
-        dateRange: { date_from: dateFrom },
-    }
+        limit: formInput.limit,
+        orderBy: formInput.orderBy,
+        filterTestAccounts: formInput.filterTestAccounts,
+        dateRange: { date_from: formInput.dateFrom },
+    })
 }
 
 export function validateErrorTrackingWidgetConfigInput(input: {
@@ -56,17 +53,25 @@ export function validateErrorTrackingWidgetConfigInput(input: {
     orderBy: string
     dateFrom: string
     filterTestAccounts: boolean
-    baseConfig: Record<string, unknown>
+    baseConfig: ErrorTrackingWidgetConfig
 }):
-    | { success: true; config: Record<string, unknown> }
+    | { success: true; config: ErrorTrackingWidgetConfig }
     | { success: false; fieldErrors: ErrorTrackingWidgetFieldErrors } {
-    const parsed = errorTrackingWidgetConfigSchema.safeParse(buildErrorTrackingWidgetConfigInput(input))
+    const parsed = errorTrackingWidgetFormSchema.safeParse({
+        limit: input.limit,
+        orderBy: input.orderBy,
+        dateFrom: input.dateFrom,
+        filterTestAccounts: input.filterTestAccounts,
+    })
 
-    if (parsed.success) {
-        return { success: true, config: parsed.data as Record<string, unknown> }
+    if (!parsed.success) {
+        return { success: false, fieldErrors: fieldErrorsFromZodError(parsed.error) }
     }
 
-    return { success: false, fieldErrors: zodIssuesToFieldErrors(parsed.error) }
+    return {
+        success: true,
+        config: buildErrorTrackingWidgetConfig(parsed.data, input.baseConfig),
+    }
 }
 
 export function parseErrorTrackingWidgetConfigApiError(
@@ -77,10 +82,21 @@ export function parseErrorTrackingWidgetConfigApiError(
         return null
     }
 
-    const parsed = errorTrackingWidgetConfigSchema.safeParse(config)
-    if (!parsed.success) {
-        return zodIssuesToFieldErrors(parsed.error)
+    const parsedConfig = errorTrackingWidgetConfigSchema.safeParse(config)
+    if (parsedConfig.success) {
+        return null
     }
 
-    return null
+    const formInput: ErrorTrackingWidgetFormInput = {
+        limit: (config.limit as number) ?? 0,
+        orderBy: (config.orderBy as ErrorTrackingWidgetFormInput['orderBy']) ?? 'occurrences',
+        dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
+        filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
+    }
+    const parsedForm = errorTrackingWidgetFormSchema.safeParse(formInput)
+    if (!parsedForm.success) {
+        return fieldErrorsFromZodError(parsedForm.error)
+    }
+
+    return fieldErrorsFromZodError(parsedConfig.error)
 }

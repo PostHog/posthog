@@ -13,7 +13,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
             orderBy: 'occurrences',
             dateFrom: '-7d',
             filterTestAccounts: true,
-            baseConfig: {},
+            baseConfig: errorTrackingWidgetConfigSchema.parse({}),
         })
 
         expect(result.success).toBe(false)
@@ -28,7 +28,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
             orderBy: 'occurrences',
             dateFrom: '-7d',
             filterTestAccounts: true,
-            baseConfig: {},
+            baseConfig: errorTrackingWidgetConfigSchema.parse({}),
         })
 
         expect(result.success).toBe(true)
@@ -58,7 +58,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
             orderBy: 'occurrences',
             dateFrom: '-1h',
             filterTestAccounts: true,
-            baseConfig: {},
+            baseConfig: errorTrackingWidgetConfigSchema.parse({}),
         })
 
         expect(result.success).toBe(true)

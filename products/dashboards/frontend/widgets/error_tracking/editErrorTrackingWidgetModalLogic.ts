@@ -6,10 +6,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
 import { isWidgetConfigValidationError } from '../../utils'
-import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchemas'
+import { resolveWidgetFilterTestAccounts, type ErrorTrackingWidgetConfig } from '../../widget_types/configSchemas'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editErrorTrackingWidgetModalLogicType } from './editErrorTrackingWidgetModalLogicType'
 import {
+    parseErrorTrackingWidgetConfig,
     validateErrorTrackingWidgetConfigInput,
     type ErrorTrackingWidgetFieldErrors,
 } from './errorTrackingWidgetConfigValidation'
@@ -123,7 +124,13 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                 !hasSentExceptionEventLoading &&
                 !!currentTeam,
         ],
-        widgetConfig: [(_, p) => [p.config], (config): Record<string, unknown> => config],
+        widgetConfig: [
+            (_, p) => [p.config],
+            (config): ErrorTrackingWidgetConfig => parseErrorTrackingWidgetConfig(config),
+        ],
+        onClose: [(_, p) => [p.onClose], (onClose) => onClose],
+        defaultTitle: [(_, p) => [p.defaultTitle], (defaultTitle) => defaultTitle ?? 'Untitled'],
+        onSaveMetadata: [(_, p) => [p.onSaveMetadata], (onSaveMetadata) => onSaveMetadata],
         validation: [
             (s) => [s.limit, s.orderBy, s.dateFrom, s.filterTestAccounts, s.widgetConfig],
             (limit, orderBy, dateFrom, filterTestAccounts, widgetConfig) =>
@@ -159,16 +166,16 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
     }),
 
     defaults(({ props, values }) => {
-        const dateFrom = (props.config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d'
+        const baseConfig = parseErrorTrackingWidgetConfig(props.config)
 
         return {
-            limit: (props.config.limit as number) ?? 10,
-            orderBy: (props.config.orderBy as string) ?? 'occurrences',
-            dateFrom,
+            limit: baseConfig.limit,
+            orderBy: baseConfig.orderBy,
+            dateFrom: baseConfig.dateRange?.date_from ?? '-7d',
             tileName: props.name ?? '',
             tileDescription: props.description ?? '',
             filterTestAccounts: resolveWidgetFilterTestAccounts(
-                props.config.filterTestAccounts as boolean | undefined,
+                baseConfig.filterTestAccounts,
                 values.filterTestAccountsDefault
             ),
             fieldErrors: {},

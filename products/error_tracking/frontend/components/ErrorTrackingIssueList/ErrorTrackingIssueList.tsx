@@ -25,7 +25,7 @@ export function ErrorTrackingIssueListHeader(): JSX.Element {
     return (
         <div
             className={cn(
-                'grid gap-3 border-b border-primary bg-bg-light px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-muted',
+                'grid gap-3 border-b border-primary bg-bg-light px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted',
                 GRID_COLS
             )}
         >
@@ -73,39 +73,32 @@ export function ErrorTrackingIssueListRow({
 
     const rowContent = (
         <>
-            <div className="flex min-w-0 flex-col gap-[2px] [--line-height:1.15rem]">
-                <div className="flex h-(--line-height) items-center gap-2 text-[0.8rem]">
-                    <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.65rem" />
+            <div className="flex min-w-0 flex-col gap-0.5">
+                <div className="flex items-center gap-2 text-sm">
+                    <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.75rem" />
                     <span className="line-clamp-1 font-semibold">{issue.name || 'Unknown Type'}</span>
                 </div>
                 {issue.description ? (
-                    <div
-                        title={issue.description}
-                        className="line-clamp-1 h-(--line-height) text-[0.7rem] font-medium text-[var(--gray-8)]"
-                    >
+                    <div title={issue.description} className="line-clamp-1 text-xs font-medium text-muted">
                         {issue.description}
                     </div>
                 ) : null}
                 {issue.function || issue.source ? (
-                    <div className="line-clamp-1 h-(--line-height) text-[0.65rem] font-light italic text-[var(--gray-6)]">
+                    <div className="line-clamp-1 text-xs font-light italic text-secondary">
                         {issue.function}
                         {issue.source ? <> in {sourceDisplay(issue.source)}</> : null}
                     </div>
                 ) : null}
-                <div className="flex h-[calc(var(--line-height)*1.2)] items-center text-secondary">
-                    <StatusIndicator
-                        status={issue.status}
-                        size="xsmall"
-                        className="ml-0 text-[0.65rem] text-secondary"
-                    />
+                <div className="flex items-center gap-1 text-secondary">
+                    <StatusIndicator status={issue.status} size="xsmall" className="ml-0 text-xs text-secondary" />
                     <CustomSeparator />
                     <AssigneeResolver assignee={issue.assignee}>
                         {({ assignee }) => (
-                            <div className="ml-1 flex items-center text-[0.65rem] text-secondary">
+                            <div className="ml-1 flex items-center text-xs text-secondary">
                                 <AssigneeIconDisplay assignee={assignee} size="xsmall" />
                                 <AssigneeLabelDisplay
                                     assignee={assignee}
-                                    className="ml-1 text-[0.65rem] text-secondary"
+                                    className="ml-1 text-xs text-secondary"
                                     size="xsmall"
                                     placeholder="Unassigned"
                                 />
@@ -114,11 +107,7 @@ export function ErrorTrackingIssueListRow({
                     </AssigneeResolver>
                     <CustomSeparator />
                     {issue.last_seen ? (
-                        <TZLabel
-                            time={issue.last_seen}
-                            className="ml-1 border-b border-dotted text-[0.65rem]"
-                            delayMs={750}
-                        />
+                        <TZLabel time={issue.last_seen} className="ml-1 border-b border-dotted text-xs" delayMs={750} />
                     ) : null}
                 </div>
             </div>

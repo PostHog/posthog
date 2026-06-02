@@ -13,15 +13,10 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/configSchemas'
 import type { DashboardWidgetEditModalProps } from '../registry'
-import {
-    editErrorTrackingWidgetModalLogic,
-    type EditErrorTrackingWidgetModalLogicProps,
-} from './editErrorTrackingWidgetModalLogic'
+import { editErrorTrackingWidgetModalLogic } from './editErrorTrackingWidgetModalLogic'
 import { ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS } from './utils'
 
-const widgetSettingsFieldFullWidthClass = 'sm:col-span-2'
-
-function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLogicProps): JSX.Element {
+function EditErrorTrackingWidgetModalContents(): JSX.Element {
     const {
         showIssueSettings,
         limit,
@@ -33,6 +28,9 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
         activeFieldErrors,
         saving,
         saveDisabledReason,
+        onClose,
+        defaultTitle,
+        onSaveMetadata,
     } = useValues(editErrorTrackingWidgetModalLogic)
     const {
         setLimit,
@@ -45,10 +43,12 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
         submit,
     } = useActions(editErrorTrackingWidgetModalLogic)
 
+    const showTileDetails = !!onSaveMetadata
+
     return (
         <LemonModal
             isOpen
-            onClose={props.onClose}
+            onClose={onClose}
             title="Widget settings"
             description={
                 showIssueSettings
@@ -59,7 +59,7 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton type="secondary" onClick={props.onClose} disabled={saving}>
+                    <LemonButton type="secondary" onClick={onClose} disabled={saving}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -74,25 +74,25 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
             }
         >
             <div className="flex flex-col gap-4">
-                {props.onSaveMetadata && (
+                {showTileDetails ? (
                     <section className="flex flex-col gap-3">
                         <h5 className="text-sm font-semibold m-0">Tile details</h5>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <LemonField.Pure
-                                className={widgetSettingsFieldFullWidthClass}
+                                className="sm:col-span-2"
                                 label="Title"
                                 help="Shown on the tile. Leave empty to use the default title."
                             >
                                 <LemonInput
                                     value={tileName}
                                     onChange={setTileName}
-                                    placeholder={props.defaultTitle ?? 'Untitled'}
+                                    placeholder={defaultTitle}
                                     maxLength={400}
                                     disabled={saving}
                                 />
                             </LemonField.Pure>
                             <LemonField.Pure
-                                className={widgetSettingsFieldFullWidthClass}
+                                className="sm:col-span-2"
                                 label="Description"
                                 help="Shown under the tile title. Supports markdown. Leave empty to hide."
                             >
@@ -106,14 +106,14 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
                             </LemonField.Pure>
                         </div>
                     </section>
-                )}
-                {showIssueSettings && (
+                ) : null}
+                {showIssueSettings ? (
                     <>
-                        {props.onSaveMetadata && <LemonDivider className="my-0" />}
+                        {showTileDetails ? <LemonDivider className="my-0" /> : null}
                         <section className="flex flex-col gap-3">
                             <h5 className="text-sm font-semibold m-0">Filters</h5>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className={widgetSettingsFieldFullWidthClass}>
+                                <div className="sm:col-span-2">
                                     <TestAccountFilter
                                         size="small"
                                         filters={{ filter_test_accounts: filterTestAccounts }}
@@ -164,7 +164,7 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
                                     />
                                 </LemonField.Pure>
                                 <LemonField.Pure
-                                    className={widgetSettingsFieldFullWidthClass}
+                                    className="sm:col-span-2"
                                     label="Sort by"
                                     help="Order issues by this metric within the date range."
                                     error={activeFieldErrors.orderBy}
@@ -182,7 +182,7 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
                             </div>
                         </section>
                     </>
-                )}
+                ) : null}
             </div>
         </LemonModal>
     )
@@ -190,15 +190,24 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
 
 export function EditErrorTrackingWidgetModal({
     isOpen,
-    ...formProps
+    onClose,
+    config,
+    onSave,
+    name,
+    defaultTitle,
+    description,
+    onSaveMetadata,
 }: DashboardWidgetEditModalProps): JSX.Element | null {
     if (!isOpen) {
         return null
     }
 
     return (
-        <BindLogic logic={editErrorTrackingWidgetModalLogic} props={formProps}>
-            <EditErrorTrackingWidgetModalForm {...formProps} />
+        <BindLogic
+            logic={editErrorTrackingWidgetModalLogic}
+            props={{ onClose, config, onSave, name, defaultTitle, description, onSaveMetadata }}
+        >
+            <EditErrorTrackingWidgetModalContents />
         </BindLogic>
     )
 }

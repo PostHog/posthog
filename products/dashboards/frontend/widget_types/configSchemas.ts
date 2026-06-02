@@ -54,15 +54,16 @@ const widgetDateRangeObjectSchema = z
 
 export const widgetDateRangeSchema = widgetDateRangeObjectSchema.optional()
 
-// New widget types: add per-type schemas here — CONTRIBUTING.md
-const limitFieldSchema = z
+/** Shared limit field for list-style dashboard widgets (1–25 rows). */
+export const widgetLimitFieldSchema = z
     .number({ error: 'Must be an integer between 1 and 25.' })
     .int('Must be an integer between 1 and 25.')
     .min(1, 'Must be an integer between 1 and 25.')
     .max(25, 'Must be an integer between 1 and 25.')
 
+// New widget types: add per-type schemas here — CONTRIBUTING.md
 export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
-    limit: limitFieldSchema.default(10),
+    limit: widgetLimitFieldSchema.default(10),
     orderBy: z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions']).default('occurrences'),
     orderDirection: z.enum(['ASC', 'DESC']).default('DESC'),
     status: z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all']).default('active'),
