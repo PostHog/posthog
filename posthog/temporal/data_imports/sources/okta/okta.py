@@ -167,9 +167,16 @@ def validate_credentials(
 
     url = f"https://{normalized}/api/v1/users"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), params={"limit": 1}, timeout=10)
+        # Don't follow redirects: the validated host could 3xx to an internal address, defeating
+        # the host check above (SSRF).
+        response = make_tracked_session().get(
+            url, headers=_get_headers(api_key), params={"limit": 1}, timeout=10, allow_redirects=False
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
+
+    if response.is_redirect or response.is_permanent_redirect:
+        return False, HOST_NOT_ALLOWED_ERROR
 
     if response.status_code == 200:
         return True, None
@@ -248,13 +255,24 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> requests.Response:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        # Don't follow redirects: an attacker-controlled host could 3xx to an internal address,
+        # bypassing the host validation done before the request (SSRF).
+        response = make_tracked_session().get(
+            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
+        )
 
         if response.status_code == 429 or response.status_code >= 500:
             retry_after = _parse_retry_after(response) if response.status_code == 429 else None
             raise OktaRetryableError(
                 f"Okta API error (retryable): status={response.status_code}, url={page_url}",
                 retry_after=retry_after,
+            )
+
+        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
+        # silently parsing the redirect body as data.
+        if response.is_redirect or response.is_permanent_redirect:
+            raise OktaHostNotAllowedError(
+                f"Okta API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
             )
 
         if not response.ok:

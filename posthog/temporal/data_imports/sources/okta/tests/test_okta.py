@@ -25,6 +25,8 @@ def _response(
     response = mock.MagicMock()
     response.status_code = status_code
     response.ok = 200 <= status_code < 400
+    response.is_redirect = status_code in (301, 302, 303, 307, 308)
+    response.is_permanent_redirect = status_code in (301, 308)
     response.text = text
     response.json.return_value = json_data
     response.headers = {"Link": link} if link else {}
@@ -233,6 +235,15 @@ class TestValidateCredentials:
             assert valid is False
             assert "boom" in (msg or "")
 
+    def test_rejects_redirect_response(self):
+        # A validated host that 3xx-redirects (potentially to an internal address) must be rejected,
+        # not followed (SSRF).
+        with self._patch_session(_response(status_code=302)) as patched:
+            valid, msg = validate_credentials("example.okta.com", "tok")
+            assert valid is False
+            assert msg == okta_module.HOST_NOT_ALLOWED_ERROR
+            assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+
     def test_blocks_unsafe_host(self):
         # When a team_id is supplied, a host that resolves to an internal address is rejected
         # before any HTTP request is made (SSRF guard).
@@ -371,6 +382,20 @@ class TestGetRows:
         first_url = session.get.call_args_list[0].args[0]
         assert first_url.startswith("https://example.okta.com/api/v1/users")
         assert [r["id"] for r in rows] == ["1"]
+
+    def test_does_not_follow_redirects(self):
+        # Requests are made with allow_redirects=False, and a redirect response is rejected rather
+        # than followed to a (potentially internal) Location (SSRF).
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        with pytest.raises(okta_module.OktaHostNotAllowedError):
+            self._run(manager, [_response(status_code=302)])
+
+    def test_passes_allow_redirects_false(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        _rows, session = self._run(manager, [_response(json_data=[{"id": "1"}])])
+        assert session.get.call_args.kwargs["allow_redirects"] is False
 
 
 class TestRetryAfter:
