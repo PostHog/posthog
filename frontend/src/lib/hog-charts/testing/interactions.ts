@@ -1,7 +1,7 @@
-import { act, fireEvent, waitFor } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
 import { dimensions } from './jsdom'
-import { getHogChartTooltip } from './tooltip'
+import { waitForHogChartTooltip } from './tooltip'
 
 /** Fire a mouseMove on a chart wrapper element at the pixel position
  *  corresponding to the given label index. */
@@ -27,19 +27,7 @@ export async function hoverUntilTooltip(
     totalLabels: number,
     timeout = 3000
 ): Promise<HTMLElement> {
-    let tooltip!: HTMLElement
-    await waitFor(
-        () => {
-            hoverAtIndex(wrapper, index, totalLabels)
-            const el = getHogChartTooltip()
-            if (!el) {
-                throw new Error('tooltip not yet rendered')
-            }
-            tooltip = el
-        },
-        { timeout, interval: 10 }
-    )
-    return tooltip
+    return waitForHogChartTooltip(timeout, () => hoverAtIndex(wrapper, index, totalLabels))
 }
 
 export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): Promise<void> {
