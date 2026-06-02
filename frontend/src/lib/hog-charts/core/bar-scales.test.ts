@@ -128,6 +128,56 @@ describe('hog-charts bar scales', () => {
         })
     })
 
+    describe('createBarScales — valueDomain { include } (goal lines)', () => {
+        it('extends the value domain upward to include a goal line above the data', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain: { include: [100] } })
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(100)
+            const yAtGoal = value(100)
+            expect(yAtGoal).toBeGreaterThanOrEqual(dimensions.plotTop - 1)
+            expect(yAtGoal).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
+        })
+
+        it('extends the value domain downward to include a negative goal line', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain: { include: [-50] } })
+            expect(value.domain()[0]).toBeLessThanOrEqual(-50)
+        })
+
+        it('leaves the data-derived domain unchanged when the goal line is within range', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const withGoal = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain: { include: [50] } })
+            const withoutGoal = createBarScales(series, ['a', 'b', 'c'], dimensions)
+            expect(withGoal.value.domain()).toEqual(withoutGoal.value.domain())
+        })
+
+        it('extends the log-scale domain to include a goal line above the data', () => {
+            const series = [makeSeries({ key: 's1', data: [3, 50, 700] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                scaleType: 'log',
+                valueDomain: { include: [9000] },
+            })
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(9000)
+        })
+    })
+
+    describe('createBarScales — valueDomain [min, max] (fixed)', () => {
+        it('pins the domain regardless of data and skips nice()', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain: [0, 40] })
+            expect(value.domain()).toEqual([0, 40])
+        })
+
+        it('takes precedence over percent layout', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                barLayout: 'percent',
+                valueDomain: [0, 200],
+            })
+            expect(value.domain()).toEqual([0, 200])
+        })
+    })
+
     describe('createBarScales — log scale', () => {
         it('snaps the domain to enclosing decade boundaries with positive data', () => {
             const series = [makeSeries({ key: 's1', data: [3, 50, 700] })]

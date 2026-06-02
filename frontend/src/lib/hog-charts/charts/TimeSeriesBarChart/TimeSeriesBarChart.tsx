@@ -101,6 +101,13 @@ export function TimeSeriesBarChart<Meta = unknown>({
         [referenceLines, axisOrientation]
     )
 
+    // Extend the value axis to cover goal lines that sit above (or below) the data, so a goal
+    // line off the data's natural scale still renders inside the plot.
+    const goalLineDomainValues = useMemo(
+        () => referenceLines.map((line) => line.value).filter((v): v is number => typeof v === 'number'),
+        [referenceLines]
+    )
+
     const barChartConfig: BarChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
@@ -114,7 +121,11 @@ export function TimeSeriesBarChart<Meta = unknown>({
         axisOrientation,
         showCrosshair,
         tooltip: tooltipConfig,
-        bars: { cornerRadius: barCornerRadius, divergingStack },
+        bars: {
+            cornerRadius: barCornerRadius,
+            divergingStack,
+            valueDomain: goalLineDomainValues.length > 0 ? { include: goalLineDomainValues } : undefined,
+        },
     }
 
     return (

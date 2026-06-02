@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
+import type { ChartDimensions, ChartScales, ResolveValueFn, Series, ValueDomain } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
@@ -60,6 +60,43 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
     return { min, max, minPositive, count }
 }
 
+/** Split a {@link ValueDomain} into its two mutually-exclusive modes — a fixed `[min, max]`
+ *  or the set of values an auto-scaled domain must `include`. */
+function resolveValueDomain(valueDomain: ValueDomain | undefined): {
+    fixed?: readonly [number, number]
+    include?: readonly number[]
+} {
+    if (!valueDomain) {
+        return {}
+    }
+    if ('include' in valueDomain) {
+        return { include: valueDomain.include }
+    }
+    return { fixed: valueDomain }
+}
+
+/** Fold extra values (e.g. goal-line targets) into a range so the axis covers them even when
+ *  they sit outside the data's natural extent. */
+export function extendValueRange(range: SeriesValueRange, values: readonly number[]): SeriesValueRange {
+    let { min, max, minPositive, count } = range
+    for (const v of values) {
+        if (v == null || !isFinite(v)) {
+            continue
+        }
+        count++
+        if (v < min) {
+            min = v
+        }
+        if (v > max) {
+            max = v
+        }
+        if (v > 0 && v < minPositive) {
+            minPositive = v
+        }
+    }
+    return { min, max, minPositive, count }
+}
+
 /** Round `minPositive` down to the previous decade, `max` up to the next round multiple
  *  of its top decade (e.g. 740 → 800, 4200 → 5000). */
 export function niceLogDomain(minPositive: number, max: number): [number, number] {
@@ -87,10 +124,20 @@ export function createYScale(
     options: {
         scaleType?: 'linear' | 'log'
         percentStack?: boolean
+        /** Fixed `[min, max]` or `{ include }` extra values the domain must cover. */
+        valueDomain?: ValueDomain
     } = {}
 ): d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number> {
-    const { scaleType = 'linear', percentStack = false } = options
+    const { scaleType = 'linear', percentStack = false, valueDomain } = options
+    const { fixed, include } = resolveValueDomain(valueDomain)
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
+
+    if (fixed) {
+        return d3
+            .scaleLinear()
+            .domain([fixed[0], fixed[1]])
+            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+    }
 
     if (percentStack) {
         return d3
@@ -100,7 +147,8 @@ export function createYScale(
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
     }
 
-    const range = seriesValueRange(series)
+    const dataRange = seriesValueRange(series)
+    const range = include?.length ? extendValueRange(dataRange, include) : dataRange
 
     if (range.count === 0) {
         return d3
@@ -129,9 +177,11 @@ export function createYScale(
     // Auxiliary overlays (trendline projections, moving averages) may dip below 0
     // when the underlying data does not. They shouldn't drag the axis baseline below
     // 0 — d3.nice() applied to a slightly-negative min produces a disproportionately
-    // large negative tick (e.g. [-1, 14500] → [-2000, 16000]).
-    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : range
-    if (primaryRange.count > 0 && primaryRange.min >= 0) {
+    // large negative tick (e.g. [-1, 14500] → [-2000, 16000]). A negative `include`
+    // value (a goal line below 0) is explicit, though, so it must not be clamped away.
+    const hasNegativeExtend = include?.some((v) => v != null && isFinite(v) && v < 0) ?? false
+    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : dataRange
+    if (primaryRange.count > 0 && primaryRange.min >= 0 && !hasNegativeExtend) {
         min = 0
     } else if (max < 0) {
         max = 0
@@ -151,6 +201,9 @@ export function createScales(
     options: {
         scaleType?: 'linear' | 'log'
         percentStack?: boolean
+        /** Applied to the primary y-axis only — goal lines (`{ include }`) render against the
+         *  primary axis, so secondary axes keep their own data-derived scale. */
+        valueDomain?: ValueDomain
     } = {}
 ): ScaleSet {
     const x = createXScale(labels, dimensions)
@@ -162,6 +215,7 @@ export function createScales(
         const y = createYScale(series, dimensions, {
             scaleType: options.scaleType,
             percentStack: options.percentStack,
+            valueDomain: options.valueDomain,
         })
         return { x, y }
     }
@@ -179,6 +233,7 @@ export function createScales(
         const scale = createYScale(axisSeries, dimensions, {
             scaleType: options.scaleType,
             percentStack: options.percentStack,
+            valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
         })
         yAxes[axisId] = { scale, position: axisIndex === 0 ? 'left' : 'right' }
     })
@@ -324,8 +379,8 @@ export function createBarScales(
         stackedSeries?: Series[]
         /** Cap on the band-axis range in px — clusters bars at the start of the plot when set. */
         maxBandRange?: number
-        /** Fixed value-axis domain — bypasses data-derived range + `nice()`. */
-        valueDomain?: [number, number]
+        /** Fixed `[min, max]` or `{ include }` extra values the value axis must cover. */
+        valueDomain?: ValueDomain
     } = {}
 ): BarScaleSet {
     const {
@@ -376,15 +431,18 @@ function buildBarValueScale(
     barLayout: 'stacked' | 'grouped' | 'percent',
     scaleType: 'linear' | 'log',
     stackedSeries: Series[] | undefined,
-    valueDomain: [number, number] | undefined
+    valueDomain: ValueDomain | undefined
 ): D3YScale {
-    if (valueDomain) {
-        return d3.scaleLinear().domain(valueDomain).range(valueRange)
+    const { fixed, include } = resolveValueDomain(valueDomain)
+    if (fixed) {
+        return d3.scaleLinear().domain([fixed[0], fixed[1]]).range(valueRange)
     }
     if (barLayout === 'percent') {
         return d3.scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)
     }
-    const range = seriesValueRange(stackedSeries ?? series)
+    const range = include?.length
+        ? extendValueRange(seriesValueRange(stackedSeries ?? series), include)
+        : seriesValueRange(stackedSeries ?? series)
     if (range.count === 0) {
         return d3.scaleLinear().domain([0, 1]).range(valueRange)
     }
