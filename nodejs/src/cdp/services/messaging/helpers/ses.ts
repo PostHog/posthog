@@ -6,7 +6,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { TRACKING_CODE_HEADER_NAME, parseEmailTrackingCode } from './tracking-code'
+import { TRACKING_CODE_HEADER_NAME, parseEmailTrackingCode, trackingCodeFormatCounter } from './tracking-code'
 
 /**
  * ---------- SNS envelope types ----------
@@ -391,8 +391,11 @@ export class SesWebhookHandler {
             )?.value
             const tagValue = rec.mail.tags?.ph_id?.[0]
             const trackingCodeRaw = headerValue ?? tagValue ?? ''
-            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId } =
-                parseEmailTrackingCode(trackingCodeRaw) || {}
+            const parsed = parseEmailTrackingCode(trackingCodeRaw)
+            if (parsed) {
+                trackingCodeFormatCounter.inc({ format: parsed.format, source: 'ses' })
+            }
+            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId } = parsed || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })

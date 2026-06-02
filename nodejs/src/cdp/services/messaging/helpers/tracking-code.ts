@@ -1,26 +1,69 @@
+import crypto from 'node:crypto'
+import { Counter } from 'prom-client'
+
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
 
-// Custom MIME header carrying the full tracking code (including distinct_id).
-// Used in place of the SES `EmailTags` carrier because tag values are capped at
-// 256 chars, which a distinct_id of even moderate length blows past.
+// Custom MIME header carrying the full tracking code (including distinct_id, HMAC-signed).
+// Used in place of the SES `EmailTags` carrier because tag values are capped at 256 chars,
+// which a long distinct_id plus the signature blows past. Header values have no such limit.
 export const TRACKING_CODE_HEADER_NAME = 'X-PostHog-Tracking-Code'
 
-function toBase64UrlSafe(input: string) {
-    // Encode to normal base64
-    const b64 = Buffer.from(input, 'utf8').toString('base64')
+// HMAC tag truncated to 16 bytes (128 bits) — plenty against forgery, keeps the code short.
+const SIGNATURE_BYTES = 16
+
+export type TrackingCodeFormat = 'signed' | 'unsigned'
+
+// Tracks the rollout curve from unsigned to signed tracking codes, split by where the
+// code was read from (the public tracking endpoint vs. the SES webhook). After rollout
+// completes, `format="unsigned"` from `source="tracking"` should trend to zero.
+export const trackingCodeFormatCounter = new Counter({
+    name: 'email_tracking_code_format_total',
+    help: 'Count of email tracking codes parsed by signature format',
+    labelNames: ['format', 'source'],
+})
+
+function toBase64UrlSafe(input: string | Buffer): string {
+    const b64 = Buffer.isBuffer(input) ? input.toString('base64') : Buffer.from(input, 'utf8').toString('base64')
     // Make URL safe and strip padding
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function fromBase64UrlSafe(b64url: string) {
-    // Restore base64 from URL-safe variant
+function fromBase64UrlSafeBuffer(b64url: string): Buffer {
     let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
-    // Pad to length multiple of 4
     while (b64.length % 4) {
         b64 += '='
     }
-    return Buffer.from(b64, 'base64').toString('utf8')
+    return Buffer.from(b64, 'base64')
+}
+
+function fromBase64UrlSafe(b64url: string): string {
+    return fromBase64UrlSafeBuffer(b64url).toString('utf8')
+}
+
+function getSigningKeys(): string[] {
+    return (defaultConfig.ENCRYPTION_SALT_KEYS || '').split(',').filter(Boolean)
+}
+
+function signPayload(payload: string, key: string): string {
+    const mac = crypto.createHmac('sha256', key).update(payload).digest().subarray(0, SIGNATURE_BYTES)
+    return toBase64UrlSafe(mac)
+}
+
+function verifySignature(payload: string, signature: string): boolean {
+    const expected = fromBase64UrlSafeBuffer(signature)
+    if (expected.length !== SIGNATURE_BYTES) {
+        return false
+    }
+    // Accept a signature made with any configured key so key rotation doesn't invalidate
+    // in-flight codes signed with the previous key.
+    for (const key of getSigningKeys()) {
+        const candidate = crypto.createHmac('sha256', key).update(payload).digest().subarray(0, SIGNATURE_BYTES)
+        if (crypto.timingSafeEqual(expected, candidate)) {
+            return true
+        }
+    }
+    return false
 }
 
 type TrackingInvocation = Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
@@ -36,15 +79,35 @@ export type ParsedTrackingCode = {
     actionId?: string
     parentRunId?: string
     distinctId?: string
+    format: TrackingCodeFormat
 }
 
 export const parseEmailTrackingCode = (encodedTrackingCode: string): ParsedTrackingCode | null => {
-    const decodedTrackingCode = fromBase64UrlSafe(encodedTrackingCode)
+    if (!encodedTrackingCode) {
+        return null
+    }
+
+    let payloadB64 = encodedTrackingCode
+    let format: TrackingCodeFormat = 'unsigned'
+
+    const parts = encodedTrackingCode.split('.')
+    if (parts.length > 1) {
+        // A legitimate signed code is exactly `<payload>.<signature>`; both halves are base64url
+        // (no dots), so any code with more than one `.` is malformed and rejected outright.
+        // A signed code with a bad signature is rejected — this is what stops URL forgery.
+        if (parts.length !== 2 || !verifySignature(parts[0], parts[1])) {
+            return null
+        }
+        payloadB64 = parts[0]
+        format = 'signed'
+    }
+
     try {
-        // Tracking codes evolved over time. Older codes may have fewer segments;
-        // missing segments resolve to undefined. distinctId is the trailing segment
-        // and may itself contain colons, so anything past the 5th segment is rejoined.
-        const segments = decodedTrackingCode.split(':')
+        const decoded = fromBase64UrlSafe(payloadB64)
+        // Older codes may have fewer segments; missing segments resolve to undefined.
+        // distinctId is the trailing segment and may itself contain colons, so anything
+        // past the 5th segment is rejoined.
+        const segments = decoded.split(':')
         const [functionId, invocationId, teamId, actionId, parentRunId, ...distinctIdParts] = segments
         if (!functionId || !invocationId) {
             return null
@@ -57,26 +120,36 @@ export const parseEmailTrackingCode = (encodedTrackingCode: string): ParsedTrack
             actionId: actionId || undefined,
             parentRunId: parentRunId || undefined,
             distinctId: distinctId || undefined,
+            format,
         }
     } catch {
         return null
     }
 }
 
+// Full tracking code: all fields including distinct_id, HMAC-signed when a signing key is
+// configured. This rides in the custom MIME header and the pixel/link URLs — carriers with
+// no length cap — so a long distinct_id plus the signature is fine. The signature lets the
+// public tracking endpoint reject forged `ph_id` values.
 export const generateEmailTrackingCode = (invocation: TrackingInvocation): string => {
-    // Generate a base64 encoded string free of equal signs
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''
     const distinctId = invocation.distinctId ?? ''
-    return toBase64UrlSafe(
+    const payload = toBase64UrlSafe(
         `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${distinctId}`
     )
+    const keys = getSigningKeys()
+    if (keys.length === 0) {
+        return payload
+    }
+    return `${payload}.${signPayload(payload, keys[0])}`
 }
 
-// Bounded version of the tracking code, omitting distinct_id. Used as the SES
-// `EmailTags` value (256-char cap, restricted charset) so the tag write never
-// fails regardless of how long distinct_id is. The full code, with distinct_id,
-// rides in a custom MIME header instead (see TRACKING_CODE_HEADER_NAME).
+// Bounded version of the tracking code: omits distinct_id and is never signed, so the value
+// stays short and within the SES `EmailTags` 256-char cap regardless of distinct_id length.
+// Used purely as a backwards-compat carrier in the SES tag; the authoritative, signed code
+// (with distinct_id) rides in the header (see TRACKING_CODE_HEADER_NAME). Do NOT sign this —
+// the tag arrives via the SNS webhook, which is already integrity-protected by SNS signing.
 export const generateShortEmailTrackingCode = (invocation: TrackingInvocation): string => {
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''

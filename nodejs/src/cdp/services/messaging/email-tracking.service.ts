@@ -19,6 +19,7 @@ import {
     generateEmailTrackingCode,
     generateEmailTrackingPixelUrl,
     parseEmailTrackingCode,
+    trackingCodeFormatCounter,
 } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -271,6 +272,9 @@ export class EmailTrackingService {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
             const parsed = parseEmailTrackingCode(query.ph_id as string)
+            if (parsed) {
+                trackingCodeFormatCounter.inc({ format: parsed.format, source: 'tracking' })
+            }
             return {
                 functionId: parsed?.functionId,
                 invocationId: parsed?.invocationId,
