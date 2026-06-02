@@ -70,7 +70,7 @@ def _build_initial_params(
     if config.paginated:
         params["limit"] = str(PAGE_SIZE)
 
-    if config.time_filter_param and should_use_incremental_field and db_incremental_field_last_value:
+    if config.time_filter_param and should_use_incremental_field and db_incremental_field_last_value is not None:
         params[config.time_filter_param] = _format_rfc3339(db_incremental_field_last_value)
 
     return params
@@ -86,8 +86,10 @@ def validate_credentials(access_token: str, environment: str, schema_name: Optio
     config = SQUARE_ENDPOINTS.get(schema_name) if schema_name else None
     path = config.path if config else "/v2/locations"
 
+    # Keep the probe cheap on paginated endpoints, but never send `limit` to a
+    # non-paginated endpoint (e.g. /v2/locations) — Square may reject the unknown param.
     params: dict[str, str] = {}
-    if config is None or config.paginated:
+    if config is not None and config.paginated:
         params["limit"] = "1"
 
     url = f"{_base_url(environment)}{path}"

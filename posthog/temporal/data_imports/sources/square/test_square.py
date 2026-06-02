@@ -51,43 +51,65 @@ class TestFormatRFC3339:
 
 
 class TestBuildInitialParams:
-    def test_incremental_endpoint_sets_begin_time(self) -> None:
+    @parameterized.expand(
+        [
+            # incremental endpoint with a cursor value -> server-side begin_time filter
+            (
+                "incremental_endpoint_sets_begin_time",
+                "payments",
+                True,
+                datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+                {"begin_time": "2026-03-04T02:58:14.000Z", "sort_order": "ASC", "limit": "100"},
+                [],
+            ),
+            # incremental endpoint, full refresh -> no begin_time
+            (
+                "incremental_endpoint_full_refresh_omits_begin_time",
+                "payments",
+                False,
+                None,
+                {"sort_order": "ASC"},
+                ["begin_time"],
+            ),
+            # customers has no server-side time filter, so even with an incremental
+            # value selected we must not invent a begin_time param.
+            (
+                "full_refresh_endpoint_never_sets_begin_time",
+                "customers",
+                True,
+                datetime(2026, 3, 4, tzinfo=UTC),
+                {"sort_field": "CREATED_AT"},
+                ["begin_time"],
+            ),
+            # non-paginated endpoint -> no limit param
+            (
+                "non_paginated_endpoint_omits_limit",
+                "locations",
+                False,
+                None,
+                {},
+                ["limit"],
+            ),
+        ]
+    )
+    def test_build_initial_params(
+        self,
+        _name: str,
+        endpoint: str,
+        should_use_incremental_field: bool,
+        last_value: Any,
+        expected_present: dict[str, str],
+        expected_absent: list[str],
+    ) -> None:
         params = _build_initial_params(
-            SQUARE_ENDPOINTS["payments"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            SQUARE_ENDPOINTS[endpoint],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
         )
-        assert params["begin_time"] == "2026-03-04T02:58:14.000Z"
-        assert params["sort_order"] == "ASC"
-        assert params["limit"] == "100"
-
-    def test_incremental_endpoint_full_refresh_omits_begin_time(self) -> None:
-        params = _build_initial_params(
-            SQUARE_ENDPOINTS["payments"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert "begin_time" not in params
-        assert params["sort_order"] == "ASC"
-
-    def test_full_refresh_endpoint_never_sets_begin_time(self) -> None:
-        # customers has no server-side time filter, so even with an incremental
-        # value selected we must not invent a begin_time param.
-        params = _build_initial_params(
-            SQUARE_ENDPOINTS["customers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert "begin_time" not in params
-        assert params["sort_field"] == "CREATED_AT"
-
-    def test_non_paginated_endpoint_omits_limit(self) -> None:
-        params = _build_initial_params(
-            SQUARE_ENDPOINTS["locations"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert "limit" not in params
+        for key, value in expected_present.items():
+            assert params[key] == value
+        for key in expected_absent:
+            assert key not in params
 
 
 class TestValidateCredentials:
