@@ -1,4 +1,4 @@
-import { CSSProperties, useCallback, useMemo, useRef } from 'react'
+import { CSSProperties, ReactNode, useCallback, useMemo, useRef } from 'react'
 import { List } from 'react-window'
 
 import { LemonTag } from '@posthog/lemon-ui'
@@ -40,6 +40,7 @@ interface VirtualizedSpanListProps {
     onVisibleRowRangeChange: (startIndex: number, stopIndex: number) => void
     hasMoreToLoad?: boolean
     onLoadMore?: () => void
+    emptyState?: ReactNode
 }
 
 interface SpanRowProps {
@@ -146,6 +147,7 @@ export function VirtualizedSpanList({
     onVisibleRowRangeChange,
     hasMoreToLoad = false,
     onLoadMore,
+    emptyState = 'No spans found',
 }: VirtualizedSpanListProps): JSX.Element {
     // Tracks the last range we dispatched so we don't fire on every overscan tick.
     const lastVisibleRangeRef = useRef<{ startIndex: number; stopIndex: number } | null>(null)
@@ -178,7 +180,7 @@ export function VirtualizedSpanList({
     if (dataSource.length === 0 && !loading) {
         return (
             <div className="flex items-center justify-center p-8 text-muted border rounded bg-bg-light">
-                No spans found
+                {emptyState}
             </div>
         )
     }

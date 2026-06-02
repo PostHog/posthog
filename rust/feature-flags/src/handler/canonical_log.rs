@@ -292,14 +292,6 @@ pub struct FlagsCanonicalLogLine {
     /// `team_id` is resolved.
     pub phases: PhaseDurations,
 
-    /// Duration of the synchronous Redis HINCRBY billing increment in
-    /// milliseconds. Only populated from endpoints that run inside a canonical
-    /// log scope (currently `/flags` and `/decide`). `None` when billing was
-    /// skipped (no billable flags or `skip_writes`), or when called from an
-    /// endpoint that does not emit a canonical log line (e.g.
-    /// `/flags/definitions`).
-    pub billing_duration_ms: Option<u64>,
-
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
@@ -361,7 +353,6 @@ impl Default for FlagsCanonicalLogLine {
             concurrency_limit_wait_ms: None,
             body_read_ms: None,
             phases: PhaseDurations::default(),
-            billing_duration_ms: None,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -434,7 +425,6 @@ impl FlagsCanonicalLogLine {
             pre_handler_duration_ms = self.pre_handler_duration_ms,
             concurrency_limit_wait_ms = self.concurrency_limit_wait_ms,
             body_read_ms = self.body_read_ms,
-            billing_duration_ms = self.billing_duration_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             is_bot = self.is_bot,
@@ -1212,12 +1202,10 @@ mod tests {
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
         #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
-        #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
         #[case(FlagError::TimeoutError(Some("pool".into())), 503, "timeout")]
-        #[case(FlagError::NoGroupTypeMappings, 500, "no_group_type_mappings")]
         #[case(
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             500,
@@ -1234,14 +1222,9 @@ mod tests {
             "cohort_filters_parsing_error"
         )]
         #[case(FlagError::PersonNotFound, 503, "person_not_found")]
-        #[case(FlagError::PropertiesNotInCache, 503, "properties_not_in_cache")]
-        #[case(
-            FlagError::StaticCohortMatchesNotCached,
-            503,
-            "static_cohort_not_cached"
-        )]
         #[case(FlagError::CacheMiss, 503, "cache_miss")]
         #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
+        #[case(FlagError::HashKeyOverrideError, 500, "hash_key_override_error")]
         fn test_set_error_populates_fields(
             #[case] error: FlagError,
             #[case] expected_status: u16,
