@@ -4,20 +4,27 @@ from unittest.mock import MagicMock, patch
 from products.autoresearch.backend.validation import _run_validation, validate_pipeline_definition
 
 
-def _make_mock_runner(positives: int, total: int):
+def _make_mock_runner(positives: int, total: int, identified: int | None = None):
     """
-    Validation now issues two HogQL queries in order:
-      1. eligible count            -> [[total_users]]
+    Validation issues three HogQL queries in order:
+      1. eligible count            -> [[eligible_identified, eligible_all]]
       2. random-T0 sampled labeler -> [[sampled_users, sampled_positives]]
-    For tests we assume sample size == total (i.e. total ≤ live sample cap)
-    so the extrapolated positives line up with the input.
+      3. inference population count -> [[inference_size]]
+    The inference count runs whenever an inference filter applies — including the v1
+    identified-only restriction, which is always on. For tests we assume sample size
+    == total (i.e. total ≤ live sample cap) so the extrapolated positives line up with
+    the input. `identified` defaults to `total` (no anonymous remainder, so no
+    mostly-anonymous warning).
     """
+    eligible_identified = total if identified is None else identified
     eligible_result = MagicMock()
-    eligible_result.results = [[total]]
+    eligible_result.results = [[eligible_identified, total]]
     label_result = MagicMock()
-    label_result.results = [[total, positives]]
+    label_result.results = [[eligible_identified, positives]]
+    inference_result = MagicMock()
+    inference_result.results = [[eligible_identified]]
     mock_runner = MagicMock()
-    mock_runner.run.side_effect = [eligible_result, label_result]
+    mock_runner.run.side_effect = [eligible_result, label_result, inference_result]
     return mock_runner
 
 
@@ -25,9 +32,16 @@ class TestValidationWarnings(BaseTest):
     def setUp(self):
         super().setUp()
 
-    def _run(self, positives: int, total: int, horizon_days: int = 7, training_lookback_days: int = 180):
+    def _run(
+        self,
+        positives: int,
+        total: int,
+        horizon_days: int = 7,
+        training_lookback_days: int = 180,
+        identified: int | None = None,
+    ):
         with patch("products.autoresearch.backend.validation.HogQLQueryRunner") as mock_cls:
-            mock_cls.return_value = _make_mock_runner(positives, total)
+            mock_cls.return_value = _make_mock_runner(positives, total, identified=identified)
             return _run_validation(
                 team=self.team,
                 target_event="$pageview",
@@ -72,6 +86,18 @@ class TestValidationWarnings(BaseTest):
         result = self._run(positives=980, total=1000)
         codes = [w.code for w in result.warnings]
         assert "near_universal" in codes
+
+    def test_mostly_anonymous_population_is_warning(self):
+        result = self._run(positives=40, total=1000, identified=200)
+        codes = [w.code for w in result.warnings]
+        assert "mostly_anonymous_population" in codes
+        assert result.can_proceed is True
+        assert result.estimated_training_rows == 200
+
+    def test_majority_identified_population_has_no_anonymous_warning(self):
+        result = self._run(positives=100, total=1000, identified=900)
+        codes = [w.code for w in result.warnings]
+        assert "mostly_anonymous_population" not in codes
 
     def test_error_in_query_returns_error_result(self):
         with patch("products.autoresearch.backend.validation.HogQLQueryRunner") as mock_cls:

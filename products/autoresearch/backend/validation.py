@@ -11,7 +11,9 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 
 from products.autoresearch.backend.labeling import (
+    IDENTIFIED_USERS_ONLY,
     _build_population_conditions,
+    _identified_users_and_clause,
     build_eligible_count_sql,
     build_random_t0_labeler_sql,
 )
@@ -21,6 +23,10 @@ logger = structlog.get_logger(__name__)
 # Minimum number of labeled examples needed to train a meaningful model
 MIN_TRAINING_ROWS = 100
 MIN_POSITIVE_EXAMPLES = 20
+
+# Warn when fewer than this fraction of the population is identified — under the v1
+# identified-only scope the anonymous remainder is silently excluded, so flag it.
+MIN_IDENTIFIED_FRACTION = 0.5
 
 # Cap the user_window CTE during live wizard estimates — sampled base rate is
 # unbiased for the same quantity the trainer computes unsampled.
@@ -111,9 +117,14 @@ def _run_validation(
     )
     eligible_runner = HogQLQueryRunner(query=HogQLQuery(query=eligible_sql, values=eligible_values), team=team)
     eligible_result = eligible_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    # eligible = identified-only headline (v1); eligible_all = same count without the
+    # identified restriction, used to detect a mostly-anonymous population.
     total_users = 0
+    total_users_all = 0
     if eligible_result.results and len(eligible_result.results) > 0:
-        total_users = int(eligible_result.results[0][0] or 0)
+        row = eligible_result.results[0]
+        total_users = int(row[0] or 0)
+        total_users_all = int(row[1] or 0) if len(row) > 1 else total_users
 
     # Sampled random-T0 labeler — each user is assigned a deterministic random T0 in
     # their history and labeled by whether target_event fires in [T0, T0 + horizon).
@@ -143,7 +154,8 @@ def _run_validation(
     # Inference population — count distinct users matching the prediction filter.
     # If no inference filter is provided we fall back to the training count.
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
-    if inference_properties:
+    identified_clause = _identified_users_and_clause()
+    if inference_properties or identified_clause:
         inf_parts, inf_values = _build_population_conditions(inference_properties)
         inference_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
         inference_query = HogQLQuery(
@@ -151,7 +163,7 @@ def _run_validation(
                 SELECT countDistinct(person_id) AS users
                 FROM events
                 WHERE timestamp >= now() - toIntervalDay({{lookback}})
-                  AND timestamp < now(){inference_clause}
+                  AND timestamp < now(){inference_clause}{identified_clause}
             """,
             values={"lookback": lookback_days, **inf_values},
         )
@@ -179,6 +191,23 @@ def _run_validation(
                 severity="warning",
             )
         )
+
+    # Mostly-anonymous population — under the v1 identified-only scope the anonymous
+    # remainder is excluded from training and scoring, which can shrink the population
+    # well below what the user expects. Warn so the exclusion is visible.
+    if IDENTIFIED_USERS_ONLY and total_users_all > 0:
+        identified_fraction = total_users / total_users_all
+        if identified_fraction < MIN_IDENTIFIED_FRACTION:
+            excluded = total_users_all - total_users
+            warnings.append(
+                ValidationWarning(
+                    code="mostly_anonymous_population",
+                    message=f"Only {identified_fraction:.0%} of this population is identified. "
+                    f"Autoresearch models identified users only, so {excluded} anonymous "
+                    f"user(s) are excluded from training and scoring.",
+                    severity="warning",
+                )
+            )
 
     if positives < MIN_POSITIVE_EXAMPLES:
         warnings.append(

@@ -44,6 +44,7 @@ from posthog.models.team.team import Team
 
 from products.autoresearch.backend.labeling import (
     _build_population_conditions,
+    _identified_users_and_clause,
     build_inference_features_sql,
     build_training_features_sql,
 )
@@ -338,16 +339,15 @@ def _fetch_feature_rows(
         return []
 
     # Apply inference population filter — restrict to users matching the pipeline's
-    # defined scoring population (e.g. identified users, signed up in last 30 days).
-    # Skip the population query entirely when no filter is defined (empty dict = all users).
-    allowed_ids: frozenset[str] | None = None
-    if pipeline.inference_population:
-        lookback_days = max(30, pipeline.horizon_days * 4)
-        allowed_ids = _fetch_population_distinct_ids(
-            team=team,
-            population=pipeline.inference_population,
-            lookback_days=lookback_days,
-        )
+    # defined scoring population (e.g. signed up in last 30 days) and, under the v1
+    # identified-only scope, to identified users. _fetch_population_distinct_ids returns
+    # None (no restriction) when neither applies, so calling it unconditionally is cheap.
+    lookback_days = max(30, pipeline.horizon_days * 4)
+    allowed_ids = _fetch_population_distinct_ids(
+        team=team,
+        population=pipeline.inference_population,
+        lookback_days=lookback_days,
+    )
     if allowed_ids is not None:
         before = len(rows)
         rows = [r for r in rows if r.get("distinct_id") in allowed_ids]
@@ -367,8 +367,10 @@ def _fetch_population_distinct_ids(
     lookback_days: int,
 ) -> frozenset[str] | None:
     """
-    Return the set of distinct_ids that match the inference_population filter.
-    Returns None when no filter applies (empty dict = score all users).
+    Return the set of person_ids that match the inference_population filter, further
+    restricted to identified users under the v1 identified-only scope. Returns None
+    when nothing restricts the population (empty filter and identified-only disabled =
+    score all users).
 
     Queries the events table using person property conditions so the eligible set
     is consistent with the feature SQL lookback window — users with no recent
@@ -379,24 +381,20 @@ def _fetch_population_distinct_ids(
     Supports person and event property types with common operators (exact, is_not,
     icontains, not_icontains, gt/gte/lt/lte, is_set, is_not_set).
     """
-    if not population:
-        return None
-
-    properties = population.get("properties", [])
-    if not properties:
-        return None
-
+    properties = (population or {}).get("properties", [])
     parts, values = _build_population_conditions(properties)
-    if not parts:
+    identified_clause = _identified_users_and_clause()
+
+    # Nothing to enforce: no population filter and identified-only disabled.
+    if not parts and not identified_clause:
         return None
 
     values["_lookback"] = lookback_days
-    where_clause = " AND ".join(parts)
-    sql = (
-        f"SELECT DISTINCT person_id FROM events"
-        f" WHERE timestamp >= now() - toIntervalDay({{_lookback}})"
-        f" AND {where_clause}"
-    )
+    where_clause = f"timestamp >= now() - toIntervalDay({{_lookback}})"
+    if parts:
+        where_clause += " AND " + " AND ".join(parts)
+    where_clause += identified_clause
+    sql = f"SELECT DISTINCT person_id FROM events WHERE {where_clause}"
 
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)

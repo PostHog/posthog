@@ -41,6 +41,22 @@ logger = structlog.get_logger(__name__)
 # Number of folds for hash-based train/holdout split. fold == 0 → holdout (20%).
 NUM_FOLDS = 5
 
+# v1 scope: autoresearch models identified users only. Identified persons carry a
+# stable real distinct_id, so scoring-time identity resolution always succeeds and the
+# prediction event + output person property land on the right person — no phantom,
+# person-less, or v5↔v7 edge cases. Anonymous / pre-signup populations (e.g.
+# anonymous → signup) are deferred to v2. This is a hard limit baked into every
+# population query; flip to False to relax — the rest of the pipeline is
+# population-agnostic.
+IDENTIFIED_USERS_ONLY = True
+
+
+def _identified_users_and_clause() -> str:
+    """`AND person.is_identified` fragment for an events-table WHERE, or '' when the
+    v1 identified-only scope is disabled. The events table must be unaliased at the
+    call site (or aliased so that ``person`` still resolves via the lazy join)."""
+    return " AND person.is_identified" if IDENTIFIED_USERS_ONLY else ""
+
 
 def _build_population_conditions(
     properties: list[dict[str, Any]],
@@ -151,6 +167,7 @@ def _build_labeled_users_cte(
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     train_parts, train_values = _build_population_conditions(training_properties)
     training_clause = f" AND ({' AND '.join(train_parts)})" if train_parts else ""
+    identified_clause = _identified_users_and_clause()
     limit_clause = f"\n              LIMIT {int(sample_limit)}" if sample_limit is not None else ""
 
     cte = f"""
@@ -161,7 +178,7 @@ def _build_labeled_users_cte(
                 toInt(toUnixTimestamp(now() - toIntervalDay({{horizon}}))) AS cutoff_ts
             FROM events
             WHERE timestamp >= now() - toIntervalDay({{lookback}})
-              AND timestamp < now(){training_clause}
+              AND timestamp < now(){training_clause}{identified_clause}
             GROUP BY person_id
             HAVING first_ts < cutoff_ts{limit_clause}
         ),
@@ -241,20 +258,27 @@ def build_eligible_count_sql(
     training_population: dict[str, Any] | None,
 ) -> tuple[str, dict[str, Any]]:
     """
-    Build a HogQL query returning the true count of users eligible to be labeled
-    by the random-T0 labeler — i.e. users in the training_population with at
-    least one event before now - horizon_days. Used as the UI headline number so
-    the wizard reports the full population size, not the sampled subset.
+    Build a HogQL query returning the count of users eligible to be labeled by the
+    random-T0 labeler — i.e. users in the training_population with at least one event
+    before now - horizon_days. Used as the UI headline number so the wizard reports
+    the full population size, not the sampled subset.
+
+    Returns two columns: ``eligible`` (the v1 headline — restricted to identified
+    users when IDENTIFIED_USERS_ONLY is on) and ``eligible_all`` (the same count
+    without the identified restriction). The caller divides the two to detect a
+    mostly-anonymous population and warn that v1 excludes the anonymous remainder.
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     train_parts, train_values = _build_population_conditions(training_properties)
     training_clause = f" AND ({' AND '.join(train_parts)})" if train_parts else ""
 
+    horizon_cond = "timestamp < now() - toIntervalDay({horizon})"
+    eligible_cond = f"{horizon_cond} AND person.is_identified" if IDENTIFIED_USERS_ONLY else horizon_cond
+
     sql = f"""
-        SELECT countDistinctIf(
-            person_id,
-            timestamp < now() - toIntervalDay({{horizon}})
-        ) AS eligible
+        SELECT
+            countDistinctIf(person_id, {eligible_cond}) AS eligible,
+            countDistinctIf(person_id, {horizon_cond}) AS eligible_all
         FROM events
         WHERE timestamp >= now() - toIntervalDay({{lookback}})
           AND timestamp < now(){training_clause}
@@ -332,6 +356,7 @@ def build_inference_anchors_sql(
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
     inf_parts, inf_values = _build_population_conditions(inference_properties)
     inf_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
+    identified_clause = _identified_users_and_clause()
 
     # now() for live scoring; a bound, backdated instant for a historical backfill.
     cutoff_expr = "fromUnixTimestamp({cutoff_ts})" if cutoff_ts is not None else "now()"
@@ -343,7 +368,7 @@ def build_inference_anchors_sql(
             {cutoff_select} AS cutoff_ts
         FROM events
         WHERE timestamp >= {cutoff_expr} - toIntervalDay({{lookback}})
-          AND timestamp < {cutoff_expr}{inf_clause}
+          AND timestamp < {cutoff_expr}{inf_clause}{identified_clause}
     """
     values: dict[str, Any] = {
         "lookback": lookback_days,

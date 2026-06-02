@@ -219,7 +219,10 @@ class TestFetchFeatureRowsPopulationFilter(BaseTest):
 
     @patch("products.autoresearch.backend.inference._fetch_population_distinct_ids")
     @patch("products.autoresearch.backend.inference.HogQLQueryRunner")
-    def test_empty_population_does_not_filter(self, mock_runner_cls: MagicMock, mock_pop: MagicMock):
+    def test_empty_population_still_consults_population_filter(self, mock_runner_cls: MagicMock, mock_pop: MagicMock):
+        # Under the v1 identified-only scope the population filter is consulted even
+        # for an empty population — the identified-users restriction lives inside
+        # _fetch_population_distinct_ids, which returns None only when nothing applies.
         pipeline = self._make_pipeline(inference_population={})
         model = self._make_model(pipeline)
 
@@ -228,11 +231,13 @@ class TestFetchFeatureRowsPopulationFilter(BaseTest):
         mock_result.columns = ["distinct_id"]
         mock_runner_cls.return_value.run.return_value = mock_result
 
+        mock_pop.return_value = None  # filter decides no restriction applies → all rows kept
+
         from products.autoresearch.backend.inference import _fetch_feature_rows
 
         rows = _fetch_feature_rows(team=self.team, pipeline=pipeline, model=model)
 
-        mock_pop.assert_not_called()
+        mock_pop.assert_called_once()
         assert len(rows) == 2
 
     @patch("products.autoresearch.backend.inference._fetch_population_distinct_ids")
@@ -284,3 +289,21 @@ class TestFetchFeatureRowsPopulationFilter(BaseTest):
 
         # All rows returned — fail open, not fail closed
         assert len(rows) == 2
+
+
+class TestFetchPopulationDistinctIds(BaseTest):
+    @patch("products.autoresearch.backend.inference.HogQLQueryRunner")
+    def test_empty_population_restricts_to_identified_users(self, mock_runner_cls: MagicMock):
+        # v1 identified-only: even an empty population restricts scoring to identified
+        # users — the query carries the is_identified clause and a person_id set is returned.
+        from products.autoresearch.backend.inference import _fetch_population_distinct_ids
+
+        mock_result = MagicMock()
+        mock_result.results = [("person-1",), ("person-2",)]
+        mock_runner_cls.return_value.run.return_value = mock_result
+
+        allowed = _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30)
+
+        assert allowed == frozenset({"person-1", "person-2"})
+        sent_sql = mock_runner_cls.call_args.kwargs["query"].query
+        assert "person.is_identified" in sent_sql
