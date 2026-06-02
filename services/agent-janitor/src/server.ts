@@ -631,6 +631,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             res.status(409).json({ error: 'revision_not_editable', state: rev.state })
             return null
         }
+        // Bundle-store `.frozen` marker is authoritative — Django stamps
+        // `state='ready'` after the janitor returns, but the marker is
+        // written first and is consistent across processes. Catches the
+        // narrow window between janitor.freeze and Django's state write,
+        // and any operator who poked the marker directly.
+        if (opts.bundles && (await opts.bundles.isFrozen(revisionId))) {
+            res.status(409).json({ error: 'revision_not_editable', state: 'ready' })
+            return null
+        }
         return { rev }
     }
 
@@ -776,10 +785,10 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const sha = await opts.bundles!.freeze(req.params.id)
-            // Stamp the sha + flip the row to `ready` so the runner can pick it
-            // up via `setLiveRevision` later. Two writes; the second is the
-            // user-visible state change.
-            await opts.revisions!.setRevisionState(req.params.id, 'ready', sha)
+            // Django owns the `agent_revision.state` + `bundle_sha256` write.
+            // Returning sha lets the caller stamp the row inside its own
+            // transaction; the janitor stays out of that table to avoid
+            // cross-process row contention with the Django freeze atomic.
             res.json({ ok: true, state: 'ready', bundle_sha256: sha })
         })
     )

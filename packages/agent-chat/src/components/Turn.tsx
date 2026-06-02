@@ -36,21 +36,27 @@ export function TurnRow({
 }: TurnProps): React.ReactElement {
     if (turn.kind === 'user') {
         const pending = turn.pending === true
+        // Right-align + max-width so the user / assistant alternation reads
+        // as a threaded conversation. Assistant turns stay full-width.
         return (
-            <div
-                className={
-                    'rounded-md px-3 py-2 text-sm leading-relaxed ' +
-                    (pending ? 'border border-dashed border-border bg-muted/20 text-muted-foreground' : 'bg-muted/40')
-                }
-                data-slot="agent-chat-turn-user"
-                data-pending={pending ? 'true' : undefined}
-            >
-                <div>{turn.text}</div>
-                {pending ? (
-                    <div className="mt-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-                        Queued · sends after current turn
-                    </div>
-                ) : null}
+            <div className="flex justify-end" data-slot="agent-chat-turn-user-wrap">
+                <div
+                    className={
+                        'max-w-[80%] rounded-md px-3 py-2 text-sm leading-relaxed ' +
+                        (pending
+                            ? 'border border-dashed border-border bg-muted/20 text-muted-foreground'
+                            : 'bg-muted/40')
+                    }
+                    data-slot="agent-chat-turn-user"
+                    data-pending={pending ? 'true' : undefined}
+                >
+                    <div>{turn.text}</div>
+                    {pending ? (
+                        <div className="mt-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+                            Queued · sends after current turn
+                        </div>
+                    ) : null}
+                </div>
             </div>
         )
     }

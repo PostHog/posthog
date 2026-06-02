@@ -506,6 +506,35 @@ describe('openMcpClients', () => {
             await closePairs(pairs)
         })
 
+        it.each([
+            { label: 'plaintext loopback', url: 'http://localhost:8787/mcp' },
+            { label: 'IPv4 loopback literal', url: 'http://127.0.0.1:8787/mcp' },
+            { label: 'RFC1918', url: 'http://10.0.0.1/mcp' },
+        ])('with allowPrivateMcpHosts, accepts $label (dev escape)', async ({ url }) => {
+            const { factory, pairs } = await buildEchoFactory()
+            const { close } = await openMcpClients([{ kind: 'external', id: 'x', url, secrets: [] }], {
+                integrations: {},
+                secrets: {},
+                transportFactory: factory,
+                allowPrivateMcpHosts: true,
+            })
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('still rejects invalid URLs even with allowPrivateMcpHosts (URL parsing is unconditional)', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            await expect(
+                openMcpClients([{ kind: 'external', id: 'x', url: 'not a url', secrets: [] }], {
+                    integrations: {},
+                    secrets: {},
+                    transportFactory: factory,
+                    allowPrivateMcpHosts: true,
+                })
+            ).rejects.toThrow(/mcp_unsafe_url: not a valid URL/)
+            await closePairs(pairs)
+        })
+
         it('does NOT apply the URL safety check to kind: agent (URL minted by trusted resolver)', async () => {
             // The agent-variant URL comes from the runner's own resolver, not
             // the author's spec — so the SSRF floor doesn't apply. (The
@@ -523,6 +552,56 @@ describe('openMcpClients', () => {
                 }),
             })
             expect(targets[0].url).toBe('https://ingress.local/agents/weekly-digest/mcp')
+            await close()
+            await closePairs(pairs)
+        })
+    })
+
+    describe('devMcpBearerToken (dev-only auth fallback)', () => {
+        it('attaches Authorization: Bearer when ref has no auth and a dev bearer is configured', async () => {
+            const { factory, pairs, targets } = await buildEchoFactory()
+            const { close } = await openMcpClients(
+                [{ kind: 'external', id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }],
+                {
+                    integrations: {},
+                    secrets: {},
+                    transportFactory: factory,
+                    devMcpBearerToken: 'phx_dev_token',
+                }
+            )
+            expect(targets[0].headers.Authorization).toBe('Bearer phx_dev_token')
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('does NOT attach the dev bearer when ref.auth.integration is set (integration wins)', async () => {
+            const { factory, pairs, targets } = await buildEchoFactory()
+            const ref: McpRef = {
+                kind: 'external',
+                id: 'x',
+                url: 'https://mcp.example.com/sse',
+                secrets: [],
+                auth: { integration: 'linear:acme' },
+            }
+            const { close } = await openMcpClients([ref], {
+                integrations: { 'linear:acme': { access_token: 'integration_token', kind: 'linear' } },
+                secrets: {},
+                transportFactory: factory,
+                devMcpBearerToken: 'phx_dev_token',
+                integrationHostValidator: () => true,
+            })
+            expect(targets[0].headers.Authorization).toBe('Bearer integration_token')
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('omits Authorization entirely when neither auth.integration nor a dev bearer is set', async () => {
+            const { factory, pairs, targets } = await buildEchoFactory()
+            const { close } = await openMcpClients(
+                [{ kind: 'external', id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }],
+                { integrations: {}, secrets: {}, transportFactory: factory }
+            )
+            expect(targets[0].headers.Authorization).toBeUndefined()
             await close()
             await closePairs(pairs)
         })

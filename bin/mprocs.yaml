@@ -184,7 +184,7 @@ procs:
             layer: Product services
             tech: Other
         env:
-            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:19000'
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
             AWS_ACCESS_KEY_ID: 'object_storage_root_user'
             AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
@@ -231,6 +231,10 @@ procs:
             tech: Node
 
     agent-runner:
+        # AGENT_DEV_MCP_BEARER_TOKEN can be set in `.env.local` so the concierge
+        # can reach the local MCP server at :8787/mcp with the operator's PAT.
+        # bin/start sources .env.local and exports vars; phrocs inherits.
+        # Refused at boot when NODE_ENV=production (services/agent-runner/src/index.ts).
         shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
         capability: agent_runtime
         ready_pattern: 'starting worker loop'
@@ -255,7 +259,7 @@ procs:
             # Setup: see docs/agent-platform/docs/local-dev.md
             # ("Local ai-gateway") for the sibling-clone + .env + ledger
             # topup; design: docs/agent-platform/plans/ai-gateway-integration.md.
-            AGENT_USE_AI_GATEWAY: 'true'
+            AGENT_USE_AI_GATEWAY: 'false'
             POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
             # S3-backed memory store. MinIO from the PostHog dev stack —
             # bucket `posthog` is pre-created by docker-compose.base.yml. The
@@ -263,11 +267,24 @@ procs:
             # the same bucket via /memory/* HTTP endpoints. Both ENDPOINT
             # and BUCKET must be set or the memory tools surface
             # `memory_store_unavailable` to the agent.
-            AGENT_MEMORY_S3_ENDPOINT: 'http://localhost:19000'
+            AGENT_MEMORY_S3_ENDPOINT: 'http://127.0.0.1:19000'
             AGENT_MEMORY_S3_BUCKET: 'posthog'
             AGENT_MEMORY_S3_PREFIX: 'agent_memory'
             AGENT_MEMORY_S3_ACCESS_KEY_ID: 'object_storage_root_user'
             AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            # S3-backed bundle store. Same MinIO `posthog` bucket as memory,
+            # different prefix. Required at boot — the runner refuses to
+            # start sessions without bundle storage.
+            AGENT_BUNDLE_S3_ENDPOINT: 'http://127.0.0.1:19000'
+            AGENT_BUNDLE_S3_BUCKET: 'posthog'
+            AGENT_BUNDLE_S3_PREFIX: 'agent_bundles'
+            AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            # Dev-only escape on the external-MCP SSRF guard so loopback /
+            # private-host URLs (e.g. http://localhost:8787/mcp) are reachable
+            # from the runner. index.ts refuses to set this when
+            # NODE_ENV=production.
+            AGENT_MCP_ALLOW_PRIVATE_HOSTS: 'true'
 
     agent-janitor:
         shell: |-
@@ -286,11 +303,19 @@ procs:
             # S3-backed memory store — same bucket the runner writes. Lights
             # up the /memory/team/:team_id/agent/:application_id/* routes the
             # Django AgentMemoryViewSet proxies through to.
-            AGENT_MEMORY_S3_ENDPOINT: 'http://localhost:19000'
+            AGENT_MEMORY_S3_ENDPOINT: 'http://127.0.0.1:19000'
             AGENT_MEMORY_S3_BUCKET: 'posthog'
             AGENT_MEMORY_S3_PREFIX: 'agent_memory'
             AGENT_MEMORY_S3_ACCESS_KEY_ID: 'object_storage_root_user'
             AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            # S3-backed bundle store. Same MinIO `posthog` bucket as memory,
+            # different prefix. Required at boot — the janitor refuses to
+            # serve bundle endpoints without storage.
+            AGENT_BUNDLE_S3_ENDPOINT: 'http://127.0.0.1:19000'
+            AGENT_BUNDLE_S3_BUCKET: 'posthog'
+            AGENT_BUNDLE_S3_PREFIX: 'agent_bundles'
+            AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
     agent-console:
         # Next.js standalone console at http://localhost:3040 — proxies the

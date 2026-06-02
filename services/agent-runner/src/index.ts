@@ -31,6 +31,7 @@ import {
     EncryptedFields,
     HttpGatewayClient,
     installProcessHandlers,
+    isDev,
     KafkaLogSink,
     MemoryStore,
     NoopAnalyticsSink,
@@ -57,6 +58,7 @@ import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeAgentMcpResolver } from './resolvers/agent-mcp-resolver'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
+import { makeIntegrationHostValidator } from './resolvers/integration-host-registry'
 import { Worker } from './workers/worker'
 
 const log = createLogger('agent-runner')
@@ -64,6 +66,25 @@ const log = createLogger('agent-runner')
 async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentRunnerConfig()
+
+    // Fail-fast prod guard for the dev-only SSRF escape on external MCP URLs.
+    // The flag exists so a local-loopback bundle (concierge against
+    // localhost:8787/mcp) can run under `hogli start`; it must never be
+    // truthy in production, where the SSRF guard is part of the threat model
+    // for bundle-authored URLs (see services/agent-runner/src/loop/mcp-clients.ts).
+    if (config.allowPrivateMcpHosts && !isDev()) {
+        throw new Error(
+            'AGENT_MCP_ALLOW_PRIVATE_HOSTS is a dev-only escape hatch on the external-MCP SSRF guard and must not be set when NODE_ENV=production.'
+        )
+    }
+    // Fail-fast prod guard for the dev-only bearer attached to auth-less
+    // external MCP refs. Prod must route auth via integrations or the
+    // resolver-minted `kind: agent` path, not via a global bearer.
+    if (config.devMcpBearerToken && !isDev()) {
+        throw new Error(
+            'AGENT_DEV_MCP_BEARER_TOKEN is a dev-only escape hatch for external-MCP auth and must not be set when NODE_ENV=production.'
+        )
+    }
 
     // S3 bundle storage is required — sessions need to load the revision's
     // compiled code + spec + skills at start. Fail-fast at boot rather than
@@ -292,6 +313,13 @@ async function main(): Promise<void> {
         memoryStore,
         isAskerInApproverScope,
         agentMcpResolver,
+        allowPrivateMcpHosts: config.allowPrivateMcpHosts,
+        devMcpBearerToken: config.devMcpBearerToken,
+        // Per-integration-kind host allowlist. Without this, any external MCP
+        // ref with `auth.integration` fails closed at open with
+        // `mcp_integration_host_validator_not_wired`. Registry seeded with
+        // slack; extend in integration-host-registry.ts as kinds are added.
+        integrationHostValidator: makeIntegrationHostValidator(),
     })
 
     const shutdown = (sig: string): void => {

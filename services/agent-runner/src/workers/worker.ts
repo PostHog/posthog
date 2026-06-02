@@ -190,6 +190,18 @@ export interface WorkerDeps {
      * `mcp.linear.app`, etc.); tests can supply `() => true` to opt-in.
      */
     integrationHostValidator?: IntegrationHostValidator
+    /**
+     * Dev-only escape forwarded to `openMcpClients`. See `OpenMcpClientsDeps`.
+     * The runner's `index.ts` reads `AGENT_MCP_ALLOW_PRIVATE_HOSTS` and
+     * refuses to set this when NODE_ENV=production.
+     */
+    allowPrivateMcpHosts?: boolean
+    /**
+     * Dev-only bearer forwarded to `openMcpClients`. See `OpenMcpClientsDeps`.
+     * Sourced from `AGENT_DEV_MCP_BEARER_TOKEN`; the runner's `index.ts`
+     * refuses to set this when NODE_ENV=production.
+     */
+    devMcpBearerToken?: string
 }
 
 export class Worker {
@@ -362,6 +374,8 @@ export class Worker {
                     agentMcpResolver: this.deps.agentMcpResolver,
                     transportFactory: this.deps.mcpTransportFactory,
                     integrationHostValidator: this.deps.integrationHostValidator,
+                    allowPrivateMcpHosts: this.deps.allowPrivateMcpHosts,
+                    devMcpBearerToken: this.deps.devMcpBearerToken,
                     callerContext: { teamId: session.team_id, sessionId: session.id },
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                 })

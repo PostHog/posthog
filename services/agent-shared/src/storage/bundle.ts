@@ -17,6 +17,12 @@ export interface BundleStore {
     write(revisionId: string, path: string, content: Buffer | string): Promise<void>
     delete(revisionId: string, path: string): Promise<void>
     exists(revisionId: string, path: string): Promise<boolean>
+    /** Whether a `.frozen` marker has been written for this revision. The
+     *  authoritative cross-process signal for "this bundle is immutable" —
+     *  more reliable than `agent_revision.state` since Django stamps state
+     *  *after* the janitor returns, leaving a brief window where state is
+     *  still `draft` but the bundle is already frozen on disk. */
+    isFrozen(revisionId: string): Promise<boolean>
     /** Freeze a draft bundle. Returns sha256 of the frozen contents. */
     freeze(revisionId: string): Promise<string>
     /** Copy one file between revisions (used by cross-agent reuse). */

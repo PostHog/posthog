@@ -375,6 +375,20 @@ function Footer({
     onStop?: () => void
 }): React.ReactElement {
     const showStop = sending && onStop !== undefined
+    const textareaRef = useRef<HTMLTextAreaElement>(null)
+    // Auto-grow with the content up to a max — `rows={1}` alone leaves long
+    // drafts clipped behind a fixed-height box. We reset to `auto` first so
+    // shrinking on backspace works; the inline max-h cap matches the Tailwind
+    // class so the visual matches the JS budget.
+    useEffect(() => {
+        const el = textareaRef.current
+        if (!el) {
+            return
+        }
+        el.style.height = 'auto'
+        const MAX_PX = 192 // matches max-h-48 below
+        el.style.height = Math.min(el.scrollHeight, MAX_PX) + 'px'
+    }, [draft])
     return (
         <div className="border-t border-border">
             <form
@@ -389,8 +403,9 @@ function Footer({
                 </label>
                 <textarea
                     id={inputId}
+                    ref={textareaRef}
                     rows={1}
-                    className="min-h-[2rem] flex-1 resize-none rounded-md border border-input bg-background px-2 py-1.5 text-sm leading-snug placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="max-h-48 min-h-[2rem] flex-1 resize-none overflow-y-auto rounded-md border border-input bg-background px-2 py-1.5 text-sm leading-snug placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder={placeholder}
                     value={draft}
                     onChange={(e) => onChange(e.target.value)}

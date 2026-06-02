@@ -112,6 +112,19 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .default('1')
         .transform((v) => v === '1' || v === 'true')
         .describe('forcePathStyle for the S3 client. Default true (MinIO needs it; real S3 accepts it).'),
+    allowPrivateMcpHosts: z
+        .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
+        .default('0')
+        .transform((v) => v === '1' || v === 'true')
+        .describe(
+            "Dev-only escape on `assertSafeExternalMcpUrl` — when truthy, the runner skips the http/loopback/private-host SSRF check on `kind: external` MCP refs. Lets a local bundle call `http://localhost:8787/mcp` to talk to the dev MCP server. **Refused at boot when NODE_ENV=production** so a misconfig can't silently re-enable SSRF in prod."
+        ),
+    devMcpBearerToken: z
+        .string()
+        .optional()
+        .describe(
+            "Dev-only bearer attached to `kind: external` MCP requests when the ref has no `auth.integration` configured. Lets a local bundle (concierge) reach the dev MCP server with the operator's PAT, before per-session credential plumbing exists for external MCPs. **Refused at boot when NODE_ENV=production** — prod must route auth via integrations or `kind: agent`."
+        ),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -142,6 +155,8 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'bundleS3AccessKeyId',
     AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'bundleS3SecretAccessKey',
     AGENT_BUNDLE_S3_FORCE_PATH_STYLE: 'bundleS3ForcePathStyle',
+    AGENT_MCP_ALLOW_PRIVATE_HOSTS: 'allowPrivateMcpHosts',
+    AGENT_DEV_MCP_BEARER_TOKEN: 'devMcpBearerToken',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

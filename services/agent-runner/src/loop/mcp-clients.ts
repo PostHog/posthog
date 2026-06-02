@@ -142,6 +142,21 @@ export interface OpenMcpClientsDeps {
      * for the threat model.
      */
     integrationHostValidator?: IntegrationHostValidator
+    /**
+     * Dev-only escape passed through to `assertSafeExternalMcpUrl`. Lets a
+     * bundle declare `kind: external` against a loopback/private URL so the
+     * concierge can talk to the local MCP server during `hogli start`.
+     * Production refuses to set this at boot.
+     */
+    allowPrivateMcpHosts?: boolean
+    /**
+     * Dev-only bearer attached to `kind: external` MCP requests when the
+     * ref has no `auth.integration` of its own (`ref.auth` wins if set).
+     * Bridges the local-dev auth gap until external-MCP credentials are
+     * sourced from the per-session credential broker. Production refuses
+     * to set this at boot.
+     */
+    devMcpBearerToken?: string
 }
 
 const DEFAULT_CLIENT_INFO = { name: 'posthog-agent-runner', version: '0.1.0' }
@@ -260,7 +275,7 @@ async function resolveTarget(
     }
     // `external` variant.
     const url = substituteSecrets(ref.url, ref.secrets, deps.secrets)
-    assertSafeExternalMcpUrl(url)
+    assertSafeExternalMcpUrl(url, { allowPrivateHosts: deps.allowPrivateMcpHosts })
     const headers: Record<string, string> = {}
     if (ref.auth?.integration) {
         const cred = deps.integrations[ref.auth.integration]
@@ -282,6 +297,12 @@ async function resolveTarget(
             throw new Error(`mcp_integration_host_not_allowed: ${ref.auth.integration} → ${parsed.host}`)
         }
         headers['Authorization'] = `Bearer ${cred.access_token}`
+    } else if (deps.devMcpBearerToken) {
+        // Dev-only fallback. The bundle declared no integration auth, but
+        // the operator wired a global dev bearer (their PAT, typically) so
+        // the local MCP server accepts the call. `ref.auth` always wins
+        // when set; this branch only fires when the spec is auth-less.
+        headers['Authorization'] = `Bearer ${deps.devMcpBearerToken}`
     }
     return { url, headers }
 }
@@ -310,12 +331,18 @@ async function resolveTarget(
  * `kind: 'agent'` URLs are minted by the resolver — not author input —
  * so they don't pass through here.
  */
-export function assertSafeExternalMcpUrl(url: string): void {
+export function assertSafeExternalMcpUrl(url: string, opts: { allowPrivateHosts?: boolean } = {}): void {
     let parsed: URL
     try {
         parsed = new URL(url)
     } catch {
         throw new Error(`mcp_unsafe_url: not a valid URL`)
+    }
+    // Dev-only escape: skip the scheme + host blocklist so a local-loopback
+    // bundle (e.g. concierge against `http://localhost:8787/mcp`) can run.
+    // Gated at boot — `index.ts` refuses to set this when NODE_ENV=production.
+    if (opts.allowPrivateHosts) {
+        return
     }
     if (parsed.protocol !== 'https:') {
         throw new Error(`mcp_unsafe_url: scheme must be https (got '${parsed.protocol}')`)
