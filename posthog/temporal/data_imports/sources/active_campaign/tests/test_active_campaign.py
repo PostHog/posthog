@@ -158,9 +158,17 @@ class TestActiveCampaignSourceResumeBehavior:
             sent_params.append(dict(request.params or {}))
             return next(response_iter)
 
-        with patch(
-            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            ) as MockSession,
+            # The SSRF guard runs real DNS resolution when DEBUG=False (as in CI); the
+            # fake account host here isn't an SSRF test, so allow it deterministically.
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
+                return_value=(True, None),
+            ),
+        ):
             mock_session = MockSession.return_value
             mock_session.headers = {}
             mock_session.prepare_request.side_effect = lambda req: req
@@ -245,9 +253,16 @@ class TestValidateCredentials:
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
-        with patch(
-            "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-        ) as MockSession:
+        # Isolate status-code handling from the SSRF guard (which does real DNS when DEBUG=False).
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
+            ) as MockSession,
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
+                return_value=(True, None),
+            ),
+        ):
             mock_session = MockSession.return_value
             response = MagicMock()
             response.status_code = status_code
@@ -266,9 +281,15 @@ class TestValidateCredentials:
         assert error is not None and "https" in error
 
     def test_network_error_returns_message(self) -> None:
-        with patch(
-            "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
-        ) as MockSession:
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
+            ) as MockSession,
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
+                return_value=(True, None),
+            ),
+        ):
             MockSession.return_value.get.side_effect = Exception("boom")
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
             assert valid is False
