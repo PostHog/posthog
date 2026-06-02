@@ -2607,8 +2607,8 @@ mod tests {
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
             // Payload must be valid UTF-8 JSON when compression is off.
-            let v: serde_json::Value =
-                serde_json::from_slice(&records[0].payload).expect("uncompressed payload is valid json");
+            let v: serde_json::Value = serde_json::from_slice(&records[0].payload)
+                .expect("uncompressed payload is valid json");
             assert!(v.get("distinct_id").is_some());
         }
 
@@ -2637,11 +2637,9 @@ mod tests {
             );
             // Payload = 4-byte LE uncompressed size + LZ4 block data. Decompress and verify.
             let payload = &records[0].payload;
-            let uncompressed_len =
-                u32::from_le_bytes(payload[..4].try_into().unwrap()) as usize;
-            let decompressed =
-                lz4::block::decompress(&payload[4..], Some(uncompressed_len as i32))
-                    .expect("failed to decompress");
+            let uncompressed_len = u32::from_le_bytes(payload[..4].try_into().unwrap()) as usize;
+            let decompressed = lz4::block::decompress(&payload[4..], Some(uncompressed_len as i32))
+                .expect("failed to decompress");
             let v: serde_json::Value =
                 serde_json::from_slice(&decompressed).expect("decompressed payload is valid json");
             assert!(v.get("distinct_id").is_some());
