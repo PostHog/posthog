@@ -5,7 +5,9 @@ suggested reviewers from its `suggested_reviewers` artefact, resolve them to
 PostHog users, and dispatch a Slack message to each user that has configured a
 Slack channel and integration in their `SignalUserAutonomyConfig`.
 
-Each user's `slack_notification_min_priority` filters out reports below the
+Reports the research flow judged non-actionable or already addressed never ping
+Slack — they still land in the inbox, but a notification would be noise. Each
+user's `slack_notification_min_priority` then filters out reports below the
 configured threshold (P0 is highest). When the report has no priority
 judgement, we notify regardless of the user's threshold — the inbox should
 not silently swallow these.
@@ -36,6 +38,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
     normalized_github_logins_from_suggested_reviewer_artefacts,
@@ -104,22 +107,44 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
     return report_rank <= min_rank
 
 
-def _latest_priority(report: SignalReport) -> str | None:
-    art = (
-        report.artefacts.filter(type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
-        .order_by("-created_at")
-        .first()
-    )
+def _latest_judgment(report: SignalReport, artefact_type: SignalReportArtefact.ArtefactType) -> dict | None:
+    """Parse the most recent artefact of the given type into a dict, or None if absent/malformed."""
+    art = report.artefacts.filter(type=artefact_type).order_by("-created_at").first()
     if art is None:
         return None
     try:
         data = json.loads(art.content)
     except (json.JSONDecodeError, TypeError, ValueError):
         return None
-    if not isinstance(data, dict):
-        return None
-    value = data.get("priority")
+    return data if isinstance(data, dict) else None
+
+
+def _latest_priority(report: SignalReport) -> str | None:
+    data = _latest_judgment(report, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
+    value = data.get("priority") if data else None
     return value if isinstance(value, str) else None
+
+
+def _warrants_notification(report: SignalReport) -> bool:
+    """Whether a ready report represents outstanding, actionable work worth a Slack ping.
+
+    Notifications are for work a reviewer can act on. We suppress reports the research
+    flow judged non-actionable or already addressed — they still land in the inbox, but
+    shouldn't ping reviewers in Slack. When there's no actionability judgment we notify,
+    mirroring the priority filter: never silently swallow a new inbox item.
+    """
+    data = _latest_judgment(report, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+    if data is None:
+        return True
+    # `already_addressed` does the real work today: only immediately-actionable reports
+    # reach this dispatch path, so the actionability arm below is a forward-looking guard
+    # in case non-actionable reports ever become notifiable.
+    if data.get("already_addressed") is True:
+        return False
+    actionability = data.get("actionability")
+    if isinstance(actionability, str) and actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -345,6 +370,13 @@ def dispatch_inbox_item_notifications(
     except SignalReport.DoesNotExist:
         logger.warning(
             "dispatch_inbox_item_notifications: report not found",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
+        return 0
+
+    if not _warrants_notification(report):
+        logger.info(
+            "signals_inbox_slack_notification_suppressed_not_actionable",
             extra={"report_id": report_id, "team_id": team_id},
         )
         return 0

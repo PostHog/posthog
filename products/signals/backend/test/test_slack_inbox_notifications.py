@@ -221,6 +221,8 @@ def _make_ready_report(
     summary: str = "Summary text",
     priority: str | None = None,
     suggested_logins: list[str] | None = None,
+    actionability: str | None = None,
+    already_addressed: bool | None = None,
 ) -> SignalReport:
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title=title, summary=summary, signal_count=3, total_weight=1.0
@@ -231,6 +233,18 @@ def _make_ready_report(
             report=report,
             type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
             content=json.dumps({"priority": priority}),
+        )
+    if actionability is not None or already_addressed is not None:
+        content: dict = {"explanation": "test"}
+        if actionability is not None:
+            content["actionability"] = actionability
+        if already_addressed is not None:
+            content["already_addressed"] = already_addressed
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(content),
         )
     if suggested_logins:
         SignalReportArtefact.objects.create(
@@ -424,3 +438,52 @@ def test_dispatch_continues_after_per_user_failure(org_and_team):
 
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("actionability", "already_addressed", "should_notify"),
+    [
+        # Real, outstanding work → notify
+        ("immediately_actionable", False, True),
+        # Already addressed → suppress even if nominally actionable
+        ("immediately_actionable", True, False),
+        # Non-actionable judgments → suppress
+        ("not_actionable", False, False),
+        ("requires_human_input", False, False),
+        # No actionability judgment at all → notify (don't silently swallow)
+        (None, None, True),
+    ],
+)
+def test_dispatch_suppresses_non_actionable_reports(
+    org_and_team, actionability: str | None, already_addressed: bool | None, should_notify: bool
+):
+    org, team = org_and_team
+    user = _make_reviewer_user(org, f"actionability-{actionability}-{already_addressed}@example.com", "action-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(
+        team,
+        suggested_logins=["action-bot"],
+        actionability=actionability,
+        already_addressed=already_addressed,
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value=None,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    expected_sent = 1 if should_notify else 0
+    assert sent == expected_sent
+    assert fake_client.chat_postMessage.call_count == expected_sent
