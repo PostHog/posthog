@@ -134,7 +134,10 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """
     url = f"{RECHARGE_BASE_URL}/token_information"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        # `redact_values` masks the token wherever it appears in captured HTTP
+        # samples — the `X-Recharge-Access-Token` header isn't in the shared
+        # auth-header denylist, so without this the token would leak in plaintext.
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
     except requests.RequestException as e:
         return False, f"Could not reach Recharge: {e}"
 
@@ -172,7 +175,10 @@ def get_rows(
     )
     def fetch_page(request_params: dict[str, Any]) -> dict[str, Any]:
         url = f"{RECHARGE_BASE_URL}{config.path}?{urlencode(request_params)}"
-        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        # `redact_values` masks the token in captured HTTP samples (the custom
+        # `X-Recharge-Access-Token` header isn't in the shared auth denylist).
+        session = make_tracked_session(redact_values=(api_key,))
+        response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RechargeRetryableError(

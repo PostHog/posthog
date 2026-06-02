@@ -127,6 +127,15 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None
 
+    @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
+    def test_token_is_redacted_from_captured_samples(self, mock_session: MagicMock) -> None:
+        # The `X-Recharge-Access-Token` header isn't in the shared auth-header
+        # denylist, so the token must be passed as a `redact_values` literal to
+        # keep it out of captured HTTP samples.
+        mock_session.return_value.get.return_value = _mock_response(status_code=200)
+        validate_credentials("secret-token")
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
 
 class TestGetRows:
     @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
@@ -156,6 +165,20 @@ class TestGetRows:
         assert isinstance(saved, RechargeResumeConfig)
         assert saved.endpoint == "customers"
         assert saved.cursor == "cursor-2"
+
+    @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
+    def test_token_is_redacted_from_captured_samples(self, mock_session: MagicMock) -> None:
+        mock_session.return_value.get.return_value = _mock_response(
+            json_body={"customers": [{"id": 1}], "next_cursor": None}
+        )
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        list(
+            get_rows(api_key="secret-token", endpoint="customers", logger=MagicMock(), resumable_source_manager=manager)
+        )
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
 
     @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
     def test_resumes_from_saved_cursor_when_endpoint_matches(self, mock_session: MagicMock) -> None:
