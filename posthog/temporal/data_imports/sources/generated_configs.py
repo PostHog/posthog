@@ -150,7 +150,8 @@ class AzureBlobSourceConfig(config.Config):
 
 @config.config
 class BambooHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
