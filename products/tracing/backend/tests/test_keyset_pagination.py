@@ -66,6 +66,16 @@ class TestTraceSpansKeysetPaginationTimezone(ClickhouseTestMixin, APIBaseTest):
             "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
         )
 
+    @classmethod
+    def tearDownClass(cls):
+        # Restore the standard Python DDL so a later test class in the same process doesn't inherit
+        # this class's modified schema. Drop the distributed table first (it depends on the base).
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
+        super().tearDownClass()
+
     def _cursor(self) -> str:
         return base64.b64encode(
             json.dumps({"timestamp": CURSOR_TS_ISO, "trace_id": CURSOR_TRACE_ID_HEX}).encode("utf-8")

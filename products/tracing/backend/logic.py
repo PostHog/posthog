@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 # constants print UTC-pinned, while bare DateTime columns read in the session tz; pinning both
 # sides keeps them on the same day grid so a non-UTC session can't drop same-day rows (which
 # previously emptied keyset page 2).
-_TIME_BUCKET_DATE_RANGE_WHERE = (
+TIME_BUCKET_DATE_RANGE_WHERE = (
     "toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC') "
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
@@ -195,7 +195,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         exprs.append(
             parse_expr(
-                _TIME_BUCKET_DATE_RANGE_WHERE,
+                TIME_BUCKET_DATE_RANGE_WHERE,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                 },
@@ -511,7 +511,7 @@ def run_service_names_query(
 
     exprs: list[ast.Expr] = [
         parse_expr(
-            _TIME_BUCKET_DATE_RANGE_WHERE,
+            TIME_BUCKET_DATE_RANGE_WHERE,
             placeholders={**query_date_range.to_placeholders()},
         ),
         ast.Placeholder(expr=ast.Field(chain=["filters"])),
