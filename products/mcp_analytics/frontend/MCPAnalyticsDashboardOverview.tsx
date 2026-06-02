@@ -110,7 +110,7 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                     goodDirection={metric.goodDirection}
                     formatValue={tile.format}
                     subtitle={hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined}
-                    sparklineHeight={40}
+                    sparklineHeight={50}
                     sparklineClassName="mt-3 -mx-3.5 -mb-3"
                 />
             )}
