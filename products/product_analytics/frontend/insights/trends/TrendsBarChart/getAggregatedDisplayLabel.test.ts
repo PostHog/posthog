@@ -1,10 +1,20 @@
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { IndexedTrendResult } from 'scenes/trends/types'
+
+import type { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import { type AggregatedDisplayLabelDeps, getAggregatedDisplayLabel } from './getAggregatedDisplayLabel'
 
 const mkResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult =>
-    ({ id: 0, label: '', count: 0, data: [], days: [], labels: [], aggregated_value: 0, ...overrides }) as IndexedTrendResult
+    ({
+        id: 0,
+        label: '',
+        count: 0,
+        data: [],
+        days: [],
+        labels: [],
+        aggregated_value: 0,
+        ...overrides,
+    }) as IndexedTrendResult
 
 const deps = (overrides?: Partial<AggregatedDisplayLabelDeps>): AggregatedDisplayLabelDeps => ({
     stackBreakdowns: false,
