@@ -5687,7 +5687,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: a list mixing person-property conditions ({type:'person',key,value,operator}) and cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}, create via cohorts-create). Behavioral (event-based) cohorts are rejected — for 'did event X', use an 'event' trigger instead. 'schedule' = one run per occurrence, no audience. batch/schedule fire only once enabled and a schedule is attached (workflows-schedule-create).",
+        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|schedule|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. Behavioral (event-based) cohorts are rejected — for 'did event X', use an 'event' trigger instead. 'schedule' = one run per occurrence, no audience. batch/schedule fire only once enabled and a schedule is attached (workflows-schedule-create).",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -5757,7 +5757,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status. A batch/schedule audience is config.filters.properties — a list mixing person-property conditions and cohort references; behavioral (event-based) cohorts are rejected.",
+        "description": "Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status. A batch/schedule audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

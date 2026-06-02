@@ -850,18 +850,18 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
-    def test_hog_flow_batch_trigger_rejects_event_filters(self):
+    @parameterized.expand(
+        [
+            ("events", {"events": [{"id": "$pageview", "type": "events"}]}),
+            ("actions", {"actions": [{"id": "5", "type": "actions"}]}),
+        ]
+    )
+    def test_hog_flow_batch_trigger_rejects_event_behavior_filters(self, _name, extra_filters):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
-            "config": {
-                "type": "batch",
-                "filters": {
-                    "properties": [],
-                    "events": [{"id": "$pageview", "type": "events"}],
-                },
-            },
+            "config": {"type": "batch", "filters": {"properties": [], **extra_filters}},
         }
         hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
 
@@ -869,23 +869,22 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "event" in response.json()["detail"].lower()
 
-    def test_hog_flow_batch_trigger_rejects_action_filters(self):
+    def test_hog_flow_batch_trigger_event_filters_rejected_for_mcp_draft(self):
+        # Same draft discriminator as behavioral cohorts: enforced for programmatic callers, lenient for the UI.
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
             "config": {
                 "type": "batch",
-                "filters": {
-                    "properties": [],
-                    "actions": [{"id": "5", "type": "actions"}],
-                },
+                "filters": {"properties": [], "events": [{"id": "$pageview", "type": "events"}]},
             },
         }
-        hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
+        hog_flow = {"name": "Test Batch Flow", "status": "draft", "actions": [trigger_action]}
 
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
         assert response.status_code == 400, response.json()
+        assert "event" in response.json()["detail"].lower()
 
     def test_hog_flow_batch_trigger_allows_empty_properties_audience(self):
         # Empty properties = broadcast to everyone, a legitimate batch audience — must not be rejected.
@@ -968,13 +967,9 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "behavior" in response.json()["detail"].lower()
 
-    def test_hog_flow_batch_trigger_allows_static_cohort(self):
-        cohort = self._make_cohort(static=True)
-        response = self._post_batch_with_cohort(cohort.pk)
-        assert response.status_code == 201, response.json()
-
-    def test_hog_flow_batch_trigger_allows_property_cohort(self):
-        cohort = self._make_cohort()
+    @parameterized.expand([("static", {"static": True}), ("property-based", {})])
+    def test_hog_flow_batch_trigger_allows_non_behavioral_cohort(self, _name, cohort_kwargs):
+        cohort = self._make_cohort(**cohort_kwargs)
         response = self._post_batch_with_cohort(cohort.pk)
         assert response.status_code == 201, response.json()
 

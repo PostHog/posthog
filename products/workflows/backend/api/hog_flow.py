@@ -217,20 +217,21 @@ class HogFlowActionSerializer(serializers.Serializer):
                     properties = filters.get("properties", None)
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
+                if self._should_enforce_audience_guard(is_draft) and isinstance(filters, dict):
                     # The audience targets who a person is (properties / cohort membership), not what they did.
                     # Event/action filters are silently dropped by the person-based blast radius (resolving to
-                    # "everyone"), so reject them outright — mirrors the guard on conditional branches. The UI
-                    # already prevents this; this closes the same gap for API/MCP callers.
+                    # "everyone"), so reject them outright — same rejection as a behavioral cohort below, and
+                    # enforced together so MCP/API drafts can't slip an event-behavior audience through.
                     if filters.get("events") or filters.get("actions"):
                         raise serializers.ValidationError(
                             {
                                 "filters": (
-                                    "Batch trigger audiences can't filter on event behavior. Target person "
-                                    "properties or a cohort instead (create a cohort for 'users who did event X')."
+                                    "Batch trigger audiences can't filter on event behavior. Use person "
+                                    "properties or a static/property-based cohort, or an event trigger for "
+                                    "behavioral targeting."
                                 )
                             }
                         )
-                if self._should_enforce_audience_guard(is_draft) and isinstance(filters, dict):
                     self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             elif data.get("config", {}).get("type") == "schedule":
                 # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
