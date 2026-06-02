@@ -7,6 +7,10 @@ The goal is to document where we are, where type information is lost today, and 
 This document is about HogQL expression and SQL runtime types.
 It is not about the PostHog TypeScript/Python query schema type generation pipeline described in `docs/published/handbook/engineering/type-system.md`.
 
+HogQL has multiple print targets.
+ClickHouse is the highest-value optimization target today, but the type system should account for `clickhouse`, `postgres`, and `duckdb` output from the start.
+Dialect differences should be explicit type-system facts, not accidental printer behavior.
+
 ## Why This Matters
 
 HogQL already has type annotations on AST nodes, but they are mostly good enough for field resolution, printing, nullability checks, and a few local transformations.
@@ -28,6 +32,26 @@ Concrete symptoms in the current codebase:
 
 The intended outcome is not stricter validation for its own sake.
 The outcome is trustworthy optimizer input.
+
+## Compatibility Constraint
+
+All existing HogQL and SQL that works today should keep working by default.
+The type system should start as better metadata, diagnostics, and opt-in optimizer input, not as a new source of user-facing breakage.
+
+TODO:
+
+- [ ] Keep unknown or partially-known expressions printable unless a caller explicitly opts into strict validation.
+- [ ] Keep strict mode limited to tests, diagnostics, selected internal queries, or explicit developer workflows until coverage is high.
+- [ ] Treat missing function signatures as optimizer barriers by default, not immediate user-facing errors.
+- [ ] Put behavior-changing optimizations behind modifiers, internal flags, or equivalence tests before enabling them broadly.
+- [ ] Add compatibility tests that compile representative existing HogQL queries before and after type-system changes.
+- [ ] Preserve parser and printer acceptance for existing query shapes, even if the new type diagnostics can explain that a shape is imprecisely typed.
+
+Acceptance criteria:
+
+- Existing queries do not stop compiling because the type system became more precise.
+- Any intentional semantic change is documented, tested, and rolled out separately from type metadata work.
+- The default path remains permissive until there is enough confidence to make a narrower strict path useful.
 
 ## Current State
 
@@ -75,6 +99,7 @@ It performs several jobs at once:
 - Expands asterisk expressions.
 - Rewrites selected PostHog-specific functions into lower-level AST.
 - Assigns `type` metadata onto returned AST nodes.
+- Handles dialect-specific behavior for ClickHouse and the Postgres-family targets (`postgres` and `duckdb`).
 
 Some useful things already work:
 
@@ -185,6 +210,7 @@ This is workable for the current pipeline, but a stronger type system needs clea
 Types are already used in several non-trivial ways:
 
 - Printers require resolved table and field types before emitting SQL.
+- HogQL can print to ClickHouse, Postgres, DuckDB, and HogQL itself, so expression typing should not assume a single SQL backend.
 - `BasePrinter._is_nullable()` uses type metadata to decide when comparisons need `ifNull(...)` wrappers.
 - `ClickHousePrinter` chooses function overloads based on the first argument type for selected functions.
 - `PropertySwapper` uses field types to identify timestamp fields, JSON fields, lazy join fields, and typed property wrappers.
@@ -219,8 +245,11 @@ TODO:
   - [ ] JSON/object-ish values
   - [ ] aggregate states
   - [ ] unknown types with a reason/provenance
+- [ ] Represent a common cross-dialect type core plus dialect-specific extensions for ClickHouse, Postgres, and DuckDB.
+- [ ] Define which types are portable and which are backend-specific.
 - [ ] Define the relationship between storage fields (`DatabaseField`) and expression types.
 - [ ] Make type conversion from ClickHouse type strings structured instead of lossy string cleanup.
+- [ ] Add structured type adapters for Postgres and DuckDB metadata where HogQL prints or introspects those backends.
 - [ ] Make type conversion from saved query metadata structured instead of routing through field class names.
 - [ ] Decide whether `StringArrayType` should become `ArrayType(StringType)` or remain as a storage-specific alias.
 - [ ] Fix `FloatArrayDatabaseField` so it does not lose the array dimension.
@@ -230,6 +259,7 @@ TODO:
 Acceptance criteria:
 
 - A typed field can round-trip from database schema or ClickHouse `DESCRIBE` metadata into the type model without losing major type constructors.
+- A typed field can carry enough dialect metadata to print correctly to ClickHouse, Postgres, and DuckDB.
 - The type model can answer both "what SQL type does this expression return?" and "what physical column expression can the printer emit?"
 - Existing field resolution behavior remains compatible with current query execution.
 
@@ -244,8 +274,8 @@ TODO:
   - [ ] functions that never return nullable
   - [ ] functions where nullability depends on specific arguments
   - [ ] `assumeNotNull`, `toNullable`, `ifNull`, `coalesce`, `nullIf`, and `*OrNull` behavior
-- [ ] Add numeric promotion rules matching ClickHouse well enough for optimization.
-- [ ] Add string/date/datetime coercion rules for PostHog-supported syntax.
+- [ ] Add numeric promotion rules matching each supported backend well enough for optimization.
+- [ ] Add string/date/datetime coercion rules for PostHog-supported syntax by dialect.
 - [ ] Add array element unification rules.
 - [ ] Add tuple element and named-field lookup rules.
 - [ ] Add map key/value access rules.
@@ -256,6 +286,7 @@ TODO:
   - [ ] incompatible
   - [ ] unknown
 - [ ] Keep ClickHouse-specific rules separate from Postgres/DuckDB rules.
+- [ ] Add a way for an optimizer to ask whether a rewrite is valid for the current print target.
 
 Acceptance criteria:
 
@@ -287,6 +318,7 @@ TODO:
   - [ ] `uniq(...) -> UInt64`
 - [ ] Support overload ranking and deterministic error reporting.
 - [ ] Distinguish "function is known but signature is incomplete" from "function is unsupported".
+- [ ] Support dialect-specific function signatures, names, and return types where ClickHouse, Postgres, and DuckDB diverge.
 - [ ] Add a strict mode that can fail on unknown function return types once coverage is high enough.
 
 Acceptance criteria:
@@ -301,12 +333,13 @@ TODO:
 
 - [ ] Add a signature coverage inventory command or test that reports:
   - [ ] total function metadata entries
+  - [ ] entries by dialect/print target
   - [ ] entries with precise signatures
   - [ ] entries with wildcard signatures
   - [ ] entries with unknown return types
   - [ ] aggregate entries without return types
   - [ ] functions used in production query corpus but still unknown
-- [ ] Prioritize catalog coverage by optimizer value, not by alphabetical order.
+- [ ] Prioritize catalog coverage by optimizer value and dialect reach, not by alphabetical order.
 - [ ] Cover comparisons and logical functions first:
   - [ ] `equals`, `notEquals`, `less`, `greater`, `lessOrEquals`, `greaterOrEquals`
   - [ ] `in`, `notIn`
@@ -341,6 +374,7 @@ TODO:
   - [ ] `quantile*`, `median*`
   - [ ] map/forEach aggregate variants
 - [ ] Cover high-use string, URL, and date functions after the above.
+- [ ] Cover Postgres and DuckDB functions that HogQL passes through or rewrites, especially casts, date/time functions, string functions, comparisons, and aggregations.
 - [ ] Decide how UDFs should be typed:
   - [ ] typed manually
   - [ ] introspected from ClickHouse
@@ -362,6 +396,7 @@ TODO:
 - [ ] Assign output types for `TypeCast`.
 - [ ] Assign output types for `TryCast`.
 - [ ] Represent the target type of casts using the canonical type model, not only `type_name: str`.
+- [ ] Preserve dialect-specific cast syntax and supported target types.
 - [ ] Infer `ArrayAccess(Array[T], Int) -> T`.
 - [ ] Infer `ArraySlice(Array[T], ...) -> Array[T]`.
 - [ ] Infer `TupleAccess(Tuple[..., T_i, ...], i) -> T_i`.
@@ -374,6 +409,7 @@ TODO:
 Acceptance criteria:
 
 - `CAST(x AS DateTime)` and `toDateTime(x)` agree on output type where they should.
+- Cast typing remains backwards compatible with currently accepted ClickHouse, Postgres, and DuckDB casts.
 - Array and tuple expressions preserve element types through access and slicing.
 - Higher-order functions no longer erase argument and return types.
 
@@ -513,6 +549,7 @@ TODO:
   - [ ] aggregations
   - [ ] set queries
   - [ ] typed properties
+- [ ] Add dialect compatibility tests for ClickHouse, Postgres, and DuckDB print targets.
 - [ ] Add function catalog tests:
   - [ ] every public function has either a precise signature or an explicit unknown marker
   - [ ] aggregate functions declare return type behavior
@@ -524,6 +561,7 @@ TODO:
   - [ ] skip-index usage on typed materialized property comparisons
   - [ ] nullability behavior
   - [ ] timezone-sensitive datetime behavior
+- [ ] Add Postgres/DuckDB smoke tests for type-aware printing where those dialects are supported.
 - [ ] Add regression tests for current edge cases:
   - [ ] `toDateTime(properties.dt_prop)` does not double-parse
   - [ ] aliases rewritten by `PropertySwapper` do not keep stale return types
@@ -544,9 +582,10 @@ TODO:
 - [ ] Add a non-invasive inventory command or test for function signature coverage.
 - [ ] Add unknown-type diagnostics without changing query output.
 - [ ] Build a small representative query corpus from existing tests and query runners.
-- [ ] Record the baseline unknown-type rate.
+- [ ] Record the baseline unknown-type rate by dialect.
 - [ ] Record the baseline compile-time cost of resolution.
 - [ ] Identify the top 20 unknown-producing functions in representative queries.
+- [ ] Record a backwards-compatibility baseline of representative queries that currently compile.
 
 Do not change optimizer behavior in this phase.
 
@@ -558,6 +597,7 @@ TODO:
 - [ ] Add adapters from current `ConstantType` classes to the new model, or evolve `ConstantType` directly.
 - [ ] Add adapters from `DatabaseField` to the new model.
 - [ ] Add parser/adapter for ClickHouse type strings used in warehouse and saved query metadata.
+- [ ] Add adapters for Postgres and DuckDB type metadata used by HogQL print targets.
 - [ ] Add equality, display, and debug serialization for types.
 - [ ] Keep current public resolver behavior compatible.
 
@@ -602,6 +642,7 @@ TODO:
 - [ ] Run query corpus comparisons before and after each rewrite.
 
 Each optimization should have a narrow rollout path.
+No optimization should become default unless existing query compatibility is preserved or the behavior change is explicitly accepted.
 
 ### Phase 5: Strict Mode And Cleanup
 
@@ -615,16 +656,17 @@ TODO:
 - [ ] Document how to add a database field with a precise runtime type.
 
 Strict mode should come after coverage, not before.
+It should not become the default behavior for user-authored HogQL unless there is a separate compatibility review.
 
 ## Open Questions
 
 - [ ] Should expression types live on AST nodes, or should they live in a separate side table keyed by node identity?
 - [ ] Should table/scope types and runtime expression types remain in one hierarchy?
 - [ ] Should `UnknownType` be a single type or a family of unknowns with provenance?
-- [ ] How exact do we need to be compared with ClickHouse?
-      Exactness helps optimization but may require frequent updates as ClickHouse changes.
+- [ ] How exact do we need to be compared with each backend?
+      Exactness helps optimization but may require frequent updates as ClickHouse, Postgres, and DuckDB behavior changes.
 - [ ] How should dialect-specific types be modeled?
-      HogQL targets ClickHouse most heavily, but the resolver also supports Postgres and DuckDB syntax paths.
+      HogQL targets ClickHouse most heavily, but the resolver and printers also support Postgres and DuckDB syntax paths.
 - [ ] How much should property definitions be trusted?
       Property definitions can be missing, late, or wrong relative to actual ingested values.
 - [ ] Should typed property conversion happen during resolution, a planning pass, or printing?
@@ -636,6 +678,9 @@ Strict mode should come after coverage, not before.
 
 - Do not build a full SQL validator in the first pass.
 - Do not reject all queries with unknown types.
+- Do not make backwards-incompatible changes if we can avoid them.
+- Do not stop existing HogQL/SQL from compiling by default.
+- Do not enable strict mode for user-authored queries as part of the initial type-system work.
 - Do not type every ClickHouse function before getting value from high-use functions.
 - Do not replace the parser.
 - Do not change frontend query schema generation.
@@ -646,23 +691,26 @@ Strict mode should come after coverage, not before.
 
 1. Add function signature inventory and unknown-type diagnostics.
 2. Add a structured SQL runtime type model and adapters from current `ConstantType`/`DatabaseField`.
-3. Add type algebra for nullability, common supertypes, numeric promotion, arrays, and tuples.
-4. Add generic function signature support while keeping existing simple signatures working.
-5. Type casts, accessors, and higher-order function lambda arguments.
-6. Type comparisons, logical functions, `if`, `multiIf`, and nullability functions.
-7. Type common aggregate and aggregate-state functions.
-8. Type property extraction and materialized property planning metadata.
-9. Add cast simplification with tests and a guarded rollout.
-10. Add typed materialized property comparison optimization with skip-index integration tests.
-11. Add strict mode for internal tests after coverage is high.
-12. Remove obsolete ad hoc workarounds and document the new workflow.
+3. Add cross-dialect adapters for ClickHouse, Postgres, and DuckDB type metadata.
+4. Add type algebra for nullability, common supertypes, numeric promotion, arrays, and tuples.
+5. Add generic function signature support while keeping existing simple signatures working.
+6. Type casts, accessors, and higher-order function lambda arguments.
+7. Type comparisons, logical functions, `if`, `multiIf`, and nullability functions.
+8. Type common aggregate and aggregate-state functions.
+9. Type property extraction and materialized property planning metadata.
+10. Add cast simplification with tests and a guarded rollout.
+11. Add typed materialized property comparison optimization with skip-index integration tests.
+12. Add strict mode for internal tests after coverage is high.
+13. Remove obsolete ad hoc workarounds and document the new workflow.
 
 ## Success Metrics
 
 - `UnknownType` rate across representative HogQL queries goes down.
 - Percentage of function calls with precise return types goes up.
 - Query compilation overhead remains acceptable.
+- Existing representative HogQL queries continue compiling and printing by default.
 - Redundant casts and nullability wrappers decrease in emitted ClickHouse SQL.
+- Type-aware rewrites are valid for the active print target, including Postgres and DuckDB where applicable.
 - Typed property comparisons use skip indexes in cases where ClickHouse supports them.
 - Fewer production bugs require local workarounds for stale aliases or lost function return types.
 - Adding a new HogQL function requires declaring type behavior or explicitly documenting why it is unknown.
