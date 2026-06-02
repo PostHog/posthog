@@ -1,36 +1,26 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown } from 'lucide-react'
 import { type ReactElement, type ReactNode, useCallback, useMemo, useState } from 'react'
 
-// TODO(quill): delete this file once @posthog/quill ships a `DataTable` (or
-// `Table` + `TableSort` + `TablePagination`) primitive. The prop shape below
-// (`columns`, `data`, `pageSize`, `defaultSort`, `emptyMessage`) deliberately
-// mirrors what we'd expect from a Quill primitive so migration is a single
-// import swap.
-//
-// What's needed from Quill:
-//   - A `Table` primitive with semantic `<table>/<thead>/<tbody>` markup —
-//     accessibility relies on this and Quill currently ships no table
-//     primitive (only `Item`/`ItemGroup`, which is row-per-item, not
-//     row-of-columns). The data-density tradeoff is real: a 5-column metric
-//     table doesn't render usefully as Item cards.
-//   - Column-aware sorting wired to header click + ARIA
-//     (`aria-sort=ascending|descending|none`). Today we hand-roll the toggle
-//     between asc → desc → unsorted and the sort indicator glyphs.
-//   - Client-side pagination with a token-styled control (we currently
-//     compose `<Button variant="ghost" size="icon-xs">` + chevron icons
-//     inline; a Quill `Pagination` primitive would absorb this).
-//   - Empty state slot. We already route the "no data" branch through
-//     `<Empty><EmptyHeader><EmptyDescription>` so the visual matches Quill's
-//     primitive, but a real Quill `Table` could expose this directly via an
-//     `emptyMessage` / `emptyState` prop.
-//   - Built-in cell renderers (default text, number-localised,
-//     boolean/null sentinel) — currently in `defaultFormat()` below.
-//
-// Until then this file leans on Quill's `Button`, `Empty*`, `cn()` and
-// design tokens (`bg-muted/50`, `text-muted-foreground`, `border-t`,
-// `--text-sm`) so the visual language already matches what a future Quill
-// primitive would ship.
-import { Button, cn, Empty, EmptyDescription, EmptyHeader } from '@posthog/quill'
+// Composes Quill's `Table` primitive (semantic markup, sticky-capable, scroll
+// affordances) and layers on the pieces Quill's `DataTable` component doesn't
+// cover: client-side pagination, per-column alignment, and default cell
+// formatting (number-localise, boolean/null sentinel). The simpler
+// `DataTableColumn` shape — `key`/`header`/`render`/`align`/`sortable` — is kept
+// over TanStack's `ColumnDef` so list views read declaratively. Drop this in
+// favour of Quill's `DataTable` directly once it gains pagination + alignment.
+import {
+    Button,
+    cn,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@posthog/quill'
 
 export interface DataTableColumn<T> {
     key: string
@@ -98,17 +88,14 @@ const alignClasses = {
     right: 'text-right',
 } as const
 
-function SortIcon({ direction, active }: { direction?: SortDirection | undefined; active: boolean }): ReactElement {
-    return (
-        <span
-            className={cn(
-                'inline-flex ml-1',
-                active ? 'text-foreground' : 'text-muted-foreground opacity-0 group-hover/th:opacity-50'
-            )}
-        >
-            {direction === 'asc' ? '\u2191' : direction === 'desc' ? '\u2193' : '\u2195'}
-        </span>
-    )
+function SortIndicator({ direction }: { direction?: SortDirection | undefined }): ReactElement {
+    if (direction === 'asc') {
+        return <ArrowUp className="size-3" />
+    }
+    if (direction === 'desc') {
+        return <ArrowDown className="size-3" />
+    }
+    return <ChevronsUpDown className="size-3 opacity-50" />
 }
 
 export function DataTable<T extends object>({
@@ -164,68 +151,65 @@ export function DataTable<T extends object>({
 
     return (
         <div className={cn('overflow-hidden rounded-lg border', className)}>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                    <thead>
-                        <tr className="bg-muted/50">
-                            {columns.map((col) => (
-                                <th
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        {columns.map((col) => {
+                            const active = sort?.key === col.key
+                            return (
+                                <TableHead
                                     key={col.key}
                                     aria-sort={
                                         col.sortable
-                                            ? sort?.key === col.key
-                                                ? sort.direction === 'asc'
+                                            ? active
+                                                ? sort?.direction === 'asc'
                                                     ? 'ascending'
                                                     : 'descending'
                                                 : 'none'
                                             : undefined
                                     }
-                                    className={cn(
-                                        'group/th px-3 py-2 font-medium text-muted-foreground',
-                                        'max-w-[200px] truncate',
-                                        alignClasses[col.align ?? 'left'],
-                                        col.sortable && 'cursor-pointer select-none hover:text-foreground'
-                                    )}
+                                    className={cn('max-w-[200px] truncate', alignClasses[col.align ?? 'left'])}
                                     title={typeof col.header === 'string' ? col.header : undefined}
-                                    onClick={col.sortable ? () => handleSort(col.key) : undefined}
                                 >
-                                    {col.header}
-                                    {col.sortable && (
-                                        <SortIcon
-                                            direction={sort?.key === col.key ? sort.direction : undefined}
-                                            active={sort?.key === col.key}
-                                        />
-                                    )}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {pagedData.map((row, rowIndex) => (
-                            <tr key={rowIndex} className={cn('border-t', rowIndex % 2 === 1 && 'bg-muted/25')}>
-                                {columns.map((col) => {
-                                    const content = col.render ? col.render(row) : defaultFormat(getValue(row, col.key))
-                                    const title = typeof content === 'string' ? content : undefined
-
-                                    return (
-                                        <td
-                                            key={col.key}
-                                            className={cn(
-                                                'px-3 py-2 text-foreground',
-                                                'max-w-[200px] truncate',
-                                                alignClasses[col.align ?? 'left']
-                                            )}
-                                            title={title}
+                                    {col.sortable ? (
+                                        <Button
+                                            size="sm"
+                                            aria-selected={active ? true : undefined}
+                                            className={cn('gap-1.5', active && 'text-foreground')}
+                                            onClick={() => handleSort(col.key)}
                                         >
-                                            {content}
-                                        </td>
-                                    )
-                                })}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+                                            {col.header}
+                                            <SortIndicator direction={active ? sort?.direction : undefined} />
+                                        </Button>
+                                    ) : (
+                                        col.header
+                                    )}
+                                </TableHead>
+                            )
+                        })}
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {pagedData.map((row, rowIndex) => (
+                        <TableRow key={rowIndex}>
+                            {columns.map((col) => {
+                                const content = col.render ? col.render(row) : defaultFormat(getValue(row, col.key))
+                                const title = typeof content === 'string' ? content : undefined
+
+                                return (
+                                    <TableCell
+                                        key={col.key}
+                                        className={cn('max-w-[200px] truncate', alignClasses[col.align ?? 'left'])}
+                                        title={title}
+                                    >
+                                        {content}
+                                    </TableCell>
+                                )
+                            })}
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
             {showPagination && (
                 <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
                     <span>
