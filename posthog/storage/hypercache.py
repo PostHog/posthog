@@ -254,11 +254,14 @@ class HyperCache:
         try:
             data = self.load_fn(key)
         except HyperCacheDependencyUnavailable:
-            # Return a miss without caching a sentinel, so the next read retries.
+            # Return a miss without caching a sentinel, so the next read retries. The
+            # distinct "dependency_unavailable" source lets etag-aware callers fail
+            # loud (retryable 503) instead of treating it like a plain cache miss; the
+            # other callers (get_from_cache, verifiers) still see None and degrade.
             HYPERCACHE_CACHE_COUNTER.labels(
                 result="dependency_unavailable", namespace=self.namespace, value=self.value
             ).inc()
-            return None, "db"
+            return None, "dependency_unavailable"
 
         if isinstance(data, HyperCacheStoreMissing):
             self._set_cache_value_redis(key, None)
@@ -350,10 +353,14 @@ class HyperCache:
         - Otherwise: (data, current_etag, True) - 200 case with full data
 
         Note: If Redis fails during ETag check, gracefully degrades to returning
-        the full data (treating as modified) rather than raising an exception.
+        the full data (treating as modified) rather than raising an exception. A
+        dependency-unavailable signal on a cold miss is the exception: it is re-raised
+        as HyperCacheDependencyUnavailable so the caller can fail loud and retryable.
         """
         if not self.enable_etag:
-            data, _ = self.get_from_cache_with_source(key)
+            data, source = self.get_from_cache_with_source(key)
+            if source == "dependency_unavailable":
+                raise HyperCacheDependencyUnavailable(f"Dependency unavailable loading {self.namespace}/{self.value}")
             return data, None, True
 
         try:
@@ -364,6 +371,9 @@ class HyperCache:
 
             data, source = self.get_from_cache_with_source(key)
 
+            if source == "dependency_unavailable":
+                raise HyperCacheDependencyUnavailable(f"Dependency unavailable loading {self.namespace}/{self.value}")
+
             # If we loaded from S3 or DB, the ETag was set during _set_cache_value_redis
             # Re-fetch it to ensure we return the correct value
             if source in ("s3", "db"):
@@ -371,6 +381,10 @@ class HyperCache:
 
             return data, current_etag, True
         except Exception as e:
+            # A dependency-unavailable signal must reach the caller as a typed,
+            # retryable error — not be swallowed like a Redis failure below.
+            if isinstance(e, HyperCacheDependencyUnavailable):
+                raise
             # Gracefully degrade: return full data when Redis fails
             logger.warning(
                 f"Redis failure during ETag check for {self.namespace}, falling back to full response", error=str(e)

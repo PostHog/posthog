@@ -504,6 +504,33 @@ class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
         stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.project_id}")
         assert stale == PERSONHOG_SUCCESS_DATA
 
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_empty_success_does_not_clobber_populated_stale(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_fetch_personhog,
+        mock_objects,
+    ):
+        from posthog.utils import get_safe_cache
+
+        # A populated last-known-good already exists (e.g. written by the batch path).
+        stale_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.project_id}"
+        safe_cache_set(stale_key, PERSONHOG_SUCCESS_DATA, 3600)
+
+        # Upstream succeeds but returns empty — the "empty-but-not-erroring" failure
+        # mode the corruption guard depends on the stale fallback to catch.
+        mock_fetch_personhog.return_value = []
+
+        result = get_group_types_for_project(self.project_id)
+
+        # The empty success is served, but must not erase the populated fallback.
+        assert result == []
+        assert get_safe_cache(stale_key) == PERSONHOG_SUCCESS_DATA
+
 
 class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
     def setUp(self):

@@ -813,8 +813,9 @@ def verify_team_flag_definitions(
 
     db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
 
-    # Cache miss (source="db" or "miss" means data was not found in cache)
-    if source in ("db", "miss"):
+    # Cache miss — no usable cache entry (db/miss, or dependency_unavailable when a
+    # cold load could not reach its upstream). All mean "nothing cached", not drift.
+    if source in ("db", "miss", "dependency_unavailable"):
         return {
             "status": "miss",
             "issue": "CACHE_MISS",

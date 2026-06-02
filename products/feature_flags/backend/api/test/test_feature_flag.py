@@ -7546,6 +7546,48 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(cached_json["flags"]), 1)
         self.assertEqual(cached_json["flags"][0]["key"], "test-flag")
 
+    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
+    def test_local_evaluation_returns_503_when_dependency_unavailable(self, mock_capture):
+        """A cold cache during a persons-DB outage fails loud with a retryable 503, not a
+        generic 500, and does not re-capture (the dependency layer already did, throttled).
+
+        Drives the real cache→hypercache→endpoint chain (only the group-type fetch is
+        patched), so a regressed source token would also surface here."""
+        from posthog.models.group_type_mapping import GroupTypesUnavailable
+
+        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
+
+        # Cold cache (Redis + S3) so the read falls through to load_fn, whose group-type
+        # fetch is the unavailable dependency. GroupTypesUnavailable subclasses
+        # HyperCacheDependencyUnavailable, so this also confirms the endpoint catches the base.
+        clear_flag_definition_caches(self.team)
+        self.client.logout()
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            side_effect=GroupTypesUnavailable([self.team.project_id]),
+        ):
+            response = self.client.get(
+                "/api/feature_flag/local_evaluation",
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "service_unavailable",
+                "code": "flags_dependency_unavailable",
+                "detail": "Feature flag dependencies are temporarily unavailable; retry shortly",
+            },
+        )
+        self.assertEqual(response.headers.get("Retry-After"), "30")
+        mock_capture.assert_not_called()
+
     def test_local_evaluation_caching_with_cohorts(self):
         """Test caching with send_cohorts parameter."""
         cohort = Cohort.objects.create(

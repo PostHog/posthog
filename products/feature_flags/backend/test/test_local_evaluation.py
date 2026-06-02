@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -275,6 +275,38 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         assert self._cached_group_type_mapping() == {"0": "organization"}
 
         # Fetch now returns empty without erroring, while last-known-good is non-empty
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            return_value={self.team.project_id: []},
+        ):
+            with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
+                update_flag_caches(self.team)
+                mock_set.assert_not_called()
+
+        mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+    @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
+    def test_single_project_empty_success_does_not_defeat_guard(self, mock_emptied_counter):
+        # Layer interaction: the high-frequency single-project fetch shares the stale
+        # key with the rebuild guard. A single-project empty-success must not clobber
+        # that key, or a later rebuild would wave the empty mapping through.
+        from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, get_group_types_for_project
+
+        # Warm with the real fetch so the non-empty last-known-good stale exists.
+        update_flag_caches(self.team)
+        assert self._cached_group_type_mapping() == {"0": "organization"}
+
+        # A single-project fetch returns empty without erroring (the empty-but-not-
+        # erroring upstream). It must not overwrite the populated stale fallback.
+        safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+        with (
+            patch("posthog.personhog_client.client.get_personhog_client", return_value=MagicMock()),
+            patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog", return_value=[]),
+        ):
+            assert get_group_types_for_project(self.team.project_id) == []
+
+        # Stale survived, so a subsequent empty-success rebuild still trips the guard.
         with patch(
             "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
             return_value={self.team.project_id: []},

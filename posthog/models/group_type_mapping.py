@@ -193,7 +193,7 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
                 operation="get_group_types_for_project", source="personhog", client_name=get_client_name()
             ).inc()
             safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
-            safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
+            _write_project_stale_if_non_empty(project_id, result)
             return result
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
@@ -214,7 +214,7 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
             operation="get_group_types_for_project", source="django_orm", client_name=get_client_name()
         ).inc()
         safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
-        safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
+        _write_project_stale_if_non_empty(project_id, result)
         return result
     except DatabaseError as exc:
         _record_group_types_fetch_failure(
@@ -328,6 +328,15 @@ def _memoise_group_types_on(target: Team | Project, project_id: int) -> list[dic
     return getattr(target, _REQUEST_CACHED_GROUP_TYPES_ATTR)
 
 
+def _write_project_stale_if_non_empty(project_id: int, mappings: list[dict[str, Any]]) -> None:
+    """Persist a project's group types to its stale (last-known-good) key, only when
+    non-empty. Overwriting a populated entry with [] would erase the fallback the
+    outage recovery and the write-side empty-mapping guard depend on.
+    """
+    if mappings:
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}", mappings, GROUP_TYPES_STALE_CACHE_TTL)
+
+
 def _populate_projects_stale_cache(result: dict[int, list[dict[str, Any]]]) -> None:
     """Write each project's non-empty group types to its per-project stale key, the
     last-known-good shared by the batch and single-project paths.
@@ -336,8 +345,7 @@ def _populate_projects_stale_cache(result: dict[int, list[dict[str, Any]]]) -> N
     erase the fallback that outage recovery and the write-side guard read.
     """
     for project_id, mappings in result.items():
-        if mappings:
-            safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}", mappings, GROUP_TYPES_STALE_CACHE_TTL)
+        _write_project_stale_if_non_empty(project_id, mappings)
 
 
 def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseError) -> dict[int, list[dict[str, Any]]]:

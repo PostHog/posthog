@@ -186,9 +186,39 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
         result, source = hc.get_from_cache_with_source(self.team_id)
 
         assert result is None
-        assert source == "db"
+        # Distinct from a plain "db" miss so etag-aware callers can fail loud
+        assert source == "dependency_unavailable"
         # No miss sentinel cached, so the next read retries instead of serving a cached miss
         assert cache.get(hc.get_cache_key(self.team_id)) is None
+
+    def test_get_if_none_match_raises_when_etag_enabled_and_cold(self):
+        # On a cold cache during an outage, the etag-aware read must surface the typed
+        # signal to the caller (→ retryable 503), not degrade to a silent miss.
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable, enable_etag=True)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with pytest.raises(HyperCacheDependencyUnavailable):
+            hc.get_if_none_match(self.team_id, client_etag=None)
+
+    def test_get_if_none_match_raises_when_etag_disabled_and_cold(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with pytest.raises(HyperCacheDependencyUnavailable):
+            hc.get_if_none_match(self.team_id, client_etag=None)
+
+    def test_get_if_none_match_still_degrades_on_redis_failure(self):
+        # A genuine Redis failure during the etag check must still degrade to full
+        # data — only the dependency-unavailable signal is re-raised.
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=lambda team: {"ok": True}, enable_etag=True)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with patch.object(hc, "get_etag", side_effect=Exception("redis down")):
+            data, etag, modified = hc.get_if_none_match(self.team_id, client_etag=None)
+
+        assert data == {"ok": True}
+        assert etag is None
+        assert modified is True
 
 
 class TestHyperCacheIntegration(HyperCacheTestBase):
