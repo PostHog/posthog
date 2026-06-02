@@ -78,7 +78,7 @@ export class EventSchemaEnforcementManager {
                 ed.team_id,
                 ed.name as event_name,
                 ed.enforcement_mode,
-                es.version as schema_version,
+                ed.schema_version as schema_version,
                 p.name as property_name,
                 array_agg(DISTINCT p.property_type ORDER BY p.property_type) as property_types
             FROM posthog_eventdefinition ed
@@ -87,7 +87,7 @@ export class EventSchemaEnforcementManager {
             WHERE ed.team_id = ANY($1)
               AND ed.enforcement_mode IN ('reject', 'enforce')
               AND p.is_required = true
-            GROUP BY ed.team_id, ed.name, ed.enforcement_mode, es.version, p.name
+            GROUP BY ed.team_id, ed.name, ed.enforcement_mode, ed.schema_version, p.name
             ORDER BY ed.team_id, ed.name, p.name`,
             [numericTeamIds],
             'fetch-enforced-event-schemas'
