@@ -16,7 +16,9 @@ class NotionEndpointConfig:
     # Field to partition by. Must be stable (immutable) - Notion's created_time fits;
     # last_edited_time changes on every edit so it is unsuitable.
     partition_key: Optional[str] = None
-    # For "search" streams: the Notion object type to filter to ("page" or "database").
+    # For "search" streams: the Notion object type to filter to ("page" or "data_source").
+    # Under API version 2025-09-03 the schema-bearing "database" tables are returned as
+    # "data_source" objects, so the databases stream filters on "data_source".
     object_filter: Optional[str] = None
 
 
@@ -30,7 +32,7 @@ NOTION_ENDPOINTS: dict[str, NotionEndpointConfig] = {
     "databases": NotionEndpointConfig(
         name="databases",
         stream_type="search",
-        object_filter="database",
+        object_filter="data_source",
         partition_key="created_time",
     ),
     "users": NotionEndpointConfig(

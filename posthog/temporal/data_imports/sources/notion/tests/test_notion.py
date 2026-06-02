@@ -10,12 +10,18 @@ from parameterized import parameterized
 from posthog.temporal.data_imports.sources.notion.notion import (
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
+    MAX_RETRY_WAIT_SECONDS,
     NOTION_VERSION,
     NotionResumeConfig,
+    NotionRetryableError,
+    _comments_stream,
     _get_headers,
     _iter_block_children,
+    _parse_retry_after,
+    _request,
     _search_body,
     _search_stream,
+    _wait_strategy,
     validate_credentials,
 )
 from posthog.temporal.data_imports.sources.notion.settings import NOTION_ENDPOINTS
@@ -70,8 +76,12 @@ def _list_response(results: list[dict[str, Any]], has_more: bool, next_cursor: s
     return FakeResponse({"results": results, "has_more": has_more, "next_cursor": next_cursor})
 
 
-def _patch_session(session: FakeSession) -> Any:
-    return mock.patch(f"{MODULE}.make_tracked_session", return_value=session)
+class _FakeRetryState:
+    """Minimal RetryCallState stand-in carrying just the failing outcome."""
+
+    def __init__(self, exception: BaseException) -> None:
+        self.outcome = mock.MagicMock()
+        self.outcome.exception.return_value = exception
 
 
 class TestNotion:
@@ -81,7 +91,7 @@ class TestNotion:
         assert headers["Notion-Version"] == NOTION_VERSION
         assert headers["Content-Type"] == "application/json"
 
-    @parameterized.expand([("page",), ("database",)])
+    @parameterized.expand([("page",), ("data_source",)])
     def test_search_body_shape(self, object_filter: str) -> None:
         body = _search_body(object_filter, None)
         assert body["filter"] == {"property": "object", "value": object_filter}
@@ -103,8 +113,7 @@ class TestNotion:
         manager = mock.MagicMock()
         manager.can_resume.return_value = False
 
-        with _patch_session(session):
-            tables = list(_search_stream("tok", NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+        tables = list(_search_stream(session, NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 2
@@ -117,16 +126,14 @@ class TestNotion:
         manager.can_resume.return_value = True
         manager.load_state.return_value = NotionResumeConfig(next_cursor="resume-cursor")
 
-        with _patch_session(session):
-            list(_search_stream("tok", NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+        list(_search_stream(session, NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
 
         # The first request must start from the persisted cursor.
         assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
 
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
-        with _patch_session(session):
-            blocks = list(_iter_block_children("tok", "block-root", "page-42", mock.MagicMock(), 0))
+        blocks = list(_iter_block_children(session, "block-root", "page-42", mock.MagicMock(), 0))
 
         assert len(blocks) == 1
         assert blocks[0]["_page_id"] == "page-42"
@@ -137,8 +144,7 @@ class TestNotion:
             return _list_response([{"id": "child", "has_children": True}], has_more=False, next_cursor=None)
 
         session = FakeSession(always_has_children)
-        with _patch_session(session):
-            blocks = list(_iter_block_children("tok", "block-root", "page-1", mock.MagicMock(), 0))
+        blocks = list(_iter_block_children(session, "block-root", "page-1", mock.MagicMock(), 0))
 
         # depth 0 yields one block, then recurses up to MAX_BLOCK_DEPTH levels.
         assert len(blocks) == MAX_BLOCK_DEPTH + 1
@@ -150,16 +156,56 @@ class TestNotion:
 
         session = FakeSession(always_more)
         logger = mock.MagicMock()
-        with _patch_session(session):
-            blocks = list(_iter_block_children("tok", "block-root", "page-1", logger, 0))
+        blocks = list(_iter_block_children(session, "block-root", "page-1", logger, 0))
 
         assert len(blocks) == MAX_CHILD_PAGES_PER_PARENT
+        assert logger.warning.called
+
+    def test_request_429_raises_retryable_with_retry_after(self) -> None:
+        session = FakeSession([FakeResponse({}, status_code=429, headers={"Retry-After": "7"})])
+        # Bypass the tenacity retry wrapper so we observe a single attempt's behaviour.
+        with pytest.raises(NotionRetryableError) as exc_info:
+            _request.__wrapped__(session, "GET", "/v1/users", mock.MagicMock(), params={})
+        assert exc_info.value.retry_after == 7.0
+
+    def test_request_5xx_raises_retryable_without_retry_after(self) -> None:
+        session = FakeSession([FakeResponse({}, status_code=503)])
+        with pytest.raises(NotionRetryableError) as exc_info:
+            _request.__wrapped__(session, "GET", "/v1/users", mock.MagicMock(), params={})
+        assert exc_info.value.retry_after is None
+
+    @parameterized.expand([("5", 5.0), (None, None), ("not-a-number", None)])
+    def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:
+        assert _parse_retry_after(value) == expected
+
+    def test_wait_strategy_honors_retry_after(self) -> None:
+        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
+        assert _wait_strategy(state) == 3.0
+
+    def test_wait_strategy_caps_retry_after(self) -> None:
+        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
+        assert _wait_strategy(state) == MAX_RETRY_WAIT_SECONDS
+
+    def test_comments_stream_respects_page_cap(self) -> None:
+        # First call is the page search (one page, then done); every subsequent /v1/comments
+        # call reports another page, so the per-parent cap must stop the scan.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}], has_more=False, next_cursor=None)
+            return _list_response([{"id": "cm"}], has_more=True, next_cursor="next")
+
+        session = FakeSession(responses)
+        logger = mock.MagicMock()
+        list(_comments_stream(session, logger))
+
+        # One search call plus the capped number of comment-page fetches.
+        assert len(session.calls) == 1 + MAX_CHILD_PAGES_PER_PARENT
         assert logger.warning.called
 
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
         session = FakeSession([FakeResponse({}, status_code=status_code)])
-        with _patch_session(session):
+        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             valid, message = validate_credentials("tok")
 
         assert valid is expected_valid
@@ -182,4 +228,4 @@ def test_every_endpoint_has_config(endpoint: str) -> None:
     assert config.name == endpoint
     assert config.stream_type in ("search", "users", "blocks", "comments")
     if config.stream_type == "search":
-        assert config.object_filter in ("page", "database")
+        assert config.object_filter in ("page", "data_source")

@@ -4,7 +4,8 @@ from typing import Any, Literal, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -17,9 +18,11 @@ from posthog.temporal.data_imports.sources.notion.settings import (
 )
 
 NOTION_BASE_URL = "https://api.notion.com"
-# Pinned API version. 2022-06-28 keeps the stable "database" object semantics and is the most
-# widely documented version; newer versions rename databases to "data sources".
-NOTION_VERSION = "2022-06-28"
+# Pinned API version. 2025-09-03 is the current official SDK default and introduces the
+# data sources model: a "database" is a container, and the schema-bearing tables are
+# "data sources". For the endpoints we use this only changes the search object filter
+# ("database" -> "data_source"); users/blocks/comments are unaffected.
+NOTION_VERSION = "2025-09-03"
 
 CHUNK_SIZE = 2000
 CHUNK_SIZE_BYTES = 100 * 1024 * 1024
@@ -29,9 +32,13 @@ CHUNK_SIZE_BYTES = 100 * 1024 * 1024
 MAX_BLOCK_DEPTH = 2
 MAX_CHILD_PAGES_PER_PARENT = 50
 
+MAX_RETRY_WAIT_SECONDS = 30.0
+
 
 class NotionRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @dataclasses.dataclass
@@ -47,14 +54,40 @@ def _get_headers(token: str) -> dict[str, str]:
     }
 
 
+def _build_session(token: str) -> requests.Session:
+    # Disable the tracked session's built-in urllib3 retries so tenacity is the single retry layer;
+    # one session is reused across every request of a stream to keep connection pooling/keep-alive.
+    return make_tracked_session(headers=_get_headers(token), redact_values=(token,), retry=Retry(total=0))
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+_wait_exponential = wait_exponential_jitter(initial=1, max=MAX_RETRY_WAIT_SECONDS)
+
+
+def _wait_strategy(retry_state: RetryCallState) -> float:
+    # Honor Notion's Retry-After on 429s; fall back to exponential backoff otherwise.
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, NotionRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_WAIT_SECONDS)
+    return _wait_exponential(retry_state)
+
+
 @retry(
     retry=retry_if_exception_type((NotionRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait_strategy,
     reraise=True,
 )
 def _request(
-    token: str,
+    session: requests.Session,
     method: Literal["GET", "POST"],
     path: str,
     logger: FilteringBoundLogger,
@@ -63,12 +96,11 @@ def _request(
     params: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     url = f"{NOTION_BASE_URL}{path}"
-    session = make_tracked_session(headers=_get_headers(token), redact_values=(token,))
     response = session.request(method, url, json=json_body, params=params, timeout=60)
 
     if response.status_code == 429:
-        retry_after = response.headers.get("Retry-After")
-        raise NotionRetryableError(f"Notion rate limited: url={url}, retry_after={retry_after}")
+        retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+        raise NotionRetryableError(f"Notion rate limited: url={url}, retry_after={retry_after}", retry_after)
 
     if response.status_code >= 500:
         raise NotionRetryableError(f"Notion API error (retryable): status={response.status_code}, url={url}")
@@ -108,7 +140,7 @@ def _search_body(object_filter: str, cursor: str | None) -> dict[str, Any]:
 
 
 def _search_stream(
-    token: str,
+    session: requests.Session,
     config: NotionEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
@@ -120,7 +152,7 @@ def _search_stream(
     cursor = resume.next_cursor if resume is not None else None
 
     while True:
-        data = _request(token, "POST", "/v1/search", logger, json_body=_search_body(config.object_filter, cursor))
+        data = _request(session, "POST", "/v1/search", logger, json_body=_search_body(config.object_filter, cursor))
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -141,7 +173,7 @@ def _search_stream(
 
 
 def _users_stream(
-    token: str,
+    session: requests.Session,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
 ) -> Iterator[Any]:
@@ -155,7 +187,7 @@ def _users_stream(
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(token, "GET", "/v1/users", logger, params=params)
+        data = _request(session, "GET", "/v1/users", logger, params=params)
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -175,10 +207,10 @@ def _users_stream(
         yield batcher.get_table()
 
 
-def _iter_page_ids(token: str, logger: FilteringBoundLogger) -> Iterator[str]:
+def _iter_page_ids(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[str]:
     cursor: str | None = None
     while True:
-        data = _request(token, "POST", "/v1/search", logger, json_body=_search_body("page", cursor))
+        data = _request(session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor))
         for item in data.get("results", []):
             page_id = item.get("id")
             if page_id:
@@ -189,7 +221,7 @@ def _iter_page_ids(token: str, logger: FilteringBoundLogger) -> Iterator[str]:
 
 
 def _iter_block_children(
-    token: str,
+    session: requests.Session,
     block_id: str,
     page_id: str,
     logger: FilteringBoundLogger,
@@ -202,12 +234,12 @@ def _iter_block_children(
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(token, "GET", f"/v1/blocks/{block_id}/children", logger, params=params)
+        data = _request(session, "GET", f"/v1/blocks/{block_id}/children", logger, params=params)
         for block in data.get("results", []):
             block["_page_id"] = page_id
             yield block
             if block.get("has_children") and depth < MAX_BLOCK_DEPTH:
-                yield from _iter_block_children(token, block["id"], page_id, logger, depth + 1)
+                yield from _iter_block_children(session, block["id"], page_id, logger, depth + 1)
 
         pages_fetched += 1
         if not data.get("has_more") or not data.get("next_cursor"):
@@ -223,11 +255,11 @@ def _iter_block_children(
         cursor = data["next_cursor"]
 
 
-def _blocks_stream(token: str, logger: FilteringBoundLogger) -> Iterator[Any]:
+def _blocks_stream(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
-    for page_id in _iter_page_ids(token, logger):
-        for block in _iter_block_children(token, page_id, page_id, logger, 0):
+    for page_id in _iter_page_ids(session, logger):
+        for block in _iter_block_children(session, page_id, page_id, logger, 0):
             batcher.batch(block)
             if batcher.should_yield():
                 yield batcher.get_table()
@@ -236,24 +268,33 @@ def _blocks_stream(token: str, logger: FilteringBoundLogger) -> Iterator[Any]:
         yield batcher.get_table()
 
 
-def _comments_stream(token: str, logger: FilteringBoundLogger) -> Iterator[Any]:
+def _comments_stream(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=CHUNK_SIZE_BYTES)
 
-    for page_id in _iter_page_ids(token, logger):
+    for page_id in _iter_page_ids(session, logger):
         cursor: str | None = None
+        pages_fetched = 0
         while True:
             params: dict[str, Any] = {"block_id": page_id, "page_size": NOTION_PAGE_SIZE}
             if cursor:
                 params["start_cursor"] = cursor
 
-            data = _request(token, "GET", "/v1/comments", logger, params=params)
+            data = _request(session, "GET", "/v1/comments", logger, params=params)
             for comment in data.get("results", []):
                 comment["_page_id"] = page_id
                 batcher.batch(comment)
                 if batcher.should_yield():
                     yield batcher.get_table()
 
+            pages_fetched += 1
             if not data.get("has_more") or not data.get("next_cursor"):
+                break
+            if pages_fetched >= MAX_CHILD_PAGES_PER_PARENT:
+                logger.warning(
+                    "Notion: reached comments page cap for parent",
+                    page_id=page_id,
+                    cap=MAX_CHILD_PAGES_PER_PARENT,
+                )
                 break
             cursor = data["next_cursor"]
 
@@ -268,15 +309,16 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
 ) -> Iterator[Any]:
     config = NOTION_ENDPOINTS[endpoint]
+    session = _build_session(token)
 
     if config.stream_type == "search":
-        yield from _search_stream(token, config, logger, resumable_source_manager)
+        yield from _search_stream(session, config, logger, resumable_source_manager)
     elif config.stream_type == "users":
-        yield from _users_stream(token, logger, resumable_source_manager)
+        yield from _users_stream(session, logger, resumable_source_manager)
     elif config.stream_type == "blocks":
-        yield from _blocks_stream(token, logger)
+        yield from _blocks_stream(session, logger)
     elif config.stream_type == "comments":
-        yield from _comments_stream(token, logger)
+        yield from _comments_stream(session, logger)
     else:
         raise ValueError(f"Unknown Notion stream type: {config.stream_type}")
 
