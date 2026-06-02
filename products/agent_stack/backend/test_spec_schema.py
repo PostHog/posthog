@@ -68,7 +68,9 @@ def _with_auth(spec: dict) -> dict:
             "cron_omits_timezone",
             {
                 "model": "x",
-                "triggers": [{"type": "cron", "config": {"schedule": "0 * * * *"}}],
+                "triggers": [
+                    {"type": "cron", "config": {"name": "hourly", "schedule": "0 * * * *", "prompt": "run it"}}
+                ],
             },
         ),
         (
@@ -150,6 +152,20 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         (
             "cron_missing_schedule",
             {"model": "x", "triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
+            "triggers.0",
+        ),
+        # The exact drift that poisoned the cron sweep: a cron trigger without
+        # the now-required `prompt` (or `name`). The node schema rejects these
+        # at freeze; the Django mirror must reject them at write so a poisoned
+        # spec never reaches the DB in the first place.
+        (
+            "cron_missing_prompt",
+            {"model": "x", "triggers": [{"type": "cron", "config": {"name": "sweep", "schedule": "0 9 * * *"}}]},
+            "triggers.0",
+        ),
+        (
+            "cron_missing_name",
+            {"model": "x", "triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
             "triggers.0",
         ),
     ],
