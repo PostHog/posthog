@@ -43,7 +43,7 @@ describe('goal-lines', () => {
             expect(buildGoalLineReferenceLines(input, series)).toEqual([])
         })
 
-        it('maps each goal to a horizontal "goal" ReferenceLine, defaulting label position to start', () => {
+        it('maps each goal to a horizontal "goal" ReferenceLine, defaulting label position to end', () => {
             const result = buildGoalLineReferenceLines([{ label: 'Target', value: 50 }], series)
             expect(result).toHaveLength(1)
             expect(result[0]).toMatchObject({
@@ -51,14 +51,14 @@ describe('goal-lines', () => {
                 orientation: 'horizontal',
                 variant: 'goal',
                 label: 'Target',
-                labelPosition: 'start',
+                labelPosition: 'end',
             })
         })
 
         it.each([
             ['propagates color via style.color', { color: 'var(--danger)' }, { style: { color: 'var(--danger)' } }],
             ['omits label when displayLabel is false', { displayLabel: false }, { label: undefined }],
-            ['respects explicit labelPosition', { labelPosition: 'end' as const }, { labelPosition: 'end' }],
+            ['respects explicit labelPosition', { labelPosition: 'start' as const }, { labelPosition: 'start' }],
         ] as const)('%s', (_, lineOverrides, expectedProps) => {
             const lines: GoalLineConfig[] = [{ label: 'X', value: 50, ...lineOverrides }]
             expect(buildGoalLineReferenceLines(lines, series)[0]).toMatchObject(expectedProps)
