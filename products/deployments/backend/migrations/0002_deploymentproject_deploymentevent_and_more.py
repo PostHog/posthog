@@ -221,9 +221,8 @@ class Migration(migrations.Migration):
             model_name="deploymentevent",
             index=models.Index(fields=["deployment", "occurred_at"], name="deployments_deploym_3a8e69_idx"),
         ),
-        # The deployment(project, -created_at) index is built in 0003 with
-        # AddIndexConcurrently — see the file header for why it lives in
-        # its own migration.
+        # The deployment(project, -created_at) index is built safely in
+        # 0003 — see the file header for why it lives in its own migration.
         # Slug uniqueness scoped to live rows. The OR-isnull clause covers
         # the bool-with-null=True pattern used by DeletedMetaFields, where
         # `deleted` defaults to False but is nullable.
