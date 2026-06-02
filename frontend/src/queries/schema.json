@@ -20342,8 +20342,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
-                "exports",
-                "deployments"
+                "exports"
             ],
             "type": "string"
         },
@@ -29005,7 +29004,6 @@
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
-                "deployments",
                 "early_access_features",
                 "endpoints",
                 "error_tracking",
