@@ -5849,6 +5849,21 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-preview-invite": {
+        "description": "Render the invitation email exactly as a specific targeted interviewee would receive it — the personalized subject and HTML body — without sending anything and without creating any share links. Pass interviewee_identifier (an email or distinct ID already on the topic) to preview for a particular person, or omit it to preview for the first targeted interviewee. The response includes the rendered subject and html, the recipient, whether they are emailable, and whether the embedded link is a placeholder.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Preview the invite email for a targeted interviewee",
+        "title": "Preview the invite email for a targeted interviewee",
+        "required_scopes": ["user_interview:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-remove-interviewee": {
         "description": "Remove an interviewee identifier from a topic's targeting. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration tied to that interviewee on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.",
         "category": "User interview topics",

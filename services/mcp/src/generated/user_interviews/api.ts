@@ -192,6 +192,30 @@ export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.objec
 })
 
 /**
+ * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. If a share link already exists it is reused; otherwise the body shows an illustrative placeholder link (`is_preview_link: true`).
+ */
+export const UserInterviewTopicsPreviewInviteCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview topic.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax = 400
+
+export const UserInterviewTopicsPreviewInviteCreateBody = /* @__PURE__ */ zod.object({
+    interviewee_identifier: zod
+        .string()
+        .max(userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax)
+        .optional()
+        .describe(
+            'Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.'
+        ),
+})
+
+/**
  * Remove an interviewee from this topic. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration linked to an IntervieweeContext for that identifier on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.
  */
 export const UserInterviewTopicsRemoveIntervieweeCreateParams = /* @__PURE__ */ zod.object({
