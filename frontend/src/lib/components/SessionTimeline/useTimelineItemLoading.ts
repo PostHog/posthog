@@ -88,7 +88,9 @@ export interface UseTimelineItemLoadingProps {
 export interface UseTimelineItemLoadingResult {
     items: TimelineItem[]
     loading: boolean
+    loadError: boolean
     scrollLoading: 'before' | 'after' | null
+    reload: () => void
     handleScrollTop: () => Promise<void>
     handleScrollBottom: () => Promise<void>
 }
@@ -102,11 +104,17 @@ export function useTimelineItemLoading({
 }: UseTimelineItemLoadingProps): UseTimelineItemLoadingResult {
     const [items, setItems] = useState<TimelineItem[]>([])
     const [loading, setLoading] = useState(false)
+    const [loadError, setLoadError] = useState(false)
+    const [reloadNonce, setReloadNonce] = useState(0)
     const [scrollLoading, setScrollLoading] = useState<'before' | 'after' | null>(null)
 
     const scrollLoadingRef = useRef<'before' | 'after' | null>(null)
     const filterRefillInProgressRef = useRef(false)
     const selectedItemIdRef = useRef(selectedItemId)
+
+    const reload = useCallback(() => {
+        setReloadNonce((nonce) => nonce + 1)
+    }, [])
 
     useEffect(() => {
         selectedItemIdRef.current = selectedItemId
@@ -136,6 +144,7 @@ export function useTimelineItemLoading({
             scrollLoadingRef.current = null
             setScrollLoading(null)
             setItems([])
+            setLoadError(false)
             setLoading(true)
 
             const batch = calculateBatchSize(containerRef.current)
@@ -186,7 +195,13 @@ export function useTimelineItemLoading({
         }
 
         void loadInitialItems()
-            .catch(ignoreLoadingError)
+            .catch(() => {
+                // Surface the failure so the timeline can show an error/retry state instead of
+                // silently rendering an empty list.
+                if (!cancelled) {
+                    setLoadError(true)
+                }
+            })
             .finally(() => {
                 if (!cancelled) {
                     setLoading(false)
@@ -196,7 +211,7 @@ export function useTimelineItemLoading({
         return () => {
             cancelled = true
         }
-    }, [collector, containerRef, scrollToItem])
+    }, [collector, containerRef, scrollToItem, reloadNonce])
 
     useEffect(() => {
         if (!selectedItemId) {
@@ -317,7 +332,9 @@ export function useTimelineItemLoading({
     return {
         items,
         loading,
+        loadError,
         scrollLoading,
+        reload,
         handleScrollTop,
         handleScrollBottom,
     }

@@ -1,7 +1,6 @@
 import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -89,9 +88,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     actions({
         loadIssue: true,
         loadSummary: true,
-        loadInitialEvent: (timestamp: string) => ({ timestamp }),
+        loadInitialEvent: (timestamp: string | null) => ({ timestamp }),
         setMobileDetailOpen: (mobileDetailOpen: boolean) => ({ mobileDetailOpen }),
-        setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         setLastSeen: (lastSeen: string) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
@@ -117,7 +115,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initialEvent: null as ErrorEventType | null,
         selectedEvent: null as ErrorEventType | null,
         mobileDetailOpen: false as boolean,
-        initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
         similarIssuesMaxDistance: 0.2 as number,
         similarIssuesError: null as string | null,
@@ -142,14 +139,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadSimilarIssues: () => null,
             loadSimilarIssuesSuccess: () => null,
             loadSimilarIssuesFailure: (_, { error }) => error,
-        },
-        initialEventTimestamp: {
-            setInitialEventTimestamp: (state, { timestamp }) => {
-                if (!state && timestamp) {
-                    return timestamp
-                }
-                return state
-            },
         },
         selectedEvent: {
             selectEvent: (_, { event }) => {
@@ -210,10 +199,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         initialEvent: {
             loadInitialEvent: async ({ timestamp }) => {
+                // With a timestamp we can scope to a narrow window; without one fall back to the
+                // full date range so the initial event loads in parallel with the summary rather
+                // than waiting on it to resolve a `last_seen` anchor.
+                const dateRange = timestamp ? getNarrowDateRange(timestamp) : values.dateRange
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
-                        dateRange: getNarrowDateRange(timestamp),
+                        dateRange,
                         filterTestAccounts: false,
                         withAggregations: false,
                         withFirstEvent: false,
@@ -222,12 +215,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     { refresh: 'blocking' }
                 )
                 const issue = response.results[0]
-                let positionEvent = null
-                if (issue.last_event) {
-                    positionEvent = issue.last_event
-                } else {
+                if (!issue?.last_event) {
                     return null
                 }
+                const positionEvent = issue.last_event
                 const initialEvent: ErrorEventType = {
                     event: '$exception',
                     uuid: positionEvent.uuid,
@@ -403,15 +394,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
     })),
 
-    subscriptions(({ actions }) => ({
-        initialEventTimestamp: (value: string | null, oldValue: string | null) => {
-            if (!oldValue && value) {
-                actions.loadInitialEvent(value)
-            }
-        },
-    })),
-
-    listeners(({ props, values, actions }) => {
+    listeners(({ props, actions }) => {
         return {
             setDateRange: () => {
                 actions.loadSummary()
@@ -423,9 +406,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {
                 if (summary && summary.last_seen) {
                     actions.setLastSeen(summary.last_seen)
-                    actions.setInitialEventTimestamp(summary.last_seen)
-                } else {
-                    actions.setInitialEventTimestamp(values.issue?.first_seen ?? null)
                 }
             },
             loadIssueFailure: ({ errorObject: { status, data } }) => {
@@ -468,7 +448,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     events(({ props, actions }) => ({
         afterMount: () => {
             actions.loadIssue()
-            actions.setInitialEventTimestamp(props.timestamp ?? null)
+            actions.loadInitialEvent(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
             actions.loadSpikeEvents()

@@ -9,6 +9,34 @@ import type { stackFrameLogicType } from './stackFrameLogicType'
 
 export type KeyedStackFrameRecords = Record<ErrorTrackingStackFrameRecord['raw_id'], ErrorTrackingStackFrameRecord>
 
+// Cap how long we wait for symbolicated frames. Symbolication can hang or be very slow, which
+// previously left per-frame spinners running indefinitely. On timeout we surface a failure so
+// frames fall back to their unsymbolicated representation instead of spinning forever.
+const STACK_FRAME_LOAD_TIMEOUT_MS = 30_000
+
+class StackFrameLoadTimeoutError extends Error {
+    constructor() {
+        super('Timed out loading stack frames')
+        this.name = 'StackFrameLoadTimeoutError'
+    }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new StackFrameLoadTimeoutError()), timeoutMs)
+            }),
+        ])
+    } finally {
+        if (timer) {
+            clearTimeout(timer)
+        }
+    }
+}
+
 function mapStackFrameRecords(
     newRecords: ErrorTrackingStackFrameRecord[],
     initialRecords: KeyedStackFrameRecords
@@ -40,12 +68,18 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                     if (rawIds.length === 0) {
                         return values.stackFrameRecords
                     }
-                    const { results } = await api.errorTracking.stackFrames(rawIds)
+                    const { results } = await withTimeout(
+                        api.errorTracking.stackFrames(rawIds),
+                        STACK_FRAME_LOAD_TIMEOUT_MS
+                    )
 
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {
-                    const { results } = await api.errorTracking.symbolSetStackFrames(symbolSetId)
+                    const { results } = await withTimeout(
+                        api.errorTracking.symbolSetStackFrames(symbolSetId),
+                        STACK_FRAME_LOAD_TIMEOUT_MS
+                    )
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
             },

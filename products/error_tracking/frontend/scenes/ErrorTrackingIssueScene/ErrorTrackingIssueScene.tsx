@@ -68,7 +68,7 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueLoading, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
@@ -88,9 +88,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <ErrorTrackingSetupPrompt>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
-                        {issue && (
+                        {(issue || issueLoading) && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
-                                {sceneMenuBarEnabled && (
+                                {sceneMenuBarEnabled && issue && (
                                     <SceneMenuBar>
                                         <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
                                             <SceneMenuBarFileItems dataAttrKey="issue" />
@@ -142,8 +142,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     </SceneMenuBar>
                                 )}
                                 <SceneTitleSection
-                                    canEdit
-                                    name={issue.name ?? undefined}
+                                    canEdit={!!issue}
+                                    isLoading={!issue && issueLoading}
+                                    name={issue?.name ?? undefined}
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
@@ -154,7 +155,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             : undefined
                                     )}
                                     actions={
-                                        isMobile ? undefined : (
+                                        isMobile || !issue ? undefined : (
                                             <div className="flex items-center gap-1">
                                                 <StatusIndicator status={issue.status} withTooltip />
                                                 <IssueAssigneeSelect
@@ -193,7 +194,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     }
                                 />
 
-                                {isMobile && (
+                                {isMobile && issue && (
                                     <div className="flex items-center gap-1.5 px-2 py-1.5 border-b flex-wrap">
                                         <StatusIndicator status={issue.status} withTooltip />
                                         <IssueAssigneeSelect
@@ -214,7 +215,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     </div>
                                 )}
 
-                                <ErrorTrackingIssueScenePanel issue={issue} />
+                                {issue && <ErrorTrackingIssueScenePanel issue={issue} />}
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">

@@ -65,13 +65,14 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
         }
     }, [])
 
-    const { items, loading, scrollLoading, handleScrollTop, handleScrollBottom } = useTimelineItemLoading({
-        collector,
-        selectedItemId,
-        activeCategorySet,
-        containerRef,
-        scrollToItem,
-    })
+    const { items, loading, loadError, scrollLoading, reload, handleScrollTop, handleScrollBottom } =
+        useTimelineItemLoading({
+            collector,
+            selectedItemId,
+            activeCategorySet,
+            containerRef,
+            scrollToItem,
+        })
 
     const filteredItems = useMemo(
         () => items.filter((item) => activeCategorySet.has(item.category)),
@@ -171,8 +172,13 @@ export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimeline
                         )
                     })}
                     {!loading && scrollLoading === 'after' && <LoadingRow />}
-                    {!isLoading && filteredItems.length === 0 && (
-                        <EmptyTimelineState title={emptyState.title} description={emptyState.description} />
+                    {loadError && !isLoading ? (
+                        <TimelineErrorState onRetry={reload} />
+                    ) : (
+                        !isLoading &&
+                        filteredItems.length === 0 && (
+                            <EmptyTimelineState title={emptyState.title} description={emptyState.description} />
+                        )
                     )}
                 </div>
             </div>
@@ -220,6 +226,20 @@ function EmptyTimelineState({ title, description }: { title: string; description
             <div className="text-center">
                 <div className="text-sm text-secondary">{title}</div>
                 {description ? <div className="text-xs text-tertiary mt-1">{description}</div> : null}
+            </div>
+        </div>
+    )
+}
+
+function TimelineErrorState({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div className="h-full min-h-[160px] w-full flex items-center justify-center px-4">
+            <div className="text-center flex flex-col items-center gap-2">
+                <div className="text-sm text-secondary">Could not load timeline</div>
+                <div className="text-xs text-tertiary">Something went wrong loading this session's events.</div>
+                <ButtonPrimitive size="sm" variant="outline" onClick={onRetry} className="justify-center">
+                    Retry
+                </ButtonPrimitive>
             </div>
         </div>
     )
