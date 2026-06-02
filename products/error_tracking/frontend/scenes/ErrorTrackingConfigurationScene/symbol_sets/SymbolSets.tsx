@@ -67,7 +67,8 @@ export function SymbolSets(): JSX.Element {
                             placeholder="Search by reference, release, version, or commit"
                             value={searchQuery}
                             onChange={setSearchQuery}
-                            className="w-80"
+                            fullWidth
+                            className="w-90"
                         />
                         {selectedSymbolSetIds.length > 0 && (
                             <>
