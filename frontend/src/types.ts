@@ -5378,7 +5378,6 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
-    | 'deployment'
     | 'desktop_recording'
     | 'early_access_feature'
     | 'element'

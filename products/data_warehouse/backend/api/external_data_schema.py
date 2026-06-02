@@ -908,12 +908,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        if not schemas:
+        # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
+        # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
+        # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
+        schema = next((s for s in schemas if s.name == instance.name), None)
+        if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
-
-        schema = schemas[0]
 
         source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
