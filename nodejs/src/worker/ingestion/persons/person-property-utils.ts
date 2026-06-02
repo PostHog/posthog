@@ -142,6 +142,7 @@ export const eventToPersonProperties = new Set([...EVENT_TO_PERSON_PROPERTIES, .
 export const SERVER_SIDE_LIBS = new Set([
     'posthog-python',
     'posthog-node',
+    'posthog-edge',
     'posthog-go',
     'posthog-ruby',
     'posthog-php',
