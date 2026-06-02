@@ -1,10 +1,9 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
@@ -34,7 +33,9 @@ export function getDefaultGenerationsColumns(showSentiment: boolean = false, sho
 
 export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityGenerationsLogic']),
-    key((props: AIObservabilityGenerationsLogicProps) => props.tabId || 'default'),
+    // Intentionally not keyed by tabId: the in-app multi-tab feature was removed, so tabId is now a
+    // fresh random id per page load. Keying by it would make the persisted column selection's
+    // localStorage key change on every refresh, losing the user's choice.
     props({} as AIObservabilityGenerationsLogicProps),
     connect((props: AIObservabilityGenerationsLogicProps) => ({
         values: [
@@ -70,12 +71,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
 
         generationsColumns: [
             null as string[] | null,
-            // Stable storage key — the logic is keyed by an ephemeral per-load tabId, so the
-            // default path-derived persist key would change on every refresh and lose the selection.
-            {
-                persist: true,
-                storageKey: `products.ai_observability.frontend.tabs.aiObservabilityGenerationsLogic.${getCurrentTeamId()}.generationsColumns`,
-            },
+            { persist: true },
             {
                 setGenerationsColumns: (_, { columns }) => columns,
             },
