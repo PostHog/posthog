@@ -6565,6 +6565,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
+        | 'non_failure_status_codes'
     key: string
     label: string
     choices?: { value: string; label: string }[]
