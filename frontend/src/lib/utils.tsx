@@ -1930,6 +1930,9 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
 }
 
 export function timeZoneLabel(timeZone: string, offset: number): string {
+    if (!timeZone) {
+        return ''
+    }
     const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
     const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
     const hours = Math.floor(Math.abs(offset))

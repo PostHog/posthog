@@ -55,6 +55,7 @@ import {
     selectorOperatorMap,
     shortTimeZone,
     stringOperatorMap,
+    timeZoneLabel,
     toParams,
     wordPluralize,
 } from './utils'
@@ -241,6 +242,19 @@ describe('lib/utils', () => {
             expect(endWithPunctation(null)).toEqual('')
             expect(endWithPunctation('   ')).toEqual('')
             expect(endWithPunctation('  Why? ')).toEqual('Why?')
+        })
+    })
+
+    describe('timeZoneLabel()', () => {
+        it('formats a time zone and offset', () => {
+            expect(timeZoneLabel('America/New_York', -4)).toEqual('America / New York (UTC-4:00)')
+            expect(timeZoneLabel('UTC', 0)).toEqual('UTC (UTC±0:00)')
+            expect(timeZoneLabel('Asia/Kolkata', 5.5)).toEqual('Asia / Kolkata (UTC+5:30)')
+        })
+
+        it('returns empty string when the time zone is falsy', () => {
+            expect(timeZoneLabel(undefined as unknown as string, undefined as unknown as number)).toEqual('')
+            expect(timeZoneLabel('', 0)).toEqual('')
         })
     })
 
