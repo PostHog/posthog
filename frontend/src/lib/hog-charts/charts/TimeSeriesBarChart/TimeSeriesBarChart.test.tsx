@@ -220,6 +220,18 @@ describe('TimeSeriesBarChart', () => {
             expect(lines[0].orientation).toBe('horizontal')
             expect(lines[0].label).toBe('Target')
         })
+
+        it('extends the value axis so a goal line above the data still renders', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesBarChart
+                    series={[{ key: 'a', label: 'A', data: [10, 20, 30] }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ goalLines: [{ value: 1000, label: 'Target' }] }}
+                />
+            )
+            expect(chart.referenceLines()).toHaveLength(1)
+        })
     })
 
     describe('config.barLayout', () => {
