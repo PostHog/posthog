@@ -394,7 +394,9 @@ class GoogleSheetsSourceConfig(config.Config):
 
 @config.config
 class GorgiasSourceConfig(config.Config):
-    pass
+    gorgias_domain: str
+    email: str
+    api_key: str
 
 
 @config.config
