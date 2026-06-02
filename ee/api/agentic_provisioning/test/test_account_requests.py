@@ -65,6 +65,24 @@ class TestAccountRequests(ProvisioningTestBase):
         assert user.organization is not None
         assert user.team is not None
 
+    @patch("ee.api.agentic_provisioning.views.is_email_available", return_value=True)
+    @patch("ee.api.agentic_provisioning.views.is_email_verification_disabled", return_value=False)
+    @patch("ee.api.agentic_provisioning.views.EmailVerifier.create_token_and_send_email_verification")
+    def test_new_user_sends_email_verification(self, mock_send, _mock_disabled, _mock_available):
+        payload = self._account_request_payload()
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+        mock_send.assert_called_once()
+        assert mock_send.call_args.args[0].email == "newuser@example.com"
+
+    @patch("ee.api.agentic_provisioning.views.is_email_available", return_value=False)
+    @patch("ee.api.agentic_provisioning.views.EmailVerifier.create_token_and_send_email_verification")
+    def test_new_user_skips_email_verification_when_email_unavailable(self, mock_send, _mock_available):
+        payload = self._account_request_payload()
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+        mock_send.assert_not_called()
+
     def test_existing_user_returns_oauth_type_with_code(self):
         User.objects.create_and_join(
             organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
