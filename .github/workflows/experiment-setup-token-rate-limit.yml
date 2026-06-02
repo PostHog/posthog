@@ -1,0 +1,150 @@
+name: Experiment - setup-action rate limit
+
+# DRAFT EXPERIMENT — not part of normal CI. Runs only when this file changes
+# (or via manual dispatch), so it adds no load to other PRs.
+#
+# Validates two claims about the per-repo default GITHUB_TOKEN bucket
+# (15,000 req/hr, shared across every job of every run in this repo):
+#
+#   1. actions/setup-node and actions/setup-python resolve their version from
+#      the actions/{node,python}-versions manifest on api.github.com using the
+#      step's token, then download the toolchain — once PER JOB — because the
+#      pinned versions (.nvmrc, pyproject `requires-python`) are newer than what
+#      the runner tool-cache ships, so `tc.find()` misses every time.
+#
+#   2. Passing an app-scoped token to setup-*'s `token:` input moves that
+#      manifest call off the default bucket — the same offload pattern already
+#      used for dorny/paths-filter in the CI workflows.
+#
+# Method: each job records core.used from /rate_limit (the /rate_limit endpoint
+# is itself exempt, so probing does not perturb the measurement) immediately
+# before and after the setup steps, and prints the deltas to the job summary.
+# The control arm runs setup-* on the default token; the treatment arm runs
+# them on an app token and shows the default-bucket delta collapse while the
+# app-bucket delta absorbs the calls.
+
+on:
+    pull_request:
+        paths:
+            - .github/workflows/experiment-setup-token-rate-limit.yml
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    control-default-token:
+        name: Control (setup-* on default GITHUB_TOKEN)
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Inspect runner tool-cache
+              run: |
+                  echo "RUNNER_TOOL_CACHE=$RUNNER_TOOL_CACHE"
+                  for tool in node Python go; do
+                      echo "== pre-cached $tool =="
+                      ls -1 "$RUNNER_TOOL_CACHE/$tool" 2>/dev/null || echo "  (none)"
+                  done
+                  echo "wanted: node $(tr -d 'v' < .nvmrc), python 3.12.12"
+
+            - name: Default bucket — before setup
+              id: before
+              env:
+                  TOKEN: ${{ github.token }}
+              run: |
+                  used=$(curl -sS -H "Authorization: Bearer $TOKEN" https://api.github.com/rate_limit | jq -r '.resources.core.used')
+                  echo "used=$used" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  # token omitted on purpose: defaults to github.token (the status quo)
+
+            - name: Default bucket — after setup-node
+              id: afternode
+              env:
+                  TOKEN: ${{ github.token }}
+              run: |
+                  used=$(curl -sS -H "Authorization: Bearer $TOKEN" https://api.github.com/rate_limit | jq -r '.resources.core.used')
+                  echo "used=$used" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: pyproject.toml
+
+            - name: Default bucket — after setup-python and report
+              env:
+                  TOKEN: ${{ github.token }}
+                  BEFORE: ${{ steps.before.outputs.used }}
+                  AFTER_NODE: ${{ steps.afternode.outputs.used }}
+              run: |
+                  after=$(curl -sS -H "Authorization: Bearer $TOKEN" https://api.github.com/rate_limit | jq -r '.resources.core.used')
+                  {
+                      echo "## Control — setup-* on default GITHUB_TOKEN"
+                      echo ""
+                      echo "| checkpoint | default core.used |"
+                      echo "| --- | --- |"
+                      echo "| before setup | $BEFORE |"
+                      echo "| after setup-node | $AFTER_NODE |"
+                      echo "| after setup-python | $after |"
+                      echo ""
+                      echo "delta(node) = $((AFTER_NODE - BEFORE)), delta(python) = $((after - AFTER_NODE)), total = $((after - BEFORE))"
+                      echo ""
+                      echo "_Shared bucket: deltas include concurrent repo CI, so treat as a floor, not an exact per-step count. The job log above shows each setup downloading from {node,python}-versions/releases, which is the manifest API call._"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+    treatment-app-token:
+        name: Treatment (setup-* on app-scoped token)
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+            - name: Buckets — before setup
+              id: before
+              env:
+                  APP_TOKEN: ${{ steps.app-token.outputs.token }}
+                  DEF_TOKEN: ${{ github.token }}
+              run: |
+                  app=$(curl -sS -H "Authorization: Bearer $APP_TOKEN" https://api.github.com/rate_limit | jq -r '.resources.core.used')
+                  def=$(curl -sS -H "Authorization: Bearer $DEF_TOKEN" https://api.github.com/rate_limit | jq -r '.resources.core.used')
+                  echo "app=$app" >> "$GITHUB_OUTPUT"
+                  echo "def=$def" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.app-token.outputs.token }} # the fix: resolve manifest on the app bucket
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: pyproject.toml
+                  token: ${{ steps.app-token.outputs.token }} # the fix
+
+            - name: Buckets — after setup and report
+              env:
+                  APP_TOKEN: ${{ steps.app-token.outputs.token }}
+                  DEF_TOKEN: ${{ github.token }}
+                  APP_BEFORE: ${{ steps.before.outputs.app }}
+                  DEF_BEFORE: ${{ steps.before.outputs.def }}
+              run: |
+                  app_after=$(curl -sS -H "Authorization: Bearer $APP_TOKEN" https://api.github.com/rate_limit | jq -r '.resources.core.used')
+                  def_after=$(curl -sS -H "Authorization: Bearer $DEF_TOKEN" https://api.github.com/rate_limit | jq -r '.resources.core.used')
+                  {
+                      echo "## Treatment — setup-* on app-scoped token"
+                      echo ""
+                      echo "| bucket | before | after | delta |"
+                      echo "| --- | --- | --- | --- |"
+                      echo "| app token (paths-filter app) | $APP_BEFORE | $app_after | $((app_after - APP_BEFORE)) |"
+                      echo "| default GITHUB_TOKEN | $DEF_BEFORE | $def_after | $((def_after - DEF_BEFORE)) |"
+                      echo ""
+                      echo "_Expectation: the app-bucket delta absorbs the setup manifest calls; the default-bucket delta from setup is ~0 (any residual is concurrent repo CI on the shared bucket)._"
+                  } >> "$GITHUB_STEP_SUMMARY"
