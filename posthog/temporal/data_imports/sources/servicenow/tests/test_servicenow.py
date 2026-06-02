@@ -36,7 +36,9 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error", response=None)
+            response = requests.Response()
+            response.status_code = self.status_code
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=response)
 
 
 class FakeResumeManager:
