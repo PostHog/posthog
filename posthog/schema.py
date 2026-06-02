@@ -3990,6 +3990,7 @@ class ProductIntentContext(StrEnum):
     ENDPOINT_CREATED = "endpoint_created"
     ENDPOINT_CREATED_FROM_INSIGHT = "endpoint_created_from_insight"
     ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
+    TRACING_DOCS_VIEWED = "tracing_docs_viewed"
 
 
 class ProductItemCategory(StrEnum):
