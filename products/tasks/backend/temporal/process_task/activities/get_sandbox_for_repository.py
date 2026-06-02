@@ -9,7 +9,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.connection_token import get_primary_sandbox_jwt_kid, get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import (
     Sandbox,
     SandboxConfig,
@@ -321,6 +321,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         sandbox_state = {
             "sandbox_id": sandbox.id,
             "sandbox_url": credentials.url,
+            "sandbox_jwt_kid": get_primary_sandbox_jwt_kid(),
         }
         if credentials.token:
             sandbox_state["sandbox_connect_token"] = credentials.token

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -22,6 +23,8 @@ SANDBOX_EVENT_INGEST_AUDIENCE = "posthog:sandbox_event_ingest"
 SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER = timedelta(hours=1)
 SANDBOX_EVENT_INGEST_TOKEN_TTL = timedelta(seconds=SANDBOX_TTL_SECONDS) + SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER
 
+SANDBOX_JWT_STATE_KID_KEY = "sandbox_jwt_kid"
+
 
 @dataclass(frozen=True)
 class SandboxEventIngestTokenPayload:
@@ -30,26 +33,97 @@ class SandboxEventIngestTokenPayload:
     team_id: int
 
 
+@dataclass(frozen=True)
+class _SandboxJwtKey:
+    kid: str
+    private_key_pem: str
+    public_key_pem: str
+
+
 def _normalize_pem_key(key: str) -> str:
     """Convert escaped newlines to actual newlines in PEM keys from env vars."""
     return key.replace("\\n", "\n")
 
 
+def _derive_public_key_pem(private_key_pem: str) -> str:
+    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None, backend=default_backend())
+    return (
+        private_key.public_key()
+        .public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+
+
+def _compute_kid(public_key_pem: str) -> str:
+    """Stable short fingerprint of a public key, used as the JWT kid.
+
+    The value is persisted on ``TaskRun.state`` at provision
+    time and matched back when signing that run's tokens.
+    """
+    public_key = serialization.load_pem_public_key(public_key_pem.encode(), backend=default_backend())
+    der = public_key.public_bytes(
+        encoding=serialization.Encoding.DER, format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return hashlib.sha256(der).hexdigest()[:16]
+
+
+def _build_key(private_key_pem: str) -> _SandboxJwtKey:
+    normalized = _normalize_pem_key(private_key_pem)
+    public_key_pem = _derive_public_key_pem(normalized)
+    return _SandboxJwtKey(kid=_compute_kid(public_key_pem), private_key_pem=normalized, public_key_pem=public_key_pem)
+
+
 @lru_cache(maxsize=1)
-def get_sandbox_jwt_public_key() -> str:
+def _key_registry() -> tuple[_SandboxJwtKey, dict[str, _SandboxJwtKey]]:
+    """Return ``(primary_signing_key, {kid: key})`` for all configured sandbox JWT keys.
+
+    The primary key (``SANDBOX_JWT_PRIVATE_KEY``) signs newly provisioned runs. The
+    optional secondary key (``SANDBOX_JWT_PRIVATE_KEY_SECONDARY``) is additionally
+    trusted for verification and signs runs whose sandbox was provisioned under it,
+    this is what makes zero-downtime rotation of the primary key possible.
     """
-    Derive and cache the public key from the private key.
-    """
-    private_key_pem = settings.SANDBOX_JWT_PRIVATE_KEY
-    if not private_key_pem:
+    primary_pem = settings.SANDBOX_JWT_PRIVATE_KEY
+    if not primary_pem:
         raise ValueError("SANDBOX_JWT_PRIVATE_KEY setting is required")
 
-    private_key_pem = _normalize_pem_key(private_key_pem)
-    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None, backend=default_backend())
-    public_key = private_key.public_key()
-    return public_key.public_bytes(
-        encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode()
+    primary = _build_key(primary_pem)
+    registry: dict[str, _SandboxJwtKey] = {primary.kid: primary}
+
+    secondary_pem = getattr(settings, "SANDBOX_JWT_PRIVATE_KEY_SECONDARY", None)
+    if secondary_pem:
+        secondary = _build_key(secondary_pem)
+        registry.setdefault(secondary.kid, secondary)
+
+    return primary, registry
+
+
+def _primary_key() -> _SandboxJwtKey:
+    return _key_registry()[0]
+
+
+def get_primary_sandbox_jwt_kid() -> str:
+    """``kid`` of the key newly provisioned sandboxes trust.
+
+    Persist this on ``TaskRun.state`` at provision time so the run's tokens are later
+    signed with the matching key even after the primary key is rotated.
+    """
+    return _primary_key().kid
+
+
+def get_sandbox_jwt_public_key() -> str:
+    """Public key (PEM) baked into newly provisioned sandboxes for verifying connection tokens."""
+    return _primary_key().public_key_pem
+
+
+get_sandbox_jwt_public_key.cache_clear = _key_registry.cache_clear  # type: ignore[attr-defined]
+
+
+def _signing_key_for_run(task_run: TaskRun) -> _SandboxJwtKey:
+    _, registry = _key_registry()
+    kid = (task_run.state or {}).get(SANDBOX_JWT_STATE_KID_KEY)
+    if kid and kid in registry:
+        return registry[kid]
+    return _primary_key()
 
 
 def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id: str) -> str:
@@ -67,11 +141,7 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
     Returns:
         A signed JWT token valid for 24 hours
     """
-    private_key = settings.SANDBOX_JWT_PRIVATE_KEY
-    if not private_key:
-        raise ValueError("SANDBOX_JWT_PRIVATE_KEY setting is required for sandbox connection tokens")
-
-    private_key = _normalize_pem_key(private_key)
+    key = _signing_key_for_run(task_run)
     payload = {
         "run_id": str(task_run.id),
         "task_id": str(task_run.task_id),
@@ -83,7 +153,7 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
         "aud": SANDBOX_CONNECTION_AUDIENCE,
     }
 
-    return jwt.encode(payload, private_key, algorithm="RS256")
+    return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
 
 
 def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL) -> str:
@@ -93,11 +163,6 @@ def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBO
     This token intentionally carries no user identity and grants one capability:
     appending ordered live events for this task run.
     """
-    private_key = settings.SANDBOX_JWT_PRIVATE_KEY
-    if not private_key:
-        raise ValueError("SANDBOX_JWT_PRIVATE_KEY setting is required for sandbox event ingest tokens")
-
-    private_key = _normalize_pem_key(private_key)
     now = datetime.now(tz=UTC)
     payload = {
         "run_id": str(task_run.id),
@@ -108,13 +173,13 @@ def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBO
         "aud": SANDBOX_EVENT_INGEST_AUDIENCE,
     }
 
-    return jwt.encode(payload, private_key, algorithm="RS256")
+    return jwt.encode(payload, _primary_key().private_key_pem, algorithm="RS256")
 
 
 def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPayload:
     payload = jwt.decode(
         token,
-        get_sandbox_jwt_public_key(),
+        _primary_key().public_key_pem,
         algorithms=["RS256"],
         audience=SANDBOX_EVENT_INGEST_AUDIENCE,
     )
