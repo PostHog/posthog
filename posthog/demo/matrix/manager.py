@@ -25,7 +25,7 @@ from posthog.models import (
 from posthog.models.utils import UUIDT, generate_random_token_project
 
 from .matrix import Matrix
-from .models import SimEvent, SimPerson
+from .models import EVENT_IDENTIFY, SimEvent, SimPerson
 
 
 class MatrixManager:
@@ -339,11 +339,16 @@ class MatrixManager:
             if not hasattr(subject, "properties_at_now"):
                 subject.take_snapshot_at_now()
 
+            # A person that fired an $identify event during the simulation is identified —
+            # matching real ingestion, which flips is_identified on $identify. Without this the
+            # demo generator leaves every person anonymous (is_identified=False).
+            is_identified = any(event.event == EVENT_IDENTIFY for event in subject.past_events)
             create_person(
                 uuid=str(subject.in_posthog_id),
                 team_id=team.pk,
                 properties=subject.properties_at_now,
                 version=0,
+                is_identified=is_identified,
             )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
