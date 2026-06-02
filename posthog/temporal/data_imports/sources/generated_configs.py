@@ -218,7 +218,7 @@ class ChargebeeSourceConfig(config.Config):
 
 @config.config
 class ChartMogulSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
