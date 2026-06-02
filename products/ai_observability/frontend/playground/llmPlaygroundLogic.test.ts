@@ -235,8 +235,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -280,8 +280,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -326,8 +326,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -368,8 +368,8 @@ describe('llmPlaygroundLogic', () => {
                             { id: 'openrouter-key-a', provider: 'openrouter', name: 'A key', state: 'ok' },
                         ],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        const providerKeyId = req.url.searchParams.get('provider_key_id')
+                    '/api/llm_proxy/models/': async ({ request }) => {
+                        const providerKeyId = new URL(request.url).searchParams.get('provider_key_id')
                         if (providerKeyId === 'openrouter-key-z' || providerKeyId === 'openrouter-key-a') {
                             return [
                                 200,
@@ -424,8 +424,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    '/api/llm_proxy/models/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -726,8 +726,8 @@ describe('llmPlaygroundLogic', () => {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
-                    '/api/llm_proxy/models/': (req: any) => {
-                        if (req.url.searchParams.get('provider_key_id') === 'key-1') {
+                    '/api/llm_proxy/models/': async ({ request }) => {
+                        if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -1837,9 +1837,10 @@ describe('llmPlaygroundLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': (req: any) => {
-                        updatedPrompt = req.body.prompt
-                        return [200, { id: 'prompt-linked', name: 'linked', prompt: req.body.prompt }]
+                    '/api/environments/:team_id/llm_prompts/name/:name/': async ({ request }) => {
+                        const body = (await request.json()) as { prompt: string }
+                        updatedPrompt = body.prompt
+                        return [200, { id: 'prompt-linked', name: 'linked', prompt: body.prompt }]
                     },
                 },
             })

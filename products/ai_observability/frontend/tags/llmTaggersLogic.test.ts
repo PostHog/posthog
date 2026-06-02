@@ -104,9 +104,10 @@ describe('llmTaggersLogic', () => {
                     },
                 },
                 post: {
-                    '/api/environments/:team_id/taggers/': (req: any) => {
-                        createCalls.push(req.body)
-                        return [200, { id: `new-${createCalls.length}`, ...req.body }]
+                    '/api/environments/:team_id/taggers/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        createCalls.push(body)
+                        return [200, { id: `new-${createCalls.length}`, ...body }]
                     },
                 },
             })
