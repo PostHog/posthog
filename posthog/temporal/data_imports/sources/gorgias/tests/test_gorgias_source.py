@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.sources.gorgias.source import GorgiasSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
-GORGIAS_MODULE = "posthog.temporal.data_imports.sources.gorgias.gorgias"
+SOURCE_MODULE = "posthog.temporal.data_imports.sources.gorgias.source"
 
 
 def _config() -> GorgiasSourceConfig:
@@ -72,7 +72,7 @@ class TestGorgiasSource:
         ]
     )
     def test_validate_credentials_delegates(self, _name: str, transport_result: tuple, expected_valid: bool) -> None:
-        with patch(f"{GORGIAS_MODULE}.validate_credentials", return_value=transport_result) as mocked:
+        with patch(f"{SOURCE_MODULE}.validate_gorgias_credentials", return_value=transport_result) as mocked:
             valid, _error = GorgiasSource().validate_credentials(_config(), team_id=1)
         assert valid is expected_valid
         mocked.assert_called_once_with("acme", "you@acme.com", "key")

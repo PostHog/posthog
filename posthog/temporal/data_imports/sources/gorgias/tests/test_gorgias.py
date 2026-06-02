@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.gorgias.gorgias import (
     GorgiasResumeConfig,
     get_base_url,
@@ -18,7 +19,7 @@ from posthog.temporal.data_imports.sources.gorgias.settings import ENDPOINTS, GO
 GORGIAS_MODULE = "posthog.temporal.data_imports.sources.gorgias.gorgias"
 
 
-class _FakeManager:
+class _FakeManager(ResumableSourceManager[GorgiasResumeConfig]):
     """Minimal stand-in for ResumableSourceManager that records saved state in memory."""
 
     def __init__(self, resume_cursor: str | None = None) -> None:
