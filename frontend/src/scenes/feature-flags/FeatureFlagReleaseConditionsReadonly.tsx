@@ -18,6 +18,7 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
@@ -124,6 +125,8 @@ export function FeatureFlagReleaseConditionsReadonly({
             <p className="text-xs text-muted mb-2">
                 Condition sets are evaluated top to bottom — the first match wins.
             </p>
+
+            {filters.early_exit && <EarlyExitIndicator />}
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 

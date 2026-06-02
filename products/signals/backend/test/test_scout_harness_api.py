@@ -200,7 +200,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
 
     def test_emit_finding_calls_emit_signal_with_deterministic_source_id(self) -> None:
         run = _make_run(self.team)
-        with patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
             response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()

@@ -117,8 +117,8 @@ const SupportResponseTimesTable = ({
     const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
     const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(user?.organization?.id || '')
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
     const hasExpiredTrial = billing?.trial?.status === 'expired'
@@ -323,8 +323,8 @@ export function SidePanelSupport(): JSX.Element {
 
     const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
     const hasActiveTrial = hasBoostTrial || hasScaleTrial || hasEnterpriseTrial
 
