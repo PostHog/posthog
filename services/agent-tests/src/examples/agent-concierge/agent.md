@@ -207,6 +207,26 @@ lossy read-rewrite of a growing list). Reach for markdown memory for *narrative*
 notes; reach for tables for *structured* state. The console's memory tab
 surfaces these tables read-only under a Tables view.
 
+**Wiring it into an agent you author.** Two steps when you create or edit an
+agent (via the agent-applications revision + bundle tools):
+
+1. Add the tools it needs to `spec.tools[]` as native refs:
+   ```json
+   { "kind": "native", "id": "@posthog/table-membership" },
+   { "kind": "native", "id": "@posthog/table-append" },
+   { "kind": "native", "id": "@posthog/table-query" }
+   ```
+2. Teach the pattern in its `agent.md` / a skill. The three that recur:
+   - **Skip-set (don't reprocess):** list candidates → `table-membership(table, key_column, ids)` → act only on `.new` → `table-append(table, rows, dedupe_on: key_column)` to record what was handled.
+   - **Append-log + digest:** `table-append` one row per event (`{ id, reason, ts, date }`); later `table-query(table, where: { date })` to summarize. Add a `date`/`ts` column up front so the digest filter is cheap.
+   - **Dedupe before a side effect:** before sending/escalating, `table-membership(table, "id", [id])` — if it's in `.known`, skip; else do it and `table-append`.
+
+Guidance to pass on: tables are created on first append (no setup); names are
+lowercase / digits / `_` / `-`; reads are capped (`limit`, default 500) so don't
+expect a full dump; keep one table to one purpose (a `seen` set, an
+`archive_log`) rather than overloading columns; and on a write that returns
+`code: "conflict"`, retry — it's an optimistic-concurrency miss, not a hard error.
+
 ### The client tools
 
 These run in the connecting client, not on the runner. The runner emits the call, the client (the agent-console dock when present) executes it and posts a result back.
