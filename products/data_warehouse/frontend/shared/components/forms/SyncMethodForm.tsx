@@ -110,6 +110,16 @@ const getSaveDisabledReason = (
     }
 }
 
+// Show the option matching the schema's persisted sync type even when that mode is no longer
+// "available" for new selection. `supports_webhooks` / `cdc_available` are recomputed per-request
+// and feature-flag gated, so they can flip to false/null while a schema is already on that mode —
+// without this, an existing webhook/CDC schema would render no matching radio option at all.
+export const shouldShowWebhookOption = (schema: ExternalDataSourceSyncSchema): boolean =>
+    schema.supports_webhooks || schema.sync_type === 'webhook'
+
+export const shouldShowCdcOption = (schema: ExternalDataSourceSyncSchema): boolean =>
+    !!schema.cdc_available || schema.sync_type === 'cdc'
+
 const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
@@ -152,12 +162,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
 
-    // Show the option matching the schema's persisted sync type even when that mode is no longer
-    // "available" for new selection. `supports_webhooks` / `cdc_available` are recomputed per-request
-    // and feature-flag gated, so they can flip to false/null while a schema is already on that mode —
-    // without this, an existing webhook/CDC schema would render no matching radio option at all.
-    const showWebhookOption = schema.supports_webhooks || schema.sync_type === 'webhook'
-    const showCdcOption = !!schema.cdc_available || schema.sync_type === 'cdc'
+    const showWebhookOption = shouldShowWebhookOption(schema)
+    const showCdcOption = shouldShowCdcOption(schema)
 
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null

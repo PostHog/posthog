@@ -1,10 +1,6 @@
-import '@testing-library/jest-dom'
-
-import { cleanup, render, screen } from '@testing-library/react'
-
 import { ExternalDataSourceSyncSchema } from '~/types'
 
-import { SyncMethodForm } from './SyncMethodForm'
+import { shouldShowCdcOption, shouldShowWebhookOption } from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'charges',
@@ -23,40 +19,30 @@ const baseSchema: ExternalDataSourceSyncSchema = {
     detected_primary_keys: null,
 }
 
-const renderForm = (schema: ExternalDataSourceSyncSchema): void => {
-    render(<SyncMethodForm schema={schema} onClose={() => {}} onSave={() => {}} />)
-}
-
 describe('SyncMethodForm', () => {
-    afterEach(() => cleanup())
-
     it('shows the webhook option when the schema is already on webhook mode even if no longer available', () => {
-        renderForm({ ...baseSchema, sync_type: 'webhook', supports_webhooks: false })
-
-        expect(screen.getByRole('heading', { name: 'Webhook' })).toBeInTheDocument()
+        expect(shouldShowWebhookOption({ ...baseSchema, sync_type: 'webhook', supports_webhooks: false })).toBe(true)
     })
 
     it('hides the webhook option when not supported and not the current mode', () => {
-        renderForm({ ...baseSchema, sync_type: 'full_refresh', supports_webhooks: false })
-
-        expect(screen.queryByRole('heading', { name: 'Webhook' })).not.toBeInTheDocument()
+        expect(shouldShowWebhookOption({ ...baseSchema, sync_type: 'full_refresh', supports_webhooks: false })).toBe(
+            false
+        )
     })
 
     it('shows the webhook option when currently supported', () => {
-        renderForm({ ...baseSchema, sync_type: null, supports_webhooks: true })
-
-        expect(screen.getByRole('heading', { name: 'Webhook' })).toBeInTheDocument()
+        expect(shouldShowWebhookOption({ ...baseSchema, sync_type: null, supports_webhooks: true })).toBe(true)
     })
 
     it('shows the CDC option when the schema is already on CDC mode even if no longer available', () => {
-        renderForm({ ...baseSchema, sync_type: 'cdc', cdc_available: false })
-
-        expect(screen.getByRole('heading', { name: 'CDC (change data capture)' })).toBeInTheDocument()
+        expect(shouldShowCdcOption({ ...baseSchema, sync_type: 'cdc', cdc_available: false })).toBe(true)
     })
 
     it('hides the CDC option when not available and not the current mode', () => {
-        renderForm({ ...baseSchema, sync_type: 'full_refresh', cdc_available: false })
+        expect(shouldShowCdcOption({ ...baseSchema, sync_type: 'full_refresh', cdc_available: false })).toBe(false)
+    })
 
-        expect(screen.queryByRole('heading', { name: 'CDC (change data capture)' })).not.toBeInTheDocument()
+    it('shows the CDC option when currently available', () => {
+        expect(shouldShowCdcOption({ ...baseSchema, sync_type: null, cdc_available: true })).toBe(true)
     })
 })
