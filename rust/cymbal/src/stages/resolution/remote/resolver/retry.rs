@@ -153,6 +153,7 @@ pub(super) async fn resolve_work_item(
                     attempt,
                     "remote resolution returned item overload; rerouting with overload policy"
                 );
+                ctx.pool.eject_overloaded(endpoint).await;
                 excluded_endpoints.push(endpoint);
                 last_error = Some(format!(
                     "per-item Overloaded outcome from {endpoint}: {message}"

@@ -185,6 +185,12 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
+    organizations-projects-logs-config-partial-update:
+        operation: organizations_projects_logs_config_partial_update
+        enabled: false
+    organizations-projects-logs-config-retrieve:
+        operation: organizations_projects_logs_config_retrieve
+        enabled: false
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
