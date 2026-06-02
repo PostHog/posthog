@@ -87,7 +87,7 @@ class Command(BaseCommand):
                 horizon_days=options["horizon"],
                 training_population={},
                 inference_population={},
-                output_person_property=f"predicted_p_{safe_name}",
+                output_person_property=f"predicted_p_{safe_name}_{options['horizon']}d",
                 status=AutoresearchPipeline.Status.DRAFT,
             )
             self.stdout.write(self.style.SUCCESS(f"Created pipeline {pipeline.pk} ({pipeline.name})"))
