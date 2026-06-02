@@ -1,5 +1,6 @@
-import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub } from '../../types'

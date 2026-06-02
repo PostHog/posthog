@@ -54,7 +54,6 @@ describe('CDP Internal Events Consumer', () => {
 
         mockQueueInvocations = mockJobQueue.queueInvocations
 
-
         await processor.start()
     })
 
