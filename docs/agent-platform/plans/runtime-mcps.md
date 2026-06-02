@@ -177,11 +177,96 @@ only; a public hostname that A-records to a private IP slips through.
 Closing that requires a custom HTTP agent that resolves DNS and inspects
 each candidate IP before connect. Tracked as a follow-up.
 
+## Future direction: native OAuth discovery (suggested, not yet planned)
+
+> Added as a review suggestion — not a commitment. The shape below is
+> what a follow-up plan (`runtime-mcps-oauth-discovery.md`) should design,
+> not what this plan ships.
+
+The auth story today uses `Integration` rows for OAuth tokens, which works
+but requires **per-MCP-server, hand-curated `OauthIntegration` kinds**
+(the existing `oauth_config_for_kind` switch in
+[`posthog/models/integration.py`](../../../posthog/models/integration.py))
+— one PR per MCP server an agent wants to talk to, plus a per-kind
+client_id/client_secret pre-registered with the target's auth server.
+
+The MCP spec itself prescribes a cleaner path that every compliant MCP
+server (and Claude Desktop / mcp-inspector / Cline) already implements:
+
+1. The MCP server advertises its OAuth resource via
+   `/.well-known/oauth-protected-resource` (RFC 9728). Tells you which
+   auth server to use, supported scopes, resource metadata.
+2. The auth server advertises its endpoints via
+   `/.well-known/oauth-authorization-server` (RFC 8414).
+3. The client **dynamically registers** with the auth server via
+   `/oauth/register` (RFC 7591 — Dynamic Client Registration). No
+   pre-shared `client_id`/`client_secret` needed.
+4. Standard PKCE-protected authorization-code flow, refresh tokens,
+   etc.
+
+This is how your local PostHog MCP "just worked" in Claude Desktop without
+PostHog shipping a Claude-specific integration kind. PostHog itself is on
+both sides of this protocol: it's an OAuth resource server (for inbound
+MCP calls) and could be an OAuth client (for outbound MCP refs in agent
+specs).
+
+**What's already in the Django side that would be reused:**
+
+- DCR endpoint at [`posthog/api/oauth/dcr.py`](../../../posthog/api/oauth/dcr.py) — already provider-side, but the
+  _client_ side of DCR (POSTing to a remote auth server's `/register`) is
+  the symmetric thing this would need.
+- The `Integration` row + encrypted `sensitive_config` for storage.
+- `OauthIntegration.access_token_expired()` + `refresh_access_token()`
+  pattern — generalisable past the per-kind switch.
+- `IntegrationViewSet` callback handling at `/integrations/<kind>/callback`
+  — could be parametrised over the MCP server's resource URL.
+
+**Sketch of the missing piece** — a sibling `McpOauthIntegration` class
+(or generic `DiscoveredOauthIntegration`) that:
+
+- Accepts an MCP server URL as input rather than a hand-curated `kind`.
+- Fetches the two `.well-known/` documents at connect time.
+- Performs DCR against the discovered auth server, stores the resulting
+  `client_id`/`client_secret` on the integration row alongside the
+  access/refresh tokens.
+- Manages the redirect flow the same way `OauthIntegration` does but
+  with the dynamically-discovered `authorize_url` / `token_url`.
+- Reuses `access_token_expired` / refresh / storage unchanged.
+
+**Per-asker scoping (Level C in the discussion that produced this section).**
+Today an `Integration` row is keyed `(team, kind, integration_id)` — team-
+scoped, one token per team. For per-asker auth into an MCP server (so a
+GitHub MCP call goes as the specific session principal, not as the
+team), the storage shape needs `(team, kind, user_id, integration_id)`.
+That's a separable follow-up to discovery itself, but probably worth
+designing alongside since both compose with the per-asker authorisation
+model from [`per-session-access-elevation.md`](per-session-access-elevation.md).
+
+**Why this is suggested, not in scope here:** the current plan
+intentionally ships the storage seam (`auth.integration`) so that
+_either_ hand-curated kinds _or_ a future discovery layer can populate
+it. PR 7's runner code reads `cred.access_token` from an `Integration`
+row without caring how it got there. Landing discovery is purely
+additive — no spec change, no runner change — which is why it's a
+follow-up rather than a v0 blocker.
+
+A `runtime-mcps-oauth-discovery.md` plan should cover: the DCR client
+implementation, the well-known-discovery cache, per-asker scoping
+storage, the UI flow for "Connect an MCP" without per-kind plumbing, and
+the security-review delta (untrusted auth-server URLs surfacing through
+discovery need their own validation).
+
 ## Open questions (and what's now known)
 
 1. **Auth model.** ~~Punt OAuth to v2.~~ The schema already accepts both
    `auth.integration` (OAuth-style) and `secrets[]` (simple token). v1 wires
-   both paths; what's deferred is _new_ integration kinds.
+   both paths; what's deferred is _new_ integration kinds. See the new
+   §"Future direction: native OAuth discovery" — the suggestion is that
+   instead of growing the per-kind switch case-by-case, a follow-up plan
+   designs a generic discovery + DCR layer that reads any compliant MCP
+   server's `.well-known/oauth-protected-resource` and registers
+   dynamically. PostHog already has DCR on the provider side, so the
+   missing piece is the client side.
 2. **Name collision strategy.** ~~Could elide the prefix when only one MCP
    exposes a given name.~~ Keep verbose + prefix everything: the surface
    shouldn't depend on what's configured. The model sees `posthog__list-agents`
