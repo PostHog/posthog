@@ -79,4 +79,24 @@ describe('healthUtils prompt builders', () => {
         const prompt = buildHealthOverviewPrompt([makeIssue()], question)
         expect(prompt.startsWith(question)).toBe(true)
     })
+
+    it('summarizes issue counts by severity in the header', () => {
+        const prompt = buildHealthOverviewPrompt([
+            makeIssue({ id: '1', severity: 'critical' }),
+            makeIssue({ id: '2', severity: 'warning' }),
+            makeIssue({ id: '3', severity: 'warning' }),
+        ])
+        expect(prompt).toContain('3 active health issues')
+        expect(prompt).toContain('1 critical, 2 warning')
+    })
+
+    it('caps the listed issues and summarizes the remainder for large projects', () => {
+        const issues = Array.from({ length: 30 }, (_, i) =>
+            makeIssue({ id: String(i), kind: 'ingestion_warning', severity: 'info' })
+        )
+        const prompt = buildHealthOverviewPrompt(issues)
+        expect(prompt).toContain('30 active health issues')
+        expect((prompt.match(/^- \[/gm) || []).length).toBe(25)
+        expect(prompt).toContain('…and 5 more')
+    })
 })

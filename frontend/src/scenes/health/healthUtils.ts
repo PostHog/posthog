@@ -94,6 +94,12 @@ const issueSummaryLine = (issue: HealthIssue): string => {
 const sortedBySeverity = (issues: HealthIssue[]): HealthIssue[] =>
     [...issues].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity))
 
+const summarizeSeverityCounts = (issues: HealthIssue[]): string =>
+    SEVERITY_ORDER.map((severity) => ({ severity, count: issues.filter((i) => i.severity === severity).length }))
+        .filter(({ count }) => count > 0)
+        .map(({ severity, count }) => `${count} ${severity}`)
+        .join(', ')
+
 /** Preset questions surfaced as a dropdown next to the overview-level "Ask PostHog AI" button. */
 export const HEALTH_OVERVIEW_QUESTIONS = [
     "What's wrong with my project's health?",
@@ -102,6 +108,12 @@ export const HEALTH_OVERVIEW_QUESTIONS = [
 ] as const
 
 const DEFAULT_OVERVIEW_QUESTION = "What's wrong with my project's health, and how do I fix it?"
+
+// Cap how many issues are inlined into the overview prompt. A large production project can have many
+// active health issues, and listing every one would waste — or exceed — PostHog AI's token budget. The
+// list is severity-sorted, so the most actionable issues are always included; the rest are summarized
+// by count below.
+const MAX_OVERVIEW_ISSUES = 25
 
 /** Build the prompt for asking PostHog AI about a single health issue. */
 export const buildHealthIssuePrompt = (issue: HealthIssue): string => {
@@ -133,13 +145,25 @@ export const buildHealthOverviewPrompt = (
         )
     }
     const count = issues.length
+    const sorted = sortedBySeverity(issues)
+    const listed = sorted.slice(0, MAX_OVERVIEW_ISSUES)
+    const remaining = count - listed.length
     const issuesClause = count === 1 ? 'is the 1 active health issue' : `are the ${count} active health issues`
-    return [
+
+    const lines = [
         question,
         '',
-        `Here ${issuesClause} on my PostHog Health overview:`,
-        ...sortedBySeverity(issues).map(issueSummaryLine),
+        `Here ${issuesClause} on my PostHog Health overview (${summarizeSeverityCounts(issues)})${
+            remaining > 0 ? `, showing the ${listed.length} most severe` : ''
+        }:`,
+        ...listed.map(issueSummaryLine),
+    ]
+    if (remaining > 0) {
+        lines.push('', `…and ${remaining} more lower-severity issue${remaining === 1 ? '' : 's'} not listed here.`)
+    }
+    lines.push(
         '',
-        'Please explain what is going wrong, which issues to prioritize, and the concrete steps to fix each one.',
-    ].join('\n')
+        'Please explain what is going wrong, which issues to prioritize, and the concrete steps to fix each one.'
+    )
+    return lines.join('\n')
 }
