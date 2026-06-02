@@ -33,7 +33,7 @@ def _resize_key(key: bytes, size: int = 32) -> bytes:
     Adds padding if key is too short, otherwise truncates to first 32 bytes.
     """
     padding = b"\0" * max(size - len(key), 0)
-    return (key + padding)[:size]
+    return (padding + key)[:size]
 
 
 class EncryptionCodec(PayloadCodec):

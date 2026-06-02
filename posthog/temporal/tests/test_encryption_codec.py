@@ -23,7 +23,7 @@ from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_acti
 @pytest.mark.parametrize(
     "key,size,expected",
     [
-        (b"aaa", 32, b"aaa" + b"\0" * 29),
+        (b"aaa", 32, b"\0" * 29 + b"aaa"),
         (b"aaa", 1, b"a"),
     ],
 )
@@ -36,7 +36,7 @@ def test_resize_key_to_size(key: bytes, size: int, expected: bytes) -> None:
 @pytest.mark.parametrize(
     "key,expected",
     [
-        (b"aaa", b"aaa" + b"\0" * 29),
+        (b"aaa", b"\0" * 29 + b"aaa"),
         (b"a" * 32, b"a" * 32),
     ],
 )
@@ -49,7 +49,7 @@ def test_resize_key(key: bytes, expected: bytes) -> None:
 @pytest.mark.parametrize(
     "key,expected",
     [
-        (b"aaa", b"YWFhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        (b"aaa", b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABhYWE="),
         (b"a+" * 16, b"YSthK2ErYSthK2ErYSthK2ErYSthK2ErYSthK2ErYSs="),
     ],
 )
