@@ -348,59 +348,63 @@ describe('toolbar toolbarConfigLogic', () => {
 
     describe('reachability check exception reporting', () => {
         let captureExceptionSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
 
         beforeEach(() => {
             captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation(() => undefined)
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(() => undefined as any)
         })
 
         afterEach(() => {
             captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
         })
 
-        // Mock only the reachability HEAD check; every other request succeeds so we
-        // isolate exception reporting to the check itself (other failing fetches would
-        // capture their own exceptions and pollute the assertion).
-        function mockReachabilityCheck(checkOutcome: () => Promise<any>): void {
+        async function mountWithCheckFailure(failure: () => Promise<any>): Promise<void> {
             ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
                 if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
-                    return checkOutcome()
+                    return failure()
                 }
                 return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
             })
-        }
-
-        async function mountUntrustedHostAndCheck(): Promise<void> {
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
             await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
         }
 
-        it('does not report an exception for an http_error reachability failure', async () => {
-            mockReachabilityCheck(() => Promise.resolve({ ok: false, status: 404 }))
-            await mountUntrustedHostAndCheck()
-            expect(captureExceptionSpy).not.toHaveBeenCalled()
-        })
+        function uiHostCheckErrorEvents(): any[] {
+            return captureSpy.mock.calls.filter((c) => c[0] === 'toolbar ui host check' && c[1]?.status === 'error')
+        }
 
-        it('does not report an exception for a network_or_cors reachability failure', async () => {
-            mockReachabilityCheck(() => Promise.reject(new TypeError('Failed to fetch')))
-            await mountUntrustedHostAndCheck()
-            expect(captureExceptionSpy).not.toHaveBeenCalled()
-        })
+        it.each([
+            ['HTTP 4xx', () => Promise.resolve({ ok: false, status: 404 }), 'http_error'],
+            ['network or CORS rejection', () => Promise.reject(new TypeError('Failed to fetch')), 'network_or_cors'],
+        ])(
+            'does not report %s as a toolbar exception but still emits the analytics event',
+            async (_label, failure, errorType) => {
+                await mountWithCheckFailure(failure)
 
-        it('does not report an exception for a timeout reachability failure', async () => {
-            mockReachabilityCheck(() => Promise.reject(new DOMException('The operation timed out', 'AbortError')))
-            await mountUntrustedHostAndCheck()
-            expect(captureExceptionSpy).not.toHaveBeenCalled()
-        })
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+                const errorEvents = uiHostCheckErrorEvents()
+                expect(errorEvents).toHaveLength(1)
+                expect(errorEvents[0][1].error_type).toBe(errorType)
+            }
+        )
 
-        it('reports an exception for a genuinely unexpected reachability failure', async () => {
-            mockReachabilityCheck(() => Promise.reject(new Error('something weird')))
-            await mountUntrustedHostAndCheck()
+        it.each([
+            ['timeout', () => Promise.reject(new DOMException('aborted', 'AbortError')), 'timeout'],
+            ['unknown failure', () => Promise.reject(new Error('boom')), 'unknown'],
+        ])('still reports %s as a toolbar exception', async (_label, failure, errorType) => {
+            await mountWithCheckFailure(failure)
+
             expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
             expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({
                 toolbar_context: 'ui_host_check',
-                error_type: 'unknown',
+                error_type: errorType,
             })
+            const errorEvents = uiHostCheckErrorEvents()
+            expect(errorEvents).toHaveLength(1)
+            expect(errorEvents[0][1].error_type).toBe(errorType)
         })
     })
 

@@ -660,11 +660,12 @@ function verifyUiHostReachability(
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
             const errorType = classifyFetchError(error)
-            // Reachability failures (the uiHost lacks the endpoint, is unreachable, or times out)
-            // are expected, recoverable conditions — the flow degrades gracefully via the config
-            // modal and they're already recorded by the capture event below. Only report genuinely
-            // unexpected errors to error tracking to avoid flooding it with non-actionable noise.
-            if (errorType === 'unknown') {
+            // 4xx responses and network/CORS rejections are expected outcomes for
+            // misconfigured reverse-proxy installs — the .catch already degrades
+            // gracefully (auth status → error, config modal opens). Reporting them
+            // as toolbar exceptions just adds error-tracking noise, so skip the
+            // exception capture and rely on the analytics event below for visibility.
+            if (errorType !== 'http_error' && errorType !== 'network_or_cors') {
                 captureToolbarException(error, 'ui_host_check', {
                     error_type: errorType,
                 })
