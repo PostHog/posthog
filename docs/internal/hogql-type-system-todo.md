@@ -32,6 +32,8 @@ Completed in this branch:
 - Added `MapType` compatibility metadata and generic inference for `map(...)`, `mapFromArrays(...)`, `mapKeys(...)`, `mapValues(...)`, map access, and parsed `Map(K, V)` return types.
 - Added structural array function inference for `arrayZip(...)` and `arrayFlatten(...)`.
 - Added array helper inference for array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, and `arrayReverse(...)`, plus scalar helpers such as `arraySum(...)`, `arrayAvg(...)`, `arrayMin(...)`, and `arrayMax(...)`.
+- Added `arrayReduce(...)` inference for supported aggregate names such as `sum`, `avg`, `min`, `max`, and `uniq`.
+- Added scalar aggregate inference for `argMin(...)`, `argMax(...)`, `quantile*`, `median*`, and `uniq*` variants.
 - Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper that distinguishes missing legacy signatures from missing type inference.
 - Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
 - Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
@@ -45,7 +47,7 @@ Completed in this branch:
 Still intentionally left as follow-up work:
 
 - Full ClickHouse parity for every function signature and aggregate combinator.
-- Full higher-order array parity beyond common lambda-first functions, especially `arrayReduce` aggregate-name binding, lambda-aware array sorting, and strict lambda arity/return validation.
+- Full higher-order array parity beyond common lambda-first functions, especially lambda-aware array sorting and strict lambda arity/return validation.
 - Full higher-order map parity, including lambda argument binding for `mapFilter(...)` and lambda-return typing for `mapApply(...)`.
 - Property-definition planning metadata and materialized-property comparison rewrites.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
@@ -405,7 +407,7 @@ TODO:
 - [ ] Cover array functions:
   - [x] constructors and element access
   - [x] `arrayConcat`, `arraySlice`, `arrayJoin`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayFirst`, `arrayLast`
-  - [ ] `arrayReduce` with supported aggregate names
+  - [x] `arrayReduce` with supported aggregate names
   - [x] `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`
   - [x] `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - [ ] Cover tuple and map functions:
@@ -414,12 +416,16 @@ TODO:
   - [x] `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapContains`
   - [ ] `mapFilter`, `mapApply`
 - [ ] Cover aggregate functions:
-  - [ ] `count`, `countIf`, `countState`, `countMerge`
-  - [ ] `sum`, `sumIf`, `sumState`, `sumMerge`
-  - [ ] `avg`, `avgIf`, `avgState`, `avgMerge`
-  - [ ] `min`, `max`, `any`, `argMin`, `argMax`
-  - [ ] `uniq*`
-  - [ ] `quantile*`, `median*`
+  - [x] `count`, `countIf`
+  - [ ] `countState`, `countMerge`
+  - [x] `sum`, `sumIf`
+  - [ ] `sumState`, `sumMerge`
+  - [x] `avg`, `avgIf`
+  - [ ] `avgState`, `avgMerge`
+  - [x] `min`, `max`, `any`, `argMin`, `argMax`
+  - [x] `uniq*`
+  - [x] scalar `quantile*` and `median*` variants
+  - [ ] quantile/median state and merge variants
   - [ ] map/forEach aggregate variants
 - [x] Cover high-use string and URL functions that unblock emitted-SQL nullability simplification.
 - [ ] Cover high-use date functions after the above.

@@ -968,6 +968,9 @@ def _infer_generic_function_type(
             return ast.FloatType(nullable=item_type.nullable)
         return item_type
 
+    if normalized_name == "arrayreduce":
+        return _infer_array_reduce_type(arg_types=arg_types, args=args)
+
     if normalized_name == "tuple":
         return ast.TupleType(nullable=False, item_types=[dataclasses.replace(arg_type) for arg_type in arg_types])
 
@@ -977,28 +980,9 @@ def _infer_generic_function_type(
             return infer_tuple_access_constant_type(arg_types[0], index)
         return ast.UnknownType()
 
-    if normalized_name in {"count", "countif", "countdistinct", "uniq", "uniqexact", "uniqhll12", "uniqtheta"}:
-        return ast.IntegerType(nullable=False)
-
-    if normalized_name in {"sum", "sumif"} and arg_types:
-        input_type = arg_types[0]
-        if isinstance(input_type, ast.FloatType):
-            return ast.FloatType(nullable=input_type.nullable)
-        if isinstance(input_type, ast.DecimalType):
-            return ast.DecimalType(nullable=input_type.nullable)
-        return ast.IntegerType(nullable=input_type.nullable)
-
-    if normalized_name in {"avg", "avgif", "median", "stddevpop", "stddevsamp", "varpop", "varsamp"}:
-        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
-
-    if normalized_name in {"min", "minif", "max", "maxif", "any", "anyif", "anylast", "anylastif"} and arg_types:
-        return dataclasses.replace(arg_types[0])
-
-    if (
-        normalized_name in {"grouparray", "array_agg", "groupuniqarray", "grouparrayif", "groupuniqarrayif"}
-        and arg_types
-    ):
-        return ast.ArrayType(nullable=False, item_type=dataclasses.replace(arg_types[0]))
+    aggregate_type = _infer_aggregate_function_type(normalized_name, arg_types)
+    if aggregate_type is not None:
+        return aggregate_type
 
     if normalized_name.endswith("state"):
         return ast.UnknownType(nullable=False)
@@ -1092,6 +1076,97 @@ def _array_element_type(array_type: ast.ConstantType) -> ast.ConstantType:
     if isinstance(array_type, ast.StringArrayType):
         return ast.StringType(nullable=False)
     return ast.UnknownType()
+
+
+def _infer_array_reduce_type(arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]]) -> ast.ConstantType:
+    if not args or len(args) < 2:
+        return ast.UnknownType()
+
+    aggregate_name = _constant_string(args[0])
+    if aggregate_name is None:
+        return ast.UnknownType()
+
+    array_item_types = [_array_element_type(arg_type) for arg_type in arg_types[1:]]
+    if not array_item_types:
+        return ast.UnknownType()
+
+    normalized_aggregate = _normalize_array_reduce_aggregate_name(aggregate_name)
+    return _infer_aggregate_function_type(normalized_aggregate, array_item_types) or ast.UnknownType()
+
+
+def _normalize_array_reduce_aggregate_name(aggregate_name: str) -> str:
+    return aggregate_name.split("(", 1)[0].strip().lower()
+
+
+def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.ConstantType]) -> ast.ConstantType | None:
+    if normalized_name in {
+        "count",
+        "countif",
+        "countdistinct",
+        "countdistinctif",
+        "uniq",
+        "uniqif",
+        "uniqexact",
+        "uniqexactif",
+        "uniqhll12",
+        "uniqhll12if",
+        "uniqtheta",
+        "uniqthetaif",
+    }:
+        return ast.IntegerType(nullable=False)
+
+    if normalized_name in {"sum", "sumif"} and arg_types:
+        input_type = arg_types[0]
+        if isinstance(input_type, ast.FloatType):
+            return ast.FloatType(nullable=input_type.nullable)
+        if isinstance(input_type, ast.DecimalType):
+            return ast.DecimalType(nullable=input_type.nullable)
+        return ast.IntegerType(nullable=input_type.nullable)
+
+    if normalized_name.startswith("quantiles") and not _is_aggregate_state_or_merge(normalized_name):
+        return ast.ArrayType(
+            nullable=False,
+            item_type=ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types)),
+        )
+
+    if (
+        normalized_name in {"avg", "avgif", "stddevpop", "stddevsamp", "varpop", "varsamp"}
+        or normalized_name.startswith("median")
+        or normalized_name.startswith("quantile")
+    ) and not _is_aggregate_state_or_merge(normalized_name):
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if (
+        normalized_name
+        in {
+            "min",
+            "minif",
+            "max",
+            "maxif",
+            "any",
+            "anyif",
+            "anylast",
+            "anylastif",
+            "argmin",
+            "argminif",
+            "argmax",
+            "argmaxif",
+        }
+        and arg_types
+    ):
+        return dataclasses.replace(arg_types[0])
+
+    if (
+        normalized_name in {"grouparray", "array_agg", "groupuniqarray", "grouparrayif", "groupuniqarrayif"}
+        and arg_types
+    ):
+        return ast.ArrayType(nullable=False, item_type=dataclasses.replace(arg_types[0]))
+
+    return None
+
+
+def _is_aggregate_state_or_merge(normalized_name: str) -> bool:
+    return normalized_name.endswith("state") or normalized_name.endswith("merge") or normalized_name.endswith("mergeif")
 
 
 def _infer_map_type(arg_types: list[ast.ConstantType], dialect: HogQLDialect) -> ast.ConstantType:
@@ -1204,6 +1279,12 @@ def _infer_json_extract_keys_and_values_type(
 
 def _constant_int(expr: ast.Expr) -> Optional[int]:
     if isinstance(expr, ast.Constant) and isinstance(expr.value, int):
+        return expr.value
+    return None
+
+
+def _constant_string(expr: ast.Expr) -> Optional[str]:
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
         return expr.value
     return None
 

@@ -152,6 +152,10 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT arrayAvg([1, 2])", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT arrayMin([1, 2.0])", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT arrayMax([1, 2.0])", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT arrayReduce('sum', [1, 2.0])", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT arrayReduce('avg', [1, 2])", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT arrayReduce('min', [1, 2.0])", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT arrayReduce('uniq', ['a', 'b'])", ast.IntegerType(nullable=False))
 
     def test_resolver_infers_map_function_types(self) -> None:
         self._assert_first_column_type(
@@ -317,6 +321,13 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT coalesce(1, 2.0)", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT count() FROM events", ast.IntegerType(nullable=False))
         self._assert_first_column_type("SELECT sum(1.0) FROM events", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT uniqIf(distinct_id, true) FROM events", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT argMax('a', 1) FROM events", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT quantile(0.95)(1) FROM events", ast.FloatType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT quantiles(0.5, 0.9)(1) FROM events",
+            ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+        )
 
     def test_resolver_infers_common_string_function_types(self) -> None:
         self._assert_first_column_type("SELECT base64Encode('test')", ast.StringType(nullable=False))

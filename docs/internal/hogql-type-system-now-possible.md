@@ -162,9 +162,9 @@ Newly inferred function groups include:
 - common URL helpers: `protocol`, `domain`, `path`, `queryString`, `extractURLParameter`, `URLHierarchy`, `encodeURLComponent`, `cutQueryString`, `cutURLParameter`, and `port`
 - JSON extraction: `JSONExtract(..., 'Type')` parses the return-type literal, including `Array(...)`, tuple, numeric, date, datetime, boolean, UUID, and nullable wrappers supported by the runtime type parser
 - JSON helpers: `JSONExtractInt`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtractString`, `JSONExtractRaw`, `JSONExtractKeys`, `JSONExtractArrayRaw`, `JSONExtractKeysAndValues`, `JSON_VALUE`, `JSONHas`, `JSONType`, and `JSONLength`
-- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
+- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arrayReduce`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - tuple functions: `tuple`, `tupleElement`
-- common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `groupArray`, `array_agg`
+- common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `argMin`, `argMax`, `quantile*`, `median*`, `groupArray`, `array_agg`
 
 This is not full ClickHouse function parity.
 It is enough to stop losing types at many common function boundaries and to make the remaining unknowns measurable.
@@ -217,6 +217,7 @@ Array access resolves to the array element type.
 `arrayFlatten(...)` preserves the flattened item type across nested arrays.
 Array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, and `arrayReverse(...)` keep their input element type.
 `arraySum(...)`, `arrayAvg(...)`, `arrayMin(...)`, and `arrayMax(...)` resolve to scalar numeric element types.
+`arrayReduce(...)` now reads supported aggregate names from the first constant argument and infers the result from the reduced array element types.
 
 Common higher-order array functions now bind lambda arguments from surrounding array element types.
 For example, `arrayMap(x -> x + 0.5, [1, 2])` resolves `x` as `Integer` and the call as `Array(Float)`.
