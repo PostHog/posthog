@@ -1,4 +1,5 @@
 from typing import cast
+
 from unittest.mock import MagicMock, patch
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType

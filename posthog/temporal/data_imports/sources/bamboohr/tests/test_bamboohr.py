@@ -1,4 +1,6 @@
 from typing import Any
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -60,22 +62,36 @@ class TestExtractRecords:
                 {"7": {"id": "7", "employeeId": "1"}, "8": {"id": "8", "employeeId": "2"}},
                 [{"id": "7", "employeeId": "1"}, {"id": "8", "employeeId": "2"}],
             ),
-            ("missing_key_returns_empty", "time_off_types", {"somethingElse": []}, []),
             ("non_list_returns_empty", "meta_fields", {"id": "1"}, []),
         ]
     )
     def test_extract_records(self, _name: str, endpoint: str, payload: Any, expected: list[dict[str, Any]]) -> None:
         assert _extract_records(payload, BAMBOOHR_ENDPOINTS[endpoint]) == expected
 
+    def test_missing_data_key_raises(self) -> None:
+        # A missing envelope key should fail loudly rather than silently sync zero rows.
+        with pytest.raises(KeyError):
+            _extract_records({"somethingElse": []}, BAMBOOHR_ENDPOINTS["time_off_types"])
+
 
 class TestNextUrl:
     @parameterized.expand(
         [
-            ("underscore_links", {"_links": {"next": "https://api.bamboohr.com/next"}}, "https://api.bamboohr.com/next"),
-            ("plain_links", {"links": {"next": "https://api.bamboohr.com/next"}}, "https://api.bamboohr.com/next"),
+            (
+                "underscore_links",
+                {"_links": {"next": "https://api.bamboohr.com/api/gateway.php/acme/v1/p2"}},
+                "https://api.bamboohr.com/api/gateway.php/acme/v1/p2",
+            ),
+            (
+                "plain_links",
+                {"links": {"next": "https://api.bamboohr.com/api/gateway.php/acme/v1/p2"}},
+                "https://api.bamboohr.com/api/gateway.php/acme/v1/p2",
+            ),
             ("no_links", {"data": []}, None),
             ("null_next", {"_links": {"next": None}}, None),
+            ("empty_links_dict", {"_links": {}}, None),
             ("relative_next_ignored", {"_links": {"next": "/v1/employees?page=2"}}, None),
+            ("off_host_ignored", {"_links": {"next": "http://169.254.169.254/latest/meta-data/"}}, None),
             ("list_payload", [{"id": "1"}], None),
         ]
     )

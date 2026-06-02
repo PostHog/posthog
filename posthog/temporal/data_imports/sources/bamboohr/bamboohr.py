@@ -19,6 +19,8 @@ BAMBOOHR_API_HOST = "https://api.bamboohr.com/api/gateway.php"
 # Basic auth uses the API key as the username and any non-empty string as the password.
 BAMBOOHR_BASIC_AUTH_PASSWORD = "x"
 REQUEST_TIMEOUT_SECONDS = 60
+# Credential validation is a single cheap probe; keep it snappy so source creation doesn't feel hung.
+VALIDATE_TIMEOUT_SECONDS = 10
 # Time-off endpoints require an explicit window; widen it enough to capture all history and pending future requests.
 TIME_OFF_WINDOW_START = "2000-01-01"
 TIME_OFF_FUTURE_DAYS = 730
@@ -59,7 +61,9 @@ def _build_url(subdomain: str, config: BambooHREndpointConfig) -> str:
 
 def _extract_records(payload: Any, config: BambooHREndpointConfig) -> list[dict[str, Any]]:
     if config.data_key is not None and isinstance(payload, dict):
-        payload = payload.get(config.data_key)
+        # Direct key access so a missing envelope key (e.g. an API change) fails loudly
+        # rather than silently syncing zero rows.
+        payload = payload[config.data_key]
 
     if config.data_shape == "dict":
         # e.g. meta/users returns ``{"<id>": {...}}`` — flatten to the list of records.
@@ -76,9 +80,16 @@ def _next_url(payload: Any) -> str | None:
     """
     if not isinstance(payload, dict):
         return None
-    links = payload.get("_links") or payload.get("links") or {}
-    next_link = links.get("next") if isinstance(links, dict) else None
-    if isinstance(next_link, str) and next_link.startswith("http"):
+    links = payload.get("_links")
+    if links is None:
+        links = payload.get("links")
+    if not isinstance(links, dict):
+        return None
+    next_link = links.get("next")
+    # Only follow pagination URLs that stay on the canonical BambooHR gateway host, so a
+    # tampered or compromised API response can't point our authenticated request at an internal
+    # address (SSRF) and leak the API key carried in the Basic auth header.
+    if isinstance(next_link, str) and next_link.startswith(BAMBOOHR_API_HOST):
         return next_link
     return None
 
@@ -92,7 +103,7 @@ def validate_credentials(subdomain: str, api_key: str, schema_name: Optional[str
     url = f"{_base_url(subdomain)}/meta/fields"
     try:
         response = make_tracked_session().get(
-            url, auth=_auth(api_key), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS
+            url, auth=_auth(api_key), headers=_headers(), timeout=VALIDATE_TIMEOUT_SECONDS
         )
     except Exception:
         return False, "Could not connect to BambooHR. Check the company subdomain and try again."
@@ -124,6 +135,10 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         url = resume_config.next_url
+        # Guard the persisted resume URL too — only ever saved from _next_url (host-pinned),
+        # but re-check so a tampered Redis state can't redirect our authenticated request.
+        if not url.startswith(BAMBOOHR_API_HOST):
+            raise ValueError(f"BambooHR resume state contains an unexpected URL: {url!r}")
         logger.debug(f"BambooHR: resuming {endpoint} from URL: {url}")
     else:
         url = _build_url(subdomain, config)
