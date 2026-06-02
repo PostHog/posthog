@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("batch_exports", "0002_batchexport_batchexportbackfill_and_more"),
         ("cdp", "0002_alter_hogfunction_batch_export"),
-        ("posthog", "1195_migrate_batch_exports_models"),
+        ("posthog", "1197_migrate_batch_exports_models"),
     ]
 
     operations = [

@@ -34,7 +34,7 @@ def reverse_content_types(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("annotations", "0001_migrate_annotations_models"),
-        ("posthog", "1193_migrate_exports_models"),
+        ("posthog", "1195_migrate_exports_models"),
     ]
 
     operations = [

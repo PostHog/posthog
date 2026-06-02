@@ -449,6 +449,36 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
         ],
+        // Score histogram: count of observations per score bucket across the configured scale.
+        scorerHistogram: [
+            (s) => [s.scorerScores, s.scanner],
+            (scores: number[], scanner: ReplayScanner | null): { labels: string[]; counts: number[] } | null => {
+                if (scores.length === 0) {
+                    return null
+                }
+                // Span the configured scale (falling back to the observed range) so the axis shows the full
+                // possible range even when scores cluster. Widen the bucket for large scales to cap the bar count.
+                const scale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
+                const lo = Math.floor(scale?.min ?? scores[0])
+                const hi = Math.ceil(scale?.max ?? scores[scores.length - 1])
+                const span = Math.max(0, hi - lo)
+                const bucketWidth = Math.max(1, Math.ceil((span + 1) / 21))
+                const bucketCount = Math.floor(span / bucketWidth) + 1
+                const counts = new Array(bucketCount).fill(0)
+                for (const score of scores) {
+                    const idx = Math.min(
+                        bucketCount - 1,
+                        Math.max(0, Math.floor((Math.round(score) - lo) / bucketWidth))
+                    )
+                    counts[idx] += 1
+                }
+                const labels = counts.map((_, i) => {
+                    const start = lo + i * bucketWidth
+                    return bucketWidth === 1 ? String(start) : `${start}–${Math.min(start + bucketWidth - 1, hi)}`
+                })
+                return { labels, counts }
+            },
+        ],
         // Distinct sessions scanned: last 14 days and total. Surfaces sweep-job coverage.
         coverageStats: [
             (s) => [s.observations],

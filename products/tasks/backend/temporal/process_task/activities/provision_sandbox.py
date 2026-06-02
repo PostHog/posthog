@@ -38,6 +38,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "GH_TOKEN",
     "LLM_GATEWAY_URL",
     "POSTHOG_RESUME_RUN_ID",
+    "BASH_ENV",
 }
 
 
@@ -175,6 +176,11 @@ def _build_environment_variables(
     if github_token:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
+
+    # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
+    # agent-server launch (see `_build_agent_server_command`) so backend maintenance execs
+    # don't source a script that a resume snapshot could control. It stays in
+    # RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS so a user-supplied env var can't add it here.
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL

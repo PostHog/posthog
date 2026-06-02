@@ -10,7 +10,7 @@ import posthog.helpers.encrypted_fields
 class Migration(migrations.Migration):
     dependencies = [
         ("batch_exports", "0001_migrate_batch_exports_models"),
-        ("posthog", "1195_migrate_batch_exports_models"),
+        ("posthog", "1197_migrate_batch_exports_models"),
     ]
 
     operations = [
