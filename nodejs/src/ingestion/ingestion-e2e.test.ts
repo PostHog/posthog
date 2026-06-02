@@ -285,26 +285,28 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
     }
 }
 
+let clickhouse: Clickhouse
+
+beforeAll(async () => {
+    console.log('Creating Clickhouse client')
+    clickhouse = Clickhouse.create()
+    await resetKafka()
+    await resetTestDatabase()
+    await clickhouse.resetTestDatabase()
+    await waitForClickHouseKafkaConsumer(clickhouse)
+    process.env.SITE_URL = 'https://example.com'
+})
+
+afterAll(async () => {
+    await resetTestDatabase()
+    await clickhouse.resetTestDatabase()
+    clickhouse.close()
+})
+
 describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: true }])(
     'Event Pipeline E2E tests (prefetch=$PERSONS_PREFETCH_ENABLED)',
     (prefetchConfig) => {
         const testWithTeamIngester = createTestWithTeamIngester(prefetchConfig)
-        let clickhouse: Clickhouse
-        beforeAll(async () => {
-            console.log('Creating Clickhouse client')
-            clickhouse = Clickhouse.create()
-            await resetKafka()
-            await resetTestDatabase()
-            await clickhouse.resetTestDatabase()
-            await waitForClickHouseKafkaConsumer(clickhouse)
-            process.env.SITE_URL = 'https://example.com'
-        })
-
-        afterAll(async () => {
-            await resetTestDatabase()
-            await clickhouse.resetTestDatabase()
-            clickhouse.close()
-        })
 
         testWithTeamIngester(
             'should handle $$client_ingestion_warning events',
