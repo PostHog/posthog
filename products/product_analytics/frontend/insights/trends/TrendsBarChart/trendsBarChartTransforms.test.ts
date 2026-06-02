@@ -147,7 +147,6 @@ describe('buildTrendsBarAggregatedSeries', () => {
             mkResult({ id: 'c', label: 'C', aggregated_value: 30 }),
         ]
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        // One series of N values — not N sparse series of N zeros — so the build is O(n), not O(n²).
         expect(series).toHaveLength(1)
         expect(series[0].data).toEqual([10, 20, 30])
     })

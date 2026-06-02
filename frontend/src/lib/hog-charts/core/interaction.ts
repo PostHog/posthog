@@ -1,5 +1,6 @@
 import { bisector } from 'd3'
 
+import { barColorAt } from './color-utils'
 import type {
     ChartDimensions,
     PointClickData,
@@ -100,7 +101,7 @@ export function buildTooltipContext<Meta = unknown>(
         if (s.visibility?.tooltip !== false) {
             // Per-bar charts (a single series with `barColors`/`barMeta`/`barLabels`) carry each
             // bar's identity by index — surface it so the tooltip reads the right color/meta/label.
-            const color = s.barColors?.[dataIndex] ?? s.color
+            const color = barColorAt(s, dataIndex)
             const entrySeries =
                 s.barMeta || s.barLabels
                     ? { ...s, meta: s.barMeta?.[dataIndex] ?? s.meta, label: s.barLabels?.[dataIndex] ?? s.label }

@@ -270,8 +270,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands
-        // (the old sparse "one series per bar" model was O(n²)).
+        // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands.
         await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
         await waitFor(
             () => {
@@ -279,6 +278,31 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             },
             { timeout: 5000 }
         )
+    })
+
+    it('colors each value-label pill by its own bar, not the first bar', async () => {
+        // Regression: the single collapsed series carries per-bar colors, so value labels must
+        // resolve `barColors[dataIndex]` — not the series-level color (which is just barColors[0]).
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsBarValue, showValuesOnSeries: true },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                expect(getHogChart().valueLabels().length).toBeGreaterThan(1)
+            },
+            { timeout: 5000 }
+        )
+        const pillColors = getHogChart()
+            .valueLabels()
+            .map((l) => l.color)
+        expect(new Set(pillColors).size).toBeGreaterThan(1)
     })
 
     it('labels each aggregated breakdown bar by its breakdown value, one band per value by default', async () => {

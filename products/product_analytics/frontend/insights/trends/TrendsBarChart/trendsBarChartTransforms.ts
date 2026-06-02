@@ -116,6 +116,10 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     }
 }
 
+/** Key for the single collapsed series that carries every aggregated bar (per-bar identity lives
+ *  in its `barColors`/`barLabels`/`barMeta`). Only needs to be unique within its one-element array. */
+const AGGREGATED_SERIES_KEY = 'aggregated'
+
 /** Separator between the series id and compare label in synthetic stacked-mode band keys. */
 const BAND_KEY_SEP = '\u001f'
 
@@ -133,11 +137,8 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
     const n = visible.length
 
     if (!opts.stackBreakdowns) {
-        // Default: every breakdown value is its own band. Emit ONE series of N values, one
-        // colored bar per band, using hog-charts per-bar colors/labels/meta. This is O(n) —
-        // the previous "one sparse series per bar" workaround for the one-color-per-series limit
-        // was O(n²) in memory, stacking, and draw (each series carried a length-n zero-filled
-        // data array), which made high-cardinality breakdowns crawl.
+        // Default: every breakdown value is its own band. Emit ONE series of N values, one colored
+        // bar per band, carrying per-bar identity via hog-charts barColors/barLabels/barMeta — O(n).
         const data = new Array<number>(n)
         const barColors = new Array<string | undefined>(n)
         const barLabels = new Array<string>(n)
@@ -154,7 +155,8 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
         }
         const series: Series<M>[] = [
             {
-                key: 'aggregated',
+                key: AGGREGATED_SERIES_KEY,
+                // Per-bar labels live in `barLabels`; the series-level label is never surfaced here.
                 label: '',
                 data,
                 color: barColors[0],

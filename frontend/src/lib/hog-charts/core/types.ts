@@ -32,7 +32,9 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar fill colors indexed by data index. The bar at index `i` uses
      *  `barColors[i]` when set, otherwise falls back to `color` (then the theme). Lets a single
      *  series render bars of different colors — e.g. an aggregated breakdown where each bar is a
-     *  distinct entity — instead of paying the O(n²) cost of one sparse series per colored bar. */
+     *  distinct entity — instead of paying the O(n²) cost of one sparse series per colored bar.
+     *  Honored by bar fill, hover highlight, tooltip swatch, and value labels via `barColorAt`.
+     *  The static grouped track base fill (`drawBarTracks`) batches one color and uses `color`. */
     barColors?: (string | undefined)[]
     /** Per-bar metadata indexed by data index. When set, the tooltip resolves the bar at index `i`
      *  from `barMeta[i]` instead of the series-level `meta`. Pairs with {@link barColors} /
