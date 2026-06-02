@@ -1,3 +1,4 @@
+import re
 import base64
 import dataclasses
 from collections.abc import Iterator
@@ -17,6 +18,12 @@ PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 
+# A Gorgias subdomain is a single DNS label (1-63 chars, no leading/trailing hyphen).
+# Validating against this before building the URL prevents a crafted domain (e.g. one
+# containing `#`, `?`, `@`, or `.`) from breaking out of the `.gorgias.com` host and
+# redirecting the request — and the Basic-auth header — to an attacker-controlled host.
+_VALID_SUBDOMAIN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
 
 class GorgiasRetryableError(Exception):
     pass
@@ -33,7 +40,8 @@ def normalize_domain(domain: str) -> str:
     """Reduce whatever the user pasted to the bare Gorgias subdomain.
 
     Accepts `acme`, `acme.gorgias.com`, or `https://acme.gorgias.com/api/` and
-    returns `acme`.
+    returns `acme`. The result is not yet validated — `get_base_url` enforces that
+    it is a single safe DNS label before it is used to build a request URL.
     """
     value = domain.strip().lower()
     value = value.removeprefix("https://").removeprefix("http://")
@@ -43,7 +51,12 @@ def normalize_domain(domain: str) -> str:
 
 
 def get_base_url(domain: str) -> str:
-    return f"https://{normalize_domain(domain)}.gorgias.com/api"
+    subdomain = normalize_domain(domain)
+    if not _VALID_SUBDOMAIN.match(subdomain):
+        raise ValueError(
+            "Invalid Gorgias domain. Use your account subdomain (letters, digits, and hyphens only), e.g. your-company."
+        )
+    return f"https://{subdomain}.gorgias.com/api"
 
 
 def _get_auth_header(email: str, api_key: str) -> str:
@@ -64,13 +77,14 @@ def validate_credentials(domain: str, email: str, api_key: str) -> tuple[bool, s
     `/account` is the canonical "who am I" endpoint and the lightest call available.
     A 200 means the basic-auth pair is valid; 401/403 means it is not.
     """
-    if not normalize_domain(domain):
-        return False, "Gorgias domain is required (e.g. your-company)"
+    try:
+        url = f"{get_base_url(domain)}/account"
+    except ValueError as e:
+        return False, str(e)
 
-    url = f"{get_base_url(domain)}/account"
     try:
         session = make_tracked_session(headers=get_headers(email, api_key), redact_values=(api_key,))
-        response = session.get(url, timeout=30)
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception as e:
         return False, f"Could not connect to Gorgias: {e}"
 

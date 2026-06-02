@@ -34,7 +34,6 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gorgias authentication failed. Check your email and API key.",
             "403 Client Error: Forbidden for url": "Your Gorgias API key does not have access to this resource. Check the integration's permissions.",
-            "Unauthorized for url": "Gorgias authentication failed. Check your email and API key.",
         }
 
     def get_schemas(
@@ -55,7 +54,7 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:
