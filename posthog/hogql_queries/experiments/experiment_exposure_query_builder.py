@@ -248,7 +248,7 @@ class ExposureQueryBuilder:
                     "date_to": self.context.date_range_query.date_to_as_hogql(),
                     "event_predicate": self.build_exposure_event_predicate(),
                     "variant_property": self.build_variant_property(),
-                    "variants": ast.Constant(value=self.context.variants),
+                    "variants": ast.Constant(value=list(self.context.variants)),
                     "test_accounts_filter": self.build_test_accounts_filter(),
                 },
             )
@@ -408,7 +408,7 @@ class ExposureQueryBuilder:
             "event_predicate": self.build_exposure_event_predicate(),
             "test_accounts_filter": self.build_test_accounts_filter(),
             "variant_property": self.build_variant_property(),
-            "variants": ast.Constant(value=self.context.variants),
+            "variants": ast.Constant(value=list(self.context.variants)),
             "experiment_date_from": self.context.date_range_query.date_from_as_hogql(),
             "experiment_date_to": self.context.date_range_query.date_to_as_hogql(),
         }
