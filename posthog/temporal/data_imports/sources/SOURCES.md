@@ -86,6 +86,7 @@ the row lists both.
 | tiktok_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| workos        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
 ### Notes on partially-tracked sources

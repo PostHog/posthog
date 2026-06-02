@@ -479,6 +479,8 @@ export interface DataWarehouseSyncWarning {
     schema_name: string
     /** Source type, e.g. "Stripe", "Hubspot" */
     source_type: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
     status: string
     /** Human-readable warning shown to the user */
@@ -606,6 +608,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
+    /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+    hide_viewed_recordings?: 'current-user' | 'any-user' | null
     /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
     session_recording_id?: string
     person_uuid?: string
@@ -6064,6 +6068,7 @@ export const externalDataSources = [
     'Plain',
     'Resend',
     'PgAnalyze',
+    'WorkOS',
     'Custom',
 ] as const
 
