@@ -25,14 +25,24 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .depot/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
-# Shadow disabled — reduced to manual workflow_dispatch only (no auto-runs on
-# push/pull_request/merge_group). Restore those triggers to re-enable.
+# Every job is gated on the DEPOT_CI_SHADOW_ENABLED repository variable (see the
+# `changes` job): `true` runs the shadow, anything else (incl. unset) skips it.
+# Toggle in GitHub → Settings → Secrets and variables → Actions → Variables.
 on:
+    push:
+        branches:
+            - master
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
                 description: ClickHouse server version. Leave blank for default
                 type: string
+    pull_request:
+        # Heavy test matrices (django, turbo-tests) skip drafts; ready_for_review
+        # re-triggers them when a PR leaves draft. Add the `run-ci-backend` label
+        # (labeled/unlabeled re-trigger) to force them on a draft. Mirrors canonical.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    merge_group:
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -81,6 +91,10 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
+        # Shadow on/off switch. `changes` is the root of the `needs` graph, so gating
+        # it skips every downstream job. `django_tests` repeats the gate because its
+        # `always()` would otherwise survive the skip cascade.
+        if: vars.DEPOT_CI_SHADOW_ENABLED == 'true'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
@@ -1139,7 +1153,9 @@ jobs:
         name: Django Tests Pass
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
-        if: always()
+        # always() collates skipped/failed matrix jobs; gated so it doesn't spin up a
+        # lone runner when the shadow is off.
+        if: always() && vars.DEPOT_CI_SHADOW_ENABLED == 'true'
         steps:
             - name: Check matrix outcome
               run: |

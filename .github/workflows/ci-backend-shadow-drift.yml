@@ -6,11 +6,15 @@ name: Backend CI shadow drift check
 # without this check, canonical drifts silently and the depot timing trial stops
 # measuring the same work.
 #
-# Disabled alongside the shadow — reduced to manual workflow_dispatch. Restore
-# the pull_request paths trigger to re-enable.
+# Cheap to run — only triggers when one of the two files changes. Gated on the
+# DEPOT_CI_SHADOW_ENABLED repository variable so drift enforcement tracks the
+# shadow itself: no point keeping the shadow in sync while it is switched off.
 
 on:
-    workflow_dispatch:
+    pull_request:
+        paths:
+            - .github/workflows/ci-backend.yml
+            - .depot/workflows/ci-backend.yml
 
 permissions:
     contents: read
@@ -22,6 +26,7 @@ concurrency:
 jobs:
     check:
         name: Both ci-backend files updated together
+        if: vars.DEPOT_CI_SHADOW_ENABLED == 'true'
         runs-on: ubuntu-latest
         # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
