@@ -512,7 +512,9 @@ def resolve_slack_user(
 #  - hit US, local match           -> handle locally
 #  - hit US, no local match        -> proxy to EU (loop header set)
 #  - hit EU, US says "I have it"   -> proxy to US (loop header set)
-#  - hit EU, US says "no" / errs   -> handle locally if found, else drop
+#  - hit EU, US says "no"          -> handle locally if found, else drop
+#  - hit EU, probe errs / unknown  -> assume US claims and proxy (optimistic); US drops if it
+#                                     also has nothing, which is the same outcome as before
 #  - hit either with loop header   -> never proxy again; handle locally or drop
 #
 # This keeps the slack manifest endpoint swappable between us.posthog.com and eu.posthog.com
@@ -521,8 +523,12 @@ REGION_PROXY_HEADER = "X-PostHog-Region-Proxied"
 REGION_PROXY_TIMEOUT_SECONDS = 3
 # Tight budget: the workspace_claims endpoint is just a DB .exists(), and EU calls it inline
 # before deciding whether to proxy. Slack's webhook ack deadline is 3s total, so we want this
-# call to fail fast (and fall back to local handling) rather than eat into the proxy budget.
+# call to fail fast (and fall back to optimistic proxy) rather than eat into the proxy budget.
 WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
+# Cache definitive (True/False) claim answers per workspace so a single probe flake does not
+# re-flap routing for every subsequent event. Short TTL keeps us responsive when an integration
+# moves between regions; None answers are never cached.
+WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
 
 
 def _us_region_domain() -> str:
@@ -599,13 +605,28 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
 
 
+def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
+    kinds_token = ",".join(sorted(kinds))
+    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
+
+
 def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
 
     Returns True/False on a definitive answer, or None on transport failure or bad response.
-    Callers must treat None as "unknown" — typically by falling back to local handling so the
-    event is not silently dropped.
+    Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
+    flake does not reroute the next event. None is never cached so the next event re-probes.
     """
+    cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
+    cached = cache.get(cache_key)
+    if isinstance(cached, bool):
+        logger.info(
+            "slack_app_workspace_claims_cache_hit",
+            slack_team_id=slack_team_id,
+            claimed=cached,
+        )
+        return cached
+
     target_domain = _other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
@@ -648,6 +669,8 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     if not isinstance(claimed, bool):
         logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
         return None
+
+    cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
     return claimed
 
 
@@ -1522,19 +1545,25 @@ def route_posthog_code_event_to_relevant_region(
 def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str) -> bool:
     """US-precedence guard. EU yields to US when both claim a workspace.
 
-    Skipped when we're already US (we win), when we were proxied to (the other region already
-    deferred), or when the lookup transport fails (None) — in that last case the caller should
-    prefer handling locally over dropping.
+    Skipped when we're already US (we win) or when we were proxied to (the other region already
+    deferred). When the probe transport itself fails (None), bias toward proxying to US: during
+    a region cutover both regions hold a row for the same workspace and US is the rightful owner,
+    so a single probe flake should not pin the event to EU. If US in fact has no row, it sees the
+    proxied event with the loop header set and drops it — the same outcome the caller would have
+    reached by handling locally.
     """
     if not can_defer:
         return False
     claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    decision = True if claimed is None else claimed
     logger.info(
         "posthog_code_route_us_probe_result",
         slack_team_id=slack_team_id,
         claimed=claimed,
+        decision=decision,
+        optimistic_proxy=claimed is None,
     )
-    return bool(claimed)
+    return decision
 
 
 def _route_to_other_region_or_drop(

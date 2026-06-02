@@ -485,24 +485,30 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.return_value.start_workflow.assert_called_once()
 
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
-    def test_eu_local_match_with_us_lookup_failure_falls_back_to_local(
-        self, mock_sync_connect, mock_asyncio_run, mock_lookup
+    def test_eu_local_match_with_us_lookup_failure_optimistically_proxies(
+        self, mock_sync_connect, mock_asyncio_run, mock_proxy, mock_lookup
     ):
-        # Lookup returns None on transport failure / bad response. Falling back to local handling
-        # is safer than dropping — at worst we double-handle if US later turns out to own this.
+        # Lookup returns None on transport failure / bad response. We optimistically proxy to US
+        # rather than handle locally: during cutover both regions hold a row, US is the rightful
+        # owner, and one flake should not pin the event to EU. If US in fact has no row it sees
+        # the proxied event with the loop header set and drops, which matches the prior outcome.
         mock_lookup.return_value = None
+        mock_proxy.return_value = "proxied"
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
 
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.api import ROUTE_PROXIED, route_posthog_code_event_to_relevant_region
 
         result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
-        assert result == ROUTE_HANDLED_LOCALLY
+        assert result == ROUTE_PROXIED
         mock_lookup.assert_called_once()
-        mock_sync_connect.assert_called_once()
+        mock_proxy.assert_called_once()
+        assert mock_proxy.call_args.args[1] == "us.posthog.com"
+        mock_sync_connect.assert_not_called()
 
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
