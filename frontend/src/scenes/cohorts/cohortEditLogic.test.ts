@@ -76,6 +76,14 @@ describe('cohortEditLogic', () => {
         initKeaTests()
     })
 
+    afterEach(() => {
+        // Unmount so the logic's beforeUnmount clears its calculation-poll setTimeout. Otherwise a
+        // poll scheduled by one test fires during a later test, where api.cohorts.get now resolves
+        // (under MSW v2) and the listener's breakpoint() throws "kea-listeners breakpoint broke"
+        // into whatever test is running.
+        logic?.unmount()
+    })
+
     describe('initial load', () => {
         it('loads existing cohort on mount', async () => {
             await initCohortLogic({ id: 1 })
