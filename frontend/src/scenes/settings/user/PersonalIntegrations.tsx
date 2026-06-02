@@ -71,7 +71,7 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                 </div>
                 <div className="mt-1">
                     <GitHubRepoSummary
-                        repoNames={repositories.map((r) => r.name)}
+                        repos={repositories}
                         loading={repositoriesLoading}
                         installationId={installationId}
                         accountType={accountType}

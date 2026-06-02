@@ -33,11 +33,11 @@ export function IntegrationView({
     })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
-    const { githubRepositoriesLoading, getGitHubRepositories } = useValues(integrationsLogic)
+    const { githubRepositoriesLoading, getGitHubRepositoriesFull } = useValues(integrationsLogic)
     const { loadGitHubRepositories } = useActions(integrationsLogic)
 
     const isGitHub = integration.kind === 'github'
-    const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
+    const repositories = isGitHub ? getGitHubRepositoriesFull(integration.id) : []
     const refreshedAtTimestamp = integration.config?.refreshed_at || null
 
     useEffect(() => {
@@ -100,7 +100,7 @@ export function IntegrationView({
                         ) : null}
                         {isGitHub && (
                             <GitHubRepoSummary
-                                repoNames={repositories}
+                                repos={repositories}
                                 loading={githubRepositoriesLoading}
                                 installationId={integration.config?.installation_id}
                                 accountType={integration.config?.account?.type}
