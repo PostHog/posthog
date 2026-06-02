@@ -61,9 +61,7 @@ class HyperCacheFlagProvider:
             logger.debug("hypercache_flag_provider_import_pending", team_id=self._team_id)
             return None
         except ObjectDoesNotExist:
-            # The configured self-team (POSTHOG_SELF_TEAM_ID, default 2) doesn't exist in
-            # this instance — expected on local/self-hosted. Fall back to the SDK's API
-            # fetch quietly instead of logging a traceback on every poll.
+            # Fall back to the SDK's API
             logger.debug("hypercache_flag_provider_team_missing", team_id=self._team_id)
             return None
         except Exception:
