@@ -455,7 +455,7 @@ class LaunchDarklySourceConfig(config.Config):
 
 @config.config
 class LeverSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
