@@ -392,6 +392,8 @@ def dispatch_inbox_item_notifications(
         # All configs in a group share the same integration and resolved channel id.
         integration = configs[0].slack_notification_integration
         channel = configs[0].slack_notification_channel
+        if integration is None or not channel:
+            continue  # Needed to satisfy mypy
 
         try:
             slack = SlackIntegration(integration)
