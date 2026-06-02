@@ -16,7 +16,6 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -38,6 +37,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
     buildTrendsBarAggregatedSeries,
@@ -77,7 +77,7 @@ const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
 export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, isInDashboardContext } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -122,23 +122,13 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 
     const getAggregatedDisplayLabel = useCallback(
-        (r: IndexedTrendResult): string => {
-            if (stackBreakdowns) {
-                // Breakdown values within the band are distinguished by color and the tooltip.
-                return getDisplayNameFromEntityFilter(r.action) ?? r.label ?? ''
-            }
-            if (r.breakdown_value != null) {
-                return formatBreakdownLabel(
-                    r.breakdown_value,
-                    breakdownFilter,
-                    allCohorts?.results,
-                    formatPropertyValueForDisplay,
-                    undefined,
-                    r.label
-                )
-            }
-            return r.label ?? ''
-        },
+        (r: IndexedTrendResult): string =>
+            getAggregatedDisplayLabelFn(r, {
+                stackBreakdowns,
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
         [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
@@ -247,6 +237,9 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
+            // On a dashboard the tile is a fixed height: fit the rows that fit instead of growing
+            // the tile and scrolling. On the full insight page, keep the grow-to-fit-all behavior.
+            bars: { fitToHeight: isInDashboardContext },
         }
     }, [
         yAxisScaleType,
@@ -255,6 +248,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         trendsFilter?.yAxisLabel,
         displayLabels,
         labels,
+        isInDashboardContext,
     ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
