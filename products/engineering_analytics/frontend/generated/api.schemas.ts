@@ -7,6 +7,17 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CICardSummaryApi {
+    /** Count of open pull requests. */
+    open_prs: number
+    /** Distinct repositories with at least one open pull request. */
+    repos: number
+    /** Open, non-draft, non-bot pull requests older than 7 days. */
+    stuck: number
+    /** Open pull requests with at least one failing latest CI run. May lag until the workflow_run webhook settles late completions. */
+    failing_ci: number
+}
+
 export interface AuthorApi {
     /** Login handle of the pull request author. */
     handle: string
@@ -32,9 +43,10 @@ export interface RepoRefApi {
  * `closed` - CLOSED
  * `merged` - MERGED
  */
-export type PullRequestStateEnumApi = (typeof PullRequestStateEnumApi)[keyof typeof PullRequestStateEnumApi]
+export type EngineeringAnalyticsPRStateEnumApi =
+    (typeof EngineeringAnalyticsPRStateEnumApi)[keyof typeof EngineeringAnalyticsPRStateEnumApi]
 
-export const PullRequestStateEnumApi = {
+export const EngineeringAnalyticsPRStateEnumApi = {
     Open: 'open',
     Closed: 'closed',
     Merged: 'merged',
@@ -56,7 +68,7 @@ export interface PullRequestApi {
   * `open` - OPEN
   * `closed` - CLOSED
   * `merged` - MERGED */
-    state: PullRequestStateEnumApi
+    state: EngineeringAnalyticsPRStateEnumApi
     /** True if the pull request is a draft. */
     is_draft: boolean
     /** When the pull request was opened. */
@@ -134,6 +146,79 @@ export interface PRLifecycleApi {
     metric_quality?: MetricQualityEnumApi
 }
 
+export interface CIStatusRollupApi {
+    /** Distinct workflows run on the PR's head SHA. */
+    runs: number
+    /** Latest runs that completed with conclusion 'success'. */
+    passing: number
+    /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+    failing: number
+    /** Latest runs not yet completed (queued or in progress). */
+    pending: number
+}
+
+export interface PullRequestListItemApi {
+    /** The pull request author. */
+    author: AuthorApi
+    /** Repository the pull request belongs to. */
+    repo: RepoRefApi
+    /** CI status from the latest workflow runs on the head SHA. */
+    ci: CIStatusRollupApi
+    /** Pull request number within the repository. */
+    number: number
+    /** Pull request title. */
+    title: string
+    /** Derived state: 'open', 'closed', or 'merged'.
+
+  * `open` - OPEN
+  * `closed` - CLOSED
+  * `merged` - MERGED */
+    state: EngineeringAnalyticsPRStateEnumApi
+    /** True if the pull request is a draft. */
+    is_draft: boolean
+    /** When the pull request was opened. */
+    created_at: string
+    /**
+     * When the pull request was merged, or null.
+     * @nullable
+     */
+    merged_at: string | null
+    /**
+     * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
+     * @nullable
+     */
+    open_to_merge_seconds: number | null
+    /** GitHub label names on the pull request. */
+    labels: string[]
+}
+
+export interface WorkflowHealthItemApi {
+    /** GitHub Actions workflow name. */
+    workflow_name: string
+    /** Total runs started in the window. */
+    run_count: number
+    /**
+     * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+     * @nullable
+     */
+    success_rate: number | null
+    /**
+     * Median duration of completed runs, in seconds. Null if none completed.
+     * @nullable
+     */
+    p50_seconds: number | null
+    /**
+     * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
+     * When the most recent run with conclusion 'failure' started, or null.
+     * @nullable
+     */
+    last_failure_at: string | null
+}
+
 export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -143,4 +228,22 @@ export type EngineeringAnalyticsPrLifecycleParams = {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string
+}
+
+export type EngineeringAnalyticsPullRequestsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+}
+
+export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
 }

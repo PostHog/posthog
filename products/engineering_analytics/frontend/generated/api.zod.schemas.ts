@@ -9,6 +9,20 @@
  */
 import { z as zod } from 'zod'
 
+export const CICardSummaryApi = zod.object({
+    open_prs: zod.number().describe('Count of open pull requests.'),
+    repos: zod.number().describe('Distinct repositories with at least one open pull request.'),
+    stuck: zod.number().describe('Open, non-draft, non-bot pull requests older than 7 days.'),
+    failing_ci: zod
+        .number()
+        .describe(
+            'Open pull requests with at least one failing latest CI run. May lag until the workflow_run webhook settles late completions.'
+        ),
+})
+
+export type CICardSummaryApi = zod.input<typeof CICardSummaryApi>
+export type CICardSummaryApiOutput = zod.output<typeof CICardSummaryApi>
+
 export const AuthorApi = zod.object({
     handle: zod.string().describe('Login handle of the pull request author.'),
     display_name: zod.string().describe('Human-readable name; equals the handle in v1.'),
@@ -28,12 +42,12 @@ export const RepoRefApi = zod.object({
 export type RepoRefApi = zod.input<typeof RepoRefApi>
 export type RepoRefApiOutput = zod.output<typeof RepoRefApi>
 
-export const PullRequestStateEnumApi = zod
+export const EngineeringAnalyticsPRStateEnumApi = zod
     .enum(['open', 'closed', 'merged'])
     .describe('\* `open` - OPEN\n\* `closed` - CLOSED\n\* `merged` - MERGED')
 
-export type PullRequestStateEnumApi = zod.input<typeof PullRequestStateEnumApi>
-export type PullRequestStateEnumApiOutput = zod.output<typeof PullRequestStateEnumApi>
+export type EngineeringAnalyticsPRStateEnumApi = zod.input<typeof EngineeringAnalyticsPRStateEnumApi>
+export type EngineeringAnalyticsPRStateEnumApiOutput = zod.output<typeof EngineeringAnalyticsPRStateEnumApi>
 
 export const PullRequestApi = zod.object({
     author: zod
@@ -172,3 +186,84 @@ export const PRLifecycleApi = zod.object({
 
 export type PRLifecycleApi = zod.input<typeof PRLifecycleApi>
 export type PRLifecycleApiOutput = zod.output<typeof PRLifecycleApi>
+
+export const CIStatusRollupApi = zod.object({
+    runs: zod.number().describe("Distinct workflows run on the PR's head SHA."),
+    passing: zod.number().describe("Latest runs that completed with conclusion 'success'."),
+    failing: zod.number().describe("Latest runs that completed with conclusion 'failure' or 'timed_out'."),
+    pending: zod.number().describe('Latest runs not yet completed (queued or in progress).'),
+})
+
+export type CIStatusRollupApi = zod.input<typeof CIStatusRollupApi>
+export type CIStatusRollupApiOutput = zod.output<typeof CIStatusRollupApi>
+
+export const PullRequestListItemApi = zod.object({
+    author: zod
+        .object({
+            handle: zod.string().describe('Login handle of the pull request author.'),
+            display_name: zod.string().describe('Human-readable name; equals the handle in v1.'),
+            avatar_url: zod.string().describe("URL of the author's avatar image."),
+            is_bot: zod.boolean().describe('True if the author is a bot (handle ends in [bot] or is a known bot).'),
+        })
+        .describe('The pull request author.'),
+    repo: zod
+        .object({
+            provider: zod.string().describe("Code host provider, e.g. 'github'."),
+            owner: zod.string().describe('Repository owner or organization.'),
+            name: zod.string().describe('Repository name.'),
+        })
+        .describe('Repository the pull request belongs to.'),
+    ci: zod
+        .object({
+            runs: zod.number().describe("Distinct workflows run on the PR's head SHA."),
+            passing: zod.number().describe("Latest runs that completed with conclusion 'success'."),
+            failing: zod.number().describe("Latest runs that completed with conclusion 'failure' or 'timed_out'."),
+            pending: zod.number().describe('Latest runs not yet completed (queued or in progress).'),
+        })
+        .describe('CI status from the latest workflow runs on the head SHA.'),
+    number: zod.number().describe('Pull request number within the repository.'),
+    title: zod.string().describe('Pull request title.'),
+    state: zod
+        .enum(['open', 'closed', 'merged'])
+        .describe('\* `open` - OPEN\n\* `closed` - CLOSED\n\* `merged` - MERGED')
+        .describe(
+            "Derived state: 'open', 'closed', or 'merged'.\n\n\* `open` - OPEN\n\* `closed` - CLOSED\n\* `merged` - MERGED"
+        ),
+    is_draft: zod.boolean().describe('True if the pull request is a draft.'),
+    created_at: zod.iso.datetime({ offset: true }).describe('When the pull request was opened.'),
+    merged_at: zod.iso.datetime({ offset: true }).nullable().describe('When the pull request was merged, or null.'),
+    open_to_merge_seconds: zod
+        .number()
+        .nullable()
+        .describe(
+            'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
+        ),
+    labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+})
+
+export type PullRequestListItemApi = zod.input<typeof PullRequestListItemApi>
+export type PullRequestListItemApiOutput = zod.output<typeof PullRequestListItemApi>
+
+export const WorkflowHealthItemApi = zod.object({
+    workflow_name: zod.string().describe('GitHub Actions workflow name.'),
+    run_count: zod.number().describe('Total runs started in the window.'),
+    success_rate: zod
+        .number()
+        .nullable()
+        .describe('Fraction of completed runs that succeeded (0-1). Null if no completed runs.'),
+    p50_seconds: zod
+        .number()
+        .nullable()
+        .describe('Median duration of completed runs, in seconds. Null if none completed.'),
+    p95_seconds: zod
+        .number()
+        .nullable()
+        .describe('95th-percentile duration of completed runs, in seconds. Null if none completed.'),
+    last_failure_at: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe("When the most recent run with conclusion 'failure' started, or null."),
+})
+
+export type WorkflowHealthItemApi = zod.input<typeof WorkflowHealthItemApi>
+export type WorkflowHealthItemApiOutput = zod.output<typeof WorkflowHealthItemApi>
