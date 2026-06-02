@@ -791,8 +791,92 @@ class PropertyType(Type):
             constant_type.nullable = nullable
             return constant_type
 
+        metadata_type = self._metadata_constant_type(context)
+        if metadata_type is not None:
+            return metadata_type
+
         # PropertyTypes are always nullable
         return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
+
+    def _metadata_constant_type(self, context: HogQLContext) -> ConstantType | None:
+        property_info = self._property_info_from_context(context)
+        if property_info is None:
+            return None
+
+        match property_info.get("type"):
+            case "Numeric" | "Duration":
+                return FloatType(nullable=True)
+            case "DateTime":
+                return DateTimeType(nullable=True)
+            case "Boolean":
+                return BooleanType(nullable=True)
+            case "String":
+                return StringType(nullable=True)
+            case _:
+                return None
+
+    def _property_info_from_context(self, context: HogQLContext) -> dict[str, str | None] | None:
+        if context.property_swapper is None or len(self.chain) != 1:
+            return None
+
+        property_name = str(self.chain[0])
+        scope = self._metadata_property_scope(context)
+        if scope == "event":
+            return context.property_swapper.event_properties.get(property_name)
+        if scope == "person":
+            return context.property_swapper.person_properties.get(property_name)
+        if scope == "group":
+            group_property_name = self._metadata_group_property_name(context, property_name)
+            if group_property_name is None:
+                return None
+            return context.property_swapper.group_properties.get(group_property_name)
+        return None
+
+    def _metadata_property_scope(self, context: HogQLContext) -> Literal["event", "person", "group"] | None:
+        if self.field_type.name == "person_properties":
+            return "person"
+
+        table_type = self.field_type.table_type
+        if (
+            isinstance(table_type, VirtualTableType)
+            and table_type.field == "poe"
+            and self.field_type.name == "properties"
+        ):
+            return "person"
+
+        while isinstance(table_type, (TableAliasType, ColumnAliasedTableType, VirtualTableType)):
+            table_type = table_type.table_type
+
+        if not isinstance(table_type, BaseTableType):
+            return None
+
+        try:
+            resolved_table = table_type.resolve_database_table(context)
+        except (NotImplementedError, QueryError, ResolutionError):
+            return None
+
+        resolved_class = resolved_table.__class__.__name__
+        if resolved_class == "EventsTable":
+            return "event"
+        if resolved_class in {"EventsPersonSubTable", "PersonsTable", "RawPersonsTable"}:
+            return "person"
+        if resolved_class == "GroupsTable":
+            return "group"
+        return None
+
+    def _metadata_group_property_name(self, context: HogQLContext, property_name: str) -> str | None:
+        table_type = self.field_type.table_type
+        while isinstance(table_type, (TableAliasType, ColumnAliasedTableType, VirtualTableType)):
+            table_type = table_type.table_type
+
+        if isinstance(table_type, LazyJoinType) and table_type.field.startswith("group_"):
+            group_id = int(table_type.field.split("_")[1])
+            return f"{group_id}_{property_name}"
+        if isinstance(table_type, LazyTableType):
+            global_group_id: Optional[int] = context.globals.get("group_id") if context.globals else None
+            if isinstance(global_group_id, int):
+                return f"{global_group_id}_{property_name}"
+        return None
 
 
 @dataclass(kw_only=True, slots=True)

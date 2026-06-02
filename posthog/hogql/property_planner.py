@@ -12,10 +12,17 @@ from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTab
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
-from posthog.hogql.type_system import ComparisonCompatibility, comparison_compatibility
+from posthog.hogql.type_system import (
+    ComparisonCompatibility,
+    comparison_compatibility,
+    constant_type_from_runtime_type,
+    parse_sql_runtime_type,
+    runtime_type_from_constant_type,
+)
 
 from posthog.clickhouse.materialized_columns import (
     MATERIALIZATION_VALID_TABLES,
+    MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
 )
@@ -43,6 +50,11 @@ class PropertyMinmaxBlocker(StrEnum):
     NO_MINMAX_INDEX = "no_minmax_index"
     SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE = "source_type_differs_from_property_type"
     VALUE_TYPE_NOT_SOURCE_COMPATIBLE = "value_type_not_source_compatible"
+
+
+class PropertyLiteralConversion(StrEnum):
+    NONE = "none"
+    DATETIME = "datetime"
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,13 +89,17 @@ class PropertyComparisonPlan:
     value_type: ast.ConstantType
     semantic_compatibility: ComparisonCompatibility
     physical_compatibility: ComparisonCompatibility
+    literal_conversion: PropertyLiteralConversion
     source_matches_semantics: bool
     can_use_minmax_index: bool
     minmax_blocker: PropertyMinmaxBlocker | None
 
     @property
     def can_compare_physical_source_directly(self) -> bool:
-        return self.source_matches_semantics and self.physical_compatibility in _OPTIMIZER_COMPATIBLE_COMPARISONS
+        return self.source_matches_semantics and (
+            self.physical_compatibility in _OPTIMIZER_COMPATIBLE_COMPARISONS
+            or self.literal_conversion != PropertyLiteralConversion.NONE
+        )
 
 
 def plan_property_comparison(node: ast.CompareOperation, context: HogQLContext) -> PropertyComparisonPlan | None:
@@ -93,6 +109,7 @@ def plan_property_comparison(node: ast.CompareOperation, context: HogQLContext) 
             access=left_plan,
             property_side="left",
             operator=node.op,
+            value_expr=node.right,
             value_type=_constant_type_from_expr(node.right, context),
         )
 
@@ -102,6 +119,7 @@ def plan_property_comparison(node: ast.CompareOperation, context: HogQLContext) 
             access=right_plan,
             property_side="right",
             operator=node.op,
+            value_expr=node.left,
             value_type=_constant_type_from_expr(node.left, context),
         )
 
@@ -162,10 +180,12 @@ def _build_property_comparison_plan(
     access: PropertyAccessPlan,
     property_side: Literal["left", "right"],
     operator: ast.CompareOperationOp,
+    value_expr: ast.Expr,
     value_type: ast.ConstantType,
 ) -> PropertyComparisonPlan:
     semantic_compatibility = comparison_compatibility(access.semantic_type, value_type)
     physical_compatibility = comparison_compatibility(access.source.physical_type, value_type)
+    literal_conversion = _literal_conversion_for_value(access.source.physical_type, value_type, value_expr)
     source_matches_semantics = (
         comparison_compatibility(access.semantic_type, access.source.physical_type) in _OPTIMIZER_COMPATIBLE_COMPARISONS
     )
@@ -174,6 +194,7 @@ def _build_property_comparison_plan(
         access=access,
         source_matches_semantics=source_matches_semantics,
         physical_compatibility=physical_compatibility,
+        literal_conversion=literal_conversion,
     )
     return PropertyComparisonPlan(
         access=access,
@@ -182,6 +203,7 @@ def _build_property_comparison_plan(
         value_type=value_type,
         semantic_compatibility=semantic_compatibility,
         physical_compatibility=physical_compatibility,
+        literal_conversion=literal_conversion,
         source_matches_semantics=source_matches_semantics,
         can_use_minmax_index=minmax_blocker is None,
         minmax_blocker=minmax_blocker,
@@ -198,14 +220,35 @@ def _minmax_blocker(
     access: PropertyAccessPlan,
     source_matches_semantics: bool,
     physical_compatibility: ComparisonCompatibility,
+    literal_conversion: PropertyLiteralConversion,
 ) -> PropertyMinmaxBlocker | None:
     if not access.source.has_minmax_index:
         return PropertyMinmaxBlocker.NO_MINMAX_INDEX
     if not source_matches_semantics:
         return PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
-    if physical_compatibility not in _OPTIMIZER_COMPATIBLE_COMPARISONS:
+    if (
+        physical_compatibility not in _OPTIMIZER_COMPATIBLE_COMPARISONS
+        and literal_conversion == PropertyLiteralConversion.NONE
+    ):
         return PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE
     return None
+
+
+def _literal_conversion_for_value(
+    source_type: ast.ConstantType,
+    value_type: ast.ConstantType,
+    value_expr: ast.Expr,
+) -> PropertyLiteralConversion:
+    value_expr = _unwrap_alias(value_expr)
+    if not isinstance(value_expr, ast.Constant) or value_expr.value is None:
+        return PropertyLiteralConversion.NONE
+
+    source_family = runtime_type_from_constant_type(source_type).family
+    value_family = runtime_type_from_constant_type(value_type).family
+    if source_family == "datetime" and value_family == "string":
+        return PropertyLiteralConversion.DATETIME
+
+    return PropertyLiteralConversion.NONE
 
 
 def _extract_property_access(expr: ast.Expr, context: HogQLContext) -> tuple[ast.PropertyType, ast.ConstantType] | None:
@@ -284,7 +327,7 @@ def _plan_property_source(
             table_name=table_name,
             field_name=field_name,
             column_name=materialized_column.name,
-            physical_type=ast.StringType(nullable=materialized_column.is_nullable),
+            physical_type=_materialized_column_physical_type(materialized_column),
             is_nullable=materialized_column.is_nullable,
             has_minmax_index=materialized_column.has_minmax_index,
             has_bloom_filter_index=materialized_column.has_bloom_filter_index,
@@ -364,6 +407,18 @@ def _materialized_table_info(field_type: ast.FieldType, context: HogQLContext) -
         return None
 
     return table_name, field.name
+
+
+def _materialized_column_physical_type(materialized_column: MaterializedColumn) -> ast.ConstantType:
+    type_name = getattr(materialized_column, "type", None)
+    if isinstance(type_name, str):
+        runtime_type = parse_sql_runtime_type(type_name)
+        if runtime_type.family != "unknown":
+            return constant_type_from_runtime_type(
+                runtime_type.with_nullable(runtime_type.nullable or materialized_column.is_nullable)
+            )
+
+    return ast.StringType(nullable=materialized_column.is_nullable)
 
 
 def _dmat_column(context: HogQLContext, table_name: str, field_name: str, property_name: str) -> str | None:

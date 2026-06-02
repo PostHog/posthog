@@ -3,7 +3,7 @@
 This document describes the HogQL type-system capabilities added by the first real implementation slice of the HogQL type-system project.
 It is a companion to `docs/internal/hogql-type-system-todo.md`.
 
-The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, property comparison planning, and an opt-in internal simplifier for conservative type-aware rewrites.
+The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, and an opt-in internal simplifier for conservative type-aware rewrites.
 The old resolver-facing `ConstantType` classes still exist and remain the compatibility surface for the resolver, printers, and transforms.
 The new model sits behind that surface so existing query compilation remains permissive while optimizers can start asking sharper questions.
 
@@ -334,6 +334,16 @@ Literal-side conversion:
 - datetime/date promotion can be handled explicitly
 - unknown function outputs can block rewrites
 
+Property and materialized-source planning:
+
+- simple property paths can resolve through loaded property-definition metadata before falling back to their JSON field type
+- generated `toFloat(...)`, `toDateTime(...)`, and `toBool(...)` property wrappers carry explicit return metadata, so aliases and outer function calls see the rewritten expression type
+- materialized-column introspection now carries the physical ClickHouse type reported by `system.columns`
+- string-backed materialized properties keep the existing direct-column minmax rewrite only for semantic string comparisons where lexical ordering is correct
+- physically typed materialized numeric and datetime properties can use direct physical-column range comparisons when the planner proves the source type matches the semantic property type and the comparison value is source-compatible
+- string datetime constants can move to the literal side as `toDateTime64(..., 6, timezone)`, avoiding `parseDateTime64BestEffortOrNull(materialized_column, ...)` around a typed DateTime materialized source
+- property debug notices now derive materialized, dynamic materialized, property-group, restricted, and JSON source facts from the same access plan used by the optimizer
+
 Nullability simplification:
 
 - comparisons between definitely non-nullable expressions can avoid defensive `ifNull(...)`
@@ -362,12 +372,20 @@ Common lambda-first higher-order array functions now bind lambda argument types 
 Remaining higher-order gaps include broader aggregate-name coverage, aggregate combinator return typing, and strict validation of lambda arity and predicate return types.
 
 Property-definition metadata is now part of property comparison planning.
-`posthog/hogql/property_planner.py` combines semantic property-definition types, physical source metadata, restricted-property access control, and comparison compatibility.
-The ClickHouse materialized string-column range rewrite now consumes that plan before using direct physical-source comparisons.
+`posthog/hogql/property_planner.py` combines semantic property-definition types, physical source metadata, materialized-column index metadata, restricted-property access control, and comparison compatibility.
+The ClickHouse materialized range rewrite now consumes that plan before using direct physical-source comparisons.
 
-Typed numeric and datetime materialized-property minmax rewrites remain blocked for current individually materialized columns because those columns are still physically strings.
-The planner correctly treats those source/semantic mismatches as optimizer barriers, so `toFloat(col) < 5` and `parseDateTime64BestEffortOrNull(col) < ts` are not rewritten into lexicographic string comparisons.
-Future typed-property index work needs either physically typed sources or a separately proven index path with ClickHouse planner tests.
+Current individually materialized property columns are still generally physically strings.
+For those columns, numeric and datetime direct range rewrites remain blocked because replacing `toFloat(col) < 5` or `parseDateTime64BestEffortOrNull(col) < ts` with a bare string comparison would change ordering semantics.
+The planner treats that source/semantic mismatch as an optimizer barrier.
+
+If ClickHouse introspection reports a typed physical materialized source, such as `Nullable(Float64)` or `Nullable(DateTime64(6, 'UTC'))`, the planner can now prove that the physical column preserves semantic ordering.
+The printer then skips the column-side conversion and emits a direct range comparison against the materialized column.
+For typed DateTime materialized sources compared with a string constant, the conversion moves to the literal side as `toDateTime64(..., 6, timezone)`.
+
+Typed JSON extraction rewrites remain blocked.
+`JSONExtractInt`, `JSONExtractFloat`, and `JSONExtractBool` do not have the same missing-key, JSON null, empty-string, and type-mismatch behavior as the current property access and conversion path.
+Those rewrites need separate equivalence tests before they can replace the existing JSON/property expressions.
 
 Aggregate states are represented structurally in both the runtime model and the resolver-facing compatibility layer.
 Common state/merge pairs now preserve enough metadata for typed intermediate and final values:
@@ -441,14 +459,14 @@ This gives internal callers a safe way to compare emitted SQL before and after s
 ## Suggested Next Work
 
 `posthog/hogql/property_planner.py` now adds property-planning metadata for materialized property comparisons.
-It separates semantic property-definition type facts from physical source type facts, reports selected materialized-column, dynamic materialized-column, property-group, or JSON sources, and classifies comparison compatibility for both the semantic property value and the physical source value.
+It separates semantic property-definition type facts from physical source type facts, reports selected materialized-column, dynamic materialized-column, property-group, restricted, or JSON sources, and classifies comparison compatibility for both the semantic property value and the physical source value.
 
-The existing ClickHouse materialized string-column range rewrite now uses that plan as its guard.
-That means lexical string range comparisons can keep their minmax-friendly direct-column shape, while numeric and datetime properties backed by string materialized columns keep their semantic conversion wrappers.
+The ClickHouse materialized range rewrite now uses that plan as its guard.
+That means lexical string range comparisons can keep their minmax-friendly direct-column shape, typed numeric and datetime materialized sources can use bare physical-column comparisons, and numeric/datetime properties backed by string materialized columns keep their semantic conversion wrappers.
 
 Good first targets:
 
-- identify source shapes where a typed property comparison can preserve semantic ordering while exposing a direct indexed expression
-- identify cases where a literal can be converted instead of wrapping the materialized column
+- add ClickHouse planner tests proving minmax skip-index use for typed physical materialized property sources
+- decide when property materialization should create typed physical columns instead of string-backed columns
+- prove any typed JSON extraction rewrite is semantic-preserving before enabling it
 - extend aggregate state typing to map/forEach variants and validate compatible state/merge pairs
-- add ClickHouse planner tests for numeric and datetime minmax skip-index use before enabling a new rewrite

@@ -60,7 +60,7 @@ def _clear_materialized_columns_cache(table: TablesWithMaterializedColumns) -> N
 
 
 def get_materialized_columns_cache_key(table: TablesWithMaterializedColumns) -> str:
-    return f"materialized_columns:v2:{table}"
+    return f"materialized_columns:v3:{table}"
 
 
 @dataclass
@@ -68,6 +68,7 @@ class MaterializedColumn:
     name: ColumnName
     details: MaterializedColumnDetails
     is_nullable: bool
+    column_type: str | None = None
     has_minmax_index: bool = False
     has_bloom_filter_index: bool = False
     has_ngram_lower_index: bool = False
@@ -75,6 +76,8 @@ class MaterializedColumn:
 
     @property
     def type(self) -> str:
+        if self.column_type is not None:
+            return self.column_type
         if self.is_nullable:
             return "Nullable(String)"
         else:
@@ -93,7 +96,7 @@ class MaterializedColumn:
             )
 
     @staticmethod
-    def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool, list[str]]]:
+    def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, str, bool, list[str]]]:
         refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
         if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
             cache_key = get_materialized_columns_cache_key(table)
@@ -123,6 +126,7 @@ class MaterializedColumn:
                 SELECT
                     c.name,
                     c.comment,
+                    c.type,
                     c.type like 'Nullable(%%)' as is_nullable,
                     arrayFilter(x -> x != '', [i_minmax.name, i_bf.name, i_ngram.name, i_bf_lower.name]) as index_names
                 FROM system.columns c
@@ -167,12 +171,13 @@ class MaterializedColumn:
             return
 
         rows = MaterializedColumn._get_all(table)
-        for name, comment, is_nullable, index_names in rows:
+        for name, comment, column_type, is_nullable, index_names in rows:
             # Exact name matches: a prefix check would mismatch `bloom_filter_` against `bloom_filter_lower_`
             yield MaterializedColumn(
                 name,
                 MaterializedColumnDetails.from_column_comment(comment),
                 is_nullable=bool(is_nullable),
+                column_type=column_type,
                 has_minmax_index=get_minmax_index_name(name) in index_names,
                 has_bloom_filter_index=get_bloom_filter_index_name(name) in index_names,
                 has_ngram_lower_index=get_ngram_lower_index_name(name) in index_names,

@@ -48,6 +48,11 @@ Completed in this branch:
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 - Added `posthog/hogql/property_planner.py`, which combines semantic property types, physical property sources, source index metadata, restricted-property materialization rules, and comparison compatibility into optimizer-ready property comparison plans.
 - Wired the ClickHouse materialized-column range rewrite through that property comparison plan, so the existing string minmax-friendly rewrite only uses direct physical-source comparisons when the planner says the source type matches the property semantics.
+- Materialized-column introspection now carries the ClickHouse physical type reported by `system.columns`, so property planning can distinguish string-backed property materialization from typed physical sources.
+- Added typed materialized-property comparison rewrites for physically typed numeric and datetime materialized sources whose physical source columns can support semantic ordering.
+- `PropertySwapper` now gives generated Float, DateTime, and Boolean property conversion calls explicit return metadata, so aliases and outer calls see the rewritten expression type rather than stale property-source types.
+- `PropertyType.resolve_constant_type()` now resolves simple property paths through loaded property-definition metadata when available.
+- Property debug notices now derive source/materialization status from the same property access plan used by the optimizer.
 - Added explicit `LowCardinality` preservation in structured runtime types, so this wrapper is a distinct type fact instead of being silently erased.
 - Added tuple field names to the resolver-facing `TupleType` compatibility layer, plus named `tupleElement(tuple, 'field')` inference for typed tuple metadata such as `JSONExtract(..., 'Tuple(name String, score Float64)')` and struct database fields.
 - Added `AggregateStateType` as a compatibility type for aggregate state expressions, with generic inference for common state/merge pairs such as `countState`/`countMerge`, `sumState`/`sumMerge` when the state is typed, `avgState`/`avgMerge`, and `quantilesState`/`quantilesMerge`.
@@ -58,7 +63,7 @@ Still intentionally left as follow-up work:
 - Full ClickHouse parity for every function signature and aggregate combinator.
 - Full higher-order array parity beyond common lambda-first functions, especially lambda-aware array sorting and strict lambda arity/return validation.
 - Full higher-order map parity beyond key/value binding, especially strict lambda arity and return validation.
-- Typed materialized-property comparison rewrites for numeric and datetime properties whose physical source columns can support semantic ordering.
+- ClickHouse planner/index integration tests for typed materialized-property minmax wins and a storage decision for typed physical materialized columns.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Broader aggregate-state/combinator coverage, especially map/forEach variants and validation of compatible state/merge pairs.
 - Strict resolver mode.
@@ -509,22 +514,22 @@ TODO:
 
 - [x] Separate physical storage type from semantic property type.
       For example, an event property may be physically stored as string JSON or a nullable materialized string column, while semantically known as numeric, datetime, boolean, or string.
-- [ ] Represent typed property access as a typed expression before printing.
+- [x] Represent typed property access as a typed expression before printing.
 - [x] Make materialized column availability part of planning metadata, not only printer behavior.
-- [ ] Decide when a typed property conversion can be skipped:
-  - [ ] materialized column is already numeric
-  - [ ] literal can be safely coerced instead of column-wrapped
+- [x] Decide when a typed property conversion can be skipped:
+  - [x] materialized column is already numeric
+  - [x] literal can be safely coerced instead of column-wrapped
   - [x] comparison can remain lexical by design
   - [x] conversion is required for correctness
   - [x] conversion would block an index
-  - [ ] conversion should move to the literal side
+  - [x] conversion should move to the literal side
 - [x] Use the property comparison planner to guard the existing ClickHouse materialized string-column range rewrite.
-- [ ] Add a type-aware rule for numeric property comparisons that can use minmax indexes when safe.
-- [ ] Add a type-aware rule for datetime property comparisons that can use minmax indexes when safe.
+- [x] Add a type-aware rule for numeric property comparisons that can use minmax indexes when safe.
+- [x] Add a type-aware rule for datetime property comparisons that can use minmax indexes when safe.
 - [x] Preserve property group and dynamic materialized column behavior.
 - [x] Preserve restricted-property behavior; materialized shortcuts must not bypass access control.
-- [ ] Make `PropertyType.resolve_constant_type()` more precise for JSON paths when metadata exists.
-- [ ] Make property type notices derive from the same facts the optimizer uses.
+- [x] Make `PropertyType.resolve_constant_type()` more precise for JSON paths when metadata exists.
+- [x] Make property type notices derive from the same facts the optimizer uses.
 
 Acceptance criteria:
 
@@ -546,13 +551,13 @@ TODO:
   - [x] remove redundant `assumeNotNull(non_nullable_expr)`
   - [x] collapse repeated compatible casts
   - [x] avoid removing casts that change timezone, precision, parsing semantics, or nullability
-- [ ] Add literal-side conversion rewrites:
-  - [ ] compare typed column to typed literal without wrapping the column
-  - [ ] move datetime timezone conversion from column side to constant side where safe
-  - [ ] preserve existing `toTimeZone` range optimization behavior
+- [x] Add literal-side conversion rewrites:
+  - [x] compare typed column to typed literal without wrapping the column
+  - [x] move datetime timezone conversion from column side to constant side where safe
+  - [x] preserve existing `toTimeZone` range optimization behavior
 - [ ] Add JSON/materialized property extraction rewrites:
   - [ ] use materialized columns for typed JSON extraction where safe
-  - [ ] avoid decompressing full JSON blobs when a property column is available
+  - [x] avoid decompressing full JSON blobs when a simple string property column is available
   - [ ] avoid `JSONExtractRaw` fallback when all required properties are materialized
 - [ ] Add broader nullability simplification:
   - [x] avoid selected `ifNull(compare(...), default)` wrappers when both sides are non-nullable
@@ -632,8 +637,8 @@ TODO:
   - [ ] timezone-sensitive datetime behavior
 - [ ] Add Postgres/DuckDB smoke tests for type-aware printing where those dialects are supported.
 - [ ] Add regression tests for current edge cases:
-  - [ ] `toDateTime(properties.dt_prop)` does not double-parse
-  - [ ] aliases rewritten by `PropertySwapper` do not keep stale return types
+  - [x] `toDateTime(properties.dt_prop)` does not double-parse
+  - [x] aliases rewritten by `PropertySwapper` do not keep stale return types
   - [x] typed string helpers such as `base64Encode(...)` avoid unnecessary comparison wrapping
   - [x] typed URL helpers such as `protocol(...)` avoid unnecessary comparison wrapping
   - [ ] `assumeNotNull(unknown_function(...))` avoids unnecessary comparison wrapping
@@ -709,7 +714,7 @@ TODO:
 
 - [x] Add cast simplification behind an internal flag.
 - [x] Use property comparison planning as the default guard for the existing materialized string-column range rewrite.
-- [ ] Add typed property comparison rewrites behind a modifier or internal flag once physical source types or another proven-safe index path exist.
+- [x] Add typed property comparison rewrites for physically typed materialized sources while keeping string-backed sources blocked.
 - [x] Add conservative nullability wrapper simplification behind an internal flag.
 - [x] Add first aggregate state typing support for common state/merge pairs.
 - [ ] Extend aggregate state typing into preaggregation matching.
@@ -775,7 +780,8 @@ It should not become the default behavior for user-authored HogQL unless there i
 - [x] Type property extraction and materialized property planning metadata.
 - [x] Add cast simplification with tests and a guarded rollout.
 - [x] Guard the existing materialized string range rewrite with property comparison planning.
-- [ ] Add typed materialized property comparison optimization with skip-index integration tests.
+- [x] Add typed materialized property comparison optimization for typed physical sources.
+- [ ] Add skip-index integration tests for typed materialized property comparisons.
 - [ ] Add strict mode for internal tests after coverage is high.
 - [ ] Remove obsolete ad hoc workarounds and document the new workflow.
 
@@ -793,5 +799,5 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Immediate Next Step
 
-Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, and the existing materialized string-column range rewrite now consumes that planner.
-The next concrete task should be a typed materialized-property comparison rewrite only for a source shape whose physical type preserves the semantic ordering being compared, paired with ClickHouse planner tests before enabling any new property/index rewrite broadly.
+Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, the existing materialized string-column range rewrite now consumes that planner, and physically typed materialized property columns can now use direct numeric/datetime range comparisons.
+The next concrete task should be ClickHouse planner coverage for typed materialized-property minmax usage, plus a decision on whether/when property materialization should create typed physical columns instead of string columns.

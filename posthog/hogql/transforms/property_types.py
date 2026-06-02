@@ -4,8 +4,6 @@ from typing import Literal, Optional, cast
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
@@ -19,6 +17,7 @@ from posthog.hogql.database.schema.events import (
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
@@ -574,7 +573,15 @@ class PropertySwapper(CloningVisitor):
                 ),
             )
         if field_type == "Float":
-            return ast.Call(name="toFloat", args=[node])
+            return ast.Call(
+                name="toFloat",
+                args=[node],
+                type=ast.CallType(
+                    name="toFloat",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.FloatType(nullable=True),
+                ),
+            )
         if field_type == "Boolean":
             return ast.Call(
                 name="toBool",
@@ -589,6 +596,11 @@ class PropertySwapper(CloningVisitor):
                         ],
                     )
                 ],
+                type=ast.CallType(
+                    name="toBool",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.BooleanType(nullable=True),
+                ),
             )
         return node
 
@@ -600,23 +612,18 @@ class PropertySwapper(CloningVisitor):
         dmat_column: str | None = None,
     ):
         property_name = str(node.chain[-1])
-        if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
-            else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
-        elif property_type == "group":
-            name_parts = property_name.split("_")
-            name_parts.pop(0)
-            property_name = "_".join(name_parts)
-            materialized_column = self._get_materialized_column("groups", property_name, "properties")
-        else:
-            materialized_column = self._get_materialized_column("events", property_name, "properties")
+        if property_type == "group" and "_" in property_name:
+            property_name = property_name.split("_", 1)[1]
 
         message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'."
         if self.context.debug:
-            if materialized_column is not None:
+            access_plan = plan_property_access(node, self.context)
+            if access_plan is not None and access_plan.source.kind == PropertySourceKind.MATERIALIZED_COLUMN:
                 message += " This property is materialized (mat_*) ⚡️."
+            elif access_plan is not None and access_plan.source.kind == PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN:
+                message += f" This property is materialized ({access_plan.source.column_name}) ⚡️."
+            elif access_plan is not None and access_plan.source.kind == PropertySourceKind.PROPERTY_GROUP:
+                message += f" This property is served from property group column '{access_plan.source.column_name}' ⚡️."
             elif dmat_column is not None:
                 message += f" This property is materialized ({dmat_column}) ⚡️."
             else:

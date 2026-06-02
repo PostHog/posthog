@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -11,6 +12,7 @@ from posthog.test.base import (
     get_indexes_from_explain,
     materialized,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -22,6 +24,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_planner import (
     PropertyComparisonPlan,
+    PropertyLiteralConversion,
     PropertyMinmaxBlocker,
     PropertySourceKind,
     plan_property_comparison,
@@ -37,6 +40,21 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+
+@dataclass
+class FakeMaterializedColumn:
+    name: str
+    is_nullable: bool
+    type: str
+    has_minmax_index: bool = False
+    has_bloom_filter_index: bool = False
+    has_ngram_lower_index: bool = False
+    has_bloom_filter_lower_index: bool = False
+
+
+def _normalize_snapshot_sql(sql: str) -> str:
+    return "\n".join(line.rstrip() for line in sql.splitlines())
 
 
 class TestPropertyTypes(BaseTest):
@@ -108,6 +126,17 @@ class TestPropertyTypes(BaseTest):
         select: str,
         restricted_properties: set[tuple[str, int]] | None = None,
     ) -> PropertyComparisonPlan:
+        context, prepared = self._prepare_select(select, restricted_properties=restricted_properties)
+        comparison = cast(ast.CompareOperation, prepared.where)
+        plan = plan_property_comparison(comparison, context)
+        assert plan is not None
+        return plan
+
+    def _prepare_select(
+        self,
+        select: str,
+        restricted_properties: set[tuple[str, int]] | None = None,
+    ) -> tuple[HogQLContext, ast.SelectQuery]:
         expr = parse_select(select)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
         if restricted_properties is not None:
@@ -115,10 +144,7 @@ class TestPropertyTypes(BaseTest):
 
         _, prepared = prepare_and_print_ast(expr, context, "clickhouse")
         assert isinstance(prepared, ast.SelectQuery)
-        comparison = cast(ast.CompareOperation, prepared.where)
-        plan = plan_property_comparison(comparison, context)
-        assert plan is not None
-        return plan
+        return context, prepared
 
     def test_property_comparison_planner_marks_string_minmax_ready(self) -> None:
         with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
@@ -145,6 +171,27 @@ class TestPropertyTypes(BaseTest):
         assert plan.can_use_minmax_index is False
         assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
 
+    def test_property_comparison_planner_allows_numeric_minmax_when_source_type_matches(self) -> None:
+        fake_column = FakeMaterializedColumn(
+            name="mat_$screen_width",
+            is_nullable=True,
+            type="Nullable(Float64)",
+            has_minmax_index=True,
+        )
+
+        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+            plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
+
+        assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
+        assert plan.access.semantic_type == ast.FloatType(nullable=True)
+        assert plan.access.source.physical_type == ast.FloatType(nullable=True)
+        assert plan.semantic_compatibility == ComparisonCompatibility.CHEAP_CAST
+        assert plan.physical_compatibility == ComparisonCompatibility.CHEAP_CAST
+        assert plan.literal_conversion == PropertyLiteralConversion.NONE
+        assert plan.can_compare_physical_source_directly is True
+        assert plan.can_use_minmax_index is True
+        assert plan.minmax_blocker is None
+
     def test_property_comparison_planner_blocks_datetime_minmax_until_source_type_matches(self) -> None:
         PropertyDefinition.objects.get_or_create(
             team=self.team,
@@ -166,6 +213,35 @@ class TestPropertyTypes(BaseTest):
         assert plan.can_use_minmax_index is False
         assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
 
+    def test_property_comparison_planner_allows_datetime_minmax_when_literal_can_move_to_value_side(self) -> None:
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="event_time_prop",
+            defaults={"property_type": "DateTime"},
+        )
+        fake_column = FakeMaterializedColumn(
+            name="mat_event_time_prop",
+            is_nullable=True,
+            type="Nullable(DateTime64(6, 'UTC'))",
+            has_minmax_index=True,
+        )
+
+        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+            plan = self._plan_where_comparison(
+                "select count() from events where properties.event_time_prop < '2024-01-01'"
+            )
+
+        assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
+        assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
+        assert plan.access.source.physical_type == ast.DateTimeType(nullable=True)
+        assert plan.semantic_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+        assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+        assert plan.literal_conversion == PropertyLiteralConversion.DATETIME
+        assert plan.can_compare_physical_source_directly is True
+        assert plan.can_use_minmax_index is True
+        assert plan.minmax_blocker is None
+
     def test_property_comparison_planner_respects_restricted_property_materialization(self) -> None:
         with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
             plan = self._plan_where_comparison(
@@ -178,6 +254,32 @@ class TestPropertyTypes(BaseTest):
         assert plan.access.source.has_minmax_index is False
         assert plan.can_use_minmax_index is False
         assert plan.minmax_blocker == PropertyMinmaxBlocker.NO_MINMAX_INDEX
+
+    def test_property_type_resolve_constant_type_uses_property_metadata(self) -> None:
+        context, prepared = self._prepare_select("select count() from events where properties.$screen_width < 5")
+        comparison = cast(ast.CompareOperation, prepared.where)
+        plan = plan_property_comparison(comparison, context)
+        assert plan is not None
+
+        assert plan.access.property_type.resolve_constant_type(context) == ast.FloatType(nullable=True)
+
+    def test_property_swapper_assigns_call_types_for_float_and_boolean(self) -> None:
+        _, prepared = self._prepare_select("select properties.$screen_width, properties.bool from events")
+
+        float_expr = prepared.select[0]
+        bool_expr = prepared.select[1]
+        if isinstance(float_expr, ast.Alias):
+            float_expr = float_expr.expr
+        if isinstance(bool_expr, ast.Alias):
+            bool_expr = bool_expr.expr
+
+        assert isinstance(float_expr, ast.Call)
+        assert isinstance(float_expr.type, ast.CallType)
+        assert float_expr.type.return_type == ast.FloatType(nullable=True)
+
+        assert isinstance(bool_expr, ast.Call)
+        assert isinstance(bool_expr.type, ast.CallType)
+        assert bool_expr.type.return_type == ast.BooleanType(nullable=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_event(self):
@@ -313,14 +415,14 @@ class TestPropertyTypes(BaseTest):
 
         assert printed == self.snapshot
 
-    def _print_select(self, select: str):
+    def _print_select(self, select: str) -> str:
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
             expr,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
         )
-        return pretty_print_in_tests(query, self.team.pk)
+        return _normalize_snapshot_sql(pretty_print_in_tests(query, self.team.pk))
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):

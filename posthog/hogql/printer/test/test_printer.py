@@ -4380,6 +4380,71 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert f"less(parseDateTime64BestEffortOrNull(events.{mat_col.name}," in printed
         assert f"less(events.{mat_col.name}," not in printed
 
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_numeric_source(
+        self, mock_base_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_numeric_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_test_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            has_minmax_index=True,
+        )
+        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.numeric_test_prop < 5")
+
+        assert "less(events." in printed
+        assert "mat_numeric_test_prop" in printed
+        assert "accurateCastOrNull" not in printed
+
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_datetime_source(
+        self, mock_base_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="datetime_test_prop",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_datetime_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="datetime_test_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(DateTime64(6, 'UTC'))",
+            has_minmax_index=True,
+        )
+        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.datetime_test_prop < '2024-01-15'")
+
+        assert "less(events." in printed
+        assert "mat_datetime_test_prop" in printed
+        assert "toDateTime64(" in printed
+        assert "parseDateTime64BestEffortOrNull" not in printed
+
     @parameterized.expand(
         [
             # Nullable: only actual JSON null / missing keys are SQL NULL — ``''`` and ``'null'`` are real values that compare lexically (``'' < 'mango'`` matches ``d_empty``, ``'null' >= 'mango'`` matches ``d_null_str`` since ``'n' > 'm'``).

@@ -21,6 +21,7 @@ from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict,
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.property_planner import (
+    PropertyLiteralConversion,
     PropertySourceKind,
     get_restricted_keys_for_table_type,
     is_property_type_restricted,
@@ -173,11 +174,11 @@ class ClickHousePrinter(BasePrinter):
             first_arg = node.args[0] if len(node.args) > 0 else None
             while isinstance(first_arg, ast.Alias):
                 first_arg = first_arg.expr
-            first_arg_constant_type = (
-                first_arg.type.resolve_constant_type(self.context)
-                if first_arg is not None and first_arg.type is not None
-                else None
-            )
+            first_arg_constant_type = None
+            if isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
+                first_arg_constant_type = node.type.arg_types[0]
+            elif first_arg is not None and first_arg.type is not None:
+                first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
 
             if first_arg_constant_type is not None:
                 for (
@@ -627,10 +628,11 @@ class ClickHousePrinter(BasePrinter):
     }
 
     def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
-        """Rewrite ``<``, ``<=``, ``>``, ``>=`` on materialized string columns so minmax can fire.
+        """Rewrite property ranges on materialized columns so minmax can fire.
 
-        Nullable: ``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``) but minmax-friendly.
-        Non-nullable: PropertySwapper wraps in ``nullIf(nullIf(col, ''), 'null')`` to scrub ``''`` / ``'null'`` sentinels, hiding the column from minmax. Inline the sentinel exclusion as ``AND notEquals(col, '') AND notEquals(col, 'null')`` so the comparison stays bare; ClickHouse evaluates each AND-ed clause against the index independently.
+        String-backed columns keep the current sentinel handling.
+        Typed physical columns, such as future numeric or DateTime materializations, can compare the bare column directly
+        when the property planner proves the physical source matches the semantic property type.
         """
         if node.op not in self._RANGE_OP_TO_CH_NAME:
             return None
@@ -644,12 +646,12 @@ class ClickHousePrinter(BasePrinter):
         ):
             return None
 
-        # property_to_expr always emits the column on the left, so we only need to handle that side.
-        if not (
-            (property_source := self._get_materialized_string_property_source(node.left))
-            and isinstance(node.right, ast.Constant)
-            and node.right.value is not None
-        ):
+        right_constant = node.right if isinstance(node.right, ast.Constant) else None
+        if right_constant is not None and right_constant.value is None:
+            return None
+
+        property_source = self._get_materialized_property_source_for_property_type(comparison_plan.access.property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
         if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
@@ -657,16 +659,31 @@ class ClickHousePrinter(BasePrinter):
 
         op_name = self._RANGE_OP_TO_CH_NAME[node.op]
         materialized_column_sql = str(property_source)
-        constant_sql = self.visit(node.right)
+        constant_sql = self._print_property_range_value(node.right, comparison_plan.literal_conversion)
+        is_string_source = isinstance(comparison_plan.access.source.physical_type, ast.StringType)
+        if is_string_source and right_constant is None:
+            return None
 
         if property_source.is_nullable:
             return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
 
-        # Non-nullable: exclude the '' / 'null' sentinels inline so the comparison stays bare.
+        if not is_string_source:
+            return f"{op_name}({materialized_column_sql}, {constant_sql})"
+
+        # Non-nullable strings: exclude the '' / 'null' sentinels inline so the comparison stays bare.
         sentinel_exclusions = " AND ".join(
             f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
         )
         return f"({op_name}({materialized_column_sql}, {constant_sql}) AND {sentinel_exclusions})"
+
+    def _print_property_range_value(self, expr: ast.Expr, literal_conversion: PropertyLiteralConversion) -> str:
+        if literal_conversion == PropertyLiteralConversion.DATETIME and isinstance(expr, ast.Constant):
+            return (
+                f"toDateTime64({self.visit(expr)}, "
+                f"{self.visit(ast.Constant(value=6))}, "
+                f"{self.visit(ast.Constant(value=self._get_timezone()))})"
+            )
+        return self.visit(expr)
 
     def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
         """
