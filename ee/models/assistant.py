@@ -125,9 +125,10 @@ class Conversation(UUIDTModel, DeletedMetaFields):
 
     @property
     def current_run(self) -> Optional["TaskRun"]:
-        if not self.task_id:
+        task = self.task
+        if task is None:
             return None
-        return self.task.latest_run
+        return task.latest_run
 
 
 class ConversationCheckpoint(UUIDTModel):
