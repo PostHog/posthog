@@ -17,8 +17,8 @@ from django.views.decorators.csrf import csrf_exempt
 
 import requests
 import structlog
-import posthoganalytics
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
@@ -48,7 +48,6 @@ from posthog.temporal.ai.posthog_code_slack_mention_command import (
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_instance_region
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, load_integrations
@@ -62,8 +61,6 @@ HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 # a dedicated `slack-posthog-code` install, but the notifications Slack app (`slack`) carries
 # every scope the coding agent needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
-
-POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
 
 # Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
 # per install, so tenants who connected the Slack integration before the full scope set
@@ -949,7 +946,9 @@ def _collect_thread_messages(
     slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
 ) -> list[dict[str, str]]:
     """Fetch thread messages, strip bot mentions, and resolve user display names."""
-    thread_response = slack.client.conversations_replies(channel=channel, ts=thread_ts)
+    client = slack.client
+    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
+    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
     raw_messages: list[dict] = thread_response.get("messages", [])
 
     user_cache: dict[str, str] = {}
@@ -1281,29 +1280,6 @@ def classify_task_needs_repo(
         return True
 
 
-def _posthog_code_flag_subject(integration: Integration) -> User | None:
-    """Resolve a person to evaluate the coding-agent rollout flag against.
-
-    Prefer the installer (created_by), since that's the user who opted the org
-    into the feature and usually matches the dogfood cohort. Integration.created_by
-    is SET_NULL on user deletion, which would otherwise silently disable the coding
-    agent for the whole workspace — fall back to any organization admin/owner so the
-    feature keeps working after installer cleanup.
-    """
-    if integration.created_by:
-        return integration.created_by
-    fallback = (
-        OrganizationMembership.objects.filter(
-            organization_id=integration.team.organization_id,
-            level__gte=OrganizationMembership.Level.ADMIN,
-        )
-        .select_related("user")
-        .order_by("joined_at")
-        .first()
-    )
-    return fallback.user if fallback else None
-
-
 def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
@@ -1325,40 +1301,6 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     ):
         return "bot_author"
     return None
-
-
-def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
-    """Runtime gate for the coding agent on app_mention events.
-
-    Why: the approved Slack app is installed by many orgs for notifications; the
-    coding agent should only fire for orgs in the posthog-code-slack-availability
-    rollout. Evaluated against the installing user (or an org admin fallback) so
-    we reuse the same cohort the rest of the codebase uses to gate the feature.
-
-    Latency: `posthoganalytics.feature_enabled` evaluates locally from polled flag
-    definitions (see `posthog/apps.py`: `personal_api_key` + `poll_interval=90`),
-    so this is effectively a dict lookup — safe within Slack's 3s webhook budget.
-    """
-    subject = _posthog_code_flag_subject(integration)
-    if not subject:
-        logger.warning(
-            "posthog_code_slack_flag_no_subject",
-            integration_id=integration.id,
-            organization_id=str(integration.team.organization_id),
-        )
-        return False
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                POSTHOG_CODE_SLACK_AVAILABILITY_FLAG,
-                str(subject.distinct_id),
-                groups={"organization": str(integration.team.organization_id)},
-                person_properties={"region": get_instance_region() or "unknown"},
-            )
-        )
-    except Exception:
-        logger.exception("posthog_code_slack_flag_check_failed", integration_id=integration.id)
-        return False
 
 
 def _notify_missing_slack_scopes(
@@ -1544,20 +1486,8 @@ def route_posthog_code_event_to_relevant_region(
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        # Gate the entire @PostHog surface on the rollout flag at the candidate
-        # level so command workflows, pick-a-project hints, and mention workflows
-        # are all covered. Per-candidate filter so a workspace with several
-        # PostHog projects can have some on-rollout and some off-rollout cleanly.
-        enabled = [c for c in result.candidates if _posthog_code_enabled_for_integration(c)]
-        if not enabled:
-            logger.info(
-                "posthog_code_event_flag_off",
-                slack_team_id=slack_team_id,
-                candidate_count=len(result.candidates),
-            )
-            return ROUTE_HANDLED_LOCALLY
-        candidates = enabled
-        target = result.integration if result.integration in enabled else None
+        candidates = result.candidates
+        target = result.integration if result.integration in candidates else None
 
         if _parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id)
