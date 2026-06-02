@@ -45,13 +45,7 @@ function prefetchIssueScene(issue: ErrorTrackingIssue): void {
     issueLogic.actions.setIssue(issue)
 }
 
-export function ErrorTrackingIssueListRow({
-    issue,
-    disableLink = false,
-}: {
-    issue: ErrorTrackingIssue
-    disableLink?: boolean
-}): JSX.Element {
+export function ErrorTrackingIssueListRow({ issue }: { issue: ErrorTrackingIssue }): JSX.Element {
     const runtime = getRuntimeFromLib(issue.library)
     const sparklineKey = issue.id ?? 'issue-unknown'
     const sparklineData = useSparklineData(issue.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
@@ -65,14 +59,15 @@ export function ErrorTrackingIssueListRow({
         [issue.id, issue.last_seen]
     )
 
-    const rowClassName = cn(
-        'grid items-start gap-3 border-b border-primary px-3 py-2 last:border-b-0',
-        !disableLink && 'text-primary transition-colors hover:bg-fill-button-tertiary-hover',
-        GRID_COLS
-    )
-
-    const rowContent = (
-        <>
+    return (
+        <Link
+            to={issueUrl}
+            className={cn(
+                'grid items-start gap-3 border-b border-primary px-3 py-2 last:border-b-0 text-primary transition-colors hover:bg-fill-button-tertiary-hover',
+                GRID_COLS
+            )}
+            onClick={() => prefetchIssueScene(issue)}
+        >
             <div className="flex min-w-0 flex-col gap-0.5">
                 <div className="flex items-center gap-2 text-sm">
                     <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.75rem" />
@@ -125,16 +120,6 @@ export function ErrorTrackingIssueListRow({
             <div className="pt-1 text-center text-base font-medium tabular-nums">
                 {humanFriendlyLargeNumber(occurrences)}
             </div>
-        </>
-    )
-
-    if (disableLink) {
-        return <div className={rowClassName}>{rowContent}</div>
-    }
-
-    return (
-        <Link to={issueUrl} className={rowClassName} onClick={() => prefetchIssueScene(issue)}>
-            {rowContent}
         </Link>
     )
 }
@@ -143,22 +128,16 @@ type ErrorTrackingIssueListProps = {
     issues: ErrorTrackingIssue[]
     className?: string
     listClassName?: string
-    disableLinks?: boolean
 }
 
-export function ErrorTrackingIssueList({
-    issues,
-    className,
-    listClassName,
-    disableLinks = false,
-}: ErrorTrackingIssueListProps): JSX.Element {
+export function ErrorTrackingIssueList({ issues, className, listClassName }: ErrorTrackingIssueListProps): JSX.Element {
     return (
         <div className={cn('min-w-0 w-full max-w-full overflow-x-auto rounded border bg-surface-primary', className)}>
             <div className="min-w-[22rem]">
                 <ErrorTrackingIssueListHeader />
                 <div className={listClassName} data-attr="error-tracking-issue-row">
                     {issues.map((issue) => (
-                        <ErrorTrackingIssueListRow key={issue.id} issue={issue} disableLink={disableLinks} />
+                        <ErrorTrackingIssueListRow key={issue.id} issue={issue} />
                     ))}
                 </div>
             </div>

@@ -87,8 +87,8 @@ const PREVIEW_ISSUES: ErrorTrackingIssue[] = [
 
 export function ErrorTrackingWidgetPreview(): JSX.Element {
     return (
-        <div className="shadow-sm">
-            <ErrorTrackingIssueList issues={PREVIEW_ISSUES} disableLinks />
+        <div className="pointer-events-none shadow-sm">
+            <ErrorTrackingIssueList issues={PREVIEW_ISSUES} />
         </div>
     )
 }

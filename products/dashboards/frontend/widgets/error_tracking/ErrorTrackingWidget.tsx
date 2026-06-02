@@ -14,20 +14,13 @@ import { ErrorTrackingIngestionPrompt } from 'products/error_tracking/frontend/c
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import { WidgetCardProductIntroduction } from '../../components/WidgetCardProductIntroduction/WidgetCardProductIntroduction'
 import type { DashboardWidgetComponentProps } from '../registry'
-import {
-    canConfigureErrorTrackingWidgetIssues,
-    ERROR_TRACKING_WIDGET_LOADING_SKELETON_ROW_COUNT,
-    type ErrorTrackingWidgetResult,
-} from './utils'
+import { canConfigureErrorTrackingWidgetIssues, type ErrorTrackingWidgetResult } from './utils'
 
 export function ErrorTrackingWidget({ result, loading }: DashboardWidgetComponentProps): JSX.Element {
     if (loading) {
         return (
             <WidgetCardContent>
-                <ErrorTrackingIssueListSkeleton
-                    rowCount={ERROR_TRACKING_WIDGET_LOADING_SKELETON_ROW_COUNT}
-                    className="w-full"
-                />
+                <ErrorTrackingIssueListSkeleton rowCount={4} className="w-full" />
             </WidgetCardContent>
         )
     }

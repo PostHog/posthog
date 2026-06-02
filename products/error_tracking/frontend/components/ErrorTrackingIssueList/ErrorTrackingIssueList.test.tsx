@@ -51,17 +51,6 @@ describe('ErrorTrackingIssueListRow', () => {
             /\/error_tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
         )
     })
-
-    it('renders a non-link row when disableLink is true', () => {
-        render(
-            <Provider>
-                <ErrorTrackingIssueListRow issue={ISSUE} disableLink />
-            </Provider>
-        )
-
-        expect(screen.queryByRole('link')).not.toBeInTheDocument()
-        expect(screen.getByText('TypeError: undefined is not a function')).toBeInTheDocument()
-    })
 })
 
 describe('ErrorTrackingIssueListSkeleton', () => {
@@ -82,14 +71,13 @@ describe('ErrorTrackingIssueList', () => {
         cleanup()
     })
 
-    it('renders non-link rows when disableLinks is true', () => {
+    it('renders linked issue rows', () => {
         render(
             <Provider>
-                <ErrorTrackingIssueList issues={[ISSUE]} disableLinks />
+                <ErrorTrackingIssueList issues={[ISSUE]} />
             </Provider>
         )
 
-        expect(screen.queryByRole('link')).not.toBeInTheDocument()
-        expect(screen.getByText('TypeError: undefined is not a function')).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: /TypeError: undefined is not a function/i })).toBeInTheDocument()
     })
 })

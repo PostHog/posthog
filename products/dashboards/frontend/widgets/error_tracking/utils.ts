@@ -6,9 +6,6 @@ export type ErrorTrackingWidgetResult = {
     limit?: number
 }
 
-/** Issue rows that fit in the default h:5 tile without clipping; independent of fetch `limit`. */
-export const ERROR_TRACKING_WIDGET_LOADING_SKELETON_ROW_COUNT = 4
-
 export const ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS = [
     { value: 'occurrences', label: 'Occurrences' },
     { value: 'last_seen', label: 'Last seen' },

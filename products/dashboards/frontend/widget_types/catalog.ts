@@ -10,11 +10,18 @@ export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as c
 export type DashboardWidgetHeaderLayout = (typeof DASHBOARD_WIDGET_HEADER_LAYOUTS)[number]
 
 export type DashboardWidgetHeaderMeta = {
-    /** Show the widget type label in the compact top heading row (e.g. "Error tracking"). */
+    /** Show the widget type label in the compact top heading row (e.g. "Error tracking"). Defaults to true. */
     showWidgetType?: boolean
-    /** Show the configured date range in the compact top heading row (e.g. "Last 7 days"). */
+    /** Show the configured date range in the compact top heading row (e.g. "Last 7 days"). Defaults to true. */
     showDateRange?: boolean
 }
+
+export const DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT = 'dashboard_tile' satisfies DashboardWidgetHeaderLayout
+
+export const DEFAULT_DASHBOARD_WIDGET_HEADER_META = {
+    showWidgetType: true,
+    showDateRange: true,
+} satisfies DashboardWidgetHeaderMeta
 
 /** Product area labels keyed by catalog `groupId`. New groups: add here. */
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
@@ -34,7 +41,7 @@ export type DashboardWidgetCatalogEntry = {
     defaultConfig: Record<string, unknown>
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
     productAccess?: DashboardWidgetProductAccess
-    headerLayout: DashboardWidgetHeaderLayout
+    headerLayout?: DashboardWidgetHeaderLayout
     headerMeta?: DashboardWidgetHeaderMeta
     /** Title shown in the card header (defaults to `label`). */
     headerTitle?: string
@@ -56,11 +63,6 @@ export const DASHBOARD_WIDGET_CATALOG = {
         }),
         defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
         productAccess: 'error_tracking',
-        headerLayout: 'dashboard_tile' satisfies DashboardWidgetHeaderLayout,
-        headerMeta: {
-            showWidgetType: true,
-            showDateRange: true,
-        } satisfies DashboardWidgetHeaderMeta,
         titleHref: urls.errorTracking(),
     },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
@@ -72,9 +74,22 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     error_tracking_list: ErrorTrackingWidgetPreview,
 }
 
-export function getDashboardWidgetCatalogEntry(widgetType: string): DashboardWidgetCatalogEntry | undefined {
+export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {
+    headerLayout: DashboardWidgetHeaderLayout
+    headerMeta: Required<DashboardWidgetHeaderMeta>
+}
+
+function resolveDashboardWidgetCatalogEntry(entry: DashboardWidgetCatalogEntry): ResolvedDashboardWidgetCatalogEntry {
+    return {
+        ...entry,
+        headerLayout: entry.headerLayout ?? DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
+        headerMeta: { ...DEFAULT_DASHBOARD_WIDGET_HEADER_META, ...entry.headerMeta },
+    }
+}
+
+export function getDashboardWidgetCatalogEntry(widgetType: string): ResolvedDashboardWidgetCatalogEntry | undefined {
     if (widgetType in DASHBOARD_WIDGET_CATALOG) {
-        return DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
+        return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
     }
 
     console.warn(`[dashboard-widgets] Unknown widget type: ${widgetType}`)

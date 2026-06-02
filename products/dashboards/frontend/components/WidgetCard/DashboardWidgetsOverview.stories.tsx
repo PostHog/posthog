@@ -5,6 +5,7 @@ import { DashboardPlacement } from '~/types'
 
 import {
     DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetCatalogEntry,
     getDashboardWidgetGroupLabel,
     type DashboardWidgetCatalogKey,
 } from '../../widget_types/catalog'
@@ -31,11 +32,11 @@ function DashboardWidgetOverviewTile({
     catalogKey: DashboardWidgetCatalogKey
     tileId: number
 }): JSX.Element | null {
-    const catalogEntry = DASHBOARD_WIDGET_CATALOG[catalogKey]
+    const catalogEntry = getDashboardWidgetCatalogEntry(catalogKey)
     const definition = getDashboardWidgetDefinition(catalogKey)
     const demoState = getWidgetOverviewDemoState(catalogKey)
 
-    if (!definition) {
+    if (!definition || !catalogEntry) {
         return null
     }
 
