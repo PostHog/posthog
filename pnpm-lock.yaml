@@ -90,6 +90,9 @@ catalogs:
     use-debounce:
       specifier: ^9.0.3
       version: 9.0.3
+    yaml:
+      specifier: ^2.8.2
+      version: 2.9.0
 
 overrides:
   axios: ^1.15.0
@@ -2165,6 +2168,9 @@ importers:
       use-debounce:
         specifier: '*'
         version: 9.0.3(react@18.3.1)
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
