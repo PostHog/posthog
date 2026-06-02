@@ -38,6 +38,17 @@ LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) *
 # This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
 TIME_DECAY_HALF_LIFE_DIVISOR = 4
 
+# Sentinel for "this row is not a touchpoint / conversion" inside a per-person groupArray.
+# We need a value that can never appear in real event data so that the subsequent
+# arrayFilter discards non-matching rows but PRESERVES legitimately-empty UTM fields
+# (e.g. a UTM pageview where utm_medium is "" — same row, just no medium). Filtering
+# by notEmpty() would drop those legitimate "" values and desync the parallel arrays
+# (utm_timestamps vs utm_medium_array), corrupting attribution lookups that rely on
+# indexOf(utm_timestamps, last_utm_timestamp) returning a meaningful position in
+# every parallel array. The null byte makes this string unrepresentable in HTTP
+# query params / UTM tags, so collision with real data is not a concern.
+_NON_TOUCHPOINT_SENTINEL = "\x00__not_touchpoint__\x00"
+
 logger = structlog.get_logger(__name__)
 
 
@@ -602,6 +613,12 @@ class ConversionGoalProcessor:
         """Per-person touchpoint arrays (utm_timestamps + per-field UTM arrays) read from the
         precomputed marketing_touchpoints table, matching the array shape build_array_collection_query
         produces from a UTM-pageview scan.
+
+        No arrayFilter is needed on the UTM arrays here — every row in marketing_touchpoints_preaggregated
+        is already a valid touchpoint (build_touchpoints_precompute_query enforces notEmpty on
+        utm_campaign and utm_source at insert time). Filtering by notEmpty on individual UTM
+        fields would discard legitimately-empty optional UTMs (e.g. utm_medium="") and desync
+        them from utm_timestamps — the same bug the live path's sentinel filter avoids.
         """
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
@@ -617,13 +634,7 @@ class ConversionGoalProcessor:
             select_columns.append(
                 ast.Alias(
                     alias=field.utm_array,
-                    expr=ast.Call(
-                        name="arrayFilter",
-                        args=[
-                            ast.Lambda(args=["x"], expr=ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])),
-                            ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
-                        ],
-                    ),
+                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
                 )
             )
 
@@ -1047,7 +1058,13 @@ class ConversionGoalProcessor:
         return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
     def _build_conversion_utm_array(self, alias: str, conversion_event: Optional[str], utm_field: str) -> ast.Alias:
-        """Build array for conversion event UTM data"""
+        """Build array for conversion event UTM data.
+
+        Sentinel-based filtering (not notEmpty) — see _NON_TOUCHPOINT_SENTINEL: a conversion
+        with an empty UTM tag (e.g. a logged-in repeat user whose purchase event carries
+        utm_source but no utm_medium) must keep its slot in the array so it stays aligned
+        with conversion_timestamps.
+        """
         return ast.Alias(
             alias=alias,
             expr=ast.Call(
@@ -1055,7 +1072,11 @@ class ConversionGoalProcessor:
                 args=[
                     ast.Lambda(
                         args=["x"],
-                        expr=ast.Call(name="notEmpty", args=[ast.Call(name="toString", args=[ast.Field(chain=["x"])])]),
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["x"]),
+                            op=ast.CompareOperationOp.NotEq,
+                            right=ast.Constant(value=_NON_TOUCHPOINT_SENTINEL),
+                        ),
                     ),
                     ast.Call(
                         name="groupArray",
@@ -1076,7 +1097,7 @@ class ConversionGoalProcessor:
                                             )
                                         ],
                                     ),
-                                    ast.Constant(value=""),
+                                    ast.Constant(value=_NON_TOUCHPOINT_SENTINEL),
                                 ],
                             )
                         ],
@@ -1124,8 +1145,15 @@ class ConversionGoalProcessor:
                     )
                 ],
             )
-            false_value = ast.Constant(value="")
-            filter_expr = ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])
+            # Distinguishable sentinel — see _NON_TOUCHPOINT_SENTINEL docstring for why we don't
+            # filter by notEmpty(x): a legitimately-empty UTM field on a real touchpoint must
+            # survive so its index stays aligned with utm_timestamps for downstream indexOf.
+            false_value = ast.Constant(value=_NON_TOUCHPOINT_SENTINEL)
+            filter_expr = ast.CompareOperation(
+                left=ast.Field(chain=["x"]),
+                op=ast.CompareOperationOp.NotEq,
+                right=ast.Constant(value=_NON_TOUCHPOINT_SENTINEL),
+            )
 
         return ast.Alias(
             alias=alias,

@@ -52,8 +52,14 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
           paths.
         - user_e: conversion with no touchpoint → organic row; weight logic must not blow up.
         - user_f: pageview only, no conversion → must not appear anywhere.
+        - user_g: 2 touchpoints where utm_medium is OMITTED (only campaign + source set) +
+          1 conversion → regression guard for the array-alignment bug: the optional UTM
+          field's slot must survive the array-collection arrayFilter so its index stays
+          aligned with utm_timestamps. Pre-fix, dropping the empty medium re-indexed the
+          per-field array and made indexOf-based attribution look up the medium from an
+          unrelated row.
         """
-        for distinct_id in ("user_a", "user_b", "user_c", "user_d", "user_e", "user_f"):
+        for distinct_id in ("user_a", "user_b", "user_c", "user_d", "user_e", "user_f", "user_g"):
             _create_person(distinct_ids=[distinct_id], team=self.team)
 
         # user_a: 3 distinct campaigns in order → spring, summer, fall.
@@ -163,6 +169,33 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
             properties={"utm_campaign": "spring", "utm_source": "bing", "utm_medium": "cpc"},
         )
 
+        # user_g: regression case for the array-misalignment bug. Three UTM pageviews where
+        # the MIDDLE one has no utm_medium, sandwiched between two with non-empty medium.
+        # Pre-fix the per-field arrayFilter(notEmpty) dropped only the middle medium slot,
+        # leaving utm_medium_array length 2 while utm_timestamps length is 3. Last-touch
+        # attribution for the day-9 purchase resolves to the day-8 "partial" touchpoint;
+        # indexOf(utm_timestamps, day8) = 2, and utm_medium_array[2] then reads "social"
+        # from the day-12 row instead of the legitimate "" → cross-row medium leak.
+        for day, props in [
+            (3, {"utm_campaign": "early", "utm_source": "google", "utm_medium": "cpc"}),
+            (8, {"utm_campaign": "partial", "utm_source": "bing"}),  # no medium
+            (12, {"utm_campaign": "late", "utm_source": "facebook", "utm_medium": "social"}),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_g",
+                timestamp=datetime(2025, 1, day, 10, 0, tzinfo=UTC),
+                properties=props,
+            )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_g",
+            timestamp=datetime(2025, 1, 9, 10, 0, tzinfo=UTC),
+            properties={"value": 25},
+        )
+
         flush_persons_and_events()
 
     def _make_processor(
@@ -246,6 +279,54 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         assert preagg_rows, f"{attribution_mode}: precompute returned no rows for a non-UTC team"
         assert _round_rows(direct_rows) == _round_rows(preagg_rows)
+
+    def test_per_field_utm_arrays_stay_aligned_with_utm_timestamps(self):
+        """Array-level regression for the per-field arrayFilter desync.
+
+        The attribution pipeline relies on parallel per-person arrays — utm_timestamps,
+        utm_campaigns, utm_sources, utm_mediums, ... — all the same length so that
+        indexOf(utm_timestamps, picked_ts) yields a valid index into every other array.
+
+        Pre-fix, arrayFilter(notEmpty) on each individual UTM array dropped slots
+        wherever an optional UTM field happened to be empty on a real touchpoint
+        (e.g. utm_medium absent on a campaign+source-tagged pageview). That shrunk
+        only the affected array, desyncing it from utm_timestamps and making the
+        attribution read a medium from an unrelated sibling touchpoint.
+
+        user_g has 3 UTM pageviews where the middle one omits utm_medium — pre-fix,
+        utm_mediums for user_g came back length 2 while utm_timestamps was length 3.
+        """
+        self._seed_events()
+
+        processor = self._make_processor(precompute=False)
+        array_query = processor.build_array_collection_query(additional_conditions=[])
+
+        # Wrap the array-collection subquery to expose per-array lengths per person.
+        diagnostic_query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["person_id"]),
+                ast.Alias(alias="ts_len", expr=ast.Call(name="length", args=[ast.Field(chain=["utm_timestamps"])])),
+                *[
+                    ast.Alias(
+                        alias=f"{field_name}_len",
+                        expr=ast.Call(name="length", args=[ast.Field(chain=[field_name])]),
+                    )
+                    for field_name in ("utm_campaigns", "utm_sources", "utm_mediums")
+                ],
+            ],
+            select_from=ast.JoinExpr(table=array_query, alias="ac"),
+        )
+
+        rows = self._execute(diagnostic_query)
+        assert rows, "array-collection returned no persons — fixture problem"
+
+        for person_id, ts_len, camp_len, src_len, medium_len in rows:
+            assert camp_len == ts_len, f"person {person_id}: utm_campaigns ({camp_len}) != utm_timestamps ({ts_len})"
+            assert src_len == ts_len, f"person {person_id}: utm_sources ({src_len}) != utm_timestamps ({ts_len})"
+            assert medium_len == ts_len, (
+                f"person {person_id}: utm_mediums ({medium_len}) != utm_timestamps ({ts_len}) — "
+                f"per-field arrayFilter dropped an empty medium slot, attribution will read from the wrong row"
+            )
 
 
 def _round_rows(rows: list[tuple]) -> list[tuple]:

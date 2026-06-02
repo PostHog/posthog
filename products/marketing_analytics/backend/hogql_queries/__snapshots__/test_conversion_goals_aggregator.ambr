@@ -91,15 +91,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -116,15 +116,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -241,15 +241,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -266,15 +266,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -391,15 +391,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -416,15 +416,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -541,15 +541,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -566,15 +566,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -695,15 +695,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -720,15 +720,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -828,15 +828,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -853,15 +853,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -961,15 +961,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -986,15 +986,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -1113,15 +1113,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -1138,15 +1138,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
@@ -1245,15 +1245,15 @@
                           events.person_id,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
                           arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), '\0__not_touchpoint__\0'))) AS conversion_campaigns,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), '\0__not_touchpoint__\0'))) AS conversion_sources,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), '\0__not_touchpoint__\0'))) AS conversion_mediums,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), '\0__not_touchpoint__\0'))) AS conversion_contents,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), '\0__not_touchpoint__\0'))) AS conversion_terms,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), '\0__not_touchpoint__\0'))) AS conversion_referring_domains,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), '\0__not_touchpoint__\0'))) AS conversion_gclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), '\0__not_touchpoint__\0'))) AS conversion_fbclids,
+                          arrayFilter(x -> notEquals(x, '\0__not_touchpoint__\0'), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), '\0__not_touchpoint__\0'))) AS conversion_gad_sources
                       
   FROM
                           events
@@ -1270,15 +1270,15 @@
   SELECT
                           person_id,
                           groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-                          arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-                          arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-                          arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-                          arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-                          arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-                          arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+                          groupArray(campaign_name) AS utm_campaigns,
+                          groupArray(source_name) AS utm_sources,
+                          groupArray(medium_name) AS utm_mediums,
+                          groupArray(content_name) AS utm_contents,
+                          groupArray(term_name) AS utm_terms,
+                          groupArray(referring_domain_name) AS utm_referring_domains,
+                          groupArray(gclid_name) AS utm_gclids,
+                          groupArray(fbclid_name) AS utm_fbclids,
+                          groupArray(gad_source_name) AS utm_gad_sources
                       
   FROM
                           marketing_touchpoints_preaggregated
