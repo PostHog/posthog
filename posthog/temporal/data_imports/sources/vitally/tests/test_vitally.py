@@ -50,6 +50,7 @@ class TestVitallyPaginator:
         "body,start_value,expected_has_next,expected_cursor",
         [
             pytest.param({}, "1970-01-01", False, None, id="falsy_body_stops"),
+            # Regression: an empty results page must not IndexError, it must cleanly end pagination.
             pytest.param({"results": [], "next": "cursor-2"}, "1970-01-01", False, None, id="empty_results_stops"),
             pytest.param(
                 {"results": [{"updatedAt": "2026-01-02T00:00:00Z"}], "next": "cursor-2"},
@@ -74,15 +75,6 @@ class TestVitallyPaginator:
 
         assert paginator._has_next_page is expected_has_next
         assert paginator._cursor == expected_cursor
-
-    def test_empty_results_does_not_raise_with_incremental_field(self) -> None:
-        # Regression: an upstream page like {"results": [], "next": ...} must not IndexError.
-        paginator = VitallyPaginator(incremental_start_value="1970-01-01", should_use_incremental_field=True)
-
-        paginator.update_state(_make_response({"results": [], "next": "cursor-2"}))
-
-        assert paginator._has_next_page is False
-        assert paginator._cursor is None
 
 
 class TestListCustomObjectDefinitions:
