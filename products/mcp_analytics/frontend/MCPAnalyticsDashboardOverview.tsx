@@ -6,7 +6,7 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { type ChartTheme, Metric } from 'lib/hog-charts'
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -56,7 +56,7 @@ function formatNumber(n: number): string {
     if (!isFinite(n)) {
         return '—'
     }
-    return humanFriendlyNumber(Math.round(n))
+    return humanFriendlyLargeNumber(n)
 }
 
 function formatPercent(n: number): string {
