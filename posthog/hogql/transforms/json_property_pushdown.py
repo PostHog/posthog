@@ -49,19 +49,21 @@ def has_rewritable_json_extract(node: ast.AST, context: HogQLContext) -> bool:
     return finder.found
 
 
-def rewrite_json_extract_to_property(node, context: HogQLContext):
+def rewrite_json_extract_to_property(node: ast.AST, context: HogQLContext):
     """
-    Rewrite `JSONExtractString(<lazy-table JSON field>, '<constant key>')` into the equivalent HogQL
-    property access (`<field>.<key>`).
+    Rewrite `JSONExtractString(<lazy-table JSON field>, '<constant key>')` into
+    `ifNull(<field>.<key>, '')`.
 
     The argMax-based lazy tables (`groups`, `persons`) aggregate each requested field, so accessing a
-    property via dot syntax projects only that single field into the argMax. An explicit
-    `JSONExtractString(properties, 'name')` instead requests the whole `properties` field, so the
-    argMax materializes the entire JSON blob per group/person, which can exhaust memory. Converting it
-    to a property access lets the existing projection-into-argMax path apply.
+    property via dot syntax projects only that single field into the argMax, whereas an explicit
+    `JSONExtractString(properties, 'name')` requests the whole `properties` field and makes the argMax
+    materialize the entire JSON blob per group/person, which can exhaust memory.
 
-    Emits untyped property-access nodes; the caller re-runs type resolution so the resolver assigns
-    types, rather than constructing them here.
+    Property access returns NULL for a missing key while `JSONExtractString` returns ''; the
+    `ifNull(..., '')` wrapper restores that, so the rewrite matches `JSONExtractString` for scalar
+    values and missing keys and keeps the non-nullable String type.
+
+    Emits untyped nodes; the caller re-runs type resolution to assign types.
     """
     return _Transformer(context).visit(node)
 
@@ -72,9 +74,14 @@ class _Finder(TraversingVisitor):
         self.context = context
         self.found = False
 
+    def visit(self, node: ast.AST | None):
+        if not self.found:
+            super().visit(node)
+
     def visit_call(self, node: ast.Call):
         if _matched_property_access(node, self.context) is not None:
             self.found = True
+            return
         super().visit_call(node)
 
 
@@ -87,5 +94,10 @@ class _Transformer(CloningVisitor):
         matched = _matched_property_access(node, self.context)
         if matched is not None:
             chain, key = matched
-            return ast.Field(chain=[*chain, key])
+            # JSONExtractString returns '' for a missing key; property access returns NULL. Wrap in
+            # ifNull(..., '') to keep that contract and the non-nullable String type.
+            return ast.Call(
+                name="ifNull",
+                args=[ast.Field(chain=[*chain, key]), ast.Constant(value="")],
+            )
         return super().visit_call(node)
