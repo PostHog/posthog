@@ -671,12 +671,30 @@ class IntegrationViewSet(
         }
 
     @staticmethod
+    def _normalize_slack_search_text(text: str) -> str:
+        # Treat hyphens, underscores and whitespace runs as equivalent separators so that
+        # "product analytics" matches the channel "product-analytics".
+        return re.sub(r"[\s_-]+", " ", text.lower()).strip()
+
+    @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
         query = search.strip().lower()
         if not query:
             return visible
-        return [channel for channel in visible if query in channel["name"].lower() or query in channel["id"].lower()]
+        # Every token of the normalized query must appear in the normalized channel name (order
+        # independent), so multi-word and reordered searches match. Fall back to a raw substring
+        # match on the channel id so pasting an id still resolves.
+        tokens = IntegrationViewSet._normalize_slack_search_text(query).split()
+        return [
+            channel
+            for channel in visible
+            if (
+                tokens
+                and all(token in IntegrationViewSet._normalize_slack_search_text(channel["name"]) for token in tokens)
+            )
+            or query in channel["id"].lower()
+        ]
 
     @extend_schema(
         parameters=[SlackChannelsQuerySerializer],

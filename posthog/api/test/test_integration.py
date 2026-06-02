@@ -4,6 +4,7 @@ import json
 import time
 import hashlib
 from datetime import timedelta
+from urllib.parse import quote
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -1253,6 +1254,98 @@ class TestIntegrationAPIKeyAccess:
         data = response.json()
         assert [channel["id"] for channel in data["channels"]] == expected_ids
         assert data["has_more"] is expected_has_more
+
+    @pytest.mark.parametrize(
+        "search,expected_ids",
+        [
+            # Spaces match separator-delimited names: the reported "product analytics" papercut.
+            ("product analytics", ["C1"]),
+            # Underscore variant of the same query.
+            ("product_analytics", ["C1"]),
+            # Reordered tokens still match (order independent).
+            ("analytics product", ["C1"]),
+            # Partial tokens match as substrings.
+            ("prod analy", ["C1"]),
+            # Exact hyphenated name keeps working.
+            ("product-analytics", ["C1"]),
+            # A single shared token matches multiple channels.
+            ("team", ["C2", "C3"]),
+            # Pasting a channel id still resolves.
+            ("C2", ["C2"]),
+            # Genuine non-matches return nothing.
+            ("nonexistent channel", []),
+        ],
+        ids=[
+            "spaces-match-hyphens",
+            "underscores-match-hyphens",
+            "reordered-tokens",
+            "partial-tokens",
+            "exact-hyphenated",
+            "shared-token-multi-match",
+            "channel-id-paste",
+            "no-match",
+        ],
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_normalized_search(
+        self,
+        mock_slack_class,
+        search: str,
+        expected_ids: list[str],
+        client: HttpClient,
+    ):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SEARCH",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = [
+            {
+                "id": "C1",
+                "name": "product-analytics",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C2",
+                "name": "team-product",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C3",
+                "name": "team-design",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = f"test_key_slack_search_{search}".replace(" ", "_").replace("-", "_")
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/?search={quote(search)}",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [channel["id"] for channel in data["channels"]] == expected_ids
 
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(
