@@ -822,6 +822,14 @@ def _infer_generic_function_type(
         result.nullable = normalized_name == "tonullable"
         return result
 
+    if normalized_name in {"accuratecast", "accuratecastornull"}:
+        return _infer_cast_function_type(
+            arg_types=arg_types,
+            args=args,
+            dialect=dialect,
+            nullable_on_failure=normalized_name == "accuratecastornull",
+        )
+
     if normalized_name == "totypename" or normalized_name.endswith("tostring"):
         return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
@@ -898,11 +906,14 @@ def _infer_generic_function_type(
     if normalized_name.startswith("tointerval"):
         return ast.IntervalType(nullable=False)
 
-    if normalized_name in {"touuid", "touuidordefault", "reinterpretasuuid"}:
+    if normalized_name in {"touuid", "touuidordefault"}:
         return ast.UUIDType(nullable=_conversion_nullable(normalized_name, arg_types))
 
     if normalized_name == "tobool":
         return ast.BooleanType(nullable=_conversion_nullable(normalized_name, arg_types))
+
+    if normalized_name.startswith("reinterpretas"):
+        return _infer_reinterpret_type(normalized_name, arg_types)
 
     if normalized_name == "array":
         return infer_array_constant_type(arg_types, dialect=dialect)
@@ -1037,6 +1048,40 @@ def _conversion_nullable(normalized_name: str, arg_types: list[ast.ConstantType]
         "parsedatetime",
         "parsedatetimebesteffort",
     }
+
+
+def _infer_cast_function_type(
+    arg_types: list[ast.ConstantType],
+    args: Optional[list[ast.Expr]],
+    dialect: HogQLDialect,
+    nullable_on_failure: bool,
+) -> ast.ConstantType:
+    if not args or len(args) < 2:
+        return ast.UnknownType()
+
+    target_type_name = _constant_string(args[1])
+    if target_type_name is None:
+        return ast.UnknownType()
+
+    target_type = parse_sql_runtime_type(target_type_name, dialect=dialect)
+    if target_type.family == "unknown":
+        return ast.UnknownType(nullable=True)
+
+    input_nullable = any(arg_type.nullable for arg_type in arg_types[:1])
+    result_type = constant_type_from_runtime_type(target_type.with_nullable(target_type.nullable or input_nullable))
+    result_type.nullable = result_type.nullable or nullable_on_failure
+    return result_type
+
+
+def _infer_reinterpret_type(normalized_name: str, arg_types: list[ast.ConstantType]) -> ast.ConstantType | None:
+    nullable = any(arg_type.nullable for arg_type in arg_types)
+    if normalized_name.startswith("reinterpretasuint") or normalized_name.startswith("reinterpretasint"):
+        return ast.IntegerType(nullable=nullable)
+    if normalized_name.startswith("reinterpretasfloat"):
+        return ast.FloatType(nullable=nullable)
+    if normalized_name == "reinterpretasuuid":
+        return ast.UUIDType(nullable=nullable)
+    return None
 
 
 def _infer_array_concat_type(arg_types: list[ast.ConstantType], dialect: HogQLDialect) -> ast.ArrayType:

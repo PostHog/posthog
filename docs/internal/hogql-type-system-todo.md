@@ -391,16 +391,16 @@ TODO:
   - [x] aggregate entries without return types
   - [ ] functions used in production query corpus but still unknown
 - [ ] Prioritize catalog coverage by optimizer value and dialect reach, not by alphabetical order.
-- [ ] Cover comparisons and logical functions first:
-  - [ ] `equals`, `notEquals`, `less`, `greater`, `lessOrEquals`, `greaterOrEquals`
-  - [ ] `in`, `notIn`
-  - [ ] `and`, `or`, `xor`, `not`
-  - [ ] `if`, `multiIf`
+- [x] Cover comparisons and logical functions first:
+  - [x] `equals`, `notEquals`, `less`, `greater`, `lessOrEquals`, `greaterOrEquals`
+  - [x] `in`, `notIn`
+  - [x] `and`, `or`, `xor`, `not`
+  - [x] `if`, `multiIf`
 - [ ] Cover conversion and cast functions:
-  - [ ] `toInt`, `toFloat`, `toDecimal`, `toBool`, `toString`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`
-  - [ ] `accurateCast`, `accurateCastOrNull`, `CAST`, `TRY_CAST`
-  - [ ] `reinterpretAs*`
-  - [ ] `toNullable`, `assumeNotNull`, `ifNull`, `coalesce`, `nullIf`
+  - [x] `toInt`, `toFloat`, `toDecimal`, `toBool`, `toString`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`
+  - [x] `accurateCast`, `accurateCastOrNull`, `CAST`, `TRY_CAST`
+  - [x] `reinterpretAs*`
+  - [x] `toNullable`, `assumeNotNull`, `ifNull`, `coalesce`, `nullIf`
 - [ ] Cover property and JSON functions:
   - [x] `JSONExtract(...)` parsed return-type literals
   - [x] remaining `JSONExtract*` family-specific precision
@@ -680,10 +680,10 @@ This phase should still avoid broad optimizer rewrites.
 
 TODO:
 
-- [ ] Type comparisons and logical functions.
-- [ ] Type casts and conversion functions.
-- [ ] Type `if`, `multiIf`, `coalesce`, `ifNull`, `nullIf`, `assumeNotNull`, and `toNullable`.
-- [ ] Type common aggregate functions.
+- [x] Type comparisons and logical functions.
+- [x] Type casts and conversion functions.
+- [x] Type `if`, `multiIf`, `coalesce`, `ifNull`, `nullIf`, `assumeNotNull`, and `toNullable`.
+- [x] Type common aggregate functions.
 - [x] Type common string helpers that unblock nullability-wrapper simplification in emitted SQL.
 - [x] Type common URL helpers that unblock nullability-wrapper simplification in emitted SQL.
 - [x] Type array element access and common higher-order array functions.

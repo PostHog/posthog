@@ -157,7 +157,7 @@ Newly inferred function groups include:
 - logical functions: `and`, `or`, `xor`, `not`
 - conditionals: `if`, `multiIf`, `coalesce`, `ifNull`, `nullIf`
 - nullability helpers: `assumeNotNull`, `toNullable`
-- conversion functions: `toInt`, `toFloat`, `toDecimal`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`, `toBool`, `toString`, `toTypeName`
+- conversion functions: `toInt`, `toFloat`, `toDecimal`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`, `toBool`, `toString`, `toTypeName`, `accurateCast`, `accurateCastOrNull`, and `reinterpretAs*`
 - common string helpers: `base64Encode`, `base64Decode`, `hex`, `unhex`, `lower`, `upper`, `substring`, `replace*`, `extract`, `splitBy*`, and related string-array helpers
 - common URL helpers: `protocol`, `domain`, `path`, `queryString`, `extractURLParameter`, `URLHierarchy`, `encodeURLComponent`, `cutQueryString`, `cutURLParameter`, and `port`
 - JSON extraction: `JSONExtract(..., 'Type')` parses the return-type literal, including `Array(...)`, tuple, numeric, date, datetime, boolean, UUID, and nullable wrappers supported by the runtime type parser
