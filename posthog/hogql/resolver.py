@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -28,7 +27,7 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.core import compare_types, validate_function_args
+from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
@@ -49,6 +48,16 @@ from posthog.hogql.resolver_utils import (
     lookup_field_by_name,
     lookup_table_by_name,
     suggest_field_names,
+)
+from posthog.hogql.type_system import (
+    infer_array_access_constant_type,
+    infer_array_constant_type,
+    infer_array_slice_constant_type,
+    infer_cast_constant_type,
+    infer_function_return_type,
+    infer_try_cast_constant_type,
+    infer_tuple_access_constant_type,
+    least_common_supertype,
 )
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -152,6 +161,39 @@ def resolve_types(
     return resolver.visit(node)
 
 
+def _select_type_columns(
+    select_type: ast.SelectQueryType | ast.SelectSetQueryType,
+) -> list[tuple[str, ast.Type]]:
+    if isinstance(select_type, ast.SelectSetQueryType):
+        if select_type.columns:
+            return list(select_type.columns.items())
+        return _select_type_columns(select_type.types[0])
+    return list(select_type.columns.items())
+
+
+def _unify_select_set_columns(
+    select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
+    dialect: HogQLDialect,
+    context: HogQLContext,
+) -> dict[str, ast.Type]:
+    if not select_types:
+        return {}
+
+    first_columns = _select_type_columns(select_types[0])
+    columns: dict[str, ast.Type] = {}
+    for index, (column_name, _) in enumerate(first_columns):
+        branch_types: list[ast.ConstantType] = []
+        for select_type in select_types:
+            branch_columns = _select_type_columns(select_type)
+            if index >= len(branch_columns):
+                branch_types.append(ast.UnknownType())
+                continue
+            branch_type = branch_columns[index][1]
+            branch_types.append(branch_type.resolve_constant_type(context))
+        columns[column_name] = least_common_supertype(branch_types, dialect=dialect)
+    return columns
+
+
 class AliasCollector(TraversingVisitor):
     def __init__(self):
         super().__init__()
@@ -233,8 +275,13 @@ class Resolver(CloningVisitor):
             limit_percent=node.limit_percent,
             limit_with_ties=node.limit_with_ties,
         )
+        select_types = [
+            result.initial_select_query.type,
+            *(x.select_query.type for x in result.subsequent_select_queries),
+        ]
         result.type = ast.SelectSetQueryType(
-            types=[result.initial_select_query.type, *(x.select_query.type for x in result.subsequent_select_queries)]  # type: ignore
+            types=select_types,  # type: ignore[arg-type]
+            columns=_unify_select_set_columns(select_types, self.dialect, self.context),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -1512,27 +1559,19 @@ class Resolver(CloningVisitor):
                 else:
                     raise ResolutionError(f"Unknown type for function '{node.name}', parameter {i}")
 
-        return_type = None
-
-        if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
-            if signatures := func_meta.signatures:
-                for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types, args=node.args):
-                        return_type = dataclasses.replace(sig_return_type)
-                        break
-
-        if return_type is None:
-            return_type = ast.UnknownType()
-
-            # Uncomment once all hogql mappings are complete with signatures
-            # arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
-            # raise ResolutionError(
-            #     f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
-            # )
+        func_meta = HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None)
+        inference = infer_function_return_type(
+            node.name,
+            arg_types,
+            args=node.args,
+            meta=func_meta,
+            dialect=self.dialect,
+        )
+        return_type = inference.return_type
 
         if node.name == "concat":
             return_type.nullable = False  # valid only if at least 1 param is not null
-        elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
+        elif inference.source == "legacy_signature" and not isinstance(return_type, ast.UnknownType):
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
         if node.name.lower() in ("nullif", "tonullable") or node.name.lower().endswith("ornull"):
@@ -1578,6 +1617,14 @@ class Resolver(CloningVisitor):
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
+        node.type = infer_try_cast_constant_type(node.type_name, self.dialect)
+        return node
+
+    def visit_type_cast(self, node: ast.TypeCast):
+        node = cast(ast.TypeCast, clone_expr(node))
+        node.expr = self.visit(node.expr)
+        input_type = (node.expr.type or ast.UnknownType()).resolve_constant_type(self.context)
+        node.type = infer_cast_constant_type(node.type_name, input_type, self.dialect)
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
@@ -1596,6 +1643,25 @@ class Resolver(CloningVisitor):
             node.start_expr = self.visit(node.start_expr)
         if node.end_expr is not None:
             node.end_expr = self.visit(node.end_expr)
+        node.type = infer_array_slice_constant_type(
+            (node.array.type or ast.UnknownType()).resolve_constant_type(self.context)
+        )
+        return node
+
+    def visit_array(self, node: ast.Array):
+        node = cast(ast.Array, super().visit_array(node))
+        node.type = infer_array_constant_type(
+            [(expr.type or ast.UnknownType()).resolve_constant_type(self.context) for expr in node.exprs],
+            dialect=self.dialect,
+        )
+        return node
+
+    def visit_tuple(self, node: ast.Tuple):
+        node = cast(ast.Tuple, super().visit_tuple(node))
+        node.type = ast.TupleType(
+            nullable=False,
+            item_types=[(expr.type or ast.UnknownType()).resolve_constant_type(self.context) for expr in node.exprs],
+        )
         return node
 
     def visit_field(self, node: ast.Field):
@@ -1846,6 +1912,9 @@ class Resolver(CloningVisitor):
             array.type = array.type.get_child(node.property.value, self.context)
             return array
 
+        node.type = infer_array_access_constant_type(
+            (node.array.type or ast.UnknownType()).resolve_constant_type(self.context)
+        )
         return node
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -1869,6 +1938,10 @@ class Resolver(CloningVisitor):
             tuple.type = tuple.type.get_child(node.index, self.context)
             return tuple
 
+        node.type = infer_tuple_access_constant_type(
+            (node.tuple.type or ast.UnknownType()).resolve_constant_type(self.context),
+            node.index,
+        )
         return node
 
     def visit_dict(self, node: ast.Dict):

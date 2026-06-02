@@ -284,6 +284,8 @@ class TraversingVisitor(Visitor[None]):
     def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
         for type in node.types:
             self.visit(type)
+        for type in node.columns.values():
+            self.visit(type)
 
     def visit_table_type(self, node: ast.TableType):
         pass

@@ -11,6 +11,40 @@ HogQL has multiple print targets.
 ClickHouse is the highest-value optimization target today, but the type system should account for `clickhouse`, `postgres`, and `duckdb` output from the start.
 Dialect differences should be explicit type-system facts, not accidental printer behavior.
 
+## Implementation Status
+
+This branch adds the first implementation slice described by this TODO.
+The original document intentionally scoped a multi-phase project; this status section records the pieces that are now real in code and the pieces that remain optimizer or catalog-expansion work.
+
+Completed in this branch:
+
+- Added `posthog/hogql/type_system.py`, a structured runtime type model that keeps the existing resolver-facing `ConstantType` API while adding dialect-aware runtime metadata.
+- Added adapters between current `ConstantType` objects, `DatabaseField` objects, and structured SQL runtime types.
+- Added a structured ClickHouse type parser for wrappers and parametric types such as `Nullable`, `LowCardinality`, `Array`, `Tuple`, `Map`, `Decimal`, `DateTime64`, integer widths, float widths, and aggregate states.
+- Added basic Postgres and DuckDB type-name adapters for cast and metadata paths.
+- Fixed `FloatArrayDatabaseField.get_constant_type()` so float arrays resolve as `ArrayType(FloatType)` instead of losing the array dimension.
+- Added type algebra for least-common-supertypes across common numeric, date/datetime, array, tuple, and string-ish families.
+- Added comparison compatibility classification so optimizers can distinguish definitely-compatible comparisons, cheap casts, expensive parse/cast cases, incompatible comparisons, and unknowns.
+- Added generic function return inference for high-value functions that the old tuple signature format could not express, including comparisons, logical functions, `if`, `multiIf`, `coalesce`, nullability helpers, casts/conversions, array constructors/accessors, tuple constructors/accessors, and common aggregate functions.
+- Kept existing legacy function signatures working as a fallback path.
+- Added resolver typing for `TypeCast`, `TryCast`, array literals, tuple literals, array access, array slices, tuple access, common aggregate calls, and set-query output columns.
+- Added unified output-column typing for `SelectSetQueryType`, while preserving the branch-type list for lineage consumers.
+- Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper.
+- Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
+- Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
+
+Still intentionally left as follow-up work:
+
+- Full ClickHouse parity for every function signature and aggregate combinator.
+- True lambda argument binding for higher-order array functions.
+- Property-definition planning metadata and materialized-property comparison rewrites.
+- Guarded cast simplification and nullability wrapper simplification passes.
+- Strict resolver mode.
+- Query-corpus unknown-type baselines and ClickHouse integration tests for planner/index wins.
+
+The compatibility constraint below still applies.
+Unknown or partially-known expressions remain printable by default; missing signatures are optimizer barriers, not user-facing errors.
+
 ## Why This Matters
 
 HogQL already has type annotations on AST nodes, but they are mostly good enough for field resolution, printing, nullability checks, and a few local transformations.
@@ -717,6 +751,5 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Immediate Next Step
 
-Start with Phase 0.
-The first concrete task should be an inventory/diagnostic tool, not an optimizer rewrite.
-Without a baseline, it will be hard to know whether the type system is improving real query coverage or only adding local special cases.
+Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`.
+The next concrete task should be a guarded typed cast simplifier that uses `posthog/hogql/type_system.py` and proves each rewrite with emitted-SQL tests before enabling any optimizer behavior broadly.
