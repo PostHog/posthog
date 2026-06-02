@@ -1,6 +1,5 @@
 import uuid
 
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -316,22 +315,27 @@ class TestTicketMessageSignals(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @pytest.mark.parametrize(
-        "anonymous_traits,domain_verified,expected_email_sent",
+    @parameterized.expand(
         [
-            ({"email": "customer@example.com", "name": "Customer"}, True, True),
-            ({"name": "Customer"}, True, False),
-            ({"email": "customer@example.com"}, False, False),
-        ],
+            (
+                "email_and_verified_domain",
+                {"email": "customer@example.com", "name": "Customer"},
+                True,
+                True,
+            ),
+            ("missing_email", {"name": "Customer"}, True, False),
+            ("unverified_domain", {"email": "customer@example.com"}, False, False),
+        ]
     )
     @patch("products.conversations.backend.tasks.send_email_reply.delay")
     def test_widget_ticket_email_reply_behaviour(
         self,
-        mock_delay,
-        mock_on_commit,
+        _name,
         anonymous_traits,
         domain_verified,
         expected_email_sent,
+        mock_delay,
+        mock_on_commit,
     ):
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save()
