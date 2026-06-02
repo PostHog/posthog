@@ -1068,21 +1068,19 @@ def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
 
 
 def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
-    from posthog.queries.cohort_query import CohortQuery
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
-    query_builder = CohortQuery(
-        Filter(
-            data={"properties": cohort.properties},
-            team=team,
-            hogql_context=context,
-        ),
-        team,
-        cohort_pk=cohort.pk,
-        persons_on_events_mode=team.person_on_events_mode,
+    # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
+    # it's being populated for the first time, so we evaluate the criteria rather than reading the
+    # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
+    cohort_query, hogql_context = (
+        HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
     )
-    base_query, params = query_builder.get_query()
-    return f"SELECT id AS actor_id FROM ({base_query})", params, context
+
+    # Clickhouse rejects a top-level SETTINGS clause when the SELECT is used as a subquery.
+    cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
+
+    return f"SELECT id AS actor_id FROM ({cohort_query})", hogql_context.values, hogql_context
 
 
 def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
