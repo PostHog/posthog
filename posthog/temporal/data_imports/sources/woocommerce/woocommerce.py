@@ -89,6 +89,7 @@ class _HostGuardedAdapter(TrackedHTTPAdapter):
 
 def _make_guarded_session(team_id: int, redact_values: tuple[str, ...] = ()) -> Session:
     """A tracked `requests.Session` that re-checks every hop's host against SSRF rules."""
+    # nosemgrep: data-imports-http-transport-requests-session -- mounts a TrackedHTTPAdapter subclass below, so logging/metrics are preserved while adding per-hop host validation.
     session = Session()
     adapter = _HostGuardedAdapter(team_id, max_retries=DEFAULT_RETRY, redact_values=redact_values)
     session.mount("https://", adapter)
