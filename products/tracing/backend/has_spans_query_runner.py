@@ -13,11 +13,11 @@ HAS_SPANS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
 
 
 class HasSpansQueryRunner:
-    def __init__(self, team: Team):
+    def __init__(self, team: Team) -> None:
         self.team = team
 
     def run(self) -> bool:
-        query = parse_select("SELECT 1 FROM spans LIMIT 1")
+        query = parse_select("SELECT 1 FROM posthog.trace_spans LIMIT 1")
         assert isinstance(query, ast.SelectQuery)
 
         response = execute_hogql_query(
