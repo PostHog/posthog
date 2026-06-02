@@ -16,7 +16,6 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -38,6 +37,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
     buildTrendsBarAggregatedSeries,
@@ -122,23 +122,13 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 
     const getAggregatedDisplayLabel = useCallback(
-        (r: IndexedTrendResult): string => {
-            if (stackBreakdowns) {
-                // Breakdown values within the band are distinguished by color and the tooltip.
-                return getDisplayNameFromEntityFilter(r.action) ?? r.label ?? ''
-            }
-            if (r.breakdown_value != null) {
-                return formatBreakdownLabel(
-                    r.breakdown_value,
-                    breakdownFilter,
-                    allCohorts?.results,
-                    formatPropertyValueForDisplay,
-                    undefined,
-                    r.label
-                )
-            }
-            return r.label ?? ''
-        },
+        (r: IndexedTrendResult): string =>
+            getAggregatedDisplayLabelFn(r, {
+                stackBreakdowns,
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
         [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 

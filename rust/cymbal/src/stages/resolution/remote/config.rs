@@ -34,6 +34,9 @@ pub struct RemoteResolutionConfig {
     /// Rank-distribution factor for selecting among rendezvous-ranked candidates.
     /// `0.0` is fully sticky to rank 0; `1.0` is uniform across candidates.
     pub routing_jitter: f64,
+    /// Maximum number of items that can concurrently wait for a pod to accept
+    /// routing ownership.
+    pub routing_acceptance_concurrency: usize,
     /// Cadence hint sent on `SubscribeRequest.tick_hint_ms`. The server may
     /// clamp this; the caller relies on whatever cadence the server settles on.
     /// Doubles as the freshness window: snapshots older than `2 *
@@ -88,6 +91,9 @@ impl RemoteResolutionConfig {
             ),
             sample_rate: normalized_probability(config.remote_resolution_sample_rate),
             routing_jitter: normalized_probability(config.remote_resolution_routing_jitter),
+            routing_acceptance_concurrency: config
+                .remote_resolution_routing_acceptance_concurrency
+                .max(1),
             subscribe_tick_hint: Duration::from_millis(
                 config.remote_resolution_subscribe_tick_hint_ms.max(1),
             ),
