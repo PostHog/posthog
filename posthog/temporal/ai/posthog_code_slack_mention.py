@@ -321,18 +321,35 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 if rules_result.status == "handled":
                     return
                 if rules_result.status == "needs_picker":
-                    await _execute_posthog_code_activity(
-                        post_posthog_code_repo_picker_activity,
-                        inputs,
-                        channel,
-                        thread_ts,
-                        slack_user_id,
-                        user_id,
-                        event,
-                        workflow.info().workflow_id,
-                        POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                        False,
-                    )
+                    # Picker activity gained a trailing `user_id`. Gate the new call
+                    # shape so in-flight workflows that recorded the pre-`user_id`
+                    # 8-arg list keep matching their history on replay; new workflows
+                    # record the 9-arg shape from the start.
+                    if workflow.patched("posthog-code-slack-user-github-2026-06"):
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_repo_picker_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            slack_user_id,
+                            event,
+                            workflow.info().workflow_id,
+                            POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                            False,
+                            user_id,
+                        )
+                    else:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_repo_picker_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            slack_user_id,
+                            event,
+                            workflow.info().workflow_id,
+                            POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                            False,
+                        )
                     try:
                         await workflow.wait_condition(
                             lambda: self._repo_selection_resolved,
@@ -378,12 +395,23 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             repo_research_task_id: str | None = None
             repo_research_run_id: str | None = None
             if workflow.patched("posthog-code-repo-discovery-agent-2026-05"):
-                cascade = await _execute_posthog_code_activity(
-                    cascade_posthog_code_repository_activity,
-                    inputs,
-                    event.get("text", ""),
-                    user_id,
-                )
+                # The cascade activity gained `user_id` and a new `needs_user_github`
+                # outcome. Gate the new shape so in-flight workflows that recorded
+                # the 2-arg cascade command keep matching history on replay; new
+                # workflows record the 3-arg shape and can take the new branch.
+                if workflow.patched("posthog-code-slack-user-github-2026-06"):
+                    cascade = await _execute_posthog_code_activity(
+                        cascade_posthog_code_repository_activity,
+                        inputs,
+                        event.get("text", ""),
+                        user_id,
+                    )
+                else:
+                    cascade = await _execute_posthog_code_activity(
+                        cascade_posthog_code_repository_activity,
+                        inputs,
+                        event.get("text", ""),
+                    )
 
                 if cascade.mode == "auto":
                     repository = cascade.repository
@@ -392,7 +420,10 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 elif cascade.mode == "needs_user_github":
                     # Team has GitHub, but the mentioning user hasn't connected their
                     # personal install. Fire the gate so they get the Connect button
-                    # instead of a silently no-repo task.
+                    # instead of a silently no-repo task. Only reachable on the patched
+                    # path — the cascade activity never emits this outcome when called
+                    # without `user_id`, so pre-patch workflows on replay don't see a
+                    # new activity command appear in history.
                     await _execute_posthog_code_activity(
                         block_posthog_code_task_if_no_personal_github_activity,
                         inputs,
@@ -432,18 +463,31 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             # Agent crashed/timed out/hallucinated — italicize its reason
                             # above the picker guidance so the user sees why.
                             picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
-                            await _execute_posthog_code_activity(
-                                post_posthog_code_repo_picker_activity,
-                                inputs,
-                                channel,
-                                thread_ts,
-                                slack_user_id,
-                                user_id,
-                                event,
-                                workflow.info().workflow_id,
-                                picker_guidance,
-                                True,
-                            )
+                            if workflow.patched("posthog-code-slack-user-github-2026-06"):
+                                await _execute_posthog_code_activity(
+                                    post_posthog_code_repo_picker_activity,
+                                    inputs,
+                                    channel,
+                                    thread_ts,
+                                    slack_user_id,
+                                    event,
+                                    workflow.info().workflow_id,
+                                    picker_guidance,
+                                    True,
+                                    user_id,
+                                )
+                            else:
+                                await _execute_posthog_code_activity(
+                                    post_posthog_code_repo_picker_activity,
+                                    inputs,
+                                    channel,
+                                    thread_ts,
+                                    slack_user_id,
+                                    event,
+                                    workflow.info().workflow_id,
+                                    picker_guidance,
+                                    True,
+                                )
                             try:
                                 await workflow.wait_condition(
                                     lambda: self._repo_selection_resolved,
@@ -500,18 +544,31 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                                 None,
                             )
                             return
-                    await _execute_posthog_code_activity(
-                        post_posthog_code_repo_picker_activity,
-                        inputs,
-                        channel,
-                        thread_ts,
-                        slack_user_id,
-                        user_id,
-                        event,
-                        workflow.info().workflow_id,
-                        POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
-                        True,
-                    )
+                    if workflow.patched("posthog-code-slack-user-github-2026-06"):
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_repo_picker_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            slack_user_id,
+                            event,
+                            workflow.info().workflow_id,
+                            POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
+                            True,
+                            user_id,
+                        )
+                    else:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_repo_picker_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            slack_user_id,
+                            event,
+                            workflow.info().workflow_id,
+                            POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
+                            True,
+                        )
                     try:
                         await workflow.wait_condition(
                             lambda: self._repo_selection_resolved,
@@ -701,7 +758,7 @@ def collect_posthog_code_thread_messages_activity(
 def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
-    user_id: int,
+    user_id: int | None = None,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
 
@@ -709,7 +766,22 @@ def cascade_posthog_code_repository_activity(
     personal install, exactly one connected, or an explicit `org/repo` mentioned in the
     message — without paying for the sandbox-backed agent. Anything else returns
     `mode='agent_needed'` and the workflow takes over.
+
+    ``user_id`` defaults to ``None`` for backwards compatibility with the pre-2026-06
+    call shape: if a worker drains an activity task that was scheduled by an older
+    workflow (recorded with two positional args), the call still binds. In that case
+    the activity short-circuits to ``no_repo`` since the pre-2026-06 workflow code on
+    the receiving end does not understand the ``needs_user_github`` outcome and would
+    drop into the discovery agent flow with an empty repo list anyway.
     """
+    if user_id is None:
+        logger.warning(
+            "posthog_code_cascade_legacy_call",
+            integration_id=inputs.integration_id,
+            slack_team_id=inputs.slack_team_id,
+        )
+        return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
+
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
 
     integration = Integration.objects.select_related("team", "team__organization").get(
@@ -951,12 +1023,30 @@ def post_posthog_code_repo_picker_activity(
     channel: str,
     thread_ts: str,
     slack_user_id: str,
-    user_id: int,
     event: dict[str, Any],
     workflow_id: str,
     guidance: str,
     allow_no_repo: bool,
+    user_id: int | None = None,
 ) -> None:
+    """Post the repository picker block in the Slack thread.
+
+    ``user_id`` is appended last and defaults to ``None`` so a worker draining an
+    activity task scheduled by a pre-2026-06 workflow (recorded with 8 positional
+    args) still binds: the eight legacy slots align by position and ``user_id``
+    falls through to the default. The body short-circuits in that case rather than
+    posting a picker with a missing ``mentioning_user_id``, which would break the
+    downstream external-select handler. New workflows go through the patched call
+    site at the workflow body and pass ``user_id`` as the final positional arg.
+    """
+    if user_id is None:
+        logger.warning(
+            "posthog_code_picker_legacy_call_skipped",
+            integration_id=inputs.integration_id,
+            slack_team_id=inputs.slack_team_id,
+        )
+        return
+
     from products.slack_app.backend.api import _post_repo_picker_message
 
     integration = Integration.objects.select_related("team", "team__organization").get(
