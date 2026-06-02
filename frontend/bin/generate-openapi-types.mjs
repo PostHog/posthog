@@ -6,7 +6,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { collectSchemaRefs, preprocessSchema, resolveNestedRefs, runOrvalParallel } from '@posthog/openapi-codegen'
+import {
+    collectSchemaRefs,
+    preprocessSchema,
+    resolveNestedRefs,
+    runOrvalParallel,
+    stripNullDefaults,
+} from '@posthog/openapi-codegen'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
@@ -374,6 +380,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 // Main execution
 
 const schema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf8')))
+stripNullDefaults(schema)
 const mappings = loadProductMappings()
 const tmpDir = createTempDir()
 
