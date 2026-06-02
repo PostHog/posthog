@@ -1,9 +1,5 @@
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import {
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
-} from '../ingestion/common/config'
 import { KafkaBrokerConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { createProducerRegistry } from '../session-replay/recording-api/outputs/producer-registry'
@@ -16,9 +12,7 @@ import {
     getDefaultRecordingApiOutputsConfig,
 } from '../session-replay/recording-api/types'
 import {
-    KafkaDefaultProducerEnvConfig,
     KafkaSessionreplayProducerEnvConfig,
-    getDefaultKafkaDefaultProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '../session-replay/shared/outputs/producer-config'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
@@ -28,8 +22,6 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type RecordingApiServerConfig = BaseServerConfig &
     RecordingApiConfig &
     KafkaBrokerConfig &
-    KafkaDefaultProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
     KafkaSessionreplayProducerEnvConfig &
     RecordingApiOutputsConfig &
     PostgresRouterConfig &
@@ -48,8 +40,6 @@ export class RecordingApiServer implements NodeServer {
     constructor(config: Partial<RecordingApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultRecordingApiOutputsConfig()),
             ...config,
