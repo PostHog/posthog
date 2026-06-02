@@ -61,6 +61,7 @@ jobs:
 
             - name: Build and push container image
               id: build
+              continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -74,15 +75,52 @@ jobs:
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
+            - name: Re-login to DockerHub (retry)
+              if: steps.build.outcome == 'failure'
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Re-login to ghcr.io (retry)
+              if: steps.build.outcome == 'failure'
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Build and push container image (retry)
+              id: build_retry
+              if: steps.build.outcome == 'failure'
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+                      BUILDKIT_CONTEXT_KEEP_GIT_DIR=1
+                  secrets: |
+                      posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+
+            - name: Fail if both build attempts failed
+              if: steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
+              run: |
+                  echo "::error::Both build attempts failed. First attempt and retry both unsuccessful."
+                  exit 1
+
             - name: report failure
-              if: failure()
+              if: always() && steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
             - name: report failure to DevEx PostHog
-              if: failure()
+              if: always() && steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
@@ -152,7 +190,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "posthog",
@@ -182,7 +220,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "ingestion",
@@ -212,7 +250,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker",
@@ -233,7 +271,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-batch-exports",
@@ -263,7 +301,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-max-ai",
@@ -293,7 +331,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-tasks-agent",
@@ -405,7 +443,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-billing",
@@ -426,7 +464,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-video-export",
@@ -447,7 +485,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-session-replay",
@@ -468,7 +506,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-replay-vision",
@@ -489,7 +527,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-weekly-digest",
@@ -510,7 +548,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-analytics-platform",
@@ -531,7 +569,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-general-purpose",
@@ -587,7 +625,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-health-check",
@@ -617,7 +655,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-llm-analytics-evals",
@@ -641,7 +679,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-messaging",
@@ -662,7 +700,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-logs-alerting",
@@ -692,7 +730,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-ducklake",
@@ -722,7 +760,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
@@ -752,7 +790,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "warehouse-sources-load",
@@ -773,7 +811,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse-cdp-producer",
@@ -794,7 +832,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-modeling",
@@ -814,7 +852,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "dagster-code-location",
