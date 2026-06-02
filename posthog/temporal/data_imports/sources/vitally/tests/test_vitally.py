@@ -50,9 +50,7 @@ class TestVitallyPaginator:
         "body,start_value,expected_has_next,expected_cursor",
         [
             pytest.param({}, "1970-01-01", False, None, id="falsy_body_stops"),
-            pytest.param(
-                {"results": [], "next": "cursor-2"}, "1970-01-01", False, None, id="empty_results_stops"
-            ),
+            pytest.param({"results": [], "next": "cursor-2"}, "1970-01-01", False, None, id="empty_results_stops"),
             pytest.param(
                 {"results": [{"updatedAt": "2026-01-02T00:00:00Z"}], "next": "cursor-2"},
                 "1970-01-01",
