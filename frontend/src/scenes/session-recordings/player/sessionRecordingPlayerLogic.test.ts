@@ -11,7 +11,7 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { RecordingSegment } from '~/types'
+import { RecordingSegment, SessionPlayerState } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -940,6 +940,46 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.actions.setCurrentSegment(segmentWithNoWindowId)
 
             expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('interrupting inactivity skipping', () => {
+        it('stopSkippingInactivity clears the skip flag and resumes from the current timestamp', async () => {
+            logic.actions.setSkippingInactivity(true)
+            await expectLogic(logic).toMatchValues({ isSkippingInactivity: true })
+
+            logic.actions.setCurrentTimestamp(5000)
+            const seekSpy = jest.spyOn(logic.actions, 'seekToTimestamp')
+
+            logic.actions.stopSkippingInactivity()
+
+            await expectLogic(logic).toMatchValues({ isSkippingInactivity: false })
+            expect(seekSpy).toHaveBeenCalledWith(5000, true)
+        })
+
+        it('togglePlayPause interrupts the skip instead of toggling play/pause', () => {
+            logic.actions.setPlay()
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.currentPlayerState).toBe(SessionPlayerState.SKIP)
+
+            const stopSkippingSpy = jest.spyOn(logic.actions, 'stopSkippingInactivity')
+            const setPauseSpy = jest.spyOn(logic.actions, 'setPause')
+
+            logic.actions.togglePlayPause()
+
+            expect(stopSkippingSpy).toHaveBeenCalled()
+            expect(setPauseSpy).not.toHaveBeenCalled()
+        })
+
+        it('togglePlayPause toggles play/pause normally when not skipping', () => {
+            logic.actions.setPlay()
+            expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.SKIP)
+
+            const setPauseSpy = jest.spyOn(logic.actions, 'setPause')
+
+            logic.actions.togglePlayPause()
+
+            expect(setPauseSpy).toHaveBeenCalled()
         })
     })
 })

@@ -535,6 +535,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
+        stopSkippingInactivity: true,
         setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => ({ isSkippingToMatchingEvent }),
         syncPlayerSpeed: true,
         setCurrentTimestamp: (timestamp: number) => ({ timestamp }),
@@ -1831,7 +1832,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.seekToTime(0)
         },
 
+        stopSkippingInactivity: () => {
+            // Exit inactivity skipping and resume playback at the normal speed from the
+            // current playhead, rather than re-deriving the SKIP state and looping back
+            // into the boosted-speed fast-forward.
+            actions.setSkippingInactivity(false)
+            if (values.currentTimestamp !== undefined) {
+                actions.seekToTimestamp(values.currentTimestamp, true)
+            }
+        },
         togglePlayPause: () => {
+            // While skipping inactivity, a user-initiated click should interrupt the skip
+            // and resume at normal speed instead of toggling play/pause (which would leave
+            // the player to loop back into the skip on the next play).
+            if (values.currentPlayerState === SessionPlayerState.SKIP) {
+                actions.stopSkippingInactivity()
+                return
+            }
             // If paused, start playing
             if (values.playingState === SessionPlayerState.PAUSE) {
                 actions.setPlay()

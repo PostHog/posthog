@@ -70,11 +70,16 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPlay } = useActions(sessionRecordingPlayerLogic)
+    const { setPlay, stopSkippingInactivity } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
         e.stopPropagation()
         setPlay()
+    }
+
+    const handleStopSkipping = (e: MouseEvent): void => {
+        e.stopPropagation()
+        stopSkippingInactivity()
     }
 
     let content = null
@@ -141,7 +146,20 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         )
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
-        content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
+        content = (
+            <div className="flex flex-col items-center justify-center gap-2">
+                <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    aria-label="Stop skipping inactivity"
+                    data-attr="replay-overlay-stop-skipping"
+                    onClick={handleStopSkipping}
+                >
+                    Stop skipping
+                </LemonButton>
+            </div>
+        )
     }
     if (currentPlayerState === SessionPlayerState.SKIP_TO_MATCHING_EVENT) {
         content = <div className="text-3xl italic font-medium text-white">Skipping to filtered event</div>
