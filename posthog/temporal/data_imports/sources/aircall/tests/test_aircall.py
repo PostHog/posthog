@@ -197,7 +197,7 @@ class TestAircallSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_partition_keys_are_stable_creation_fields(self):
-        for config in AIRCALL_ENDPOINTS.values():
-            if config.partition_key:
-                assert config.partition_key in {"started_at", "created_at"}
+    @pytest.mark.parametrize("config", list(AIRCALL_ENDPOINTS.values()))
+    def test_partition_keys_are_stable_creation_fields(self, config):
+        if config.partition_key:
+            assert config.partition_key in {"started_at", "created_at"}
