@@ -20,6 +20,7 @@ export * from './spec/system-prompt'
 export * from './storage/bundle'
 export * from './storage/memory-bundle-store'
 export * from './storage/fs-bundle-store'
+export * from './storage/s3-bundle-store'
 
 export * from './persistence/queue'
 export * from './persistence/revision-store'

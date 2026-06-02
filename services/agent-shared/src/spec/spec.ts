@@ -120,6 +120,12 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
     }),
+    // NOTE: the registry-pin shape `{ kind: 'custom_template', from_template,
+    // alias, version }` is a *draft-only* authoring shape, validated by the
+    // Django spec schema (`spec_schema.py`). It is deliberately NOT in this
+    // runtime union: freeze reshapes it into the `custom` variant above
+    // before the runner ever parses the spec, and the dispatcher assumes
+    // every non-`client` tool carries `requires_approval`.
     /**
      * **Client-fulfilled tool.** The agent author declares the tool fully
      * inline (id + description + args_schema); the connecting client
@@ -297,6 +303,18 @@ export const SkillRefSchema = z.object({
      * should describe WHAT the skill teaches the agent and WHEN to load it.
      */
     description: z.string().optional(),
+    /**
+     * Registry lineage for a skill pinned from an `AgentSkillTemplate`.
+     * Present on a draft spec; at freeze the Django side resolves
+     * `from_template` at the requested `version` (or latest), assembles the
+     * spec-compliant `skills/<alias>/SKILL.md` into the bundle, and stamps
+     * `id`/`path` from `alias`. These ride through on the frozen spec so the
+     * registry "Used by" view can correlate. The runner ignores them — it
+     * reads `id`/`path` only.
+     */
+    from_template: z.string().optional(),
+    alias: z.string().optional(),
+    version: z.number().int().nonnegative().optional(),
 })
 
 export const SpecLimitsSchema = z.object({

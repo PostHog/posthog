@@ -1240,6 +1240,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                         properties[key] += 1
                     }
                     properties.sample_items_count += item.insight.is_sample ? 1 : 0
+                } else if (item.widget) {
+                    if (!properties['widget_tiles_count']) {
+                        properties['widget_tiles_count'] = 1
+                    } else {
+                        properties['widget_tiles_count'] += 1
+                    }
                 } else {
                     if (!properties['text_tiles_count']) {
                         properties['text_tiles_count'] = 1

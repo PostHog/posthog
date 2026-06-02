@@ -22,7 +22,7 @@ describe('AgentSpecSchema', () => {
                 { kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' },
             ],
             mcps: [{ kind: 'agent', slug: 'weekly-digest' }],
-            skills: [{ id: 'deep-research', path: 'skills/deep-research.md' }],
+            skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
             integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },

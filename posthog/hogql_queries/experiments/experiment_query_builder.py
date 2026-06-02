@@ -39,6 +39,10 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 )
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig
+from posthog.hogql_queries.experiments.experiment_query_context import (
+    ExperimentPrecomputationContext,
+    ExperimentQueryContext,
+)
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.funnel_step_builder import FunnelStepBuilder
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
@@ -110,16 +114,43 @@ class ExperimentQueryBuilder:
         self.metric_events_preaggregation_job_ids: list[str] | None = None
         self.cuped_config = cuped_config or CupedQueryConfig()
 
+        # Experiment-level invariants, gathered into a single frozen context for
+        # later extracted modules to consume. Additive: every self.* attribute
+        # above remains the source of truth for existing internal methods.
+        self.context = ExperimentQueryContext(
+            team=self.team,
+            feature_flag_key=self.feature_flag_key,
+            exposure_config=self.exposure_config,
+            filter_test_accounts=self.filter_test_accounts,
+            multiple_variant_handling=self.multiple_variant_handling,
+            variants=tuple(self.variants),
+            date_range_query=self.date_range_query,
+            entity_key=self.entity_key,
+            breakdowns=tuple(self.breakdowns),
+            only_count_matured_users=self.only_count_matured_users,
+            funnel_steps_data_disabled=self.funnel_steps_data_disabled,
+            cuped_config=self.cuped_config,
+        )
+
     # Experiment queries group by (variant, breakdown_values), so the row count is
     # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
     # LIMIT 100 when no explicit limit is set, which silently truncates results for
     # high-cardinality breakdowns.  Set a generous explicit limit to prevent this.
     QUERY_RESULT_LIMIT = MAX_SELECT_RETURNED_ROWS
 
-    def build_query(self) -> ast.SelectQuery:
+    def build_query(self, precomputation_context: ExperimentPrecomputationContext | None = None) -> ast.SelectQuery:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
+
+        When ``precomputation_context`` is supplied, the precomputed job IDs are
+        applied here so every internal method that reads ``self.*`` stays
+        unchanged. Job IDs can only be supplied at build time because the builder
+        itself generates the precompute queries before any job IDs exist.
         """
+        if precomputation_context is not None:
+            self.preaggregation_job_ids = precomputation_context.exposure_job_ids
+            self.metric_events_preaggregation_job_ids = precomputation_context.metric_events_job_ids
+
         assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():

@@ -20,7 +20,7 @@ import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/sre-slack-bot')
-const BUNDLE_FILES = ['agent.md', 'skills/triage-playbook.md', 'skills/slack-thread-protocol.md'] as const
+const BUNDLE_FILES = ['agent.md', 'skills/triage-playbook/SKILL.md', 'skills/slack-thread-protocol/SKILL.md'] as const
 
 async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Record<string, string> }> {
     const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as Record<string, unknown>

@@ -1,6 +1,8 @@
 ---
+name: research
 description: General-purpose research skill — how to investigate a question with multiple tools.
-version: 1
+metadata:
+  version: '1'
 ---
 
 # Research

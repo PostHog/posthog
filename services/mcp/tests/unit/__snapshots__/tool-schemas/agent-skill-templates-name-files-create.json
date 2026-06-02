@@ -16,7 +16,7 @@
             "type": "string"
         },
         "path": {
-            "description": "Relative path inside the skill folder.",
+            "description": "Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`). No `..` traversal or absolute paths.",
             "maxLength": 512,
             "type": "string"
         }

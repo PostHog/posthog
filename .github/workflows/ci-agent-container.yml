@@ -16,6 +16,7 @@ on:
     push:
         branches:
             - 'master'
+            - 'ass'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -70,7 +71,7 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.agent_files == 'true') ||
             github.event_name == 'merge_group' ||
             github.event_name == 'workflow_dispatch' ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.agent_files == 'true')
+            (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && needs.changes.outputs.agent_files == 'true')
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         permissions:
@@ -162,6 +163,44 @@ jobs:
                   path: /tmp/digest-${{ matrix.image }}.txt
                   retention-days: 1
 
+            # The production bundle (esbuild .mjs in a slim node image) runs a
+            # different code path than local `tsx src/index.ts` — different
+            # module resolution, no node_modules, no source-map magic. Smoke
+            # the image once per build so import / path / native-dep issues
+            # fail here instead of in dev.
+            - name: Smoke test image
+              env:
+                  IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
+                  IMAGE_NAME: ${{ matrix.image }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  IMAGE_REF="${IMAGE_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  echo "::group::Pull image"
+                  docker pull "$IMAGE_REF"
+                  echo "::endgroup::"
+
+                  case "$IMAGE_NAME" in
+                      posthog-agents)
+                          # Four entrypoints baked into the same image; each
+                          # has its own .mjs and config schema, so each gets
+                          # its own smoke pass.
+                          for entrypoint in ingress runner janitor migrate; do
+                              echo "::group::Smoke test ${entrypoint}"
+                              .github/scripts/smoke-test-agent-bundle.sh "$IMAGE_REF" "$entrypoint"
+                              echo "::endgroup::"
+                          done
+                          ;;
+                      posthog-agent-console)
+                          echo "::group::Smoke test agent-console"
+                          .github/scripts/smoke-test-agent-console.sh "$IMAGE_REF"
+                          echo "::endgroup::"
+                          ;;
+                      *)
+                          echo "No smoke test configured for ${IMAGE_NAME}; skipping."
+                          ;;
+                  esac
+
             - name: Report failure
               if: failure()
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
@@ -179,27 +218,22 @@ jobs:
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"}'
 
     deploy:
-        name: Deploy ${{ matrix.release }}
+        name: Deploy ${{ matrix.image }}
         needs: build
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && github.event_name == 'push'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        # One dispatch per image, not per Helm release. The charts side keys
+        # state.yaml by image name and the runtime apps (agent-ingress /
+        # agent-runner / agent-janitor) all read from the same `posthog-agents`
+        # row — same shape as ai-gateway / ai-gateway-billing on the chart side.
+        # agent-sandbox-host is intentionally excluded; see the build matrix.
         strategy:
             fail-fast: false
             matrix:
-                include:
-                    - release: agent-ingress
-                      image: posthog-agents
-                    - release: agent-runner
-                      image: posthog-agents
-                    - release: agent-janitor
-                      image: posthog-agents
-                    - release: agent-migrations
-                      image: posthog-agents
-                    - release: agent-console
-                      image: posthog-agent-console
-                    # agent-sandbox-host deploy is intentionally excluded for
-                    # now — see the build matrix above.
+                image:
+                    - posthog-agents
+                    - posthog-agent-console
 
         steps:
             - name: Check out
@@ -236,7 +270,7 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Trigger ${{ matrix.release }} deployment
+            - name: Trigger ${{ matrix.image }} state update
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -249,7 +283,7 @@ jobs:
                             "sha": "${{ github.sha }}@${{ steps.digest.outputs.value }}"
                           }
                         },
-                        "release": "${{ matrix.release }}",
+                        "release": "${{ matrix.image }}",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

@@ -19,6 +19,15 @@ from rest_framework.exceptions import ValidationError
 
 from .serializers import AgentRevisionSerializer
 
+# `auth` lost its top-level default (see spec_schema.py), so it's required on
+# every spec. These fixtures focus on other fields, so inject a minimal public
+# auth rather than repeat it in each case.
+_AUTH = {"modes": [{"type": "public"}]}
+
+
+def _with_auth(spec: dict) -> dict:
+    return {"auth": _AUTH, **spec}
+
 
 @pytest.mark.parametrize(
     ("name", "spec"),
@@ -75,7 +84,6 @@ from .serializers import AgentRevisionSerializer
             "external_mcp_unique_tools",
             {
                 "model": "x",
-                "auth": {},
                 "mcps": [
                     {
                         "kind": "external",
@@ -86,10 +94,43 @@ from .serializers import AgentRevisionSerializer
                 ],
             },
         ),
+        # Registry-pin shapes the freeze pipeline resolves: a skill carrying
+        # `from_template` + `alias` (+ optional `version`) alongside the
+        # runtime id/path, and a `custom_template` tool ref. Before these
+        # were added to the schema, authoring either was rejected.
+        (
+            "skill_from_template",
+            {
+                "model": "x",
+                "skills": [
+                    {
+                        "id": "research",
+                        "path": "skills/research/SKILL.md",
+                        "from_template": "019e7fb7-f4c0-75e2-9055-7c29a5cbb923",
+                        "alias": "research",
+                        "version": 3,
+                    }
+                ],
+            },
+        ),
+        (
+            "custom_template_tool",
+            {
+                "model": "x",
+                "tools": [
+                    {
+                        "kind": "custom_template",
+                        "from_template": "019e7fb7-f4c0-75e2-9055-7c29a5cbb924",
+                        "alias": "stripe_lookup",
+                        "version": 4,
+                    }
+                ],
+            },
+        ),
     ],
 )
 def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
-    AgentRevisionSerializer().validate_spec(spec)
+    AgentRevisionSerializer().validate_spec(_with_auth(spec))
 
 
 @pytest.mark.parametrize(
@@ -134,7 +175,6 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             "external_mcp_duplicate_tool_strings",
             {
                 "model": "x",
-                "auth": {},
                 "mcps": [
                     {
                         "kind": "external",
@@ -152,7 +192,6 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             "external_mcp_duplicate_tool_string_and_object",
             {
                 "model": "x",
-                "auth": {},
                 "mcps": [
                     {
                         "kind": "external",
@@ -168,5 +207,5 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
 )
 def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_substring: str) -> None:
     with pytest.raises(ValidationError) as exc_info:
-        AgentRevisionSerializer().validate_spec(spec)
+        AgentRevisionSerializer().validate_spec(_with_auth(spec))
     assert expected_substring in str(exc_info.value)

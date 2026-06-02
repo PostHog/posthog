@@ -5,11 +5,19 @@
             "description": "Markdown body. The `SKILL.md` equivalent.",
             "type": "string"
         },
+        "compatibility": {
+            "description": "Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network). Blank if unset.",
+            "type": "string"
+        },
+        "license": {
+            "description": "Agent Skills `license` frontmatter — license name or a reference to a bundled license file. Blank if unset.",
+            "type": "string"
+        },
         "name": {
             "pattern": "^[^/]+$",
             "type": "string"
         }
     },
-    "required": ["name", "body"],
+    "required": ["name", "license", "compatibility", "body"],
     "type": "object"
 }

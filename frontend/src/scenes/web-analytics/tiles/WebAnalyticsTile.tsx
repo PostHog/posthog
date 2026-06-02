@@ -611,8 +611,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         cross_sell: {
             title: ' ',
             render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => {
-                const dateRange = (query.source as any)?.dateRange
-                const breakdownBy = (query.source as any)?.breakdownBy
+                const source = query.source as any
+                const dateRange = source?.dateRange
+                const breakdownBy = source?.breakdownBy
                 const value = record[0] ?? ''
 
                 return (
@@ -622,6 +623,8 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             date_to={dateRange?.date_to}
                             breakdownBy={breakdownBy}
                             value={value}
+                            properties={source?.properties}
+                            filter_test_accounts={source?.filterTestAccounts}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
                         <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />

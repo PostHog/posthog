@@ -3,10 +3,15 @@
 # Single image, four entrypoints: ingress, runner, janitor, migrate.
 # The deploy manifest picks which one runs in each replica / Job:
 #
-#   command: ["node", "dist/ingress.mjs"]
-#   command: ["node", "dist/runner.mjs"]
-#   command: ["node", "dist/janitor.mjs"]
-#   command: ["node", "dist/migrate.mjs", "up"]
+#   command: ["node", "services/agents/dist/ingress.mjs"]
+#   command: ["node", "services/agents/dist/runner.mjs"]
+#   command: ["node", "services/agents/dist/janitor.mjs"]
+#   command: ["node", "services/agents/dist/migrate.mjs", "up"]
+#
+# Runtime WORKDIR is `/code`; bundles live at `/code/services/agents/dist/`
+# so Node module resolution walks up to `services/agents/node_modules/`
+# (where pnpm symlinks node-rdkafka) and then to `/code/node_modules/.pnpm/`
+# (the actual content). See the COPY block below for the layout.
 #
 # Build from repo root so pnpm can resolve the workspace:
 #

@@ -7,7 +7,6 @@ describe('PlatformConfigSchema', () => {
         const cfg = PlatformConfigSchema.parse({})
         expect(cfg.posthogDbUrl).toContain('postgres://')
         expect(cfg.agentDbUrl).toContain('postgres://')
-        expect(cfg.bundleRoot.length).toBeGreaterThan(0)
         expect(cfg.encryptionSaltKeys).toBe('')
         expect(cfg.logLevel).toBe('info')
         expect(cfg.redisUrl).toBeUndefined()

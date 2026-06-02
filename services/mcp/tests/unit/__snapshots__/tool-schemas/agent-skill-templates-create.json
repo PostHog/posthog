@@ -3,21 +3,26 @@
     "description": "Initial-create payload — produces v1.",
     "properties": {
         "allowed_tools": {
-            "description": "Optional list of tool ids the skill is meant to reach for."
+            "description": "Optional list of tool ids the skill expects to reach for. Emitted as the spec's space-separated `allowed-tools` frontmatter at freeze."
         },
         "body": {
             "default": "",
-            "description": "Initial SKILL.md markdown.",
+            "description": "Initial SKILL.md markdown body. Any leading YAML frontmatter is stripped at freeze — frontmatter is assembled from the structured fields.",
+            "type": "string"
+        },
+        "compatibility": {
+            "default": "",
+            "description": "Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network access). Max 500 chars.",
+            "maxLength": 500,
             "type": "string"
         },
         "description": {
-            "default": "",
-            "description": "One-line description shown in the list view + system-prompt skill index.",
-            "maxLength": 4096,
+            "description": "Required description (1–1024 chars, per the Agent Skills spec) — what the skill does and when to use it. Shown in the list view + system-prompt skill index.",
+            "maxLength": 1024,
             "type": "string"
         },
         "files": {
-            "description": "Optional companion files at creation time.",
+            "description": "Optional companion files (scripts/, references/, assets/ — arbitrarily nested) at creation time.",
             "items": {
                 "properties": {
                     "content": {
@@ -34,7 +39,7 @@
                         "type": "string"
                     },
                     "path": {
-                        "description": "Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.",
+                        "description": "Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`, `assets/x/y.json`). Becomes `bundle/skills/<alias>/<path>` at freeze. No `..` traversal or absolute paths.",
                         "maxLength": 512,
                         "type": "string"
                     }
@@ -44,15 +49,21 @@
             },
             "type": "array"
         },
+        "license": {
+            "default": "",
+            "description": "Agent Skills `license` frontmatter — license name or a reference to a bundled license file.",
+            "maxLength": 256,
+            "type": "string"
+        },
         "metadata": {
-            "description": "Free-form, agentskills.io-compatible bag (license, compatibility, …)."
+            "description": "Agent Skills `metadata` map (string → string) for non-promoted keys like author or version."
         },
         "name": {
-            "description": "Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.",
-            "maxLength": 128,
+            "description": "Slug-shaped name unique per team (max 64 chars, per the Agent Skills spec). `@posthog/<slug>` is reserved for canonical templates.",
+            "maxLength": 64,
             "type": "string"
         }
     },
-    "required": ["name"],
+    "required": ["name", "description"],
     "type": "object"
 }

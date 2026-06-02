@@ -159,6 +159,21 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "additionalProperties": False,
                     },
                     {
+                        # Registry-pinned custom tool — draft-only shape.
+                        # Freeze resolves `from_template` at `version`, writes
+                        # `tools/<alias>/…`, and reshapes this into the
+                        # `custom` variant above before the runner sees it.
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "custom_template"},
+                            "from_template": {"type": "string"},
+                            "alias": {"type": "string"},
+                            "version": {"type": "integer", "minimum": 0},
+                        },
+                        "required": ["kind", "from_template", "alias"],
+                        "additionalProperties": False,
+                    },
+                    {
                         # Client-fulfilled tool — implementation lives in the
                         # connecting client (browser dock, IDE MCP host), not
                         # in the runner. See `AgentSpecSchema.tools.client`
@@ -278,6 +293,12 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "id": {"type": "string"},
                     "path": {"type": "string"},
                     "description": {"type": "string"},
+                    # Registry lineage for a skill pinned from a template.
+                    # Present on a draft spec; freeze resolves `from_template`,
+                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path.
+                    "from_template": {"type": "string"},
+                    "alias": {"type": "string"},
+                    "version": {"type": "integer", "minimum": 0},
                 },
                 "required": ["id", "path"],
                 "additionalProperties": False,
