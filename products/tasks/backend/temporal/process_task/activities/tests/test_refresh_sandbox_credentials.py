@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.services.sandbox import ExecutionResult
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError, SandboxNotRunningError
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
@@ -106,7 +106,7 @@ class TestRefreshSandboxCredentialsActivity:
     def test_sandbox_stopped_mid_refresh_counts_as_skipped(
         self, activity_environment, task_context, test_task, sandbox
     ):
-        sandbox.execute.side_effect = SandboxExecutionError(
+        sandbox.execute.side_effect = SandboxNotRunningError(
             "Sandbox not in running state.", {"sandbox_id": "sandbox-abc"}, cause=RuntimeError("not running")
         )
         with (
@@ -130,3 +130,29 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == []
         increment.assert_called_once_with("github", "skipped")
+
+    def test_genuine_execution_error_counts_as_failed(self, activity_environment, task_context, test_task, sandbox):
+        sandbox.execute.side_effect = SandboxExecutionError(
+            "Failed to execute command", {"sandbox_id": "sandbox-abc"}, cause=RuntimeError("network blip")
+        )
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+                return_value="ghs_fresh",
+            ),
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.increment_credential_refresh"
+            ) as increment,
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.refreshed_kinds == []
+        increment.assert_called_once_with("github", "failed")
