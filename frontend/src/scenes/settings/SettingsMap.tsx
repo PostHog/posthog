@@ -718,17 +718,17 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'logs-distinct-id-attribute-key',
-                title: 'Person pivot attribute',
+                title: 'Link to person',
                 description: (
                     <>
-                        Which OTel log attribute we match against a person&apos;s distinct_ids to surface logs on their
-                        person profile. Defaults to <code>posthogDistinctId</code> — the key the JavaScript and React
-                        Native SDKs auto-attach. Override only if your pipeline emits the person identifier under a
-                        different key.
+                        The log attribute PostHog reads to identify which person a log belongs to. Matched against the
+                        person&apos;s distinct IDs to surface logs on their profile. Defaults to{' '}
+                        <code>posthogDistinctId</code> — the key the JavaScript and React Native SDKs auto-attach.
+                        Override only if your backend pipeline emits the person identifier under a different key.
                     </>
                 ),
                 searchDescription:
-                    "Which OTel log attribute we match against a person's distinct_ids to surface logs on their person profile. Defaults to posthogDistinctId — the key the JavaScript and React Native SDKs auto-attach. Override only if your pipeline emits the person identifier under a different key.",
+                    "The log attribute PostHog reads to identify which person a log belongs to. Matched against the person's distinct IDs to surface logs on their profile. Defaults to posthogDistinctId — the key the JavaScript and React Native SDKs auto-attach. Override only if your backend pipeline emits the person identifier under a different key.",
                 component: <LogsDistinctIdAttributeKey />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
