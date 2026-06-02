@@ -327,6 +327,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
+        /** Pin/unpin toggle triggered by the Ctrl/Cmd+S keyboard shortcut, which also surfaces a toast on completion. */
+        togglePinnedFromShortcut: true,
         /** Open/close the Terraform export modal. */
         setTerraformModalOpen: (open: boolean) => ({ open }),
 
@@ -1764,7 +1766,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, props, values }) => ({
+    events(({ actions, props, values, cache }) => ({
         afterMount: () => {
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
@@ -1806,6 +1808,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
             }
+
+            // Ctrl/Cmd+S toggles whether this dashboard is pinned (starred). Only active on the
+            // dashboard page itself, never on embedded placements (homepage, exports, etc.).
+            cache.disposables.add(() => {
+                const handleKeyDown = (event: KeyboardEvent): void => {
+                    if (event.key.toLowerCase() !== 's' || !(event.ctrlKey || event.metaKey) || event.altKey) {
+                        return
+                    }
+                    if (values.placement !== DashboardPlacement.Dashboard || !values.dashboard) {
+                        return
+                    }
+                    // Don't hijack the shortcut while the user is typing in an input.
+                    const target = event.target as HTMLElement | null
+                    if (
+                        target &&
+                        (['input', 'textarea'].includes(target.tagName.toLowerCase()) || target.isContentEditable)
+                    ) {
+                        return
+                    }
+                    event.preventDefault()
+                    actions.togglePinnedFromShortcut()
+                }
+                window.addEventListener('keydown', handleKeyDown)
+                return () => window.removeEventListener('keydown', handleKeyDown)
+            }, 'togglePinnedShortcut')
         },
         beforeUnmount: () => {
             actions.abortAnyRunningQuery()
@@ -1853,6 +1880,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } else {
                     dashboardsModel.actions.unpinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
                 }
+            }
+        },
+        togglePinnedFromShortcut: () => {
+            if (!values.dashboard) {
+                return
+            }
+            // Flag so the model's pin/unpin success below knows to surface a toast for this dashboard.
+            cache.pinToggledFromShortcut = true
+            actions.togglePinned()
+        },
+        [dashboardsModel.actionTypes.pinDashboardSuccess]: ({ dashboard }) => {
+            if (cache.pinToggledFromShortcut && dashboard?.id === values.dashboard?.id) {
+                cache.pinToggledFromShortcut = false
+                lemonToast.success('Dashboard pinned')
+            }
+        },
+        [dashboardsModel.actionTypes.unpinDashboardSuccess]: ({ dashboard }) => {
+            if (cache.pinToggledFromShortcut && dashboard?.id === values.dashboard?.id) {
+                cache.pinToggledFromShortcut = false
+                lemonToast.success('Dashboard unpinned')
             }
         },
         setAnalysisRating: ({ rating }) => {
