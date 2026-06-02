@@ -45,6 +45,8 @@ export type NotebookType = NotebookListItemType &
 
 export enum NotebookNodeType {
     Mention = RichContentNodeType.Mention,
+    AIPrompt = 'ph-ai-prompt',
+    AIPromptStatus = 'ph-ai-prompt-status',
     Query = 'ph-query',
     Python = 'ph-python',
     DuckSQL = 'ph-duck-sql',

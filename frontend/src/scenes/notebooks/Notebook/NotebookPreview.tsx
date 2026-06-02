@@ -1,6 +1,6 @@
 import { Fragment } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
+import { IconNotebook, IconSparkles } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
@@ -38,6 +38,37 @@ function renderNode(node: JSONContent, key: string): JSX.Element | null {
         return (
             <span key={key} className="bg-fill-highlight-100 px-1 rounded font-medium">
                 @{node.attrs?.id ?? 'member'}
+            </span>
+        )
+    }
+    if (node.type === NotebookNodeType.AIPrompt) {
+        return (
+            <span
+                key={key}
+                className="inline-flex items-center gap-1 text-ai bg-fill-highlight-100 px-1 rounded font-medium"
+            >
+                <IconSparkles className="size-3" />
+                Ask PostHog AI:
+            </span>
+        )
+    }
+    if (node.type === NotebookNodeType.AIPromptStatus) {
+        const prompt = typeof node.attrs?.prompt === 'string' ? node.attrs.prompt : ''
+
+        return (
+            <span
+                key={key}
+                className="inline-flex items-center gap-1 text-secondary bg-fill-highlight-100 px-1 rounded"
+            >
+                {prompt ? (
+                    <>
+                        <IconSparkles className="size-3 text-ai" />
+                        <span className="font-medium text-ai">Ask PostHog AI:</span>
+                        <span>{prompt}</span>
+                    </>
+                ) : (
+                    'Asked in side panel'
+                )}
             </span>
         )
     }

@@ -603,6 +603,60 @@
         }
     }
 
+    .NotebookAIPrompt,
+    .NotebookAIPromptStatus {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        max-width: 100%;
+        padding: 0.05rem 0.35rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        line-height: 1.35;
+        white-space: nowrap;
+        vertical-align: baseline;
+        border-radius: 4px;
+    }
+
+    .NotebookAIPrompt {
+        color: var(--color-ai);
+        background: color-mix(in oklab, var(--color-ai) 12%, transparent);
+        border: 1px solid color-mix(in oklab, var(--color-ai) 28%, transparent);
+    }
+
+    .NotebookAIPrompt__icon {
+        flex-shrink: 0;
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    .NotebookAIPromptStatus {
+        color: var(--color-text-secondary);
+        background: var(--color-bg-3000);
+        border: 1px solid var(--color-border-primary);
+    }
+
+    .NotebookAIPromptStatus__spinner {
+        flex-shrink: 0;
+        font-size: 0.75rem;
+    }
+
+    .NotebookAIPromptSubmitted {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        min-width: 0;
+        max-width: 100%;
+        vertical-align: baseline;
+    }
+
+    .NotebookAIPromptSubmitted__question {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     // Overrides for insight controls
 
     .InsightVizDisplay {

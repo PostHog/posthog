@@ -32,10 +32,20 @@ import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
 import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
+import { insertNotebookAIPrompt } from '../Notebook/NotebookAIPrompt'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
+import {
+    IconCollapse,
+    IconCopy,
+    IconEllipsis,
+    IconExpand,
+    IconPencil,
+    IconPlus,
+    IconSparkles,
+    IconX,
+} from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -72,7 +82,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeIds, containerSize, notebook, mode, isShared } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, notebook, mode, isShared, editor } =
+        useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -427,6 +438,20 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                         >
                             {getPos && isEditable ? (
                                 <>
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        icon={<IconSparkles className="text-ai" />}
+                                        tooltip="Ask PostHog AI"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (editor) {
+                                                insertNotebookAIPrompt(editor, (getPos() ?? 0) + 1, {
+                                                    insertAsParagraph: true,
+                                                })
+                                            }
+                                        }}
+                                    />
                                     <SlashCommandsPopover
                                         mode="add"
                                         getPos={() => (getPos() ?? 0) + 1}

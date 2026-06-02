@@ -39,6 +39,8 @@ export const textContent = (node: RichContentNode): string => {
 
     // we want the type system to complain if we forget to add a custom serializer
     const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
+        [NotebookNodeType.AIPrompt]: customOrTitleSerializer,
+        [NotebookNodeType.AIPromptStatus]: customOrTitleSerializer,
         [NotebookNodeType.Backlink]: customOrTitleSerializer,
         [NotebookNodeType.EarlyAccessFeature]: customOrTitleSerializer,
         [NotebookNodeType.Experiment]: customOrTitleSerializer,
