@@ -115,6 +115,14 @@ class TestFormatCloseDatetime:
         assert _format_close_datetime("not-a-date") == "not-a-date"
 
 
+def _endpoint(resource: Any) -> dict[str, Any]:
+    return cast(dict[str, Any], resource["endpoint"])
+
+
+def _params(resource: Any) -> dict[str, Any]:
+    return cast(dict[str, Any], _endpoint(resource)["params"])
+
+
 class TestGetResource:
     @pytest.mark.parametrize(
         ("endpoint", "table_name"),
@@ -135,7 +143,7 @@ class TestGetResource:
         resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
         assert resource["table_name"] == table_name
         assert resource["primary_key"] == ["id"]
-        assert resource["endpoint"]["data_selector"] == "data"
+        assert _endpoint(resource)["data_selector"] == "data"
 
     @pytest.mark.parametrize("endpoint", ["Leads", "Contacts", "Users", "Pipelines"])
     def test_full_refresh_endpoints_never_incremental(self, endpoint: str) -> None:
@@ -143,12 +151,11 @@ class TestGetResource:
         # stay on full replace and emit no `__gte` param.
         resource = get_resource(endpoint, should_use_incremental_field=True, incremental_field="date_created")
         assert resource["write_disposition"] == "replace"
-        params = resource["endpoint"]["params"]
-        assert not any(key.endswith("__gte") for key in params)
+        assert not any(key.endswith("__gte") for key in _params(resource))
 
     def test_incremental_endpoint_uses_selected_cursor(self) -> None:
         resource = get_resource("Opportunities", should_use_incremental_field=True, incremental_field="date_updated")
-        params = resource["endpoint"]["params"]
+        params = _params(resource)
         assert "date_updated__gte" in params
         gte = cast(dict[str, Any], params["date_updated__gte"])
         assert gte["cursor_path"] == "date_updated"
@@ -158,14 +165,14 @@ class TestGetResource:
     @pytest.mark.parametrize("incremental_field", [None, "bogus_field"])
     def test_incremental_falls_back_to_first_advertised_cursor(self, incremental_field: str | None) -> None:
         resource = get_resource("Opportunities", should_use_incremental_field=True, incremental_field=incremental_field)
-        params = resource["endpoint"]["params"]
+        params = _params(resource)
         assert "date_created__gte" in params
         assert params["_order_by"] == "date_created"
 
     def test_incremental_disabled_when_not_requested(self) -> None:
         resource = get_resource("Activities", should_use_incremental_field=False, incremental_field="date_created")
         assert resource["write_disposition"] == "replace"
-        assert not any(key.endswith("__gte") for key in resource["endpoint"]["params"])
+        assert not any(key.endswith("__gte") for key in _params(resource))
 
 
 class TestCloseSourcePartitioning:
