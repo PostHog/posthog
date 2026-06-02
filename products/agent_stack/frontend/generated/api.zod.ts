@@ -103,14 +103,17 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTime
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 0
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeArgsSchemaDefault = {}
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeRequiredDefault = false
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsMax = 60000
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax = 60000
 
 export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
+
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecSecretsDefault = []
@@ -207,20 +210,29 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             path: zod.string(),
                         }),
                         zod.object({
+                            kind: zod.literal('custom_template'),
+                            from_template: zod.string(),
+                            alias: zod.string(),
+                            version: zod
+                                .number()
+                                .min(agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin)
+                                .optional(),
+                        }),
+                        zod.object({
                             kind: zod.literal('client'),
                             id: zod.string().min(1),
                             description: zod.string().min(1),
                             args_schema: zod
                                 .looseObject({})
-                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeArgsSchemaDefault),
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault),
                             required: zod
                                 .boolean()
-                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeRequiredDefault),
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault),
                             timeout_ms: zod
                                 .number()
                                 .min(1)
-                                .max(agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsMax)
-                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsDefault),
+                                .max(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax)
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault),
                         }),
                     ])
                 )
@@ -251,6 +263,12 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         id: zod.string(),
                         path: zod.string(),
                         description: zod.string().optional(),
+                        from_template: zod.string().optional(),
+                        alias: zod.string().optional(),
+                        version: zod
+                            .number()
+                            .min(agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin)
+                            .optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
@@ -323,14 +341,17 @@ export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigTime
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsUpdateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin = 0
 
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeArgsSchemaDefault = {}
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeRequiredDefault = false
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsMax = 60000
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourRequiredDefault = false
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax = 60000
 
 export const agentApplicationsRevisionsUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin = 0
+
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecSecretsDefault = []
@@ -427,20 +448,29 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                             path: zod.string(),
                         }),
                         zod.object({
+                            kind: zod.literal('custom_template'),
+                            from_template: zod.string(),
+                            alias: zod.string(),
+                            version: zod
+                                .number()
+                                .min(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin)
+                                .optional(),
+                        }),
+                        zod.object({
                             kind: zod.literal('client'),
                             id: zod.string().min(1),
                             description: zod.string().min(1),
                             args_schema: zod
                                 .looseObject({})
-                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeArgsSchemaDefault),
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourArgsSchemaDefault),
                             required: zod
                                 .boolean()
-                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeRequiredDefault),
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourRequiredDefault),
                             timeout_ms: zod
                                 .number()
                                 .min(1)
-                                .max(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsMax)
-                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsDefault),
+                                .max(agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax)
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault),
                         }),
                     ])
                 )
@@ -471,6 +501,12 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         id: zod.string(),
                         path: zod.string(),
                         description: zod.string().optional(),
+                        from_template: zod.string().optional(),
+                        alias: zod.string().optional(),
+                        version: zod
+                            .number()
+                            .min(agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin)
+                            .optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsUpdateBodySpecSkillsDefault),
@@ -566,14 +602,17 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeCon
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin = 0
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeArgsSchemaDefault = {}
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeRequiredDefault = false
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsMax = 60000
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax = 60000
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault = []
@@ -670,22 +709,29 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             path: zod.string(),
                         }),
                         zod.object({
+                            kind: zod.literal('custom_template'),
+                            from_template: zod.string(),
+                            alias: zod.string(),
+                            version: zod
+                                .number()
+                                .min(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin)
+                                .optional(),
+                        }),
+                        zod.object({
                             kind: zod.literal('client'),
                             id: zod.string().min(1),
                             description: zod.string().min(1),
                             args_schema: zod
                                 .looseObject({})
-                                .default(
-                                    agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeArgsSchemaDefault
-                                ),
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault),
                             required: zod
                                 .boolean()
-                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeRequiredDefault),
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault),
                             timeout_ms: zod
                                 .number()
                                 .min(1)
-                                .max(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsMax)
-                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsDefault),
+                                .max(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax)
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault),
                         }),
                     ])
                 )
@@ -716,6 +762,12 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         id: zod.string(),
                         path: zod.string(),
                         description: zod.string().optional(),
+                        from_template: zod.string().optional(),
+                        alias: zod.string().optional(),
+                        version: zod
+                            .number()
+                            .min(agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin)
+                            .optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
@@ -1120,12 +1172,17 @@ Canonical (`@posthog/<name>`) templates are read-only for team
 members; only PostHog-side seed commands write them.
  * @summary Create a new skill template — produces v1.
  */
-export const agentSkillTemplatesCreateBodyNameMax = 128
+export const agentSkillTemplatesCreateBodyNameMax = 64
 
-export const agentSkillTemplatesCreateBodyDescriptionDefault = ``
-export const agentSkillTemplatesCreateBodyDescriptionMax = 4096
+export const agentSkillTemplatesCreateBodyDescriptionMax = 1024
 
 export const agentSkillTemplatesCreateBodyBodyDefault = ``
+export const agentSkillTemplatesCreateBodyLicenseDefault = ``
+export const agentSkillTemplatesCreateBodyLicenseMax = 256
+
+export const agentSkillTemplatesCreateBodyCompatibilityDefault = ``
+export const agentSkillTemplatesCreateBodyCompatibilityMax = 500
+
 export const agentSkillTemplatesCreateBodyFilesItemPathMax = 512
 
 export const agentSkillTemplatesCreateBodyFilesItemContentTypeDefault = `text/plain`
@@ -1136,13 +1193,33 @@ export const AgentSkillTemplatesCreateBody = /* @__PURE__ */ zod
         name: zod
             .string()
             .max(agentSkillTemplatesCreateBodyNameMax)
-            .describe('Slug-shaped name unique per team. `@posthog\/<slug>` is reserved for canonical templates.'),
+            .describe(
+                'Slug-shaped name unique per team (max 64 chars, per the Agent Skills spec). `@posthog\/<slug>` is reserved for canonical templates.'
+            ),
         description: zod
             .string()
             .max(agentSkillTemplatesCreateBodyDescriptionMax)
-            .default(agentSkillTemplatesCreateBodyDescriptionDefault)
-            .describe('One-line description shown in the list view + system-prompt skill index.'),
-        body: zod.string().default(agentSkillTemplatesCreateBodyBodyDefault).describe('Initial SKILL.md markdown.'),
+            .describe(
+                'Required description (1–1024 chars, per the Agent Skills spec) — what the skill does and when to use it. Shown in the list view + system-prompt skill index.'
+            ),
+        body: zod
+            .string()
+            .default(agentSkillTemplatesCreateBodyBodyDefault)
+            .describe(
+                'Initial SKILL.md markdown body. Any leading YAML frontmatter is stripped at freeze — frontmatter is assembled from the structured fields.'
+            ),
+        license: zod
+            .string()
+            .max(agentSkillTemplatesCreateBodyLicenseMax)
+            .default(agentSkillTemplatesCreateBodyLicenseDefault)
+            .describe('Agent Skills `license` frontmatter — license name or a reference to a bundled license file.'),
+        compatibility: zod
+            .string()
+            .max(agentSkillTemplatesCreateBodyCompatibilityMax)
+            .default(agentSkillTemplatesCreateBodyCompatibilityDefault)
+            .describe(
+                'Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network access). Max 500 chars.'
+            ),
         files: zod
             .array(
                 zod.object({
@@ -1151,7 +1228,7 @@ export const AgentSkillTemplatesCreateBody = /* @__PURE__ */ zod
                         .string()
                         .max(agentSkillTemplatesCreateBodyFilesItemPathMax)
                         .describe(
-                            'Relative path inside the skill folder. Becomes `bundle\/skills\/<alias>\/<path>` at freeze.'
+                            'Relative path inside the skill folder; may include subfolders (e.g. `references\/api.md`, `scripts\/run.py`, `assets\/x\/y.json`). Becomes `bundle\/skills\/<alias>\/<path>` at freeze. No `..` traversal or absolute paths.'
                         ),
                     content: zod
                         .string()
@@ -1166,12 +1243,19 @@ export const AgentSkillTemplatesCreateBody = /* @__PURE__ */ zod
                 })
             )
             .optional()
-            .describe('Optional companion files at creation time.'),
+            .describe(
+                'Optional companion files (scripts\/, references\/, assets\/ — arbitrarily nested) at creation time.'
+            ),
         metadata: zod
             .unknown()
             .optional()
-            .describe('Free-form, agentskills.io-compatible bag (license, compatibility, …).'),
-        allowed_tools: zod.unknown().optional().describe('Optional list of tool ids the skill is meant to reach for.'),
+            .describe('Agent Skills `metadata` map (string → string) for non-promoted keys like author or version.'),
+        allowed_tools: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Optional list of tool ids the skill expects to reach for. Emitted as the spec's space-separated `allowed-tools` frontmatter at freeze."
+            ),
     })
     .describe('Initial-create payload — produces v1.')
 
@@ -1197,6 +1281,16 @@ members; only PostHog-side seed commands write them.
  */
 export const AgentSkillTemplatesNameArchiveCreateBody = /* @__PURE__ */ zod
     .object({
+        license: zod
+            .string()
+            .describe(
+                'Agent Skills `license` frontmatter — license name or a reference to a bundled license file. Blank if unset.'
+            ),
+        compatibility: zod
+            .string()
+            .describe(
+                'Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network). Blank if unset.'
+            ),
         body: zod.string().describe('Markdown body. The `SKILL.md` equivalent.'),
     })
     .describe('Detail shape: adds body + files. Used by the registry detail page.')
@@ -1221,20 +1315,20 @@ Canonical (`@posthog/<name>`) templates are read-only for team
 members; only PostHog-side seed commands write them.
  * @summary Duplicate a template under a new name (clones the latest version's content + files).
  */
-export const agentSkillTemplatesNameDuplicateCreateBodyNameMax = 128
+export const agentSkillTemplatesNameDuplicateCreateBodyNameMax = 64
 
-export const agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax = 4096
+export const agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax = 1024
 
 export const AgentSkillTemplatesNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(agentSkillTemplatesNameDuplicateCreateBodyNameMax)
-        .describe('Slug for the new duplicate. Must not collide with an existing template.'),
+        .describe('Slug for the new duplicate (max 64 chars). Must not collide with an existing template.'),
     description: zod
         .string()
         .max(agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax)
         .optional()
-        .describe("Description for the new template. Defaults to the source's description."),
+        .describe("Description for the new template (1–1024 chars, non-empty). Omit to keep the source's description."),
 })
 
 /**
@@ -1266,7 +1360,9 @@ export const AgentSkillTemplatesNameFilesCreateBody = /* @__PURE__ */ zod.object
     path: zod
         .string()
         .max(agentSkillTemplatesNameFilesCreateBodyPathMax)
-        .describe('Relative path inside the skill folder.'),
+        .describe(
+            'Relative path inside the skill folder; may include subfolders (e.g. `references\/api.md`, `scripts\/run.py`). No `..` traversal or absolute paths.'
+        ),
     content: zod.string().describe('File body.'),
     content_type: zod
         .string()
@@ -1303,11 +1399,13 @@ export const AgentSkillTemplatesNameFilesRenameCreateBody = /* @__PURE__ */ zod.
     from_path: zod
         .string()
         .max(agentSkillTemplatesNameFilesRenameCreateBodyFromPathMax)
-        .describe('Existing file path inside the skill folder.'),
+        .describe('Existing file path inside the skill folder (subfolders allowed).'),
     to_path: zod
         .string()
         .max(agentSkillTemplatesNameFilesRenameCreateBodyToPathMax)
-        .describe('New path. Must not collide with another file.'),
+        .describe(
+            'New path (subfolders allowed); may move the file between subfolders. Must not collide with another file.'
+        ),
 })
 
 /**
@@ -1330,7 +1428,11 @@ Canonical (`@posthog/<name>`) templates are read-only for team
 members; only PostHog-side seed commands write them.
  * @summary Publish a new version of the named template.
  */
-export const agentSkillTemplatesNamePublishCreateBodyDescriptionMax = 4096
+export const agentSkillTemplatesNamePublishCreateBodyDescriptionMax = 1024
+
+export const agentSkillTemplatesNamePublishCreateBodyLicenseMax = 256
+
+export const agentSkillTemplatesNamePublishCreateBodyCompatibilityMax = 500
 
 export const AgentSkillTemplatesNamePublishCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1338,7 +1440,7 @@ export const AgentSkillTemplatesNamePublishCreateBody = /* @__PURE__ */ zod
             .string()
             .max(agentSkillTemplatesNamePublishCreateBodyDescriptionMax)
             .optional()
-            .describe('Overrides the prior description. Omit to keep the prior value.'),
+            .describe('Overrides the prior description (1–1024 chars, non-empty). Omit to keep the prior value.'),
         body: zod.string().optional().describe('Full new body. Mutually exclusive with `edits`.'),
         edits: zod
             .array(
@@ -1357,7 +1459,17 @@ export const AgentSkillTemplatesNamePublishCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe('Structured edits. Each `old` must match exactly once in the current body \/ file.'),
-        metadata: zod.unknown().optional().describe('Overrides metadata. Omit to keep the prior value.'),
+        license: zod
+            .string()
+            .max(agentSkillTemplatesNamePublishCreateBodyLicenseMax)
+            .optional()
+            .describe('Overrides the `license` frontmatter. Omit to keep the prior value.'),
+        compatibility: zod
+            .string()
+            .max(agentSkillTemplatesNamePublishCreateBodyCompatibilityMax)
+            .optional()
+            .describe('Overrides the `compatibility` frontmatter (max 500 chars). Omit to keep the prior value.'),
+        metadata: zod.unknown().optional().describe('Overrides the metadata map. Omit to keep the prior value.'),
         allowed_tools: zod.unknown().optional().describe('Overrides allowed_tools. Omit to keep the prior value.'),
     })
     .describe(

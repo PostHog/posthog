@@ -236,7 +236,11 @@ Split across discrete PRs so each is reviewable in isolation:
 - Streaming tool results from MCPs (one-shot only for v1).
 - MCP sampling (the MCP-defined "ask the model" pattern). pi-ai handles all
   inference for now.
-- Self-hosted MCP gateway / quota management.
+- Self-hosted MCP gateway / quota management — covered separately by
+  [`self-hosted-tool-runners.md`](self-hosted-tool-runners.md), which
+  solves the _not-publicly-reachable_ MCP case (Grafana, k8s,
+  internal-only APIs) via an outbound-poll runner the customer deploys
+  in their own infra.
 
 ## Open design — per-MCP-tool approval gating
 
