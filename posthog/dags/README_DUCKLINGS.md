@@ -93,6 +93,20 @@ To completely reset a duckling's data and re-backfill:
 2. Reset the full backfill sensor cursor to trigger historical backfill
 3. The sensor will recreate all partitions from the earliest date
 
+## Concurrency Control
+
+Each backfill job opens a duckgres connection that spawns a dedicated worker. The per-org worker pool is capped (`maxWorkers` in the duckgres chart — 50 in prod-us) and shared with product HogQL queries. Without a combined limit, events and persons backfills can fan out across many partitions simultaneously and exhaust the pool, producing `psycopg.ConnectionTimeout` errors.
+
+A shared concurrency tag enforces a combined cap across both backfill types:
+
+| Tag Key                                 | Value                 | Scope                                         |
+| --------------------------------------- | --------------------- | --------------------------------------------- |
+| `duckling_backfill_concurrency`         | `duckling_v1`         | Shared across events + persons backfills      |
+| `duckling_events_backfill_concurrency`  | `duckling_events_v1`  | Events backfills only (optional finer limit)  |
+| `duckling_persons_backfill_concurrency` | `duckling_persons_v1` | Persons backfills only (optional finer limit) |
+
+The actual limit value is **not set in code** — it is a Dagster Cloud `tag_concurrency_limits` deployment setting applied from the charts repo. The per-product keys are retained for optional finer-grained control but the shared key is what prevents pool exhaustion.
+
 ## Configuration Options
 
 ```python
@@ -130,6 +144,14 @@ Check the Dagster run logs. Common issues:
 - ClickHouse timeout: Increase `max_execution_time` in clickhouse_settings
 - S3 permission denied: Verify bucket policy allows ClickHouse EC2 role
 - RDS connection failed: Check VPC peering and security groups
+
+### Connection timeout on duckgres
+
+Symptom: `psycopg.ConnectionTimeout` errors when backfill runs start.
+
+Cause: Too many concurrent backfill partitions exhausting the duckgres worker pool. The pool is shared with product HogQL queries, so heavy backfill activity can crowd out other connections.
+
+Solution: The shared `duckling_backfill_concurrency` tag limits combined backfill concurrency. If timeouts persist, check the Dagster deployment settings in the charts repo for the `duckling_backfill_concurrency` limit value and consider lowering it.
 
 ### Schema mismatch warnings
 
