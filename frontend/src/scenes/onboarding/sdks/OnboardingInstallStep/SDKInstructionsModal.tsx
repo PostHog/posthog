@@ -52,7 +52,12 @@ export function SDKInstructionsModal({
                         <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                     </div>
                     {!hideInstallationCheck && !installationComplete && (
-                        <div className="px-4 py-2">
+                        <div className="px-4 py-2 flex flex-col gap-2">
+                            <p className="text-sm text-muted m-0">
+                                Verification completes automatically — no need to click anything. Once you build and run
+                                your app and it sends its first {verifyingName}, this step will mark itself complete. For
+                                mobile and server SDKs this can take a moment after your app runs.
+                            </p>
                             <AdblockWarning adblockResult={adblockResult} />
                         </div>
                     )}

@@ -1,4 +1,9 @@
 import { IconCheck, IconWarning } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { type AdblockDetectionResult } from './hooks/useAdblockDetection'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
@@ -14,10 +19,15 @@ export function RealtimeCheckIndicator({
     listeningForName = 'event',
 }: RealtimeCheckIndicatorProps): JSX.Element {
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const { loadCurrentTeam } = useActions(teamLogic)
+    const [isRechecking, setIsRechecking] = useState(false)
+    const recheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-    return (
-        <div className="flex items-center gap-3">
-            {installationComplete ? (
+    useEffect(() => () => clearTimeout(recheckTimeoutRef.current), [])
+
+    if (installationComplete) {
+        return (
+            <div className="flex items-center gap-3">
                 <div className="flex flex-row gap-2">
                     <div className="flex items-center gap-2 px-2 py-1 font-medium">
                         <IconCheck className="text-success" />
@@ -25,18 +35,46 @@ export function RealtimeCheckIndicator({
                     </div>
                     <OnboardingLiveEvents />
                 </div>
-            ) : (
-                <div className="flex flex-row gap-3 items-center">
-                    <div className="font-medium">Verify installation</div>
-                    <div className="flex items-center gap-2 px-2 py-1 border border-accent rounded-sm">
-                        <div className="relative flex items-center justify-center">
-                            <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
-                            <div className="w-2 h-2 bg-accent rounded-full" />
-                        </div>
-                        <span className="text-sm text-accent">Waiting for {listeningForName}s</span>
-                    </div>
-                </div>
-            )}
+            </div>
+        )
+    }
+
+    // Verification happens automatically as the team polls for its first event, but the click here
+    // gives an explicit "check now" affordance so the indicator doesn't read as a dead button.
+    const handleRecheck = (): void => {
+        loadCurrentTeam()
+        setIsRechecking(true)
+        clearTimeout(recheckTimeoutRef.current)
+        recheckTimeoutRef.current = setTimeout(() => setIsRechecking(false), 1500)
+    }
+
+    return (
+        <div className="flex items-center gap-3">
+            <div className="flex flex-row gap-3 items-center">
+                <div className="font-medium">Verify installation</div>
+                <Tooltip
+                    title={`We're automatically listening for your first ${listeningForName}. This completes on its own once your app runs and sends ${listeningForName}s — for mobile and server SDKs that can take a moment after you build and run. Click to check now.`}
+                >
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={handleRecheck}
+                        loading={isRechecking}
+                        icon={
+                            isRechecking ? undefined : (
+                                <div className="relative flex items-center justify-center">
+                                    <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
+                                    <div className="w-2 h-2 bg-accent rounded-full" />
+                                </div>
+                            )
+                        }
+                    >
+                        <span className="text-sm text-accent">
+                            {isRechecking ? 'Checking…' : `Waiting for ${listeningForName}s`}
+                        </span>
+                    </LemonButton>
+                </Tooltip>
+            </div>
         </div>
     )
 }
