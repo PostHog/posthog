@@ -161,7 +161,8 @@ Newly inferred function groups include:
 - common string helpers: `base64Encode`, `base64Decode`, `hex`, `unhex`, `lower`, `upper`, `substring`, `replace*`, `extract`, `splitBy*`, and related string-array helpers
 - common URL helpers: `protocol`, `domain`, `path`, `queryString`, `extractURLParameter`, `URLHierarchy`, `encodeURLComponent`, `cutQueryString`, `cutURLParameter`, and `port`
 - JSON extraction: `JSONExtract(..., 'Type')` parses the return-type literal, including `Array(...)`, tuple, numeric, date, datetime, boolean, UUID, and nullable wrappers supported by the runtime type parser
-- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
+- JSON helpers: `JSONExtractInt`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtractString`, `JSONExtractRaw`, `JSONExtractKeys`, `JSONExtractArrayRaw`, `JSONExtractKeysAndValues`, `JSON_VALUE`, `JSONHas`, `JSONType`, and `JSONLength`
+- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - tuple functions: `tuple`, `tupleElement`
 - common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `groupArray`, `array_agg`
 

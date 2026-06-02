@@ -242,6 +242,54 @@ class TestHogQLTypeSystem:
             ast.StringType(nullable=False),
         )
 
+    def test_resolver_infers_json_helper_function_types(self) -> None:
+        self._assert_first_column_type("SELECT JSONHas('{\"num\": 42}', 'num')", ast.IntegerType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT JSONLength('{\"items\": [1, 2]}', 'items')", ast.IntegerType(nullable=False)
+        )
+        self._assert_first_column_type("SELECT JSONType('{\"num\": 42}', 'num')", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT JSON_VALUE('{\"num\": 42}', '$.num')", ast.StringType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT JSONExtractUInt('{\"num\": 42}', 'num')", ast.IntegerType(nullable=False)
+        )
+        self._assert_first_column_type("SELECT JSONExtractInt('{\"num\": 42}', 'num')", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT JSONExtractFloat('{\"num\": 42}', 'num')", ast.FloatType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT JSONExtractBool('{\"flag\": true}', 'flag')", ast.BooleanType(nullable=False)
+        )
+        self._assert_first_column_type(
+            "SELECT JSONExtractString('{\"name\": \"Ada\"}', 'name')", ast.StringType(nullable=False)
+        )
+        self._assert_first_column_type("SELECT JSONExtractRaw('{\"num\": 42}', 'num')", ast.StringType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT JSONExtractKeys('{\"num\": 42}')",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT JSONExtractArrayRaw('[1, 2]')",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT JSONExtractKeysAndValues('{\"score\": 1}', 'Float64')",
+            ast.ArrayType(
+                nullable=False,
+                item_type=ast.TupleType(
+                    nullable=False,
+                    item_types=[ast.StringType(nullable=False), ast.FloatType(nullable=False)],
+                ),
+            ),
+        )
+        self._assert_first_column_type(
+            "SELECT JSONExtractKeysAndValuesRaw('{\"score\": 1}')",
+            ast.ArrayType(
+                nullable=False,
+                item_type=ast.TupleType(
+                    nullable=False,
+                    item_types=[ast.StringType(nullable=False), ast.StringType(nullable=False)],
+                ),
+            ),
+        )
+
     def test_json_extract_array_type_binds_higher_order_lambda_argument(self) -> None:
         node = cast(
             ast.SelectQuery,

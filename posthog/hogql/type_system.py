@@ -840,6 +840,42 @@ def _infer_generic_function_type(
     if normalized_name == "jsonextract":
         return _infer_json_extract_type(arg_types=arg_types, args=args, dialect=dialect)
 
+    if normalized_name in {"isvalidjson", "jsonhas", "jsonlength", "jsonarraylength"}:
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in {"jsontype", "json_value"}:
+        return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in {"jsonextractuint", "jsonextractint"}:
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "jsonextractfloat":
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "jsonextractbool":
+        return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in {"jsonextractstring", "jsonextractraw"}:
+        return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in {"jsonextractkeys", "jsonextractarrayraw"}:
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_type=ast.StringType(nullable=False),
+        )
+
+    if normalized_name == "jsonextractkeysandvalues":
+        return _infer_json_extract_keys_and_values_type(arg_types=arg_types, args=args, dialect=dialect)
+
+    if normalized_name == "jsonextractkeysandvaluesraw":
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_type=ast.TupleType(
+                nullable=False,
+                item_types=[ast.StringType(nullable=False), ast.StringType(nullable=False)],
+            ),
+        )
+
     if (
         normalized_name in {"toint", "tointorzero"}
         or normalized_name.startswith("_toint")
@@ -1139,6 +1175,31 @@ def _infer_json_extract_type(
     result_type = constant_type_from_runtime_type(runtime_type)
     result_type.nullable = result_type.nullable or any(arg_type.nullable for arg_type in arg_types)
     return result_type
+
+
+def _infer_json_extract_keys_and_values_type(
+    arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]], dialect: HogQLDialect
+) -> ast.ConstantType | None:
+    if not args:
+        return None
+
+    type_arg = args[-1]
+    if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+        return None
+
+    runtime_type = parse_sql_runtime_type(type_arg.value, dialect=dialect)
+    if runtime_type.family == "unknown":
+        return None
+
+    value_type = constant_type_from_runtime_type(runtime_type)
+    value_type.nullable = value_type.nullable or any(arg_type.nullable for arg_type in arg_types)
+    return ast.ArrayType(
+        nullable=any(arg_type.nullable for arg_type in arg_types),
+        item_type=ast.TupleType(
+            nullable=False,
+            item_types=[ast.StringType(nullable=False), value_type],
+        ),
+    )
 
 
 def _constant_int(expr: ast.Expr) -> Optional[int]:

@@ -38,6 +38,7 @@ Completed in this branch:
 - Added emitted-SQL coverage showing typed string and URL helpers such as `base64Encode(...)` and `protocol(...)` no longer need manual `assumeNotNull(...)` to avoid defensive comparison wrapping.
 - Added resolver binding for common higher-order array lambdas, so lambda parameters inherit element types from surrounding array arguments and `arrayMap(...)` can infer its return element type from the lambda body.
 - Added parsed return-type inference for `JSONExtract(..., 'Type')`, including typed array results that feed higher-order lambda binding.
+- Added family-specific JSON helper inference for `JSONExtract*`, `JSON_VALUE`, `JSONHas`, `JSONType`, and `JSONLength`, including typed `JSONExtractKeysAndValues(...)` tuples and `JSONExtractArrayRaw(...)` arrays.
 - Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 
@@ -397,9 +398,9 @@ TODO:
   - [ ] `toNullable`, `assumeNotNull`, `ifNull`, `coalesce`, `nullIf`
 - [ ] Cover property and JSON functions:
   - [x] `JSONExtract(...)` parsed return-type literals
-  - [ ] remaining `JSONExtract*` family-specific precision
-  - [ ] `JSON_VALUE`
-  - [ ] `JSONHas`, `JSONType`, `JSONLength`
+  - [x] remaining `JSONExtract*` family-specific precision
+  - [x] `JSON_VALUE`
+  - [x] `JSONHas`, `JSONType`, `JSONLength`
   - [ ] PostHog property extraction wrappers if any are introduced
 - [ ] Cover array functions:
   - [x] constructors and element access
