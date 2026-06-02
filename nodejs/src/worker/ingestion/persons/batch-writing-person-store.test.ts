@@ -341,6 +341,7 @@ describe('BatchWritingPersonStore', () => {
 
     it('should fallback to direct update when optimistic update fails', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
+        const mockRepo = createMockRepository()
         const assertVersionStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
             dbWriteMode: 'ASSERT_VERSION',
         })
@@ -485,6 +486,7 @@ describe('BatchWritingPersonStore', () => {
 
     it('should fallback to direct update after max retries', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
+        const mockRepo = createMockRepository()
         const assertVersionStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
             dbWriteMode: 'ASSERT_VERSION',
         })
@@ -503,6 +505,7 @@ describe('BatchWritingPersonStore', () => {
 
     it('should merge properties during conflict resolution', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
+        const mockRepo = createMockRepository()
         const assertVersionStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
             dbWriteMode: 'ASSERT_VERSION',
         })
@@ -544,29 +547,23 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should handle database errors gracefully during flush', async () => {
-        const originalUpdatePersonsBatch = mockRepo.updatePersonsBatch
+        const mockRepo = createMockRepository()
+        const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
         // Mock batch update to throw an error - all persons will fail
         mockRepo.updatePersonsBatch = jest.fn().mockImplementation(() => {
             throw new Error('Database connection failed')
         })
 
-        try {
-            await personStore.updatePersonWithPropertiesDiffForUpdate(
-                person,
-                { new_value: 'new_value' },
-                [],
-                {},
-                'test'
-            )
+        await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
 
-            await expect(personStore.flush()).rejects.toThrow('Database connection failed')
-        } finally {
-            mockRepo.updatePersonsBatch = originalUpdatePersonsBatch
-        }
+        await expect(personStore.flush()).rejects.toThrow('Database connection failed')
     })
 
     it('should handle partial failures in batch flush', async () => {
-        const originalUpdatePersonsBatch = mockRepo.updatePersonsBatch
+        const mockRepo = createMockRepository()
+        const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
         // Set up multiple updates
         const person2 = { ...person, id: '2', uuid: '2' }
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { test: 'value1' }, [], {}, 'test1')
@@ -593,15 +590,9 @@ describe('BatchWritingPersonStore', () => {
         })
 
         // Mock fallback to also fail
-        const originalUpdatePerson = mockRepo.updatePerson
         mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
 
-        try {
-            await expect(personStore.flush()).rejects.toThrow('Database error')
-        } finally {
-            mockRepo.updatePersonsBatch = originalUpdatePersonsBatch
-            mockRepo.updatePerson = originalUpdatePerson
-        }
+        await expect(personStore.flush()).rejects.toThrow('Database error')
     })
 
     it('should handle clearing cache for different team IDs', async () => {
@@ -681,6 +672,9 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should handle MessageSizeTooLarge errors and capture warning', async () => {
+        const mockRepo = createMockRepository()
+        const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
         // Mock batch update to fail for this person, then fallback to fail with MessageSizeTooLarge
         mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates) => {
             const results = new Map()
@@ -735,6 +729,7 @@ describe('BatchWritingPersonStore', () => {
             })
 
             it('should fallback with NO_ASSERT mode when batch fails', async () => {
+                const mockRepo = createMockRepository()
                 const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
                     dbWriteMode: 'NO_ASSERT',
                     maxOptimisticUpdateRetries: 5,
@@ -790,6 +785,7 @@ describe('BatchWritingPersonStore', () => {
             })
 
             it('should retry individual updates on error when useBatchUpdates is false', async () => {
+                const mockRepo = createMockRepository()
                 const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
                     dbWriteMode: 'NO_ASSERT',
                     useBatchUpdates: false,
@@ -824,6 +820,7 @@ describe('BatchWritingPersonStore', () => {
 
         describe('flush with ASSERT_VERSION mode', () => {
             it('should call updatePersonAssertVersion with retries', async () => {
+                const mockRepo = createMockRepository()
                 const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
                     dbWriteMode: 'ASSERT_VERSION',
                 })
@@ -845,6 +842,7 @@ describe('BatchWritingPersonStore', () => {
             })
 
             it('should retry on version conflicts and eventually fallback', async () => {
+                const mockRepo = createMockRepository()
                 const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
                     dbWriteMode: 'ASSERT_VERSION',
                     maxOptimisticUpdateRetries: 2,
@@ -867,6 +865,7 @@ describe('BatchWritingPersonStore', () => {
             })
 
             it('should handle MessageSizeTooLarge in ASSERT_VERSION mode', async () => {
+                const mockRepo = createMockRepository()
                 const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
                     dbWriteMode: 'ASSERT_VERSION',
                 })
@@ -977,7 +976,6 @@ describe('BatchWritingPersonStore', () => {
         }
 
         // Mock optimistic update to fail on first try, succeed on retry
-        // Completely replace the mock from beforeEach
         mockRepo.updatePersonAssertVersion = jest
             .fn()
             .mockResolvedValueOnce([undefined, []]) // First call fails (version mismatch)
