@@ -2,7 +2,7 @@ import * as d3 from 'd3'
 import { useMemo } from 'react'
 
 import { normalizeAxisLabel } from '../../utils/axis-labels'
-import { measureLabelWidth } from '../../utils/text-measure'
+import { MAX_CATEGORY_LABEL_WIDTH, measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
@@ -48,7 +48,9 @@ function widestCategoryLabelWidth(
         }
         widest = Math.max(widest, measureLabelWidth(text))
     }
-    return widest
+    // Cap the reserved width so a single long label (e.g. a URL breakdown value) can't grow the
+    // axis margin without bound — AxisLabels truncates the displayed text to the same ceiling.
+    return Math.min(widest, MAX_CATEGORY_LABEL_WIDTH)
 }
 
 function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {

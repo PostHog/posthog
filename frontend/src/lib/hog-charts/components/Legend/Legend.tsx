@@ -49,7 +49,9 @@ export function Legend({
                             className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
                             style={{ backgroundColor: item.color }}
                         />
-                        <span className="truncate">{item.label}</span>
+                        <span className="truncate max-w-[200px]" title={item.label}>
+                            {item.label}
+                        </span>
                     </>
                 )
                 return onItemClick ? (
