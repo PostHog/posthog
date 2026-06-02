@@ -32,10 +32,15 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setPoeMode: () => {
+            const modifiers = { ...values.querySource?.modifiers }
+            if (values.poeMode) {
+                modifiers.personsOnEventsMode = values.poeMode
+            } else {
+                delete modifiers.personsOnEventsMode
+            }
+
             actions.updateQuerySource({
-                modifiers: {
-                    personsOnEventsMode: values.poeMode || undefined,
-                },
+                modifiers: Object.keys(modifiers).length ? modifiers : undefined,
             })
         },
     })),

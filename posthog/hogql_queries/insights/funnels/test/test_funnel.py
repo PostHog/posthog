@@ -39,6 +39,7 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLQueryModifiers,
     IntervalType,
+    PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyOperator,
     StepOrderValue,
@@ -60,6 +61,7 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import fu
 from posthog.models import Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
+from posthog.models.person.util import create_person
 from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -947,6 +949,108 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(results[0][1]["name"], "paid")
         self.assertEqual(results[0][1]["count"], 1)
+
+    def test_funnel_person_property_filter_can_use_latest_person_profile_modifier(self):
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            series=[
+                EventsNode(
+                    event="signed_up",
+                    name="signed_up",
+                ),
+                EventsNode(
+                    event="completed_onboarding",
+                    name="completed_onboarding",
+                ),
+            ],
+            properties=[
+                PersonPropertyFilter(
+                    key="industry",
+                    operator=PropertyOperator.EXACT,
+                    value="SaaS",
+                )
+            ],
+        )
+
+        enriched_after_signup = _create_person(distinct_ids=["user_a"], team_id=self.team.pk, properties={})
+        _create_event(
+            team=self.team,
+            event="signed_up",
+            distinct_id="user_a",
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        create_person(
+            team_id=self.team.pk,
+            uuid=str(enriched_after_signup.uuid),
+            properties={"industry": "SaaS"},
+            version=1,
+            timestamp="2020-01-03T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="completed_onboarding",
+            distinct_id="user_a",
+            timestamp="2020-01-04T14:00:00Z",
+            person_properties={"industry": "SaaS"},
+        )
+
+        _create_person(distinct_ids=["user_b"], team_id=self.team.pk, properties={})
+        _create_event(
+            team=self.team,
+            event="signed_up",
+            distinct_id="user_b",
+            timestamp="2020-01-02T15:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="completed_onboarding",
+            distinct_id="user_b",
+            timestamp="2020-01-04T15:00:00Z",
+        )
+
+        _create_person(distinct_ids=["user_c"], team_id=self.team.pk, properties={"industry": "SaaS"})
+        _create_event(
+            team=self.team,
+            event="signed_up",
+            distinct_id="user_c",
+            timestamp="2020-01-02T16:00:00Z",
+            person_properties={"industry": "SaaS"},
+        )
+        _create_event(
+            team=self.team,
+            event="completed_onboarding",
+            distinct_id="user_c",
+            timestamp="2020-01-04T16:00:00Z",
+            person_properties={"industry": "SaaS"},
+        )
+
+        event_time_results = (
+            FunnelsQueryRunner(
+                query=query,
+                team=self.team,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
+            )
+            .calculate()
+            .results
+        )
+        self.assertEqual(event_time_results[0]["count"], 1)
+        self.assertEqual(event_time_results[1]["count"], 1)
+
+        latest_profile_results = (
+            FunnelsQueryRunner(
+                query=query,
+                team=self.team,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+                ),
+            )
+            .calculate()
+            .results
+        )
+        self.assertEqual(latest_profile_results[0]["count"], 2)
+        self.assertEqual(latest_profile_results[1]["count"], 2)
 
     def test_basic_funnel_with_repeat_steps(self):
         query = FunnelsQuery(

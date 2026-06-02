@@ -33,10 +33,11 @@ jest.mock('scenes/max/MaxTool', () => ({
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
 
-function makeTrendsQuery(): TrendsQuery {
+function makeTrendsQuery(overrides: Partial<TrendsQuery> = {}): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview', math: BaseMathType.TotalCount }],
+        ...overrides,
     }
 }
 
@@ -91,7 +92,7 @@ function makePathsQuery(): PathsQuery {
 
 function setupAndRender(
     query: TrendsQuery | LifecycleQuery | StickinessQuery | RetentionQuery | FunnelsQuery | PathsQuery
-): void {
+): ReturnType<typeof insightVizDataLogic> {
     insightLogic(insightProps).mount()
     insightDataLogic(insightProps).mount()
     funnelDataLogic(insightProps).mount()
@@ -106,6 +107,8 @@ function setupAndRender(
             </BindLogic>
         </Provider>
     )
+
+    return vizDataLogic
 }
 
 describe('EditorFilters', () => {
@@ -185,7 +188,36 @@ describe('EditorFilters', () => {
 
         await userEvent.click(advancedButton)
         expect(advancedButton).toHaveAttribute('title', 'Show less')
-        expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
+        expect(screen.getByText('Person property mode')).toBeInTheDocument()
+    })
+
+    it('sets explicit person property modes, warns for latest profile mode, and preserves other modifiers', async () => {
+        const vizDataLogic = setupAndRender(makeTrendsQuery({ modifiers: { debug: true } }))
+
+        await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
+        await userEvent.click(screen.getByRole('button', { name: 'Project default' }))
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'Event-time snapshot' }))
+
+        expect(screen.queryByText(/joins the current person profile at query time/)).not.toBeInTheDocument()
+        expect(vizDataLogic.values.querySource?.modifiers).toMatchObject({
+            debug: true,
+            personsOnEventsMode: 'person_id_override_properties_on_events',
+        })
+
+        await userEvent.click(screen.getByRole('button', { name: 'Event-time snapshot' }))
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'Latest person profile' }))
+
+        expect(screen.getByText(/joins the current person profile at query time/)).toBeInTheDocument()
+        expect(vizDataLogic.values.querySource?.modifiers).toMatchObject({
+            debug: true,
+            personsOnEventsMode: 'person_id_override_properties_joined',
+        })
+
+        await userEvent.click(screen.getByRole('button', { name: 'Latest person profile' }))
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'Project default' }))
+
+        expect(screen.queryByText(/joins the current person profile at query time/)).not.toBeInTheDocument()
+        expect(vizDataLogic.values.querySource?.modifiers).toEqual({ debug: true })
     })
 
     it('disables query-time person properties for data warehouse insights', async () => {
@@ -193,7 +225,7 @@ describe('EditorFilters', () => {
 
         await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
 
-        const disabledArea = screen.getByText('Use person properties from query time').closest('.LemonDisabledArea')
+        const disabledArea = screen.getByText('Person property mode').closest('.LemonDisabledArea')
         expect(disabledArea).toHaveAttribute('aria-disabled', 'true')
 
         await userEvent.hover(disabledArea as HTMLElement)
@@ -201,7 +233,10 @@ describe('EditorFilters', () => {
         expect(
             await screen.findByText('Data warehouse insights always use the latest table properties.')
         ).toBeInTheDocument()
-        expect(within(disabledArea as HTMLElement).getByRole('switch')).toBeDisabled()
+        expect(within(disabledArea as HTMLElement).getByRole('button', { name: 'Project default' })).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
     })
 
     it('shows funnel settings collapsed by default and expandable', async () => {
