@@ -402,22 +402,17 @@ class TestUrlApi(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
-    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
     @patch(
         "products.business_knowledge.backend.api.serializers.is_url_allowed",
         return_value=(True, None),
     )
-    def test_create_url_source_api(
-        self, _serializer_ssrf: MagicMock, _logic_ssrf: MagicMock, mock_fetch: MagicMock, _ff: MagicMock
+    def test_create_url_source_api_claims_and_backgrounds(
+        self, _serializer_ssrf: MagicMock, _logic_ssrf: MagicMock, mock_ingest: MagicMock, _ff: MagicMock
     ) -> None:
-        mock_fetch.return_value = url_fetch.FetchResult(
-            status=200,
-            body=_BASIC_HTML,
-            content_type="text/html",
-            etag='"v1"',
-            final_url="https://docs.example.com/billing",
-        )
+        # Creation must return immediately in PROCESSING and hand ingestion off
+        # to the background — the request never blocks on the fetch.
         response = self.client.post(
             self.url,
             {"name": "Docs", "url": "https://docs.example.com/billing", "source_type": "url"},
@@ -426,8 +421,36 @@ class TestUrlApi(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         body = response.json()
         assert body["source_type"] == "url"
-        assert body["status"] == "ready"
+        assert body["status"] == "processing"
         assert body["source_url"] == "https://docs.example.com/billing"
+        assert body["chunk_count"] == 0
+        mock_ingest.assert_called_once()
+
+    @patch("products.business_knowledge.backend.logic.ingest_source")
+    @patch("posthog.temporal.common.client.sync_connect", side_effect=Exception("temporal unavailable"))
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    @patch(
+        "products.business_knowledge.backend.api.serializers.is_url_allowed",
+        return_value=(True, None),
+    )
+    def test_create_url_source_api_falls_back_to_inline_ingest(
+        self,
+        _serializer_ssrf: MagicMock,
+        _logic_ssrf: MagicMock,
+        _sync_connect: MagicMock,
+        mock_ingest: MagicMock,
+        _ff: MagicMock,
+    ) -> None:
+        # If the background workflow can't start, ingestion must still run inline
+        # so the source doesn't hang in PROCESSING.
+        response = self.client.post(
+            self.url,
+            {"name": "Docs", "url": "https://docs.example.com/billing", "source_type": "url"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        mock_ingest.assert_called_once()
+        assert mock_ingest.call_args.kwargs["team_id"] == self.team.id
 
     @patch(
         "products.business_knowledge.backend.api.serializers.is_url_allowed",

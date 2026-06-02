@@ -1,3 +1,5 @@
+import datetime
+
 from django.db import models
 
 
@@ -48,3 +50,42 @@ class CrawlMode(models.TextChoices):
     SITEMAP = "sitemap", "Sitemap"
     SAME_ORIGIN = "same_origin", "Same origin crawl"
     GITHUB_REPO = "github_repo", "GitHub repository"
+
+
+class RefreshInterval(models.TextChoices):
+    """
+    How often a URL source is re-fetched by the background coordinator.
+
+    `manual` (the default) means "never auto-refresh — only on explicit
+    'Refresh now'". The coordinator runs hourly, so `1h` is the finest
+    achievable cadence; finer granularity would need per-source schedules.
+    """
+
+    MANUAL = "manual", "Manual only"
+    HOURLY = "1h", "Every hour"
+    SIX_HOURLY = "6h", "Every 6 hours"
+    DAILY = "24h", "Every day"
+    WEEKLY = "7d", "Every week"
+
+
+# Maps every non-manual interval to its concrete duration. `manual` is
+# deliberately absent — callers treat "not in this dict" as "don't auto-refresh".
+REFRESH_INTERVAL_TIMEDELTAS: dict[str, datetime.timedelta] = {
+    RefreshInterval.HOURLY: datetime.timedelta(hours=1),
+    RefreshInterval.SIX_HOURLY: datetime.timedelta(hours=6),
+    RefreshInterval.DAILY: datetime.timedelta(days=1),
+    RefreshInterval.WEEKLY: datetime.timedelta(days=7),
+}
+
+
+class SafetyVerdict(models.TextChoices):
+    """
+    Content-safety classification of a document, set by the background
+    classifier. New / content-changed docs start `unknown` and are
+    classified on the next coordinator pass. Only `unsafe` docs are
+    excluded from agent search (fail-open: `unknown` stays searchable).
+    """
+
+    UNKNOWN = "unknown", "Unknown"
+    SAFE = "safe", "Safe"
+    UNSAFE = "unsafe", "Unsafe"

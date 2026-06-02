@@ -10,13 +10,15 @@ import datetime
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
@@ -32,18 +34,29 @@ from .constants import (
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
     MAX_CHUNKS_PER_TEAM,
+    MAX_CLASSIFY_CHARS,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
 )
-from .models import CrawlMode, KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus, SourceType
+from .models import (
+    REFRESH_INTERVAL_TIMEDELTAS,
+    CrawlMode,
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeSource,
+    RefreshInterval,
+    SafetyVerdict,
+    SourceStatus,
+    SourceType,
+)
 from .models.constants import RefreshStatus
 from .url_fetch import sha256_of
 
 logger = structlog.get_logger(__name__)
 
 # Deterministic namespace for chunk uuid5. Rolling this breaks id stability
-# across Stage 1 data — so don't. Generated once via uuid.uuid4() and frozen.
+# across data — so don't. Generated once via uuid.uuid4() and frozen.
 _CHUNK_NAMESPACE = UUID("4b7b0b50-5e2f-4a9f-8a8b-8b8d5f6f4a3e")
 
 
@@ -83,7 +96,7 @@ class _Chunk:
 
 def chunk_text(text: str) -> list[_Chunk]:
     """
-    Paragraph-aware chunker for Stage 1 plain text.
+    Paragraph-aware chunker.
 
     Strategy:
     - Split on blank lines (paragraph boundary).
@@ -242,6 +255,16 @@ def check_text_source_quota(team_id: int, text: str) -> None:
 # --- Queries -----------------------------------------------------------------
 
 
+def _unsafe_documents_subquery() -> Exists:
+    return Exists(
+        KnowledgeDocument.objects.filter(
+            source_id=OuterRef("pk"),
+            safety_verdict=SafetyVerdict.UNSAFE,
+            tombstoned_at__isnull=True,
+        )
+    )
+
+
 @with_team_scope(canonical=True)
 def list_for_team(team_id: int) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
@@ -250,6 +273,7 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
         .annotate(
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
+            _has_unsafe_documents=_unsafe_documents_subquery(),
         )
         .order_by("-created_at")
     )
@@ -261,6 +285,7 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
         return KnowledgeSource.objects.annotate(
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
+            _has_unsafe_documents=_unsafe_documents_subquery(),
         ).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
@@ -269,7 +294,7 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
 @with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
     """
-    Returns the raw text of a text-type source. Stage 1 has exactly one
+    Returns the raw text of a text-type source. Has exactly one
     document per source, so this is a single row fetch. For future URL/file
     sources with many documents, this concatenates in stable order — not a
     real "view" affordance but good enough to round-trip into the edit modal.
@@ -294,7 +319,7 @@ def create_text_source(
     text: str,
 ) -> KnowledgeSource:
     """
-    Stage 1 happy path: create source + 1 document + N chunks synchronously.
+    Create source + 1 document + N chunks synchronously.
 
     Inline, not Temporal. Text parsing is pure CPU and quick; adding a
     workflow for every text paste burns latency for zero gain.
@@ -349,7 +374,7 @@ def update_text_source(
     text: str | None,
 ) -> KnowledgeSource | None:
     """
-    Stage 1 edit path.
+    Edit path.
 
     - name-only edit: single UPDATE, no re-chunk.
     - text edit: delete documents+chunks for this source and rebuild from the
@@ -415,6 +440,7 @@ def update_url_source(
     url: str | None = None,
     crawl_mode: str | None = None,
     crawl_config: dict | None = None,
+    refresh_interval: str | None = None,
 ) -> KnowledgeSource | None:
     """
     Update a URL source's metadata and optionally re-crawl.
@@ -437,6 +463,11 @@ def update_url_source(
     if name is not None and name != source.name:
         source.name = name
         update_fields.append("name")
+
+    # Cadence change is metadata-only — never forces a re-crawl.
+    if refresh_interval is not None and refresh_interval != source.refresh_interval:
+        source.refresh_interval = refresh_interval
+        update_fields.append("refresh_interval")
 
     if url is not None and url != source.source_url:
         normalized = _validate_url(url)
@@ -487,7 +518,7 @@ def delete_source(source_id: UUID, team_id: int) -> bool:
     return True
 
 
-# --- Stage 3: file sources ----------------------------------------------------
+# --- File sources ------------------------------------------------------------
 
 
 @with_team_scope(canonical=True)
@@ -500,7 +531,7 @@ def create_file_source(
     original_filename: str,
 ) -> KnowledgeSource:
     """
-    Stage 3 file ingestion: detect type → parse → chunk. Inline, not Temporal.
+    Detect type → parse → chunk. Inline, not Temporal.
 
     The caller (serializer) already enforced the compressed size cap. This
     function detects the content type from magic bytes, parses the file into
@@ -558,7 +589,7 @@ def create_file_source(
     return get_for_team(source.id, team_id) or source
 
 
-# --- Stage 2a: URL sources ---------------------------------------------------
+# --- URL sources -------------------------------------------------------------
 
 
 def _validate_url(url: str) -> str:
@@ -675,7 +706,7 @@ def _replace_source_content(
     KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id).delete()
 
     document_id = uuid.uuid4()
-    # stable_id = normalized URL so Stage 2b crawls can upsert by (source, url)
+    # stable_id = normalized URL so crawls can upsert by (source, url)
     # and a re-fetch of the same URL keeps the same identity — helps agents
     # that cache by document id across refreshes.
     document = KnowledgeDocument.objects.create(
@@ -694,20 +725,23 @@ def _replace_source_content(
 
 
 @with_team_scope(canonical=True)
-def create_url_source(
+def claim_url_source(
     *,
     team_id: int,
     created_by_id: int | None,
     name: str,
     url: str,
+    crawl_mode: str | None = None,
+    crawl_config: dict | None = None,
+    refresh_interval: str | None = None,
 ) -> KnowledgeSource:
     """
-    Stage 2a URL ingestion: claim → fetch → parse → chunk.
+    Create the PROCESSING claim row for a URL/crawl source *without* fetching.
 
-    A PROCESSING claim row is created *before* the network fetch so
-    concurrent requests for the same team are serialized by the advisory
-    lock + PROCESSING-state check. The fetch runs outside any transaction
-    so a slow remote doesn't hold row-level locks.
+    Returns immediately so the request can respond and a background worker
+    (`ingest_source`) fills the content. URL normalization + SSRF validation
+    still happen here so a bad URL is a synchronous 400, and the advisory lock
+    + PROCESSING-state check still serialize concurrent creates per team.
     """
 
     normalized = _validate_url(url)
@@ -721,11 +755,26 @@ def create_url_source(
             source_type=SourceType.URL,
             status=SourceStatus.PROCESSING,
             source_url=normalized,
+            crawl_mode=crawl_mode or CrawlMode.SINGLE,
+            crawl_config=crawl_config or {},
+            refresh_interval=refresh_interval or RefreshInterval.MANUAL,
         )
+    return source
+
+
+def _ingest_url_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
+    """
+    Fetch + parse + chunk a single-URL source that's already claimed PROCESSING.
+
+    Extracted from the old inline create so the same path runs both inline and
+    in a background Temporal activity. Re-validates the URL (DNS may have been
+    rebound between claim and fetch) and records failures on the row.
+    """
 
     try:
+        normalized = _validate_url(source.source_url)
         result, title, text = _fetch_and_parse(normalized, etag=None)
-    except (UrlFetchFailedError, EmptyContentError) as exc:
+    except (InvalidUrlError, UrlFetchFailedError, EmptyContentError) as exc:
         with transaction.atomic():
             fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
             now = timezone.now()
@@ -797,13 +846,52 @@ def create_url_source(
 
 
 @with_team_scope(canonical=True)
+def create_url_source(
+    *,
+    team_id: int,
+    created_by_id: int | None,
+    name: str,
+    url: str,
+) -> KnowledgeSource:
+    """
+    Synchronous single-URL ingestion: claim → fetch → parse → chunk.
+
+    Kept for callers/tests that want the result inline; the API create path
+    instead claims and hands ingestion to a background worker.
+    """
+    source = claim_url_source(team_id=team_id, created_by_id=created_by_id, name=name, url=url)
+    return _ingest_url_source(source=source, team_id=team_id) or source
+
+
+@with_team_scope(canonical=True)
+def ingest_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
+    """
+    Background ingestion entry point for a freshly-claimed PROCESSING source.
+
+    Dispatches on `crawl_mode` and reuses the same `_ingest_*` bodies as the
+    synchronous create path, so create semantics (empty crawl = error, etc.)
+    are identical. Called from the Temporal ingest activity and as an inline
+    fallback when the workflow can't be started.
+    """
+    try:
+        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return None
+    if source.source_type != SourceType.URL or not source.source_url:
+        return source
+    if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
+        return _ingest_crawl_source(source=source, team_id=team_id)
+    return _ingest_url_source(source=source, team_id=team_id)
+
+
+@with_team_scope(canonical=True)
 def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
     """
     Re-fetch a URL source and rebuild its content if it changed.
 
     Dispatches on `crawl_mode`:
-      - `single` (Stage 2a): single-URL conditional GET + full doc rebuild.
-      - `sitemap` / `same_origin` (Stage 2b): re-discover + per-URL upsert.
+      - `single`: single-URL conditional GET + full doc rebuild.
+      - `sitemap` / `same_origin`: re-discover + per-URL upsert.
     """
 
     # Acquire the per-team advisory lock and enforce the single-PROCESSING
@@ -941,7 +1029,7 @@ def _refresh_single_source(*, source: KnowledgeSource, team_id: int) -> Knowledg
     return get_for_team(source.id, team_id) or fresh
 
 
-# --- Stage 2b: crawl sources -------------------------------------------------
+# --- Crawl sources -----------------------------------------------------------
 
 
 def _insert_document_and_chunks(
@@ -988,6 +1076,10 @@ def _insert_document_and_chunks(
         document.etag = etag
         document.content_hash = content_hash
         document.tombstoned_at = None
+        # Content changed (caller only reaches this branch on a hash diff), so
+        # the prior safety verdict no longer applies — re-queue for classification.
+        document.safety_verdict = SafetyVerdict.UNKNOWN
+        document.safety_reason = ""
         document.save(
             update_fields=[
                 "title",
@@ -997,6 +1089,8 @@ def _insert_document_and_chunks(
                 "etag",
                 "content_hash",
                 "tombstoned_at",
+                "safety_verdict",
+                "safety_reason",
                 "updated_at",
             ]
         )
@@ -1019,10 +1113,10 @@ def create_crawl_source(
     crawl_config: dict | None,
 ) -> KnowledgeSource:
     """
-    Stage 2b multi-URL ingestion.
+    Multi-URL ingestion.
 
     Happy path:
-      1. Validate + normalize the entry URL (same SSRF plumbing as Stage 2a).
+      1. Validate + normalize the entry URL (same SSRF plumbing).
       2. Claim a PROCESSING row under advisory lock so concurrent creates
          for the same team are serialized.
       3. Discover candidate URLs via sitemap / same-origin BFS.
@@ -1036,21 +1130,29 @@ def create_crawl_source(
     if crawl_mode == CrawlMode.SINGLE:
         return create_url_source(team_id=team_id, created_by_id=created_by_id, name=name, url=url)
 
-    normalized = _validate_url(url)
-    config = _resolve_crawl_config(crawl_config)
+    source = claim_url_source(
+        team_id=team_id,
+        created_by_id=created_by_id,
+        name=name,
+        url=url,
+        crawl_mode=crawl_mode,
+        crawl_config=crawl_config,
+    )
+    return _ingest_crawl_source(source=source, team_id=team_id) or source
 
-    with transaction.atomic():
-        _check_source_quota_locked(team_id, reject_if_processing=True)
-        source = KnowledgeSource.objects.create(
-            team_id=team_id,
-            created_by_id=created_by_id,
-            name=name,
-            source_type=SourceType.URL,
-            status=SourceStatus.PROCESSING,
-            source_url=normalized,
-            crawl_mode=crawl_mode,
-            crawl_config=crawl_config or {},
-        )
+
+def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
+    """
+    Discover + fetch + chunk a multi-URL source that's already claimed
+    PROCESSING. Extracted from the old inline create so the same path runs
+    both inline and in a background Temporal activity.
+
+    Unlike `_refresh_crawl_source`, an empty discovery is an *error* here —
+    a brand-new source that indexed nothing should surface that, whereas a
+    refresh that finds nothing keeps the existing content.
+    """
+
+    config = _resolve_crawl_config(source.crawl_config)
 
     def _mark_error(error_msg: str) -> KnowledgeSource:
         with transaction.atomic():
@@ -1074,7 +1176,13 @@ def create_crawl_source(
         return get_for_team(source.id, team_id) or source
 
     try:
-        candidate_urls = discover.discover(crawl_mode, normalized, config)
+        # Re-validate the entry URL (DNS may have rebound between claim and ingest).
+        normalized = _validate_url(source.source_url)
+    except InvalidUrlError as exc:
+        return _mark_error(str(exc))
+
+    try:
+        candidate_urls = discover.discover(source.crawl_mode, normalized, config)
     except discover.DiscoverError as exc:
         return _mark_error(str(exc))
 
@@ -1144,7 +1252,7 @@ def create_crawl_source(
 
 def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
     """
-    Stage 2b crawl refresh: re-discover + per-URL upsert-diff.
+    Crawl refresh: re-discover + per-URL upsert-diff.
 
     - New URL → insert document + chunks.
     - Existing URL with changed `content_hash` → rebuild that doc's chunks
@@ -1152,7 +1260,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     - Existing URL with unchanged hash → no DB writes.
     - Existing URL that vanished from discovery → mark tombstoned_at,
       delete chunks (keep the doc row so a later re-appearance can reuse
-      the id). Stage 5 adds a sweep that hard-deletes after 7 days.
+      the id).
     """
 
     try:
@@ -1258,7 +1366,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             any_changes = True
 
         # Tombstone docs whose URL vanished from discovery. Chunks go away
-        # now; the sweep in Stage 5 hard-deletes the doc row after a grace
+        # now; the sweep hard-deletes the doc row after a grace
         # period (preserves the id in case the page comes back soon).
         vanished = [d for url, d in existing_by_url.items() if url not in discovered_set]
         if vanished:
@@ -1357,6 +1465,7 @@ def search_knowledge(
             source__status=SourceStatus.READY,
             document__tombstoned_at__isnull=True,
         )
+        .exclude(document__safety_verdict=SafetyVerdict.UNSAFE)
         .only("id", "document_id", "ordinal", "char_count")
         .order_by("char_count")[:limit]
     )
@@ -1385,6 +1494,7 @@ def search_knowledge(
             source__status=SourceStatus.READY,
             document__tombstoned_at__isnull=True,
         )
+        .exclude(document__safety_verdict=SafetyVerdict.UNSAFE)
         .select_related("source", "document")
         .only(
             "id",
@@ -1416,3 +1526,114 @@ def search_knowledge(
         )
         for c in ordered
     ]
+
+
+# ---------------------------------------------------------------------------
+# Background-refresh coordinator helpers (cross-team)
+#
+# These run inside Temporal activities — never request handlers — so they
+# deliberately scan across teams via `.unscoped()`. Each returns plain data
+# (ids, strings, ints) so nothing heavy crosses the Temporal boundary.
+# ---------------------------------------------------------------------------
+
+# Bound how much one coordinator pass touches so a large backlog can't blow up
+# a single workflow run; the hourly cadence drains the rest on later passes.
+DUE_SOURCES_SCAN_CAP = 500
+PENDING_CLASSIFICATION_SCAN_CAP = 200
+
+
+@dataclass(frozen=True)
+class PendingDocument:
+    """A document awaiting safety classification."""
+
+    team_id: int
+    document_id: UUID
+    content: str
+
+
+def list_due_refresh_sources(
+    *,
+    now: datetime.datetime | None = None,
+    limit: int = DUE_SOURCES_SCAN_CAP,
+) -> list[tuple[int, UUID, str]]:
+    """
+    Return ``(team_id, source_id, host)`` for URL sources whose refresh is due.
+
+    Due = a non-``manual`` ``refresh_interval`` AND (never refreshed OR
+    ``last_refresh_at`` older than that interval). PROCESSING sources are
+    skipped (a refresh is already running). Cross-team — coordinator only.
+
+    ``host`` is the source URL's hostname (``""`` if unparseable); the
+    coordinator uses it to avoid hitting one origin from several refreshes at
+    once (the per-crawl semaphore only bounds a single source's fetches).
+    """
+    now = now or timezone.now()
+    due: list[tuple[int, UUID, str]] = []
+    for interval, delta in REFRESH_INTERVAL_TIMEDELTAS.items():
+        remaining = limit - len(due)
+        if remaining <= 0:
+            break
+        cutoff = now - delta
+        rows = (
+            KnowledgeSource.objects.unscoped()
+            .filter(source_type=SourceType.URL, refresh_interval=interval)
+            .exclude(status=SourceStatus.PROCESSING)
+            .filter(Q(last_refresh_at__isnull=True) | Q(last_refresh_at__lte=cutoff))
+            .values_list("team_id", "id", "source_url")[:remaining]
+        )
+        due.extend((team_id, source_id, urlsplit(url or "").hostname or "") for team_id, source_id, url in rows)
+    return due
+
+
+def list_documents_pending_classification(
+    *,
+    limit: int = PENDING_CLASSIFICATION_SCAN_CAP,
+) -> list[PendingDocument]:
+    """
+    Return documents whose ``safety_verdict`` is still ``unknown``.
+
+    Only live (non-tombstoned) docs are worth classifying. Cross-team —
+    coordinator only. New / content-changed docs are the only ones that reach
+    ``unknown``, so classification cost stays linear with changes.
+
+    Docs are only returned for orgs that approved AI data processing — we must
+    not send their content to an LLM otherwise. Non-approved orgs' docs stay
+    ``unknown`` (and therefore searchable, fail-open).
+    """
+    # Only the classifier prefix is ever used — slice in SQL so a backlog of
+    # ~1 MB docs doesn't materialize in full in the activity's memory.
+    rows = (
+        KnowledgeDocument.objects.unscoped()
+        .filter(
+            safety_verdict=SafetyVerdict.UNKNOWN,
+            tombstoned_at__isnull=True,
+            team__organization__is_ai_data_processing_approved=True,
+        )
+        .annotate(content_prefix=Substr("content", 1, MAX_CLASSIFY_CHARS))
+        .values_list("team_id", "id", "content_prefix")[:limit]
+    )
+    return [PendingDocument(team_id=team_id, document_id=doc_id, content=content) for team_id, doc_id, content in rows]
+
+
+def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, reason: str = "") -> None:
+    """Persist a classifier verdict on a single document (team-scoped write)."""
+    KnowledgeDocument.objects.for_team(team_id, canonical=True).filter(id=document_id).update(
+        safety_verdict=verdict,
+        safety_reason=reason[:1000],
+        updated_at=timezone.now(),
+    )
+
+
+def sweep_tombstoned_documents(*, older_than: datetime.timedelta = datetime.timedelta(days=7)) -> int:
+    """
+    Hard-delete documents tombstoned longer than ``older_than``.
+
+    Chunks were already deleted when the doc was tombstoned; this reclaims the
+    doc rows. Returns the number of documents deleted. Cross-team — coordinator
+    only.
+    """
+    cutoff = timezone.now() - older_than
+    deleted, _ = (
+        KnowledgeDocument.objects.unscoped().filter(tombstoned_at__isnull=False, tombstoned_at__lt=cutoff).delete()
+    )
+    return deleted

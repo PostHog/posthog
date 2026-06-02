@@ -61,3 +61,9 @@ MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 # docx can decompress to 10 GB — 100 MB is generous for any legitimate
 # knowledge document while keeping per-request memory bounded.
 MAX_FILE_DECOMPRESSED_BYTES = 100 * 1024 * 1024
+
+# --- Stage 5: safety classifier tunables ---
+# Only the leading slice of a document is classified — injection payloads sit
+# near the top and full docs can be ~1 MB. Sliced in SQL (not Python) when
+# loading pending docs so the coordinator never materializes whole documents.
+MAX_CLASSIFY_CHARS = 12_000

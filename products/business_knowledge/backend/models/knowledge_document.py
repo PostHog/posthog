@@ -3,6 +3,7 @@ from django.db import models
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
 
+from .constants import SafetyVerdict
 from .knowledge_source import KnowledgeSource
 
 
@@ -44,6 +45,13 @@ class KnowledgeDocument(UUIDModel):
     # doesn't need another migration.
     tombstoned_at = models.DateTimeField(null=True, blank=True)
 
+    # --- Stage 5: content-safety classification ---
+    # `unknown` until the background classifier runs. Reset to `unknown`
+    # whenever content changes so only new/changed docs get re-classified.
+    safety_verdict = models.CharField(max_length=16, choices=SafetyVerdict.choices, default=SafetyVerdict.UNKNOWN)
+    # Human-facing one-liner explaining an `unsafe` verdict. Empty otherwise.
+    safety_reason = models.TextField(blank=True, default="")
+
     objects = TeamScopedManager()
 
     class Meta:
@@ -51,6 +59,16 @@ class KnowledgeDocument(UUIDModel):
         indexes = [
             models.Index(fields=["team", "source"], name="bk_doc_team_source"),
             models.Index(fields=["source"], name="bk_doc_source"),
+            # Cross-team scan for docs awaiting safety classification. Partial on
+            # `unknown` (the only value ever queried) so it shrinks to ~0 rows in
+            # steady state — far smaller/faster than a full 3-value btree.
+            models.Index(
+                fields=["tombstoned_at"],
+                name="bk_doc_pending_classify",
+                condition=models.Q(safety_verdict=SafetyVerdict.UNKNOWN),
+            ),
+            # Cross-team scan for the tombstone hard-delete sweep.
+            models.Index(fields=["tombstoned_at"], name="bk_doc_tombstoned"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["source", "stable_id"], name="bk_doc_unique_per_source"),
