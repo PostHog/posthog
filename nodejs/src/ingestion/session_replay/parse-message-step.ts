@@ -14,7 +14,7 @@ import { normalizeSessionId } from '../../utils/utils'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-const lz4: { decode(input: Buffer): Buffer } = require('lz4')
+const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
@@ -107,7 +107,10 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         const contentEncoding = getContentEncoding(message.headers)
         try {
             if (contentEncoding === 'lz4') {
-                messageUnzipped = lz4.decode(message.value)
+                const uncompressedSize = message.value.readUInt32LE(0)
+                const output = Buffer.allocUnsafe(uncompressedSize)
+                lz4.decodeBlock(message.value.subarray(4), output)
+                messageUnzipped = output
             } else if (isGzipped(message.value)) {
                 messageUnzipped = gunzipSync(message.value)
             }
