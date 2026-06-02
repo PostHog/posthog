@@ -57,6 +57,8 @@ export const kindToLabel = (kind: string): string => {
 
 const truncate = (value: string, max: number): string => (value.length > max ? `${value.slice(0, max)}…` : value)
 
+const sanitizeForPrompt = (value: string): string => value.replace(/[\r\n\t]+/g, ' ').trim()
+
 const categoryLabel = (kind: string): string => HEALTH_CATEGORY_CONFIG[categoryForKind(kind)].label
 
 const formatPayloadValue = (value: unknown): string | null => {
@@ -65,12 +67,12 @@ const formatPayloadValue = (value: unknown): string | null => {
     }
     if (Array.isArray(value)) {
         const items = value.filter((v) => typeof v === 'string' || typeof v === 'number')
-        return items.length > 0 ? items.join(', ') : null
+        return items.length > 0 ? sanitizeForPrompt(items.join(', ')) : null
     }
     if (typeof value === 'object') {
         return null
     }
-    return truncate(String(value), 500)
+    return truncate(sanitizeForPrompt(String(value)), 500)
 }
 
 const issueDetailLines = (issue: HealthIssue): string[] => {
@@ -87,7 +89,7 @@ const issueDetailLines = (issue: HealthIssue): string[] => {
 
 const issueSummaryLine = (issue: HealthIssue): string => {
     const category = categoryLabel(issue.kind)
-    const reason = issue.payload?.reason ? ` — ${truncate(String(issue.payload.reason), 200)}` : ''
+    const reason = issue.payload?.reason ? ` — ${truncate(sanitizeForPrompt(String(issue.payload.reason)), 200)}` : ''
     return `- [${severityLabel(issue.severity)}] ${kindToLabel(issue.kind)} (${category})${reason}`
 }
 
@@ -139,10 +141,12 @@ export const buildHealthOverviewPrompt = (
     question: string = DEFAULT_OVERVIEW_QUESTION
 ): string => {
     if (issues.length === 0) {
-        return (
+        return [
+            question,
+            '',
             'The Health overview for my PostHog project currently shows no active health issues. ' +
-            'What should I monitor to keep my project healthy, and how can I confirm my data is being ingested correctly?'
-        )
+                'What should I monitor to keep my project healthy, and how can I confirm my data is being ingested correctly?',
+        ].join('\n')
     }
     const count = issues.length
     const sorted = sortedBySeverity(issues)
