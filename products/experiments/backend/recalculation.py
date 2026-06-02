@@ -9,6 +9,8 @@ Module-level free functions (not methods on ExperimentService) so the API view c
   the run id).
 """
 
+from uuid import UUID
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -74,11 +76,36 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
 
 
 def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
+    """Most recent successfully-completed recalculation for an experiment, or None.
+
+    Powers ``GET /metrics_recalculation/latest``: the frontend renders cached results from the last good run.
+    Runs that are pending/in_progress/failed are NOT returned — the client tracks those separately by id.
+    """
     return (
-        ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
+        ExperimentMetricsRecalculation.objects.filter(
+            team=experiment.team,
+            experiment=experiment,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+        )
         .order_by("-created_at")
         .first()
     )
+
+
+def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> ExperimentMetricsRecalculation | None:
+    """Return the recalculation row for ``recalculation_id`` if it belongs to ``experiment``, else None.
+
+    Enforces experiment scoping so the id-based GET cannot leak rows from a different experiment in the same team.
+    Team scoping is already implicit via the viewset's team filter on ``experiment``. Returns None for a malformed
+    UUID rather than raising, so the calling view can answer with a clean 404.
+    """
+    try:
+        uuid_value = UUID(recalculation_id)
+    except (ValueError, TypeError):
+        return None
+    return ExperimentMetricsRecalculation.objects.filter(
+        team=experiment.team, experiment=experiment, id=uuid_value
+    ).first()
 
 
 def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetricsRecalculation) -> dict[str, str]:

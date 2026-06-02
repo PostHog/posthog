@@ -16,7 +16,12 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import get_latest_recalculation, get_run_results, request_recalculation
+from products.experiments.backend.recalculation import (
+    get_latest_recalculation,
+    get_recalculation_by_id,
+    get_run_results,
+    request_recalculation,
+)
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -99,18 +104,51 @@ class TestRecalculationService(BaseTest):
         row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
         assert row.trigger == trigger
 
-    def test_get_latest_recalculation_returns_most_recent(self):
+    def test_get_latest_recalculation_returns_most_recent_completed(self):
+        # get_latest_recalculation filters to status='completed' (powers GET /metrics_recalculation/latest).
         exp = self._launched_experiment()
-        first = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
-        second = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+        first_done = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
+        ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="failed")
+        second_done = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
+        # A pending run created AFTER the latest completed one must NOT be returned.
+        ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
         latest = get_latest_recalculation(exp)
         assert latest is not None
-        assert latest.id == second.id
-        assert latest.id != first.id
+        assert latest.id == second_done.id
+        assert latest.id != first_done.id
 
-    def test_get_latest_recalculation_none_when_no_runs(self):
-        exp = self._launched_experiment()
+    @parameterized.expand(
+        [
+            ("never_ran", []),
+            ("only_pending", ["pending"]),
+            ("only_failed", ["failed"]),
+            ("only_in_progress", ["in_progress"]),
+        ]
+    )
+    def test_get_latest_recalculation_none_when_no_completed(self, name: str, statuses: list[str]):
+        exp = self._launched_experiment(flag_key=f"latest-{name}")
+        for status in statuses:
+            ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status=status)
         assert get_latest_recalculation(exp) is None
+
+    def test_get_recalculation_by_id_returns_row(self):
+        exp = self._launched_experiment()
+        row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="in_progress")
+        result = get_recalculation_by_id(exp, str(row.id))
+        assert result is not None
+        assert result.id == row.id
+
+    def test_get_recalculation_by_id_none_for_unknown_id(self):
+        exp = self._launched_experiment()
+        # Valid UUID format but no such row exists.
+        assert get_recalculation_by_id(exp, "00000000-0000-0000-0000-000000000001") is None
+
+    def test_get_recalculation_by_id_none_for_other_experiment(self):
+        # ID belongs to a different experiment in the same team — must NOT cross experiments.
+        exp = self._launched_experiment(flag_key="by-id-mine")
+        other = self._launched_experiment(flag_key="by-id-other")
+        row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=other, status="completed")
+        assert get_recalculation_by_id(exp, str(row.id)) is None
 
     def test_get_run_results_scopes_by_recalc_fingerprint(self):
         exp = self._launched_experiment()
