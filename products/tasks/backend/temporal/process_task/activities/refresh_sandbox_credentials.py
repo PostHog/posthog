@@ -9,7 +9,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_refresh_session
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import TaskNotFoundError
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import increment_credential_refresh
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
@@ -85,9 +85,28 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         next_refresh = DEFAULT_REFRESH_INTERVAL_SECONDS
         intervals: list[float] = []
 
+        if not sandbox.is_running():
+            for credential in build_sandbox_credentials(ctx):
+                increment_credential_refresh(credential.kind, "skipped")
+            logger.info(
+                "sandbox_credentials_refresh_skipped_not_running",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+            )
+            return RefreshSandboxCredentialsOutput(next_refresh_seconds=next_refresh, refreshed_kinds=[])
+
         for credential in build_sandbox_credentials(ctx):
             try:
                 outcome = credential.refresh(sandbox, ctx, task)
+            except SandboxExecutionError:
+                logger.info(
+                    "sandbox_credential_refresh_skipped_not_running",
+                    kind=credential.kind,
+                    sandbox_id=input.sandbox_id,
+                    run_id=ctx.run_id,
+                )
+                increment_credential_refresh(credential.kind, "skipped")
+                break
             except Exception:
                 logger.warning(
                     "sandbox_credential_refresh_failed",

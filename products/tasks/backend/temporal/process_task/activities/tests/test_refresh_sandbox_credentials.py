@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.services.sandbox import ExecutionResult
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
@@ -16,6 +17,7 @@ class TestRefreshSandboxCredentialsActivity:
     @pytest.fixture
     def sandbox(self):
         fake = MagicMock()
+        fake.is_running.return_value = True
         fake.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
         fake.write_file.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
         return fake
@@ -74,3 +76,57 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == []
         # All credentials failed -> no per-token interval, so fall back to the default cadence.
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+
+    def test_skips_refresh_when_sandbox_not_running(self, activity_environment, task_context, test_task, sandbox):
+        sandbox.is_running.return_value = False
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token"
+            ) as get_token,
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.increment_credential_refresh"
+            ) as increment,
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.refreshed_kinds == []
+        assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+        get_token.assert_not_called()
+        sandbox.execute.assert_not_called()
+        increment.assert_called_once_with("github", "skipped")
+
+    def test_sandbox_stopped_mid_refresh_counts_as_skipped(
+        self, activity_environment, task_context, test_task, sandbox
+    ):
+        sandbox.execute.side_effect = SandboxExecutionError(
+            "Sandbox not in running state.", {"sandbox_id": "sandbox-abc"}, cause=RuntimeError("not running")
+        )
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+                return_value="ghs_fresh",
+            ),
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.increment_credential_refresh"
+            ) as increment,
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.refreshed_kinds == []
+        increment.assert_called_once_with("github", "skipped")
