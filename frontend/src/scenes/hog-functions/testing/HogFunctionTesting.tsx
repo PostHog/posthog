@@ -482,7 +482,31 @@ function TestingEventsList(): JSX.Element | null {
                     },
                 },
             ]}
-            emptyState={<InsightEmptyState />}
+            emptyState={<TestingEmptyState />}
+        />
+    )
+}
+
+function TestingEmptyState(): JSX.Element {
+    const { matchedEventNames } = useValues(hogFunctionTestingLogic)
+
+    if (matchedEventNames.length === 0) {
+        return <InsightEmptyState />
+    }
+
+    const eventList = matchedEventNames.map((name) => `"${name}"`).join(', ')
+    const isSingle = matchedEventNames.length === 1
+
+    return (
+        <InsightEmptyState
+            heading="No matching events found"
+            detail={
+                <>
+                    We couldn&apos;t find any {eventList} {isSingle ? 'event' : 'events'} in the selected time range.
+                    Check that the event name is spelled correctly and is being captured, then try widening the date
+                    range above.
+                </>
+            }
         />
     )
 }

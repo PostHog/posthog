@@ -183,4 +183,32 @@ describe('hogFunctionConfigurationLogic', () => {
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
         })
     })
+
+    describe('matchingFilters', () => {
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.getTemplate.mockReturnValue(Promise.resolve(HOG_TEMPLATE))
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+        })
+
+        it('does not mutate configuration.filters.events when folding in mapping events', async () => {
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+
+            logic.actions.setConfigurationValues({
+                filters: { events: [{ id: 'event_create', name: 'event_create', type: 'events' }] },
+                mappings: [
+                    { name: 'm1', filters: { events: [{ id: 'mapped_event', name: 'mapped_event', type: 'events' }] } },
+                ],
+            })
+
+            // Reading the selector must not append the mapping's events into configuration.filters.events.
+            expect(logic.values.matchingFilters).toBeTruthy()
+            expect(logic.values.matchingFilters).toBeTruthy()
+
+            expect(logic.values.configuration.filters?.events).toEqual([
+                { id: 'event_create', name: 'event_create', type: 'events' },
+            ])
+        })
+    })
 })

@@ -207,6 +207,24 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
         ],
     })),
     selectors(({ values }) => ({
+        matchedEventNames: [
+            (s) => [s.configuration],
+            (configuration): string[] => {
+                const names = new Set<string>()
+                const collect = (events?: { id: string; name?: string | null }[]): void => {
+                    for (const event of events ?? []) {
+                        if (event.id) {
+                            names.add(event.name ?? event.id)
+                        }
+                    }
+                }
+                collect(configuration.filters?.events)
+                for (const mapping of configuration.mappings ?? []) {
+                    collect(mapping.filters?.events)
+                }
+                return Array.from(names)
+            },
+        ],
         baseEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.dateRange],
             (configuration, matchingFilters, groupTypes, dateRange): EventsQuery | null => {

@@ -1014,8 +1014,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                const allPossibleEventFilters = configuration.filters?.events ?? []
-                const allPossibleActionFilters = configuration.filters?.actions ?? []
+                // Copy these so the `.push()` below doesn't mutate the kea state held in `configuration.filters`.
+                const allPossibleEventFilters = [...(configuration.filters?.events ?? [])]
+                const allPossibleActionFilters = [...(configuration.filters?.actions ?? [])]
 
                 if (Array.isArray(configuration.mappings)) {
                     for (const mapping of configuration.mappings) {
