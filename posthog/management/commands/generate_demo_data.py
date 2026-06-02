@@ -11,8 +11,6 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core import exceptions
 from django.core.management.base import BaseCommand, CommandError
-from django.db import DEFAULT_DB_ALIAS, connections
-from django.db.migrations.executor import MigrationExecutor
 from django.db.utils import OperationalError
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -20,6 +18,7 @@ from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
+from posthog.health import get_pending_postgres_migrations
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
@@ -70,7 +69,6 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip-migration-check",
             action="store_true",
-            default=False,
             help="Skip the pre-flight check for unapplied Postgres migrations",
         )
         parser.add_argument(
@@ -128,18 +126,12 @@ class Command(BaseCommand):
             help="Use text-to-speech to say when the process is complete",
         )
 
-    @staticmethod
-    def _pending_postgres_migrations() -> list[str]:
-        executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
-        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-        return [f"{migration.app_label}.{migration.name}" for migration, _backwards in plan]
-
     def handle(self, *args, **options):
         timer = monotonic()
 
         if not options.get("skip_migration_check"):
             try:
-                pending = self._pending_postgres_migrations()
+                pending = get_pending_postgres_migrations()
             except OperationalError:
                 pending = []  # DB unreachable — let the normal flow surface the connection error
             if pending:
