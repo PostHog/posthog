@@ -269,3 +269,117 @@ export class RedisSessionEventBus implements SessionEventBus {
         return channel.startsWith(prefix) ? channel.slice(prefix.length) : null
     }
 }
+
+/** Routes team change events to in-process listeners. One per process. */
+export interface TeamChangeHub {
+    /** Register a listener for one team's changes. Returns an unsubscribe. */
+    subscribe(teamId: number, onMessage: (message: string) => void): () => void
+}
+
+const TEAM_CHANNEL_RE = /^agent_changes:(\d+)$/
+
+const teamChangeHubs = new Map<string, TeamChangeHub>()
+
+/**
+ * Get the process-wide team change hub for a Redis url. A single ioredis
+ * connection `PSUBSCRIBE agent_changes:*` per process fans out in-process
+ * to per-team listeners — so N connected browsers cost one Redis
+ * connection, not N. (Subscribe mode monopolises a connection, so a
+ * connection-per-subscriber design would hit `maxclients` under load.)
+ * Keeps `ioredis` confined to this package; callers depend on a typed
+ * handle. Cross-team isolation stays at the caller's auth gate — the hub
+ * only routes to listeners that registered for the matching team.
+ */
+export function getTeamChangeHub(url: string): TeamChangeHub {
+    const existing = teamChangeHubs.get(url)
+    if (existing) {
+        return existing
+    }
+    const listeners = new Map<number, Set<(message: string) => void>>()
+    let connecting: Promise<void> | null = null
+
+    const ensureSubscriber = (): void => {
+        if (connecting) {
+            return
+        }
+        connecting = (async () => {
+            const mod = await import('ioredis')
+            const Ctor = (mod as { default?: typeof import('ioredis').default }).default ?? mod
+            const RedisCtor = Ctor as unknown as new (redisUrl: string) => IoRedis
+            const sub = new RedisCtor(url)
+            sub.on('pmessage', (_pattern: string, channel: string, message: string) => {
+                const m = TEAM_CHANNEL_RE.exec(channel)
+                if (!m) {
+                    return
+                }
+                const set = listeners.get(Number(m[1]))
+                set?.forEach((l) => {
+                    try {
+                        l(message)
+                    } catch {
+                        // A listener bug must not stop the others.
+                    }
+                })
+            })
+            await sub.psubscribe('agent_changes:*')
+        })().catch(() => {
+            // Let a later subscribe retry the connection.
+            connecting = null
+        })
+    }
+
+    const hub: TeamChangeHub = {
+        subscribe(teamId, onMessage) {
+            let set = listeners.get(teamId)
+            if (!set) {
+                set = new Set()
+                listeners.set(teamId, set)
+            }
+            set.add(onMessage)
+            ensureSubscriber()
+            return () => {
+                const current = listeners.get(teamId)
+                current?.delete(onMessage)
+                if (current && current.size === 0) {
+                    listeners.delete(teamId)
+                }
+            }
+        },
+    }
+    teamChangeHubs.set(url, hub)
+    return hub
+}
+
+const teamChangePublishers = new Map<string, IoRedis>()
+
+/**
+ * Publish a `{type, team_id, id, op}` change to a team's `agent_changes`
+ * channel — the node-side emitter for entities the node services own
+ * (sessions), mirroring Django's model-signal emitter for app/revision.
+ * Best-effort and non-blocking: failures are swallowed, no `url` (dev
+ * memory bus) is a no-op. Reuses one publisher connection per url.
+ */
+export async function publishTeamChange(
+    url: string | undefined,
+    teamId: number,
+    type: string,
+    id: string,
+    op: string
+): Promise<void> {
+    if (!url) {
+        return
+    }
+    try {
+        let pub = teamChangePublishers.get(url)
+        if (!pub) {
+            const mod = await import('ioredis')
+            const Ctor = (mod as { default?: typeof import('ioredis').default }).default ?? mod
+            const RedisCtor = Ctor as unknown as new (redisUrl: string) => IoRedis
+            pub = new RedisCtor(url)
+            teamChangePublishers.set(url, pub)
+        }
+        await pub.publish(`agent_changes:${teamId}`, JSON.stringify({ type, team_id: teamId, id, op }))
+    } catch {
+        // Change feed is a convenience, never a correctness dependency.
+    }
+}

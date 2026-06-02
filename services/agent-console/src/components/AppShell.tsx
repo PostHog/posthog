@@ -47,6 +47,7 @@ import {
     useTheme,
 } from '@posthog/quill'
 
+import { ChangeFeedProvider } from '@/lib/changeFeed'
 import { DOCK_TOGGLE_KEY_HINT, DOCK_TOGGLE_KEY_HINT_PC, DockLayoutProvider, useDockLayout } from '@/lib/useDockLayout'
 
 import { Dock } from './Dock'
@@ -55,8 +56,18 @@ import { DockShowAffordance } from './DockShowAffordance'
 import { FloatingDockPanel } from './FloatingDockPanel'
 import { FocusContextProvider } from './focus-context'
 import { PostHogMark } from './PostHogMark'
-import { SessionGate, SessionProvider, usePosthogBaseUrl, useSessionUser } from './session-context'
+import { SessionGate, SessionProvider, usePosthogBaseUrl, useSessionTeamId, useSessionUser } from './session-context'
 import { TopLoadingBar } from './TopLoadingBar'
+
+/**
+ * Opens the team change feed once, app-wide, inside the resolved session.
+ * Every keyed `useResource` read becomes reactive through it — no per-page
+ * subscription.
+ */
+function ChangeFeedMount({ children }: { children: React.ReactNode }): React.ReactElement {
+    const teamId = useSessionTeamId()
+    return <ChangeFeedProvider teamId={teamId}>{children}</ChangeFeedProvider>
+}
 
 export function AppShell({ children }: { children: React.ReactNode }): React.ReactElement {
     return (
@@ -129,7 +140,9 @@ function ShellBody({ children }: { children: React.ReactNode }): React.ReactElem
             <ResizablePanelGroup orientation="horizontal" defaultLayout={{ main: 70, dock: 30 }} className="flex-1">
                 <ResizablePanel id="main" minSize="520px">
                     <main className="h-full overflow-y-auto">
-                        <SessionGate>{children}</SessionGate>
+                        <SessionGate>
+                            <ChangeFeedMount>{children}</ChangeFeedMount>
+                        </SessionGate>
                     </main>
                 </ResizablePanel>
                 {layout.mode === 'rail' && layout.visible ? (

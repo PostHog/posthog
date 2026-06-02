@@ -11,6 +11,7 @@ import { useSetDockPage } from '@/components/dock-context'
 import { useSessionTeamId } from '@/components/session-context'
 import { SessionsList } from '@/components/SessionsList'
 import { getSession, listLogsForSession, listSessionsForAgent } from '@/lib/apiClient'
+import { changeKey } from '@/lib/changeFeed'
 import { useResource } from '@/lib/useResource'
 import { SessionDetail } from '@/screens/SessionDetail'
 
@@ -38,7 +39,8 @@ export function SessionsSegment(): React.ReactElement {
             listSessionsForAgent(teamId, agent.slug, { id: agent.id, name: agent.name, slug: agent.slug }).catch(
                 () => [] as ChatSession[]
             ),
-        [teamId, agent.slug, agent.id]
+        [teamId, agent.slug, agent.id],
+        { key: changeKey('agent_session', teamId) }
     )
 
     const selectedSession = useResource(
@@ -50,7 +52,9 @@ export function SessionsSegment(): React.ReactElement {
                       slug: agent.slug,
                   }).catch(() => null)
                 : Promise.resolve(null),
-        [teamId, agent.slug, selectedSessionId, agent.id]
+        [teamId, agent.slug, selectedSessionId, agent.id],
+        // Item key — refetch precisely when this open session transitions.
+        { key: changeKey('agent_session', teamId, selectedSessionId ?? undefined) }
     )
 
     const selectedLogs = useResource(
@@ -58,7 +62,8 @@ export function SessionsSegment(): React.ReactElement {
             selectedSessionId
                 ? listLogsForSession(teamId, agent.slug, selectedSessionId).catch(() => [] as LogEntry[])
                 : Promise.resolve([] as LogEntry[]),
-        [teamId, agent.slug, selectedSessionId]
+        [teamId, agent.slug, selectedSessionId],
+        { key: changeKey('agent_session', teamId, selectedSessionId ?? undefined) }
     )
 
     const select = useCallback(

@@ -32,8 +32,23 @@ export interface ResourceState<T> {
     lastFetchedAt: number | null
 }
 
-export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []): ResourceState<T> {
-    const reloadKey = useReloadKey()
+export interface UseResourceOptions {
+    /**
+     * Query key(s) this read depends on (e.g. `agent_application:42`, or
+     * `[agent_session:42, agent_approval:42]` for a cross-entity read). When
+     * the change feed invalidates any of them, this read refetches —
+     * precisely, without a global page refresh. Omit to fall back to coarse
+     * navigation-only refresh (`bumpReload()`).
+     */
+    key?: string | string[]
+}
+
+export function useResource<T>(
+    factory: () => Promise<T>,
+    deps: unknown[] = [],
+    options: UseResourceOptions = {}
+): ResourceState<T> {
+    const reloadKey = useReloadKey(options.key)
     const [data, setData] = useState<T | null>(null)
     const [error, setError] = useState<Error | null>(null)
     const [loading, setLoading] = useState(true)

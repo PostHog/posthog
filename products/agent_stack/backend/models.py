@@ -24,6 +24,8 @@ from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
+from .change_feed_base import ChangeFeedMixin
+
 REVISION_STATE_CHOICES = [
     ("draft", "draft"),
     ("ready", "ready"),
@@ -32,7 +34,7 @@ REVISION_STATE_CHOICES = [
 ]
 
 
-class AgentApplication(ModelActivityMixin, UUIDModel):
+class AgentApplication(ChangeFeedMixin, ModelActivityMixin, UUIDModel):
     """One agent. Identified by (team, slug). Holds team secrets.
 
     Activity logged via `ModelActivityMixin`: every save fires
@@ -40,7 +42,11 @@ class AgentApplication(ModelActivityMixin, UUIDModel):
     `products.agent_stack.backend.activity` writes to the central
     activity log. Soft-delete via `archived=True` shows up there as an
     `updated` entry diffing the archived flag — no separate delete signal.
+
+    `ChangeFeedMixin` makes every save/delete emit a live change-feed event.
     """
+
+    change_feed_type = "agent_application"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="agent_apps")
     name = models.CharField(max_length=255)
@@ -83,7 +89,7 @@ class AgentApplication(ModelActivityMixin, UUIDModel):
         return self.slug
 
 
-class AgentRevision(ModelActivityMixin, UUIDModel):
+class AgentRevision(ChangeFeedMixin, ModelActivityMixin, UUIDModel):
     """One revision of an agent. `spec` is structural; the bundle is content.
 
     State machine: draft → ready → live | archived. Mutability follows state:
@@ -92,7 +98,21 @@ class AgentRevision(ModelActivityMixin, UUIDModel):
 
     Activity logged via `ModelActivityMixin`: spec edits and state
     transitions both surface as `updated` entries with field-level diffs.
+
+    `ChangeFeedMixin` makes every save/delete emit a live change-feed event;
+    team is resolved through the parent application.
     """
+
+    change_feed_type = "agent_revision"
+
+    @property
+    def change_feed_team_id(self) -> int | None:
+        # Resolve via a query that returns None instead of raising, so a
+        # `post_delete` during a parent CASCADE (application already gone) is
+        # graceful rather than throwing `DoesNotExist`.
+        if self.application_id is None:
+            return None
+        return AgentApplication.objects.filter(pk=self.application_id).values_list("team_id", flat=True).first()
 
     application = models.ForeignKey(
         AgentApplication,

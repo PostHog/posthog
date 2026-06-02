@@ -8,7 +8,8 @@ class AgentStackConfig(AppConfig):
     label = "agent_stack"
 
     def ready(self) -> None:
-        # Bind activity-log signal receivers for AgentApplication and
-        # AgentRevision. Django's standard pattern: import inside `ready()`
-        # so the decorators register after the app registry is ready.
-        from . import activity  # noqa: F401, PLC0415
+        # Bind signal receivers (activity log + the change feed) for
+        # AgentApplication / AgentRevision. Django's standard pattern: import
+        # inside `ready()` so the decorators register after the app registry
+        # is ready.
+        from . import activity, change_feed  # noqa: F401, PLC0415

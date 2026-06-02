@@ -21,6 +21,7 @@ import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/age
 
 import { useSessionTeamId } from '@/components/session-context'
 import { getAgent, listRevisions } from '@/lib/apiClient'
+import { changeKey } from '@/lib/changeFeed'
 import { useResource } from '@/lib/useResource'
 
 interface AgentBundle {
@@ -54,8 +55,12 @@ export function AgentProvider({
     const [reload, setReload] = useState(0)
     const bumpReload = useCallback(() => setReload((n) => n + 1), [])
 
-    const agent = useResource(() => getAgent(teamId, slug), [teamId, slug, reload])
-    const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug, reload])
+    const agent = useResource(() => getAgent(teamId, slug), [teamId, slug, reload], {
+        key: changeKey('agent_application', teamId),
+    })
+    const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug, reload], {
+        key: changeKey('agent_revision', teamId),
+    })
 
     if (agent.error) {
         // ApiError carries `status`; this lets the layout map 404 to

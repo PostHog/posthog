@@ -37,6 +37,7 @@ import {
     promoteRevision,
     type NativeToolCatalogEntry,
 } from '@/lib/apiClient'
+import { changeKey } from '@/lib/changeFeed'
 import { useResource } from '@/lib/useResource'
 
 import { BundleTree } from './BundleTree'
@@ -230,7 +231,8 @@ export function RevisionsBrowser({
     // Bundle is per-revision — fetch lazily for whichever revision is selected.
     const bundleRes = useResource(
         () => (selected ? getBundle(teamId, agent.slug, selected.id) : Promise.resolve([])),
-        [teamId, agent.slug, selected?.id ?? '']
+        [teamId, agent.slug, selected?.id ?? ''],
+        { key: changeKey('agent_revision', teamId, selected?.id ?? undefined) }
     )
     const bundle = bundleRes.data ?? []
     const bundleLoading = bundleRes.loading

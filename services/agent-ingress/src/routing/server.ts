@@ -12,10 +12,11 @@ import { createLogger, RevisionStore, SessionQueue } from '@posthog/agent-shared
 
 const log = createLogger('ingress')
 
-import { SessionEventBus, MemorySessionEventBus } from '@posthog/agent-shared'
+import { SessionEventBus, MemorySessionEventBus, getTeamChangeHub } from '@posthog/agent-shared'
 import type { AgentSpec } from '@posthog/agent-shared'
 
 import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
+import type { PosthogIdentityIntrospector } from '../enqueue/verifiers'
 import { chatTrigger } from '../triggers/chat'
 import { mcpTrigger } from '../triggers/mcp'
 import { resolveAgent } from '../triggers/resolve'
@@ -92,6 +93,15 @@ export interface BuildAppOpts {
      * a broker between processes but loses creds on a worker restart.
      */
     credentialBroker?: import('@posthog/agent-shared').CredentialBroker
+    /**
+     * Bearer → PostHog identity resolver. When set (together with `redisUrl`)
+     * the team change-feed SSE endpoint (`GET /teams/:teamId/agent-changes`)
+     * is mounted. Reuses the same `/api/users/@me/` introspection the chat
+     * auth verifiers use — no agent-spec context needed for a team feed.
+     */
+    introspector?: PosthogIdentityIntrospector
+    /** ioredis URL for the change-feed subscriber. Required for the feed. */
+    redisUrl?: string
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -126,6 +136,56 @@ export function buildApp(opts: BuildAppOpts): Express {
     app.get('/healthz', (_req, res) => {
         res.json({ ok: true })
     })
+
+    // Team-scoped agent-application change feed (SSE). The console opens an
+    // EventSource here and refetches on each event, so its lists are a
+    // push-driven function of agent status — source-agnostic (UI / concierge
+    // / MCP / another tab). Django publishes changes to the per-team Redis
+    // channel from a model signal; we only subscribe and fan out. Read-only:
+    // the ingress never writes `agent_application` (CLAUDE.md rule #1).
+    if (opts.introspector && opts.redisUrl) {
+        const introspector = opts.introspector
+        const redisUrl = opts.redisUrl
+        app.get(
+            '/teams/:teamId/agent-changes',
+            asyncHandler(async (req: Request, res: Response) => {
+                const teamId = Number(req.params.teamId)
+                if (!Number.isInteger(teamId)) {
+                    res.status(400).json({ error: 'bad_team_id' })
+                    return
+                }
+                const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
+                const me = bearer ? await introspector.introspect(bearer) : null
+                if (!me) {
+                    res.status(401).json({ error: 'unauthorized' })
+                    return
+                }
+                if (me.team?.id !== teamId) {
+                    res.status(403).json({ error: 'forbidden' })
+                    return
+                }
+
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    Connection: 'keep-alive',
+                    'X-Accel-Buffering': 'no',
+                })
+                res.write(': connected\n\n')
+
+                // One process-wide Redis subscriber fans out to this team's
+                // listeners — N browsers cost one connection, not N.
+                const unsubscribe = getTeamChangeHub(redisUrl).subscribe(teamId, (message) => {
+                    res.write(`data: ${message}\n\n`)
+                })
+                const keepalive = setInterval(() => res.write(': keepalive\n\n'), 15000)
+                req.on('close', () => {
+                    clearInterval(keepalive)
+                    unsubscribe()
+                })
+            })
+        )
+    }
 
     const authProvider = opts.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
     // Superset of every trigger's deps — each module's router picks what it

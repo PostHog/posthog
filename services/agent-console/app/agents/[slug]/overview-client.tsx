@@ -10,6 +10,7 @@ import { AgentOverview } from '@/components/AgentOverview'
 import { useSetDockPage } from '@/components/dock-context'
 import { useSessionTeamId } from '@/components/session-context'
 import { getAgentStats, listSessionsForAgent } from '@/lib/apiClient'
+import { changeKey } from '@/lib/changeFeed'
 import { useResource } from '@/lib/useResource'
 
 export function OverviewSegment(): React.ReactElement {
@@ -22,13 +23,16 @@ export function OverviewSegment(): React.ReactElement {
 
     // Stats + sessions: best-effort. Janitor 404 / 502 leaves the panel
     // with zeros + an empty list rather than failing the segment.
-    const stats = useResource(() => getAgentStats(teamId, agent.slug).catch(() => null), [teamId, agent.slug])
+    const stats = useResource(() => getAgentStats(teamId, agent.slug).catch(() => null), [teamId, agent.slug], {
+        key: changeKey('agent_session', teamId),
+    })
     const sessions = useResource(
         () =>
             listSessionsForAgent(teamId, agent.slug, { id: agent.id, name: agent.name, slug: agent.slug }).catch(
                 () => [] as ChatSession[]
             ),
-        [teamId, agent.slug, agent.id]
+        [teamId, agent.slug, agent.id],
+        { key: changeKey('agent_session', teamId) }
     )
 
     const liveRevision = revisions.find((r) => r.id === agent.live_revision) ?? null

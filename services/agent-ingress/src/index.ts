@@ -25,6 +25,7 @@ import {
     PgIntegrationStore,
     PgRevisionStore,
     PgSessionQueue,
+    publishTeamChange,
     RedisSessionEventBus,
     SessionEventBus,
 } from '@posthog/agent-shared'
@@ -78,7 +79,11 @@ async function main(): Promise<void> {
 
     const app = buildApp({
         revisions: new PgRevisionStore(posthogDb),
-        queue: new PgSessionQueue(agentDb),
+        queue: new PgSessionQueue(agentDb, (teamId, sessionId, op) => {
+            // New session enqueued → team change feed, so live-session views
+            // refetch. Non-blocking; no-op when redis is unset.
+            void publishTeamChange(config.redisUrl, teamId, 'agent_session', sessionId, op)
+        }),
         identities: new PgIdentityStore(agentDb),
         bus,
         teamId: config.teamId,
@@ -91,6 +96,11 @@ async function main(): Promise<void> {
         posthogDb,
         authProvider,
         credentialBroker,
+        // Mounts the team change-feed SSE endpoint: reuses the OAuth/PAT
+        // introspector for auth and subscribes to the per-team Redis channel
+        // Django publishes agent changes to.
+        introspector,
+        redisUrl: config.redisUrl,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port, bus: bus.constructor.name }, 'listening')

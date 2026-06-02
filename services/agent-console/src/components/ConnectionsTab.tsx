@@ -39,6 +39,7 @@ import {
 
 import { useSessionTeamId } from '@/components/session-context'
 import { listEnvKeys } from '@/lib/apiClient'
+import { changeKey } from '@/lib/changeFeed'
 import { useResource } from '@/lib/useResource'
 
 import { SecretEditDialog } from './SecretEditDialog'
@@ -87,7 +88,10 @@ export function ConnectionsTab({
     const [reload, setReload] = useState(0)
     const envKeysRes = useResource(
         () => listEnvKeys(teamId, agent.slug).catch(() => [] as string[]),
-        [teamId, agent.slug, reload]
+        [teamId, agent.slug, reload],
+        // Env lives on the agent (encrypted_env) — `set_env` saves it, firing
+        // an agent_application change.
+        { key: changeKey('agent_application', teamId) }
     )
     const setKeys = envKeysRes.data ?? []
     const bumpReload = (): void => setReload((n) => n + 1)

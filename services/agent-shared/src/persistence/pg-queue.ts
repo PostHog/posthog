@@ -25,8 +25,30 @@ const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, sta
                      usage_total, acl, pending_elevation_requests,
                      created_at, updated_at`
 
+/**
+ * Called after a session is created or transitions state. Wired by the
+ * service entrypoints to publish a team change event (`publishTeamChange`)
+ * so live-session views refetch. Persistence stays pure — it just reports;
+ * the Redis publish lives in the wiring. Undefined → no-op (tests/harness).
+ */
+export type SessionChangeListener = (teamId: number, sessionId: string, op: 'created' | 'updated') => void
+
 export class PgSessionQueue implements SessionQueue {
-    constructor(private readonly pool: Pool) {}
+    constructor(
+        private readonly pool: Pool,
+        private readonly onChange?: SessionChangeListener
+    ) {}
+
+    private notify(teamId: number, sessionId: string, op: 'created' | 'updated'): void {
+        if (!this.onChange) {
+            return
+        }
+        try {
+            this.onChange(teamId, sessionId, op)
+        } catch {
+            // A misbehaving listener must never break a queue write.
+        }
+    }
 
     async enqueue(session: AgentSession): Promise<void> {
         await this.pool.query(
@@ -63,6 +85,7 @@ export class PgSessionQueue implements SessionQueue {
                 session.updated_at,
             ]
         )
+        this.notify(session.team_id, session.id, 'created')
     }
 
     async claim(timeoutMs: number): Promise<AgentSession | null> {
@@ -100,6 +123,7 @@ export class PgSessionQueue implements SessionQueue {
                 [row.id, now]
             )
             await client.query('COMMIT')
+            this.notify(row.team_id, row.id, 'updated')
             return rowToSession({ ...row, state: 'running', updated_at: now })
         } catch (err) {
             await client.query('ROLLBACK').catch(() => undefined)
@@ -141,7 +165,21 @@ export class PgSessionQueue implements SessionQueue {
             sets.push(`pending_elevation_requests = $${i++}::jsonb`)
             params.push(JSON.stringify(patch.pending_elevation_requests))
         }
-        await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
+        // Emit a change only on state transitions (the live-view-visible
+        // events) — not on every conversation/usage delta, which would be a
+        // refetch storm. `RETURNING team_id` so the listener can scope it.
+        if (patch.state !== undefined) {
+            const result = await this.pool.query<{ team_id: number }>(
+                `UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1 RETURNING team_id`,
+                params
+            )
+            const teamId = result.rows[0]?.team_id
+            if (teamId !== undefined) {
+                this.notify(teamId, sessionId, 'updated')
+            }
+        } else {
+            await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
+        }
     }
 
     async appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void> {

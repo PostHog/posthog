@@ -44,6 +44,7 @@ import {
     PgSandboxInstanceStore,
     PgSessionQueue,
     PgTeamApiKeyResolver,
+    publishTeamChange,
     RedisSessionEventBus,
     S3MemoryStore,
     SecretBroker,
@@ -193,7 +194,11 @@ async function main(): Promise<void> {
     })
 
     const worker = new Worker({
-        queue: new PgSessionQueue(agentDb),
+        queue: new PgSessionQueue(agentDb, (teamId, sessionId, op) => {
+            // Session state transitions → team change feed, so live-session
+            // views refetch. Non-blocking; no-op when redis is unset.
+            void publishTeamChange(config.redisUrl, teamId, 'agent_session', sessionId, op)
+        }),
         revisions,
         bundle: new FsBundleStore(config.bundleRoot),
         sandboxes: selectSandboxPool(),

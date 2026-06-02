@@ -9,6 +9,7 @@ import { useSetDockConciergeAgent, useSetDockPage } from '@/components/dock-cont
 import { AgentsListSkeleton } from '@/components/PageSkeletons'
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
+import { changeKey } from '@/lib/changeFeed'
 import { useResource } from '@/lib/useResource'
 import { AgentsList } from '@/screens/AgentsList'
 
@@ -38,19 +39,33 @@ export function AgentsListClient(): React.ReactElement {
     useSetDockPage({ kind: 'agent-list' })
     useSetDockConciergeAgent({ slug: 'agent-concierge' })
 
-    const agents = useResource(() => listAgents(teamId), [teamId])
+    // Keyed to `agent_application:<team>` — the change feed (mounted once at
+    // the app root) invalidates this exact key when any agent changes, from
+    // any source, and only this read refetches.
+    const agents = useResource(() => listAgents(teamId), [teamId], {
+        key: changeKey('agent_application', teamId),
+    })
     // Fleet endpoints are Phase C — tolerate 404 so the agents list still
-    // renders against bare Django.
-    const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId])
+    // renders against bare Django. Multi-key: live/24h counts move on session
+    // changes, pending-approval count on approval changes — refetch on either.
+    // (`agent_approval` has no emitter yet; wiring one makes this live with no
+    // change here — the convention scaling in action.)
+    const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId], {
+        key: [changeKey('agent_session', teamId), changeKey('agent_approval', teamId)],
+    })
     // The fleet live-sessions endpoint returns `application_id` only —
     // we have to enrich each row with the agent's slug + name so the
     // LiveNowPanel can render and navigate. Sequence on agents so the
     // lookup is ready when the mapper runs.
-    const live = useResource(async (): Promise<ChatSession[]> => {
-        const agentList = await listAgents(teamId)
-        const agentsById = new Map(agentList.map((a) => [a.id, { id: a.id, name: a.name, slug: a.slug }]))
-        return tolerateMissing(listLiveSessions(teamId, agentsById), [])
-    }, [teamId])
+    const live = useResource(
+        async (): Promise<ChatSession[]> => {
+            const agentList = await listAgents(teamId)
+            const agentsById = new Map(agentList.map((a) => [a.id, { id: a.id, name: a.name, slug: a.slug }]))
+            return tolerateMissing(listLiveSessions(teamId, agentsById), [])
+        },
+        [teamId],
+        { key: changeKey('agent_session', teamId) }
+    )
 
     const error = agents.error ?? fleet.error ?? live.error
 
