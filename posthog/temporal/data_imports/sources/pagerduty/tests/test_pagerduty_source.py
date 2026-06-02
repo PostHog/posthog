@@ -1,5 +1,3 @@
-from typing import Any
-
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -144,6 +142,6 @@ class TestPagerDutySource:
         with patch(f"{PAGERDUTY_MODULE}.source.pagerduty_source") as mock_source:
             self.source.source_for_pipeline(self.config, manager, inputs)
 
-        kwargs: dict[str, Any] = mock_source.call_args.kwargs
+        kwargs = mock_source.call_args.kwargs
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
