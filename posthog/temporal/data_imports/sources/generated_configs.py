@@ -493,7 +493,8 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailjetSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config

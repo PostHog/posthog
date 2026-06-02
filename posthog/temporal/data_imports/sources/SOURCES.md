@@ -62,6 +62,7 @@ the row lists both.
 | linear        | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads  | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailjet       | HTTP                        | requests                                                        | ✅                          |
 | meta_ads      | HTTP                        | requests                                                        | ✅                          |
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
@@ -123,7 +124,7 @@ ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, c
 chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, copper, datadog,
 drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
-instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
+instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
 recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
