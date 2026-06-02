@@ -616,6 +616,47 @@ describe('notebook-edit anchored edits', () => {
         })
     })
 
+    it('replaces a top-level node array copied from notebook content', async () => {
+        const originalContent = [paragraph('A'), paragraph('B'), paragraph('C')]
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: { type: 'doc', content: originalContent },
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(paragraph('Replacement')),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            old_value: originalContent,
+            new_value: paragraph('Replacement'),
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            text_content: 'Replacement',
+            content: doc(paragraph('Replacement')),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 0,
+                    to: 9,
+                    slice: { content: [paragraph('Replacement')] },
+                },
+            ],
+        })
+    })
+
     it('uses heading anchors as section ranges when replacing query text', async () => {
         const oldQuery = {
             kind: 'DataVisualizationNode',
@@ -884,6 +925,22 @@ describe('notebook-edit anchored edits', () => {
                         content_format: 'markdown',
                     },
                 ],
+            })
+        ).rejects.toThrow('notebook-python feature flag')
+        expect(requestMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects executable replacement nodes when the notebook-python flag is off', async () => {
+        mockIsFeatureFlagEnabled.mockResolvedValue(false)
+        const requestMock = vi.fn()
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await expect(
+            tool.handler(context, {
+                short_id: 'abc123',
+                old_value: paragraph('Replace me'),
+                new_value: pythonNode('print("blocked")'),
             })
         ).rejects.toThrow('notebook-python feature flag')
         expect(requestMock).not.toHaveBeenCalled()

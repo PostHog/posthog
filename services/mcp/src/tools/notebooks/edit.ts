@@ -437,7 +437,7 @@ function nodesUseExecutableAnalysisBlocks(nodes: ProseMirrorNode[] | undefined):
 
 function editUsesExecutableAnalysisBlocks(edit: NotebookEdit): boolean {
     if (edit.type === 'replace_text' || edit.type === 'replace_subtree') {
-        return false
+        return edit.type === 'replace_subtree' && nodesUseExecutableAnalysisBlocks(edit.new_nodes)
     }
     return contentUsesExecutableAnalysisBlocks(edit.content) || nodesUseExecutableAnalysisBlocks(edit.nodes)
 }
@@ -1252,6 +1252,30 @@ function countNodeMatches(node: ProseMirrorNode | ProseMirrorDoc | ProseMirrorNo
     return count
 }
 
+function nodesEqual(left: ProseMirrorNode | ProseMirrorNode[], right: ProseMirrorNode | ProseMirrorNode[]): boolean {
+    return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function topLevelSequenceMatches(doc: ProseMirrorDoc, startIndex: number, target: ProseMirrorNode[]): boolean {
+    if (startIndex + target.length > doc.content.length) {
+        return false
+    }
+    return target.every((targetNode, offset) => {
+        const node = doc.content[startIndex + offset]
+        return !!node && nodesEqual(node, targetNode)
+    })
+}
+
+function countTopLevelSequenceMatches(doc: ProseMirrorDoc, target: ProseMirrorNode[]): number {
+    let count = 0
+    for (let index = 0; index <= doc.content.length - target.length; index++) {
+        if (topLevelSequenceMatches(doc, index, target)) {
+            count++
+        }
+    }
+    return count
+}
+
 function applySubtreeReplacementEdit(
     doc: ProseMirrorDoc,
     oldNode: ProseMirrorNode | ProseMirrorNode[],
@@ -1259,7 +1283,8 @@ function applySubtreeReplacementEdit(
     replaceAll: boolean
 ): ReplaceStep[] {
     const target = oldNode
-    const matches = countNodeMatches(doc, target)
+    const isTopLevelNodeArray = Array.isArray(target)
+    const matches = isTopLevelNodeArray ? countTopLevelSequenceMatches(doc, target) : countNodeMatches(doc, target)
     if (matches === 0) {
         throw new Error('old_node was not found in the notebook content.')
     }
@@ -1272,13 +1297,17 @@ function applySubtreeReplacementEdit(
     const steps: ReplaceStep[] = []
     for (let index = 0; index < doc.content.length; index++) {
         const node = doc.content[index]
-        if (!node || JSON.stringify(node) !== JSON.stringify(target)) {
+        const targetLength = isTopLevelNodeArray ? target.length : 1
+        if (
+            (isTopLevelNodeArray && !topLevelSequenceMatches(doc, index, target)) ||
+            (!isTopLevelNodeArray && (!node || !nodesEqual(node, target)))
+        ) {
             continue
         }
         const from = topLevelPositionBefore(doc, index)
-        const to = topLevelPositionAfter(doc, index)
+        const to = topLevelPositionAfter(doc, index + targetLength - 1)
         const insertedNodes = cloneNodes(newNodes)
-        doc.content.splice(index, 1, ...insertedNodes)
+        doc.content.splice(index, targetLength, ...insertedNodes)
         steps.push(replaceStep(from, to, insertedNodes))
         if (!replaceAll) {
             break
