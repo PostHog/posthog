@@ -28,7 +28,7 @@ from rest_framework.views import APIView
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import PRIVILEGED_SCOPES
+from posthog.scopes import UNPRIVILEGED_SCOPES
 
 logger = structlog.get_logger(__name__)
 
@@ -39,16 +39,19 @@ BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names c
 
 
 def filter_dcr_scopes(scope: str) -> list[str]:
-    """Parse an RFC 7591 space-delimited `scope` string into a deduped list with
-    PRIVILEGED_SCOPES stripped. Order is preserved so the response echo matches
-    what the client sent (minus privileged scopes).
+    """Parse an RFC 7591 space-delimited `scope` string into a deduped list,
+    keeping only scopes in `UNPRIVILEGED_SCOPES`. Order is preserved so the
+    response echo matches what the client kept.
 
-    Self-serve DCR clients can never grant themselves a privileged scope (e.g.
-    `llm_gateway:*`); those land on an app only via an admin-driven path."""
+    Allow-list, not deny-list: a self-serve DCR client may only register safe
+    scopes. `UNPRIVILEGED_SCOPES` excludes privileged (`llm_gateway:*`), internal
+    (`signal_scout_internal`, ...), hidden (`metrics`, `wizard_session`), and any
+    unknown/junk string — none of which may reach the per-app ceiling, since
+    `/authorize` would otherwise grant them on a user-consented token."""
     seen: set[str] = set()
     result: list[str] = []
     for token in scope.split():
-        if token in PRIVILEGED_SCOPES or token in seen:
+        if token not in UNPRIVILEGED_SCOPES or token in seen:
             continue
         seen.add(token)
         result.append(token)

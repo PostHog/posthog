@@ -390,7 +390,11 @@ class TestDynamicClientRegistration(APIBaseTest):
             ("single_scope", "experiment:read", ["experiment:read"]),
             ("multiple_scopes", "experiment:read dashboard:write", ["experiment:read", "dashboard:write"]),
             ("strips_privileged", "experiment:read llm_gateway:read llm_gateway:write", ["experiment:read"]),
+            ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"]),
+            ("strips_hidden", "experiment:read metrics:read wizard_session:write", ["experiment:read"]),
+            ("strips_unknown_junk", "experiment:read not_a_real:scope", ["experiment:read"]),
             ("only_privileged_yields_empty", "llm_gateway:read llm_gateway:write", []),
+            ("only_disallowed_yields_empty", "signal_scout_internal:write metrics:read not_a_real:scope", []),
             (
                 "dedupes_preserving_order",
                 "experiment:read dashboard:read experiment:read",
