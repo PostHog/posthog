@@ -1,4 +1,5 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { afterMount, kea, path } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -9,35 +10,24 @@ import type { visionQuotaLogicType } from './visionQuotaLogicType'
 export const visionQuotaLogic = kea<visionQuotaLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'visionQuotaLogic']),
 
-    actions({
-        loadQuota: true,
-        loadQuotaSuccess: (quota: VisionQuotaApi | null) => ({ quota }),
-        loadQuotaFailure: true,
-    }),
-
-    reducers({
+    loaders({
         quota: [
             null as VisionQuotaApi | null,
             {
-                loadQuotaSuccess: (_, { quota }) => quota,
+                loadQuota: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    try {
+                        return await environmentVisionQuotaRetrieve(String(teamId))
+                    } catch {
+                        return null
+                    }
+                },
             },
         ],
     }),
-
-    listeners(({ actions }) => ({
-        loadQuota: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await environmentVisionQuotaRetrieve(String(teamId))
-                actions.loadQuotaSuccess(response)
-            } catch {
-                actions.loadQuotaFailure()
-            }
-        },
-    })),
 
     afterMount(({ actions }) => {
         actions.loadQuota()
