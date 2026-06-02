@@ -377,6 +377,9 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
     port: int | None = 5432
     password: str | None = None
     has_self_signed_cert: bool = False
+    # Optional SSH tunnel configuration, mirroring the data warehouse import side. Stored as the
+    # raw config dict (see `SSHTunnelConfig`) so it round-trips cleanly through Temporal.
+    ssh_tunnel: dict | None = None
 
 
 IAMRole = str

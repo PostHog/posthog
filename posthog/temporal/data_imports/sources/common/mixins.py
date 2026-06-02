@@ -1,6 +1,7 @@
 import socket
-from collections.abc import Callable, Generator
-from contextlib import _GeneratorContextManager, contextmanager
+import asyncio
+from collections.abc import AsyncIterator, Callable, Generator
+from contextlib import _GeneratorContextManager, asynccontextmanager, contextmanager
 from typing import Any
 
 import structlog
@@ -9,7 +10,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
 
-from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 from products.warehouse_sources.backend.models.util import _is_safe_public_ip
 
 logger = structlog.get_logger(__name__)
@@ -134,6 +135,88 @@ def make_ssh_tunnel_factory(config) -> Callable[[], _GeneratorContextManager[tup
         yield config.host, config.port
 
     return without_ssh_func
+
+
+def ssh_tunnel_config_is_valid(ssh_tunnel_config: dict[str, Any] | None, team_id: int) -> tuple[bool, str | None]:
+    """Validate a raw SSH tunnel config dict (as stored on a batch export destination).
+
+    Mirrors `SSHTunnelMixin.ssh_tunnel_is_valid` but accepts the plain dict that batch
+    exports carry through their workflow inputs instead of a typed `Config` object.
+    Returns `(True, None)` when no tunnel is configured or it is disabled.
+    """
+    if not ssh_tunnel_config:
+        return True, None
+
+    config = SSHTunnelConfig.from_dict(ssh_tunnel_config)
+    if not config.enabled:
+        return True, None
+
+    if not config.host:
+        return False, "SSH tunnel host is required"
+
+    if not config.port:
+        return False, "SSH tunnel port is required"
+
+    is_host_valid, host_errors = _is_host_safe(config.host, team_id)
+    if not is_host_valid:
+        return False, f"SSH tunnel host not allowed: {host_errors}"
+
+    ssh_tunnel = SSHTunnel.from_config(config)
+
+    is_auth_valid, auth_errors = ssh_tunnel.is_auth_valid()
+    if not is_auth_valid:
+        return False, auth_errors
+
+    is_port_valid, port_errors = ssh_tunnel.has_valid_port()
+    if not is_port_valid:
+        return False, port_errors
+
+    return True, None
+
+
+def ssh_tunnel_requires_tls(ssh_tunnel_config: dict[str, Any] | None) -> bool:
+    """Whether the database connection behind this tunnel should still require TLS.
+
+    Databases reachable only through a bastion often don't terminate TLS themselves, so
+    the tunnel form exposes a `require_tls` toggle. Returns `True` (require TLS) when no
+    tunnel is configured, the tunnel is disabled, or the toggle is left on.
+    """
+    if not ssh_tunnel_config:
+        return True
+
+    config = SSHTunnelConfig.from_dict(ssh_tunnel_config)
+    if not config.enabled:
+        return True
+
+    return config.require_tls.enabled
+
+
+@asynccontextmanager
+async def aopen_ssh_tunnel_for_config(
+    ssh_tunnel_config: dict[str, Any] | None, host: str, port: int
+) -> AsyncIterator[tuple[str, int]]:
+    """Async variant of `open_ssh_tunnel` taking a raw config dict.
+
+    Yields the `(host, port)` to connect to: the tunnel's local bind address when a tunnel
+    is configured and enabled, otherwise the original `(host, port)`. The blocking tunnel
+    start/stop run in a thread so they don't block the activity's event loop.
+    """
+    if not ssh_tunnel_config:
+        yield host, port
+        return
+
+    config = SSHTunnelConfig.from_dict(ssh_tunnel_config)
+    if not config.enabled:
+        yield host, port
+        return
+
+    ssh_tunnel = SSHTunnel.from_config(config)
+    forwarder = ssh_tunnel.get_tunnel(host, port)
+    await asyncio.to_thread(forwarder.start)
+    try:
+        yield forwarder.local_bind_host, forwarder.local_bind_port
+    finally:
+        await asyncio.to_thread(forwarder.stop)
 
 
 class SSHTunnelMixin:

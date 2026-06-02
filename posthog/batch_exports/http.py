@@ -48,6 +48,7 @@ from posthog.models.integration import (
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_imports.sources.common.mixins import ssh_tunnel_config_is_valid
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
@@ -1103,10 +1104,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
             BatchExportDestination.Destination.POSTGRES,
             BatchExportDestination.Destination.REDSHIFT,
         ):
-            try:
-                resolve_and_validate_host(merged_config["host"])
-            except ValueError:
-                raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
+            ssh_tunnel = merged_config.get("ssh_tunnel") or {}
+            using_ssh_tunnel = str_to_bool(ssh_tunnel.get("enabled", False))
+
+            if using_ssh_tunnel:
+                # When tunneling, the database host is resolved from the bastion (and may legitimately be
+                # a private address), so we validate the tunnel host instead of the database host.
+                is_valid, ssh_tunnel_error = ssh_tunnel_config_is_valid(ssh_tunnel, self.context["team_id"])
+                if not is_valid:
+                    raise serializers.ValidationError(f"Invalid SSH tunnel configuration: {ssh_tunnel_error}")
+            else:
+                try:
+                    resolve_and_validate_host(merged_config["host"])
+                except ValueError:
+                    raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
 
         return destination_attrs
 

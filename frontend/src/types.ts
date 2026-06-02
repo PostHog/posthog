@@ -6072,6 +6072,22 @@ export type BatchExportServiceS3 = {
     }
 }
 
+export type BatchExportSSHTunnelConfig = {
+    enabled: boolean
+    host?: string | null
+    port?: number | null
+    auth?: {
+        selection?: 'password' | 'keypair' | null
+        username?: string | null
+        password?: string | null
+        private_key?: string | null
+        passphrase?: string | null
+    }
+    require_tls?: {
+        enabled?: boolean
+    }
+}
+
 export type BatchExportServicePostgres = {
     type: 'Postgres'
     config: {
@@ -6083,6 +6099,7 @@ export type BatchExportServicePostgres = {
         schema: string
         table_name: string
         has_self_signed_cert: boolean
+        ssh_tunnel?: BatchExportSSHTunnelConfig | null
         exclude_events: string[]
         include_events: string[]
     }

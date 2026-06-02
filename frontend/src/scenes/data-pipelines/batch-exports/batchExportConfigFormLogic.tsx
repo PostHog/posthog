@@ -140,6 +140,13 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
             file_format: 'Parquet',
             compression: 'zstd',
         }),
+        ...(service === 'Postgres' && {
+            ssh_tunnel: {
+                enabled: false,
+                auth: { selection: 'password' },
+                require_tls: { enabled: true },
+            },
+        }),
         ...(service === 'Redshift' && {
             mode: 'COPY',
             authorization_mode: 'IAMRole',

@@ -1,12 +1,32 @@
+import asyncio
 from dataclasses import dataclass
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin, _is_host_safe
+from posthog.temporal.data_imports.sources.common.mixins import (
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+    _is_host_safe,
+    aopen_ssh_tunnel_for_config,
+    ssh_tunnel_config_is_valid,
+    ssh_tunnel_requires_tls,
+)
+
+
+def _ssh_tunnel_config(**overrides) -> dict:
+    config = {
+        "enabled": True,
+        "host": "8.8.8.8",
+        "port": 22,
+        "auth": {"selection": "password", "username": "user", "password": "pw"},
+        "require_tls": {"enabled": True},
+    }
+    config.update(overrides)
+    return config
 
 
 class TestIsHostSafe(SimpleTestCase):
@@ -216,3 +236,100 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host=host))
         valid, _ = mixin.ssh_tunnel_is_valid(config, team_id=999)
         assert not valid
+
+
+class TestSSHTunnelConfigIsValid(SimpleTestCase):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_valid_password_config(self):
+        valid, error = ssh_tunnel_config_is_valid(_ssh_tunnel_config(), team_id=999)
+        assert valid
+        assert error is None
+
+    def test_none_config_is_valid(self):
+        valid, error = ssh_tunnel_config_is_valid(None, team_id=999)
+        assert valid
+        assert error is None
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_disabled_config_skips_validation(self):
+        valid, _ = ssh_tunnel_config_is_valid(_ssh_tunnel_config(enabled=False, host="10.0.0.1"), team_id=999)
+        assert valid
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_internal_host_blocked(self):
+        valid, error = ssh_tunnel_config_is_valid(_ssh_tunnel_config(host="10.0.0.1"), team_id=999)
+        assert not valid
+        assert "SSH tunnel host not allowed" in error  # type: ignore
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_missing_host_blocked(self):
+        valid, error = ssh_tunnel_config_is_valid(_ssh_tunnel_config(host=None), team_id=999)
+        assert not valid
+        assert "host is required" in error.lower()  # type: ignore
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_invalid_auth_blocked(self):
+        valid, error = ssh_tunnel_config_is_valid(
+            _ssh_tunnel_config(auth={"selection": "password", "username": "user"}), team_id=999
+        )
+        assert not valid
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_disallowed_port_blocked(self):
+        valid, error = ssh_tunnel_config_is_valid(_ssh_tunnel_config(port=443), team_id=999)
+        assert not valid
+
+
+class TestSSHTunnelRequiresTLS(SimpleTestCase):
+    def test_no_config_requires_tls(self):
+        assert ssh_tunnel_requires_tls(None) is True
+
+    def test_enabled_with_tls_requires_tls(self):
+        assert ssh_tunnel_requires_tls(_ssh_tunnel_config(require_tls={"enabled": True})) is True
+
+    def test_enabled_without_tls_does_not_require_tls(self):
+        assert ssh_tunnel_requires_tls(_ssh_tunnel_config(require_tls={"enabled": False})) is False
+
+    def test_disabled_tunnel_requires_tls(self):
+        assert ssh_tunnel_requires_tls(_ssh_tunnel_config(enabled=False, require_tls={"enabled": False})) is True
+
+
+class TestAOpenSSHTunnelForConfig(SimpleTestCase):
+    def test_no_config_yields_original_host(self):
+        async def run() -> tuple[str, int]:
+            async with aopen_ssh_tunnel_for_config(None, "db.example.com", 5432) as (host, port):
+                return host, port
+
+        assert asyncio.run(run()) == ("db.example.com", 5432)
+
+    def test_disabled_config_yields_original_host(self):
+        async def run() -> tuple[str, int]:
+            async with aopen_ssh_tunnel_for_config(_ssh_tunnel_config(enabled=False), "db.example.com", 5432) as (
+                host,
+                port,
+            ):
+                return host, port
+
+        assert asyncio.run(run()) == ("db.example.com", 5432)
+
+    def test_enabled_config_yields_local_bind_address(self):
+        forwarder = MagicMock()
+        forwarder.local_bind_host = "127.0.0.1"
+        forwarder.local_bind_port = 54321
+        tunnel = MagicMock()
+        tunnel.get_tunnel.return_value = forwarder
+
+        async def run() -> tuple[str, int]:
+            async with aopen_ssh_tunnel_for_config(_ssh_tunnel_config(), "db.example.com", 5432) as (host, port):
+                return host, port
+
+        with patch(
+            "posthog.temporal.data_imports.sources.common.mixins.SSHTunnel.from_config",
+            return_value=tunnel,
+        ):
+            result = asyncio.run(run())
+
+        assert result == ("127.0.0.1", 54321)
+        tunnel.get_tunnel.assert_called_once_with("db.example.com", 5432)
+        forwarder.start.assert_called_once()
+        forwarder.stop.assert_called_once()

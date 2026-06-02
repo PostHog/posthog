@@ -32,6 +32,11 @@ from posthog.models.integration import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.data_imports.sources.common.mixins import (
+    aopen_ssh_tunnel_for_config,
+    ssh_tunnel_config_is_valid,
+    ssh_tunnel_requires_tls,
+)
 
 from products.batch_exports.backend.service import (
     BatchExportField,
@@ -171,6 +176,7 @@ class PostgresInsertInputs(BatchExportInsertInputs):
     password: str | None = None
     has_self_signed_cert: bool | None = None
     integration_id: int | None = None
+    ssh_tunnel: dict | None = None
 
     def credentials(self) -> Credentials:
         user = self.user
@@ -929,7 +935,24 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         client_inputs = await _get_postgresql_integration(inputs) or inputs
         pg_client = PostgreSQLClient.from_inputs(client_inputs, database=inputs.database)
 
-        async with pg_client.connect() as pg_client:
+        is_ssh_tunnel_valid, ssh_tunnel_error = ssh_tunnel_config_is_valid(inputs.ssh_tunnel, inputs.team_id)
+        if not is_ssh_tunnel_valid:
+            raise PostgreSQLConnectionError(f"Invalid SSH tunnel configuration: {ssh_tunnel_error}")
+
+        # A database reachable only through a bastion may not terminate TLS itself, so honor the
+        # tunnel's `require_tls` toggle by relaxing the SSL mode when the user has opted out.
+        if not ssh_tunnel_requires_tls(inputs.ssh_tunnel):
+            pg_client.ssl_mode = "prefer"
+
+        async with contextlib.AsyncExitStack() as stack:
+            # Open the SSH tunnel (if configured) and point the client at its local bind address.
+            bind_host, bind_port = await stack.enter_async_context(
+                aopen_ssh_tunnel_for_config(inputs.ssh_tunnel, pg_client.host, pg_client.port)
+            )
+            pg_client.host = bind_host
+            pg_client.port = bind_port
+            pg_client = await stack.enter_async_context(pg_client.connect())
+
             table_exists = False
             try:
                 columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
@@ -1093,6 +1116,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=postgres_default_fields(),
             integration_id=inputs.integration_id,
+            ssh_tunnel=inputs.ssh_tunnel,
         )
 
         await execute_batch_export_using_internal_stage(

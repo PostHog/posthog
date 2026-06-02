@@ -742,3 +742,89 @@ def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert f"Invalid host: '{host}'" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("tunnel_host", ["10.0.0.1", "127.0.0.1", "192.168.1.1", "169.254.169.254"])
+def test_create_postgres_batch_export_fails_with_invalid_ssh_tunnel_host(
+    client: HttpClient, temporal, organization, team, user, tunnel_host
+):
+    """A Postgres export tunneling through an internal SSH host is rejected (SSRF protection)."""
+
+    destination_data = {
+        "type": "Postgres",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": "8.8.8.8",
+            "schema": "public",
+            "table_name": "my_events",
+            "ssh_tunnel": {
+                "enabled": True,
+                "host": tunnel_host,
+                "port": 22,
+                "auth": {"selection": "password", "username": "tunnel-user", "password": "tunnel-pw"},
+                "require_tls": {"enabled": True},
+            },
+        },
+    }
+    batch_export_data = {
+        "name": "my-postgres-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with override_settings(CLOUD_DEPLOYMENT="US"):
+        response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "SSH tunnel host not allowed" in response.json()["detail"]
+
+
+def test_create_postgres_batch_export_with_ssh_tunnel_allows_internal_database_host(
+    client: HttpClient, temporal, organization, team, user
+):
+    """With an SSH tunnel enabled, the database host is reached from the bastion and may be private.
+
+    The database-host SSRF check is skipped in favor of validating the tunnel host, and the SSH
+    secrets are stripped from the response.
+    """
+
+    destination_data = {
+        "type": "Postgres",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": "10.0.0.1",  # internal address, only reachable through the bastion
+            "schema": "public",
+            "table_name": "my_events",
+            "ssh_tunnel": {
+                "enabled": True,
+                "host": "8.8.8.8",
+                "port": 22,
+                "auth": {"selection": "password", "username": "tunnel-user", "password": "tunnel-pw"},
+                "require_tls": {"enabled": True},
+            },
+        },
+    }
+    batch_export_data = {
+        "name": "my-postgres-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    ssh_tunnel = response.json()["destination"]["config"]["ssh_tunnel"]
+    assert ssh_tunnel["enabled"] is True
+    assert ssh_tunnel["host"] == "8.8.8.8"
+    # The SSH tunnel password is a secret and must not be returned.
+    assert "password" not in ssh_tunnel["auth"]

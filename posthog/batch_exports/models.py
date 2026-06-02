@@ -82,7 +82,7 @@ class BatchExportDestination(UUIDTModel):
         "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
         "S3Compatible": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
-        "Postgres": {"user", "password"},
+        "Postgres": {"user", "password", "private_key", "passphrase"},
         "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
         "Databricks": set(),  # uses Integration model to store credentials

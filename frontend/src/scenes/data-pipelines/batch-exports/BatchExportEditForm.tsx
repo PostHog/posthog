@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { Group } from 'kea-forms'
 import React from 'react'
 
 import { IconInfo } from '@posthog/icons'
@@ -85,6 +86,103 @@ export function BatchExportGeneralEditFields({
                 </LemonField>
             ) : null}
         </div>
+    )
+}
+
+function BatchExportSSHTunnelFields({
+    batchExportConfigForm,
+    isNew,
+}: {
+    batchExportConfigForm: BatchExportConfigurationForm
+    isNew: boolean
+}): JSX.Element {
+    const sshTunnel = batchExportConfigForm.ssh_tunnel
+    const authType = sshTunnel?.auth?.selection ?? 'password'
+
+    return (
+        <Group name="ssh_tunnel">
+            <LemonField name="enabled">
+                {({ value, onChange }) => (
+                    <LemonCheckbox
+                        bordered
+                        label="Connect to your database through an SSH tunnel"
+                        checked={!!value}
+                        onChange={onChange}
+                    />
+                )}
+            </LemonField>
+
+            {sshTunnel?.enabled ? (
+                <>
+                    <LemonField name="host" label="Tunnel host">
+                        <LemonInput placeholder="bastion.example.com" />
+                    </LemonField>
+
+                    <LemonField name="port" label="Tunnel port">
+                        <LemonInput type="number" placeholder="22" min="0" max="65535" />
+                    </LemonField>
+
+                    <Group name="auth">
+                        <LemonField name="selection" label="Authentication type">
+                            <LemonSelect
+                                options={[
+                                    { value: 'password', label: 'Password' },
+                                    { value: 'keypair', label: 'Key pair' },
+                                ]}
+                            />
+                        </LemonField>
+
+                        {authType === 'password' ? (
+                            <>
+                                <LemonField name="username" label="Tunnel username">
+                                    <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
+                                </LemonField>
+                                <LemonField name="password" label="Tunnel password">
+                                    <LemonInput
+                                        type="password"
+                                        placeholder={isNew ? 'my-password' : 'Leave unchanged'}
+                                    />
+                                </LemonField>
+                            </>
+                        ) : (
+                            <>
+                                <LemonField name="username" label="Tunnel username" showOptional>
+                                    <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
+                                </LemonField>
+                                <LemonField name="private_key" label="Tunnel private key">
+                                    <LemonTextArea
+                                        placeholder={isNew ? 'Paste your private key' : 'Leave unchanged'}
+                                    />
+                                </LemonField>
+                                <LemonField name="passphrase" label="Tunnel passphrase" showOptional>
+                                    <LemonInput type="password" placeholder={isNew ? '' : 'Leave unchanged'} />
+                                </LemonField>
+                            </>
+                        )}
+                    </Group>
+
+                    <Group name="require_tls">
+                        <LemonField name="enabled">
+                            {({ value, onChange }) => (
+                                <LemonCheckbox
+                                    bordered
+                                    label={
+                                        <span className="flex gap-2 items-center">
+                                            Require TLS through the tunnel
+                                            <Tooltip title="Disable this if your database does not support TLS. The connection to the SSH server is always encrypted regardless.">
+                                                <IconInfo className="text-lg text-secondary" />
+                                            </Tooltip>
+                                        </span>
+                                    }
+                                    checked={value === undefined ? true : !!value}
+                                    onChange={onChange}
+                                />
+                            )}
+                        </LemonField>
+                    </Group>
+                </>
+            ) : null}
+        </Group>
     )
 }
 
@@ -451,6 +549,8 @@ export function BatchExportsEditFields({
                             />
                         )}
                     </LemonField>
+
+                    <BatchExportSSHTunnelFields batchExportConfigForm={batchExportConfigForm} isNew={isNew} />
                 </>
             ) : batchExportConfigForm.destination === 'Redshift' ? (
                 <>
