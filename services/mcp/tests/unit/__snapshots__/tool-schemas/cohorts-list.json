@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "hide_behavioral_cohorts": {
+            "description": "Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

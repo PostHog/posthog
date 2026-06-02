@@ -31,7 +31,9 @@ from posthog.cdp.validation import (
     InputsSerializer,
     generate_template_bytecode,
 )
-from posthog.models import Team
+from posthog.event_usage import EventSource, get_event_source
+from posthog.models import Cohort, Team
+from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -145,6 +147,46 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
+    def _should_enforce_audience_guard(self, is_draft) -> bool:
+        # Non-draft saves always validate. Drafts stay lenient only for the web UI builder (users save
+        # incomplete graphs while building); programmatic callers (MCP, posthog-code, API) send complete
+        # graphs, so enforce even on their drafts and fail fast at create time.
+        if not is_draft:
+            return True
+        request = self.context.get("request")
+        return request is None or get_event_source(request) != EventSource.WEB
+
+    def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
+        # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
+        # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
+        # that for API/MCP callers. Mirrors the feature-flag guard in posthog/api/cohort.py.
+        if not isinstance(properties, list):
+            return
+        cohort_ids = [
+            p["value"]
+            for p in properties
+            if isinstance(p, dict) and p.get("type") == "cohort" and p.get("value") is not None
+        ]
+        if not cohort_ids:
+            return
+        project_id = self.context["get_team"]().project_id
+        for cohort_id in cohort_ids:
+            try:
+                cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id, deleted=False)
+            except (Cohort.DoesNotExist, ValueError, TypeError):
+                continue  # missing/invalid cohort surfaces during audience resolution, not here
+            for dep in [cohort, *get_all_cohort_dependencies(cohort)]:
+                if any(p.type == "behavioral" for p in dep.properties.flat):
+                    raise serializers.ValidationError(
+                        {
+                            "filters": (
+                                f"Cohort '{dep.name}' targets event behavior, which batch/schedule audiences "
+                                "can't evaluate. Use a static or property-based cohort, or an event trigger "
+                                "for behavioral targeting."
+                            )
+                        }
+                    )
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
 
@@ -166,8 +208,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                         serializer.is_valid(raise_exception=True)
                         data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
+                filters = data.get("config", {}).get("filters", {})
                 if not is_draft:
-                    filters = data.get("config", {}).get("filters", {})
                     if not filters:
                         raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
                     if not isinstance(filters, dict):
@@ -188,10 +230,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 )
                             }
                         )
+                if self._should_enforce_audience_guard(is_draft) and isinstance(filters, dict):
+                    self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             elif data.get("config", {}).get("type") == "schedule":
-                # Schedule triggers have no extra validation - the schedule definition
-                # lives on a separate HogFlowSchedule row keyed by hog_flow_id.
-                pass
+                # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
+                # resolves the same offline audience as batch — guard its cohort refs the same way.
+                if self._should_enforce_audience_guard(is_draft):
+                    filters = data.get("config", {}).get("filters", {})
+                    if isinstance(filters, dict):
+                        self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             else:
                 if not is_draft:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})

@@ -286,6 +286,73 @@ describe('Workflows', { concurrent: false }, () => {
             })
             await expect(createTool.handler(context, params)).rejects.toThrow()
         })
+
+        it('should reject a batch audience that references a behavioral cohort', async () => {
+            const projectId = await context.stateManager.getProjectId()
+            const cohortPath = `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`
+            const cohort = await context.api.request<{ id: number }>({
+                method: 'POST',
+                path: cohortPath,
+                body: {
+                    name: `mcp-test-behavioral-${generateUniqueKey('cohort')}`,
+                    filters: {
+                        properties: {
+                            type: 'OR',
+                            values: [
+                                {
+                                    type: 'OR',
+                                    values: [
+                                        {
+                                            key: '$pageview',
+                                            type: 'behavioral',
+                                            value: 'performed_event',
+                                            event_type: 'events',
+                                            time_value: 30,
+                                            time_interval: 'day',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                },
+            })
+
+            try {
+                const ts = Date.now()
+                const params = makeBatchWorkflowParams({
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            created_at: ts,
+                            updated_at: ts,
+                            config: {
+                                type: 'batch',
+                                filters: {
+                                    properties: [{ key: 'id', type: 'cohort', value: cohort.id, operator: 'in' }],
+                                },
+                            },
+                        },
+                        {
+                            id: 'exit_node',
+                            name: 'Exit',
+                            type: 'exit',
+                            created_at: ts,
+                            updated_at: ts,
+                            config: { reason: 'Default exit' },
+                        },
+                    ],
+                })
+                // MCP requests are non-web, so the guard fires even on a draft save.
+                await expect(createTool.handler(context, params)).rejects.toThrow(/behavior/i)
+            } finally {
+                await context.api
+                    .request({ method: 'PATCH', path: `${cohortPath}${cohort.id}/`, body: { deleted: true } })
+                    .catch(() => {})
+            }
+        })
     })
 
     describe('workflows-update tool', () => {

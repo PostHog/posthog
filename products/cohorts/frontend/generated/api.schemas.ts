@@ -312,6 +312,10 @@ export interface PatchedRemovePersonRequestApi {
 
 export type CohortsListParams = {
     /**
+     * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
+     */
+    hide_behavioral_cohorts?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number

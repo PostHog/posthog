@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models import Organization, Team, User
+from posthog.models import Cohort, Organization, Team, User
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -901,6 +901,94 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None) -> Cohort:
+        if behavioral:
+            properties = {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
+                            }
+                        ],
+                    }
+                ],
+            }
+        elif nested_cohort_id is not None:
+            properties = {
+                "type": "OR",
+                "values": [{"type": "OR", "values": [{"key": "id", "type": "cohort", "value": nested_cohort_id}]}],
+            }
+        else:  # property-based dynamic
+            properties = {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [{"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"}],
+                    }
+                ],
+            }
+        filters = {} if static else {"properties": properties}
+        return Cohort.objects.create(team=self.team, name="c", filters=filters, is_static=static)
+
+    def _post_batch_with_cohort(self, cohort_id: int, *, status: str = "active", trigger_type: str = "batch", **extra):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": trigger_type,
+                "filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}]},
+            },
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
+
+    @parameterized.expand(["batch", "schedule"])
+    def test_hog_flow_audience_rejects_behavioral_cohort(self, trigger_type: str):
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
+        assert response.status_code == 400, response.json()
+        assert "behavior" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_rejects_nested_behavioral_cohort(self):
+        behavioral = self._make_cohort(behavioral=True)
+        wrapper = self._make_cohort(nested_cohort_id=behavioral.pk)
+        response = self._post_batch_with_cohort(wrapper.pk)
+        assert response.status_code == 400, response.json()
+        assert "behavior" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_allows_static_cohort(self):
+        cohort = self._make_cohort(static=True)
+        response = self._post_batch_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_batch_trigger_allows_property_cohort(self):
+        cohort = self._make_cohort()
+        response = self._post_batch_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_batch_trigger_behavioral_cohort_rejected_for_mcp_draft(self):
+        # Draft is lenient for the UI builder but enforced for programmatic (MCP) callers.
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_batch_with_cohort(cohort.pk, status="draft", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 400, response.json()
+        assert "behavior" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_behavioral_cohort_allowed_for_web_draft(self):
+        # Web UI must be able to save incomplete draft graphs without the guard firing.
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_batch_with_cohort(cohort.pk, status="draft")
         assert response.status_code == 201, response.json()
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
