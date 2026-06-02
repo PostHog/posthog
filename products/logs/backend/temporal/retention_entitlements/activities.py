@@ -39,6 +39,9 @@ async def enforce_logs_retention_entitlements(
         ):
             logs_settings = team.logs_settings or {}
             retention_days = logs_settings.get("retention_days")
+            if not isinstance(retention_days, int):
+                continue
+
             required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(retention_days)
             if not required_feature:
                 continue
