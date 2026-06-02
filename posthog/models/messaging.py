@@ -57,16 +57,14 @@ class MessagingRecordManager(models.Manager):
         return await super().aget_or_create(defaults, **kwargs)
 
     def filter(self, *args, **kwargs):
+        # A raw_email maps to multiple hashes across salt rotations, so we only remap it
+        # on filter() — never get(), which would raise MultipleObjectsReturned if both a
+        # pre- and post-rotation record exist. Callers needing one row use
+        # filter(raw_email=...).first()/.exists().
         raw_email = kwargs.pop("raw_email", None)
         if raw_email is not None:
             kwargs["email_hash__in"] = get_email_hashes(raw_email)
         return super().filter(*args, **kwargs)
-
-    def get(self, *args, **kwargs):
-        raw_email = kwargs.pop("raw_email", None)
-        if raw_email is not None:
-            kwargs["email_hash__in"] = get_email_hashes(raw_email)
-        return super().get(*args, **kwargs)
 
 
 class MessagingRecord(UUIDTModel):
