@@ -152,6 +152,30 @@ describe('PropertyValue', () => {
         expect(input).toHaveValue('user.*7$')
     })
 
+    it('trims surrounding whitespace from a pasted value before committing it', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="$ai_trace_id"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        userEvent.click(input)
+        await userEvent.paste(' 9c8a6265-382a-4972-9640-b400dabdd83e ')
+        await userEvent.type(input, '{enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenCalledWith(['9c8a6265-382a-4972-9640-b400dabdd83e'])
+        })
+    })
+
     it('keeps numeric-only input for non-regex numeric properties', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/userId': {
