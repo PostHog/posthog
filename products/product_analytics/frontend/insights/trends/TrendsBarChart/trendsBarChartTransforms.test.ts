@@ -106,19 +106,19 @@ describe('buildTrendsBarAggregatedSeries', () => {
         ['Runtime & Code', 2],
     ]
 
-    it('gives each breakdown row of a formula its own band by default (separate bars)', () => {
+    it.each([
+        { name: 'separate by default — one band per breakdown value', stackBreakdowns: undefined, expectedBands: 7 },
+        { name: 'one band per formula when stackBreakdowns is set', stackBreakdowns: true, expectedBands: 3 },
+    ])('formula breakdown rows: $name', ({ stackBreakdowns, expectedBands }) => {
         const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
-        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(displayLabels).toEqual(formulaBreakdownSpec.map(([label]) => label))
-        // 7 results → 7 distinct bands: one bar per breakdown value.
-        expect(new Set(labels).size).toBe(7)
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns })
+        expect(new Set(labels).size).toBe(expectedBands)
     })
 
-    it("collapses a formula's breakdown rows onto one band per formula when stackBreakdowns is set", () => {
+    it('keeps each result label as its band display label in separate mode', () => {
         const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
-        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
-        // 7 results, but only 3 band slots — one per formula.
-        expect(new Set(labels).size).toBe(3)
+        const { displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual(formulaBreakdownSpec.map(([label]) => label))
     })
 
     it('keeps current and previous on separate bands in stacked mode even at the same order', () => {
