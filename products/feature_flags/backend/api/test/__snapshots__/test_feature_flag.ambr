@@ -2605,7 +2605,8 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",

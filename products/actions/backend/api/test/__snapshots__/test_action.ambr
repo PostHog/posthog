@@ -221,7 +221,8 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.11
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
@@ -839,7 +840,8 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.20
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
@@ -1103,7 +1105,8 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.3
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
