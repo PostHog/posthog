@@ -2281,6 +2281,8 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit: integer
     offset: integer
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[]
 }
 
 export type AccountsRoleAssignmentFilter = integer | 'unassigned'
@@ -2288,12 +2290,16 @@ export type AccountsRoleAssignmentFilter = integer | 'unassigned'
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
     csm?: AccountsRoleAssignmentFilter
     accountExecutive?: AccountsRoleAssignmentFilter
     accountOwner?: AccountsRoleAssignmentFilter
     allRolesUnassigned?: boolean
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: HogQLExpression
     orderBy?: string[]
     limit?: integer
     offset?: integer

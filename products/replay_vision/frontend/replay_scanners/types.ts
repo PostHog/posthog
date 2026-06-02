@@ -205,8 +205,6 @@ export interface ScorerScanner extends BaseReplayScanner {
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
 
-export type { VisionQuotaApi as VisionQuota } from '../generated/api.schemas'
-
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.
 export function scannerFromApi(api: ReplayScannerApi): ReplayScanner {
