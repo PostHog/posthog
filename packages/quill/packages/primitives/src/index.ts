@@ -218,6 +218,16 @@ export {
 } from './toast'
 export { Spinner } from './spinner'
 export { Switch } from './switch'
+export {
+    Table,
+    TableHeader,
+    TableBody,
+    TableFooter,
+    TableHead,
+    TableRow,
+    TableCell,
+    TableCaption,
+} from './table'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Textarea } from './textarea'
 export { Toggle, toggleVariants } from './toggle'

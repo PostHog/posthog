@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-01 11:57:12 UTC
+// Generated at: 2026-06-01 21:10:02 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -47,7 +47,6 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepseek'
     | 'dekallm-bf16'
-    | 'dekallm-fp4'
     | 'dekallm-fp8'
     | 'digitalocean'
     | 'fireworks'

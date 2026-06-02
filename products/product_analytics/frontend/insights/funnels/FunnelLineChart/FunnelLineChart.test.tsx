@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
@@ -11,6 +11,8 @@ import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
 
 import { FUNNEL_CONVERSION_SERIES_LABEL } from '../shared/funnelSeriesMeta'
+
+configure({ asyncUtilTimeout: 3000 })
 
 ensureJsdom()
 
@@ -118,12 +120,18 @@ describe('FunnelLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const lines = getHogChart().referenceLines()
-            // value→pixel isn't recoverable from the DOM; assert the line is labelled,
-            // drawn horizontally (across the value axis), and actually positioned.
-            expect(lines).toEqual([
-                expect.objectContaining({ label: 'Target', orientation: 'horizontal', position: expect.any(Number) }),
-            ])
+            await waitFor(() => {
+                const lines = getHogChart().referenceLines()
+                // value→pixel isn't recoverable from the DOM; assert the line is labelled,
+                // drawn horizontally (across the value axis), and actually positioned.
+                expect(lines).toEqual([
+                    expect.objectContaining({
+                        label: 'Target',
+                        orientation: 'horizontal',
+                        position: expect.any(Number),
+                    }),
+                ])
+            })
         })
     })
 

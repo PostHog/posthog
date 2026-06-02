@@ -342,11 +342,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const ticks = getHogChart().yTicks()
-            expect(ticks.length).toBeGreaterThan(0)
-            for (const t of ticks) {
-                expect(t).toMatch(/%/)
-            }
+            await waitFor(() => {
+                const ticks = getHogChart().yTicks()
+                expect(ticks.length).toBeGreaterThan(0)
+                for (const t of ticks) {
+                    expect(t).toMatch(/%/)
+                }
+            })
         })
     })
 

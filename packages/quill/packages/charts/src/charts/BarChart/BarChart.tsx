@@ -169,14 +169,17 @@ function BarChartInner<Meta = unknown>({
         maxBandRange,
         bandPadding,
         minBandSize,
+        fitToHeight = false,
         valueDomain,
         roundStackEnds = false,
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
+    // Fit-to-height drops overflow rows instead of growing the container, so it never sets a
+    // wrapper floor — the chart fills whatever height the tile gives it.
     const wrapperMinHeight = useMemo(() => {
-        if (!isHorizontal || resolvedMinBandSize <= 0) {
+        if (!isHorizontal || fitToHeight || resolvedMinBandSize <= 0) {
             return undefined
         }
         const uniqueBands = new Set(labels).size
@@ -184,7 +187,7 @@ function BarChartInner<Meta = unknown>({
             return undefined
         }
         return uniqueBands * resolvedMinBandSize + HORIZONTAL_CHART_MARGIN_PX
-    }, [isHorizontal, resolvedMinBandSize, labels])
+    }, [isHorizontal, fitToHeight, resolvedMinBandSize, labels])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
@@ -256,6 +259,8 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                fitToHeight,
+                minBandSize: resolvedMinBandSize,
                 valueDomain,
             })
 
@@ -315,6 +320,8 @@ function BarChartInner<Meta = unknown>({
             divergingStack,
             maxBandRange,
             bandPadding,
+            fitToHeight,
+            resolvedMinBandSize,
             valueDomain,
         ]
     )

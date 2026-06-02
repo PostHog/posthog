@@ -56,7 +56,7 @@ describe('goalLinesAdapter', () => {
                 orientation: 'horizontal',
                 variant: 'goal',
                 label: 'Target',
-                labelPosition: 'start',
+                labelPosition: 'end',
             })
         })
 
@@ -67,7 +67,7 @@ describe('goalLinesAdapter', () => {
                 { style: { color: 'var(--danger)' } },
             ],
             ['omits label when displayLabel is false', { displayLabel: false }, { label: undefined }],
-            ['respects explicit labelPosition', { position: 'end' }, { labelPosition: 'end' }],
+            ['respects explicit labelPosition', { position: 'start' }, { labelPosition: 'start' }],
         ] as const)('%s', (_, goalOverrides, expectedProps) => {
             const goals: SchemaGoalLine[] = [{ label: 'X', value: 50, ...goalOverrides }]
             expect(goalLinesToReferenceLines(goals, series)[0]).toMatchObject(expectedProps)
@@ -111,7 +111,7 @@ describe('goalLinesAdapter', () => {
                 orientation: 'horizontal',
                 variant: 'alert',
                 label: 'Upper',
-                labelPosition: 'start',
+                labelPosition: 'end',
             })
             expect(result[1]).toMatchObject({ value: 10, variant: 'alert' })
         })

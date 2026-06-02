@@ -26,7 +26,7 @@ function schemaToReferenceLine(line: SchemaGoalLine, variant: 'goal' | 'alert'):
         value: line.value,
         orientation: 'horizontal',
         label: line.displayLabel === false ? undefined : line.label,
-        labelPosition: line.position ?? 'start',
+        labelPosition: line.position ?? 'end',
         variant,
         style: line.borderColor ? { color: line.borderColor } : undefined,
     }

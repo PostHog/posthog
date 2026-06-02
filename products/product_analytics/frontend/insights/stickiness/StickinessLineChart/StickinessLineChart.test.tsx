@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -8,6 +8,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+
+configure({ asyncUtilTimeout: 3000 })
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
@@ -31,7 +33,7 @@ describe('StickinessLineChart', () => {
         it('renders the chart from a StickinessQuery with one series', async () => {
             renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
 
-            await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 3000 })
+            await screen.findByRole('img', { name: /chart with 1 data series/i })
         })
     })
 
@@ -40,11 +42,13 @@ describe('StickinessLineChart', () => {
             renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const ticks = getHogChart().yTicks()
-            expect(ticks.length).toBeGreaterThan(0)
-            for (const t of ticks) {
-                expect(t).toMatch(/%/)
-            }
+            await waitFor(() => {
+                const ticks = getHogChart().yTicks()
+                expect(ticks.length).toBeGreaterThan(0)
+                for (const t of ticks) {
+                    expect(t).toMatch(/%/)
+                }
+            })
         })
     })
 

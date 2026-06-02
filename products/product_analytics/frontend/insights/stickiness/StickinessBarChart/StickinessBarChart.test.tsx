@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -9,6 +9,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
+
+configure({ asyncUtilTimeout: 3000 })
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
@@ -64,9 +66,11 @@ describe('StickinessBarChart', () => {
         renderInsight({ query: stickinessBar(), featureFlags: HOG_CHARTS_FLAG })
 
         await screen.findByRole('img', { name: /chart with/i })
-        const ticks = getHogChart().yTicks()
-        expect(ticks.length).toBeGreaterThan(0)
-        expect(ticks.every((t) => /%/.test(t))).toBe(true)
+        await waitFor(() => {
+            const ticks = getHogChart().yTicks()
+            expect(ticks.length).toBeGreaterThan(0)
+            expect(ticks.every((t) => /%/.test(t))).toBe(true)
+        })
     })
 
     it('tooltip: percent value + "stickiness on {interval} {day}" title (not a calendar date)', async () => {

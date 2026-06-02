@@ -564,6 +564,19 @@ class TestInfoProcess:
         assert "hogli dev:setup" in shell
         assert "hogli dev:explain" in shell
 
+    def test_info_process_includes_path_and_secrets(self) -> None:
+        """Info process shell surfaces repo path and secrets source live."""
+        procs = self._generate_with_intents(["feature_flags"])
+        shell = procs["info"]["shell"]
+
+        assert "Path:" in shell
+        assert "${REPOSITORY_ROOT:-$PWD}" in shell
+
+        assert "Secrets:" in shell
+        assert "_POSTHOG_OP_RESOLVED" in shell
+        assert "1Password" in shell
+        assert "local .env files" in shell
+
 
 class TestMprocsGeneratorRegression:
     """Regression tests for generator behavior with the real intent map."""

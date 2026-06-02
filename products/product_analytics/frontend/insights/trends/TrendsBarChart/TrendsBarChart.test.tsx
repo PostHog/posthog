@@ -284,6 +284,45 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         )
     })
 
+    it('labels each aggregated breakdown bar by its breakdown value, one band per value by default', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                const ticks = getHogChart().yTicks()
+                expect(ticks).toEqual(expect.arrayContaining(['Spike']))
+                expect(ticks).toHaveLength(5)
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('collapses breakdown bars onto one band when stackBreakdownValues is set', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsBarValue, stackBreakdownValues: true },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                expect(getHogChart().yTicks()).toHaveLength(1)
+            },
+            { timeout: 5000 }
+        )
+    })
+
     it('omits the header from the tooltip', async () => {
         renderInsight({
             query: aggregatedBar(),
