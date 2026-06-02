@@ -320,6 +320,15 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
 
         return {
             syncUrlAndRunQuery: () => buildUrl(),
+            // Strip the deep-link params when the modal closes so they don't linger in the address
+            // bar (a copied URL would otherwise reopen the modal, and a later URL change could too).
+            closeTraceModal: (): [string, Params, Record<string, any>, { replace: boolean }] => {
+                const searchParams: Params = { ...router.values.searchParams }
+                delete searchParams.traceId
+                delete searchParams.spanId
+                delete searchParams.ts
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
         }
     }),
 ])

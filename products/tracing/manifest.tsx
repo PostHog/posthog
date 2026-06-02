@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +25,12 @@ export const manifest: ProductManifest = {
     redirects: {},
     urls: {
         tracing: (): string => '/tracing',
+        tracingTrace: (traceId: string, options?: { spanId?: string; timestamp?: string | number }): string =>
+            combineUrl('/tracing', {
+                traceId,
+                ...(options?.spanId ? { spanId: options.spanId } : {}),
+                ...(options?.timestamp ? { ts: options.timestamp } : {}),
+            }).url,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

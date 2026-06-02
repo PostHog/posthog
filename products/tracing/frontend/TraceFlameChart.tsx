@@ -468,14 +468,17 @@ export function TraceFlameChart({ spans, highlightSpanId }: TraceFlameChartProps
     const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
 
     // Auto-select the deep-linked span (matched by OTel span id) once its trace has loaded. The
-    // flame chart selects by row uuid, so resolve the span id to its uuid here.
+    // flame chart selects by row uuid, so resolve the span id to its uuid here. The ref ensures we
+    // apply each highlight exactly once — later `spans` updates must not override a manual selection.
+    const appliedHighlightRef = useRef<string | null>(null)
     useEffect(() => {
-        if (!highlightSpanId) {
+        if (!highlightSpanId || appliedHighlightRef.current === highlightSpanId) {
             return
         }
         const match = spans.find((s) => s.span_id === highlightSpanId)
         if (match) {
             setSelectedSpanId(match.uuid)
+            appliedHighlightRef.current = highlightSpanId
         }
     }, [highlightSpanId, spans])
     const [cursorPct, setCursorPct] = useState<number | null>(null)
