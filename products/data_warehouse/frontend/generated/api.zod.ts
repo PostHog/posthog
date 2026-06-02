@@ -1434,7 +1434,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1477,7 +1477,7 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1522,7 +1522,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1569,7 +1569,7 @@ export const WarehouseSavedQueriesAncestorsCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1612,7 +1612,7 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1659,7 +1659,7 @@ export const WarehouseSavedQueriesDescendantsCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1702,7 +1702,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1748,7 +1748,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1791,7 +1791,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1837,7 +1837,7 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
                 query: zod.string(),
             })
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT \* FROM events LIMIT 100\"}'
             ),
         folder_id: zod
             .uuid()
