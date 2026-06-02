@@ -57,7 +57,7 @@ jobs:
                   clean: false
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
@@ -71,9 +71,10 @@ jobs:
 
     build-images:
         needs: affected
-        # Run unless affected explicitly found zero images.
-        # When affected is skipped (workflow_dispatch), result is 'skipped' = build all.
-        # When affected fails (tool panic, checkout error), result is 'failure' = stop.
+        # always() is required because 'affected' may be skipped (workflow_dispatch),
+        # and GitHub Actions treats skipped dependencies as failures by default.
+        # !cancelled() prevents running after manual workflow cancellation.
+        # Run unless affected explicitly found zero images ('none') or failed.
         if: |
             always() && !cancelled() &&
             needs.affected.result != 'failure' &&

@@ -5,8 +5,7 @@ use determinator::Determinator;
 use guppy::graph::{DependencyDirection, PackageGraph};
 
 use crate::images::{build_binary_to_crate_map, map_crates_to_images, ImageConfig};
-
-const RULES_TOML: &str = include_str!("../determinator-rules.toml");
+use crate::RULES_TOML;
 
 pub fn dump_graph(graph: &PackageGraph, images: &[ImageConfig]) {
     let bin_to_crate = build_binary_to_crate_map(graph);

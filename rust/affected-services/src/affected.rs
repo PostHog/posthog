@@ -9,8 +9,7 @@ use serde::Serialize;
 use crate::images::{
     build_binary_to_crate_map, map_crates_to_images, non_crate_images_affected, ImageConfig,
 };
-
-const RULES_TOML: &str = include_str!("../determinator-rules.toml");
+use crate::RULES_TOML;
 const WORKSPACE_PREFIX: &str = "rust/";
 
 #[derive(Debug, Serialize)]
