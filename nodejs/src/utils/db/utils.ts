@@ -66,8 +66,17 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     let $set: Record<string, any> | undefined
     let $set_once: Record<string, any> | undefined
 
+    // Server SDKs stamp their host $os/$os_version (e.g. "Linux") on every event. Without
+    // device evidence ($browser/$device_type/$os_name), drop those so they can't poison the
+    // sticky $initial_os via $set_once. Other keys are never auto-sent server-side.
+    const hasDeviceContext = '$browser' in properties || '$device_type' in properties || '$os_name' in properties
+
     for (const key of eventToPersonProperties) {
         if (!(key in properties)) {
+            continue
+        }
+
+        if (!hasDeviceContext && (key === '$os' || key === '$os_version')) {
             continue
         }
 

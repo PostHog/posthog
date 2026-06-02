@@ -118,4 +118,41 @@ describe('personInitialAndUTMProperties()', () => {
             $set: { $os: 'Windows' },
         })
     })
+    it('does not map server-side $os/$os_version onto the person without device context', () => {
+        // posthog-python on a Linux host stamps its own $os on every event. Without device
+        // evidence it must not reach $set or $set_once, or it permanently poisons $initial_os.
+        const properties = {
+            $lib: 'posthog-python',
+            $os: 'Linux',
+            $os_version: '5.15.0',
+            utm_source: 'newsletter',
+        }
+        expect(personInitialAndUTMProperties(properties)).toEqual({
+            $lib: 'posthog-python',
+            $os: 'Linux',
+            $os_version: '5.15.0',
+            utm_source: 'newsletter',
+            $set: { utm_source: 'newsletter' },
+            $set_once: { $initial_utm_source: 'newsletter' },
+        })
+    })
+    it('drops $os_version even when $os is absent (server host)', () => {
+        expect(personInitialAndUTMProperties({ $os_version: '5.15.0' })).toEqual({ $os_version: '5.15.0' })
+    })
+    it.each([
+        ['$browser present (web)', { $os: 'Linux', $browser: 'Chrome' }, 'Linux'],
+        ['$device_type present (web)', { $os: 'Linux', $device_type: 'Desktop' }, 'Linux'],
+        ['$os_name present (mobile)', { $os: 'iOS', $os_name: 'iOS' }, 'iOS'],
+        ['no device context (server host OS)', { $os: 'Linux' }, undefined],
+        ['$current_url is not device evidence', { $os: 'Linux', $current_url: 'https://x.com' }, undefined],
+    ])('maps $os to $initial_os only with device context: %s', (_desc, properties, expected) => {
+        const result = personInitialAndUTMProperties({ ...properties })
+        const setOnce = result.$set_once as Record<string, any> | undefined
+        const set = result.$set as Record<string, any> | undefined
+        expect(setOnce?.$initial_os).toBe(expected)
+        if (expected === undefined) {
+            // server host $os must not reach current $set either, not just $set_once
+            expect(set?.$os).toBeUndefined()
+        }
+    })
 })
