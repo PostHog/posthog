@@ -999,7 +999,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     sourceType: values.source?.source_type,
                     count: eligible.length,
                 })
-                reportBulkResult('Started sync for', eligible.length, failed, skipped, 'with no sync method')
+                reportBulkResult(
+                    'Started sync for',
+                    eligible.length,
+                    failed,
+                    skipped,
+                    'disabled or missing sync method'
+                )
             },
             bulkResync: async ({ schemas }) => {
                 const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.resync(id))
