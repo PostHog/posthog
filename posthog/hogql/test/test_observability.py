@@ -1,4 +1,6 @@
-from django.test import SimpleTestCase, override_settings
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from prometheus_client import REGISTRY
 
@@ -20,8 +22,8 @@ def _metric(name: str, labels: dict[str, str]) -> float:
 
 
 class TestHogQLTypeObservability(SimpleTestCase):
-    @override_settings(HOGQL_TYPE_OBSERVABILITY_ENABLED=False, HOGQL_TYPE_OBSERVABILITY_SAMPLE_RATE=1.0)
-    def test_disabled_observability_does_not_emit_metrics(self):
+    @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 0.0)
+    def test_zero_sample_rate_does_not_emit_metrics(self):
         base = {"engine": "current", "dialect": "clickhouse", "source": "sql_editor"}
         before = _metric("hogql_typecheck_total", {**base, "result": "success"})
 
@@ -30,9 +32,10 @@ class TestHogQLTypeObservability(SimpleTestCase):
         stats.typed_by_precision["precise"] = 1
         emit_hogql_type_observability(stats)
 
+        self.assertFalse(stats.sampled)
         self.assertEqual(_metric("hogql_typecheck_total", {**base, "result": "success"}), before)
 
-    @override_settings(HOGQL_TYPE_OBSERVABILITY_ENABLED=True, HOGQL_TYPE_OBSERVABILITY_SAMPLE_RATE=1.0)
+    @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
     def test_emits_expression_coverage_metrics_with_bounded_labels(self):
         base = {"engine": "current", "dialect": "clickhouse", "source": "sql_editor"}
         before_observed = _metric("hogql_expression_observed_total", base)

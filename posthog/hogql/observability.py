@@ -6,8 +6,6 @@ from random import random
 from time import perf_counter
 from typing import Literal
 
-from django.conf import settings
-
 from prometheus_client import (
     Counter as PromCounter,
     Histogram,
@@ -188,17 +186,21 @@ class HogQLTypeObservability:
             self.record_unknown("unknown_property_metadata", unknown_count)
 
 
+# Fraction of HogQL prepare+typecheck passes to instrument. The collectors walk the whole
+# prepared AST, so sampling bounds that cost; set to 0 to disable instrumentation entirely.
+TYPE_OBSERVABILITY_SAMPLE_RATE = 1.0
+
+
 def create_hogql_type_observability(
     dialect: str, source: str = "unknown", engine: str = "current"
 ) -> HogQLTypeObservability:
-    enabled = bool(getattr(settings, "HOGQL_TYPE_OBSERVABILITY_ENABLED", False))
-    sample_rate = float(getattr(settings, "HOGQL_TYPE_OBSERVABILITY_SAMPLE_RATE", 0.0))
+    enabled = TYPE_OBSERVABILITY_SAMPLE_RATE > 0
     return HogQLTypeObservability(
         engine=_clean_tag(engine),
         dialect=_clean_tag(dialect),
         source=_clean_tag(source),
         enabled=enabled,
-        sampled=enabled and sample_rate > 0 and random() < sample_rate,
+        sampled=enabled and random() < TYPE_OBSERVABILITY_SAMPLE_RATE,
     )
 
 
