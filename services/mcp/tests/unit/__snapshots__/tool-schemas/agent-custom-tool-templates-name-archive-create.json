@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "args_schema": {
+            "description": "TypeBox / JSON Schema for tool args."
+        },
+        "compiled_js": {
+            "description": "Last bundle output. Copied into `bundle/tools/<alias>/compiled.js` at freeze.",
+            "type": "string"
+        },
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "returns_schema": {
+            "description": "Optional TypeBox / JSON Schema for the return value (informational)."
+        },
+        "source": {
+            "description": "TypeScript source the bundler compiles to `compiled_js`.",
+            "type": "string"
+        }
+    },
+    "required": ["name", "source", "compiled_js", "args_schema"],
+    "type": "object"
+}

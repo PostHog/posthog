@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "Description for the new template.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "name": {
+            "description": "Slug for the duplicate.",
+            "maxLength": 128,
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

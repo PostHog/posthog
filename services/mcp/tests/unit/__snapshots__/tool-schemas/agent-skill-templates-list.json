@@ -1,0 +1,10 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "search": {
+            "description": "Optional substring filter against name + description.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
