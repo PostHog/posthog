@@ -95,7 +95,7 @@ def _build_initial_params(
         and db_incremental_field_last_value is not None
     )
 
-    if use_incremental and incremental_field is not None:
+    if use_incremental:
         # `incremental_field` is the user's chosen cursor column (updated_at or
         # created_at). Filter server-side on `<field>_min` and sort ascending on
         # the same field so the pipeline watermark advances monotonically.

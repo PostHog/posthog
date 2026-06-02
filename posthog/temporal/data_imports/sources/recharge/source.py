@@ -89,11 +89,11 @@ Some resources (such as Payment methods) are only available on Recharge Pro or C
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=(inc_fields := INCREMENTAL_FIELDS.get(endpoint)) is not None,
+                supports_append=inc_fields is not None,
+                incremental_fields=inc_fields or [],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:
