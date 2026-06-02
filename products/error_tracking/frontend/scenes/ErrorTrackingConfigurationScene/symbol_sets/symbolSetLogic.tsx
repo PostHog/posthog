@@ -83,7 +83,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
                     orderBy: values.symbolSetOrder,
-                    search: values.searchQuery || undefined,
+                    search: values.searchQuery.trim() || undefined,
                 })
                 return res
             },
