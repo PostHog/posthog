@@ -1,3 +1,5 @@
+import os
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -164,3 +166,14 @@ class TestOrganizationCustomAsset(APIBaseTest):
         form = OrganizationCustomAssetInlineForm(data={"key": "logo"}, files={})
         assert not form.is_valid()
         assert "image" in form.errors
+
+    def test_admin_inline_form_rejects_image_when_object_storage_disabled(self) -> None:
+        # A valid image that would otherwise pass — it must be rejected so no asset row is saved
+        # without retrievable media when object storage is unavailable.
+        fixture = os.path.join(os.path.dirname(__file__), "fixtures", "a-small-but-valid.gif")
+        with open(fixture, "rb") as f:
+            image = SimpleUploadedFile("logo.gif", f.read(), content_type="image/gif")
+        with override_settings(OBJECT_STORAGE_ENABLED=False):
+            form = OrganizationCustomAssetInlineForm(data={"key": "logo"}, files={"image": image})
+            assert not form.is_valid()
+            assert "image" in form.errors

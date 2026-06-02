@@ -22,6 +22,7 @@ from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 from posthog.models.organization_custom_asset import OrganizationCustomAsset, save_content_to_object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.legal_documents.backend.admin import LegalDocumentInline
 
@@ -487,6 +488,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
         organization: Organization = form.instance
         instances = formset.save(commit=False)
+        new_object_pks = {obj.pk for obj in formset.new_objects}
         for obj in formset.deleted_objects:
             obj.delete()
         for instance in instances:
@@ -504,10 +506,16 @@ class OrganizationAdmin(admin.ModelAdmin):
             instance = inline_form.instance
             if not image or instance.pk is None:
                 continue
-            if not settings.OBJECT_STORAGE_ENABLED:
-                messages.error(request, "Object storage must be available to upload custom assets.")
+            # Write the bytes first; only persist the new metadata once storage has accepted them, so a
+            # failed write never leaves an asset row pointing at media that doesn't exist. A brand-new
+            # row is removed entirely on failure; an existing one keeps its previous (still valid) media.
+            try:
+                save_content_to_object_storage(instance, image.read())
+            except ObjectStorageError:
+                messages.error(request, f"Could not store custom asset '{instance.key}' — object storage error.")
+                if instance.pk in new_object_pks:
+                    instance.delete()
                 continue
             instance.file_name = image.name
             instance.content_type = image.content_type
             instance.save(update_fields=["file_name", "content_type"])
-            save_content_to_object_storage(instance, image.read())

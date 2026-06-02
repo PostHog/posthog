@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.contrib import admin
 from django.utils.html import format_html
 
@@ -20,6 +21,9 @@ class OrganizationCustomAssetInlineForm(forms.ModelForm):
         image = self.cleaned_data.get("image")
         if image is None:
             return image
+        # Reject before any row is saved so a failed upload can't leave an asset row without media.
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise forms.ValidationError("Object storage must be available to upload custom assets.")
         if image.size > FOUR_MEGABYTES:
             raise forms.ValidationError("Uploaded media must be less than 4MB")
         content_type = getattr(image, "content_type", "") or ""
@@ -29,7 +33,7 @@ class OrganizationCustomAssetInlineForm(forms.ModelForm):
         image.seek(0)
         content = image.read()
         image.seek(0)
-        if not validate_image_file(content, user=0):
+        if not validate_image_file(content, user=None):
             raise forms.ValidationError("Uploaded media must be a valid image")
         return image
 

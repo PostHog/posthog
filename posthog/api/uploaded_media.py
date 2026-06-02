@@ -51,7 +51,7 @@ def _is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
-def validate_image_file(file: Optional[bytes], user: int) -> bool:
+def validate_image_file(file: Optional[bytes], user: Optional[int] = None) -> bool:
     """
     Django validates file content type by reading "magic bytes" from the start of the file.
     It doesn't then check that file really is the type it claims to be.
