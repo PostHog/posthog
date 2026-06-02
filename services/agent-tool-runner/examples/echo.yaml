@@ -1,0 +1,39 @@
+# Minimal config for verifying the runner end-to-end with no external
+# dependencies. Uses two command-source tools backed by /bin/echo —
+# nothing to install, nothing to stand up.
+#
+# Usage:
+#   echo "phtr_local_dev" > /tmp/runner-token
+#   ./bin/fake-posthog serve &
+#   ./bin/posthog-tool-runner --config examples/echo.yaml
+#   ./bin/fake-posthog invoke --tool echo.greet --args '{"name":"ben"}'
+
+projects:
+    - project_id: 1
+      endpoint: http://127.0.0.1:18080 # fake-posthog default
+      token_secret_ref: /tmp/runner-token
+      slug: local-test
+      expose:
+          - echo.greet
+          - echo.count
+
+tool_sources:
+    - source: command
+      name: echo.greet
+      description: Print a friendly greeting
+      args_schema:
+          type: object
+          required: [name]
+          properties:
+              name: { type: string }
+      command: echo Hello, ${args.name}!
+
+    - source: command
+      name: echo.count
+      description: Print integers 1..n (demonstrates numeric arg + JSON-Schema bounds)
+      args_schema:
+          type: object
+          required: [n]
+          properties:
+              n: { type: integer, minimum: 1, maximum: 100 }
+      command: seq 1 ${args.n}

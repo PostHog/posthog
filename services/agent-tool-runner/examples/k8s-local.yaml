@@ -1,0 +1,105 @@
+# Real-world example: expose a handful of read-only Kubernetes tools to
+# the agent platform via `kubectl`. Assumes `kubectl` is on $PATH and
+# your current context points at a cluster you trust (typically a local
+# dev cluster — Kind, k3d, OrbStack's bundled k8s, Docker Desktop, etc.).
+#
+# All tools here are read-only — no `apply`, no `delete`, no `rollout
+# restart`. The intent is to demonstrate the safe-exec story without
+# pointing a sharp tool at production by accident. For mutating ops you
+# would add new `command:` sources gated by the runner's per-MCP
+# approval policy (see docs/agent-platform/plans/self-hosted-tool-runners.md
+# §"Per-MCP approval policy").
+#
+# Usage:
+#   echo "phtr_local_dev" > /tmp/runner-token
+#   ./bin/fake-posthog serve &
+#   ./bin/posthog-tool-runner --config examples/k8s-local.yaml
+#   ./bin/fake-posthog invoke --tool k8s.namespaces_list --args '{}'
+#   ./bin/fake-posthog invoke --tool k8s.pods_list --args '{"namespace":"default"}'
+#   ./bin/fake-posthog invoke --tool k8s.pod_describe --args '{"namespace":"kube-system","pod":"coredns-xxxxx"}'
+#
+# Security notes:
+#   - The runner shells out via exec.CommandContext WITHOUT a shell, so
+#     `${args.X}` values are passed as single argv entries. Hostile input
+#     (";", "&&", "$(...)") is inert.
+#   - JSON-Schema validation runs BEFORE substitution. Namespace and
+#     pod names are constrained to DNS-1123 labels.
+#   - Output is captured verbatim from kubectl stdout. Stderr on a
+#     non-zero exit becomes the agent-visible error message.
+
+projects:
+    - project_id: 1
+      endpoint: http://127.0.0.1:18080
+      token_secret_ref: /tmp/runner-token
+      slug: local-k8s
+      expose:
+          - k8s.namespaces_list
+          - k8s.pods_list
+          - k8s.pod_describe
+          - k8s.pod_logs
+
+tool_sources:
+    - source: command
+      name: k8s.namespaces_list
+      description: List all namespaces in the current cluster (kubectl get namespaces)
+      args_schema:
+          type: object
+          properties: {}
+      command: kubectl get namespaces -o json
+
+    - source: command
+      name: k8s.pods_list
+      description: List pods in a namespace
+      args_schema:
+          type: object
+          required: [namespace]
+          properties:
+              namespace:
+                  type: string
+                  # DNS-1123 label — kubernetes' own validation pattern. Keeps
+                  # `--namespace=' OR 1=1; --` shaped strings out at the schema layer.
+                  pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+                  maxLength: 63
+      command: kubectl get pods --namespace=${args.namespace} -o json
+
+    - source: command
+      name: k8s.pod_describe
+      description: Describe a single pod
+      args_schema:
+          type: object
+          required: [namespace, pod]
+          properties:
+              namespace:
+                  type: string
+                  pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+                  maxLength: 63
+              pod:
+                  type: string
+                  # Pod names are DNS-1123 subdomains — longer than labels, dots ok.
+                  pattern: '^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$'
+                  maxLength: 253
+      command: kubectl describe pod --namespace=${args.namespace} ${args.pod}
+
+    - source: command
+      name: k8s.pod_logs
+      description: Print the last `tail` lines of a pod's logs
+      args_schema:
+          type: object
+          # tail is required — the source doesn't fill in JSON-Schema defaults.
+          # If you want a tail-default, set it in the agent spec or pass `tail`
+          # explicitly from the invoke caller.
+          required: [namespace, pod, tail]
+          properties:
+              namespace:
+                  type: string
+                  pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+                  maxLength: 63
+              pod:
+                  type: string
+                  pattern: '^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$'
+                  maxLength: 253
+              tail:
+                  type: integer
+                  minimum: 1
+                  maximum: 5000
+      command: kubectl logs --namespace=${args.namespace} ${args.pod} --tail=${args.tail}
