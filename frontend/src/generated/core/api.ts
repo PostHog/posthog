@@ -53,6 +53,7 @@ import type {
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
+    PromotedProductIntentApi,
     PropertyDefinitionsListParams,
     SharingConfigurationApi,
     SubscriptionApi,
@@ -886,6 +887,27 @@ export const organizationsProjectsLogsConfigPartialUpdate = async (
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(patchedProjectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsPromotedProductIntentRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/promoted_product_intent/`
+}
+
+/**
+ * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ */
+export const organizationsProjectsPromotedProductIntentRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<PromotedProductIntentApi> => {
+    return apiMutator<PromotedProductIntentApi>(
+        getOrganizationsProjectsPromotedProductIntentRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
         }
     )
 }
