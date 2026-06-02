@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "from_path": {
-            "description": "Existing file path inside the skill folder.",
+            "description": "Existing file path inside the skill folder (subfolders allowed).",
             "maxLength": 512,
             "type": "string"
         },
@@ -11,7 +11,7 @@
             "type": "string"
         },
         "to_path": {
-            "description": "New path. Must not collide with another file.",
+            "description": "New path (subfolders allowed); may move the file between subfolders. Must not collide with another file.",
             "maxLength": 512,
             "type": "string"
         }

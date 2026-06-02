@@ -228,7 +228,13 @@
                     "default": [],
                     "items": {
                         "properties": {
+                            "alias": {
+                                "type": "string"
+                            },
                             "description": {
+                                "type": "string"
+                            },
+                            "from_template": {
                                 "type": "string"
                             },
                             "id": {
@@ -236,6 +242,10 @@
                             },
                             "path": {
                                 "type": "string"
+                            },
+                            "version": {
+                                "minimum": 0,
+                                "type": "number"
                             }
                         },
                         "required": ["id", "path"],
@@ -274,6 +284,26 @@
                                     }
                                 },
                                 "required": ["kind", "id", "path"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "alias": {
+                                        "type": "string"
+                                    },
+                                    "from_template": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "custom_template",
+                                        "type": "string"
+                                    },
+                                    "version": {
+                                        "minimum": 0,
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["kind", "from_template", "alias"],
                                 "type": "object"
                             },
                             {
