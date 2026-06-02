@@ -232,7 +232,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 <div className="mb-4 font-normal rounded border border-success/40 bg-success-highlight/40 p-3">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                         <h4 className="mb-0 mr-2 text-base font-semibold">CDC (change data capture)</h4>
-                        {!schema.supports_webhooks && <LemonTag type="success">Recommended</LemonTag>}
+                        {schema.cdc_available && !schema.supports_webhooks && (
+                            <LemonTag type="success">Recommended</LemonTag>
+                        )}
                     </div>
                     <p className="mb-2">
                         Capture inserts, updates, and deletes in real-time via logical replication. Keeps PostHog in
