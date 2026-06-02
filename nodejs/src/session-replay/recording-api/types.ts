@@ -11,13 +11,13 @@ import {
 } from '../../config/kafka-topics'
 import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../../ingestion/common/outputs'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
+import { type IngestionSessionreplayProducer } from '../shared/outputs/producer-config'
 
 /**
- * Recording API only needs DEFAULT + WARPSTREAM producers — its outputs are
- * ClickHouse-bound deletion tombstones, so the ingestion-internal cluster
- * (INGESTION) is not a relevant target here.
+ * Recording API's outputs are ClickHouse-bound deletion tombstones on the warpstream-replay
+ * cluster, produced through the INGESTION_SESSIONREPLAY slot.
  */
-export type RecordingApiProducerName = DefaultProducer | WarpstreamProducer
+export type RecordingApiProducerName = DefaultProducer | WarpstreamProducer | IngestionSessionreplayProducer
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
