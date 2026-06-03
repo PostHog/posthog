@@ -465,12 +465,12 @@ class DeleteTileRequestSerializer(serializers.Serializer):
 
 
 class MoveTileTileSerializer(serializers.Serializer):
-    id = serializers.IntegerField(help_text="Dashboard tile ID to move.")
+    id = serializers.IntegerField(required=True, help_text="Dashboard tile ID to move.")
 
 
 class MoveTileRequestSerializer(serializers.Serializer):
-    to_dashboard = serializers.IntegerField(help_text="Destination dashboard ID.")
-    tile = MoveTileTileSerializer(help_text="Tile to move, identified by its dashboard tile ID.")
+    to_dashboard = serializers.IntegerField(required=True, help_text="Destination dashboard ID.")
+    tile = MoveTileTileSerializer(required=True, help_text="Tile to move, identified by its dashboard tile ID.")
 
 
 class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
@@ -1543,7 +1543,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             widget_json: dict = tile_data.get("widget", {})
             widget_data = DashboardSerializer._validated_patch_widget_payload(widget_json)
 
-            if not dashboard_widgets_enabled(instance.team_id):
+            if not dashboard_widgets_enabled(team=instance.team, user=user):
                 raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
 
             user_access_control = UserAccessControl(user=user, team=instance.team)
@@ -1565,9 +1565,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             else:
                 try:
                     canonical_widget_type, config = prepare_widget_tile_create(
-                        team_id=instance.team_id,
+                        team=instance.team,
                         widget_type=str(widget_data["widget_type"]),
                         config=widget_data.get("config", {}),
+                        user=user,
                         user_access_control=user_access_control,
                     )
                 except serializers.ValidationError as exc:
@@ -2198,7 +2199,7 @@ class DashboardsViewSet(
         return layout_size
 
     @extend_schema(request=MoveTileRequestSerializer, responses={200: DashboardSerializer})
-    @action(methods=["PATCH"], detail=True, required_scopes=["dashboard:write"])
+    @action(methods=["PATCH", "POST"], detail=True, required_scopes=["dashboard:write"])
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # TODO could things be rearranged so this is  PATCH call on a resource and not a custom endpoint?
         from_dashboard = self.get_object()
@@ -2218,9 +2219,10 @@ class DashboardsViewSet(
         if not self.user_permissions.dashboard(to_dashboard_obj).can_edit:
             raise exceptions.PermissionDenied("You don't have edit permissions for the destination dashboard.")
         if tile.widget_id is not None:
-            if not dashboard_widgets_enabled(self.team_id):
+            request_user = cast(User, request.user)
+            if not dashboard_widgets_enabled(team=self.team, user=request_user):
                 raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
-            user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
+            user_access_control = UserAccessControl(user=request_user, team=self.team)
             if tile.widget is None:
                 raise exceptions.ValidationError("Widget tile is missing its widget.")
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
@@ -2270,7 +2272,7 @@ class DashboardsViewSet(
         )
 
         if tile.widget_id is not None:
-            if not dashboard_widgets_enabled(self.team_id):
+            if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
                 raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
             if tile.widget is None:
                 raise exceptions.ValidationError("Widget tile is missing its widget.")
@@ -2565,7 +2567,7 @@ class DashboardsViewSet(
     )
     @action(methods=["GET"], detail=True, required_scopes=["dashboard:read"])
     def run_widgets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not dashboard_widgets_enabled(self.team_id):
+        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
             raise exceptions.PermissionDenied("Dashboard widgets are not enabled for this project.")
 
         tile_ids_param = request.query_params.get("tile_ids")
@@ -2687,7 +2689,7 @@ class DashboardsViewSet(
     @action(methods=["POST"], detail=True, url_path="widgets/batch", required_scopes=["dashboard:write"])
     def widgets_batch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Add multiple widget tiles to a dashboard in one atomic request."""
-        if not dashboard_widgets_enabled(self.team_id):
+        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
             raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
 
         dashboard = self.get_object()
@@ -2750,9 +2752,10 @@ class DashboardsViewSet(
         widget_type = payload["widget_type"]
         config = payload["config"]
         normalized_widget_type, validated_config = prepare_widget_tile_create(
-            team_id=self.team_id,
+            team=self.team,
             widget_type=widget_type,
             config=config,
+            user=user,
             user_access_control=user_access_control,
         )
         _check_dashboard_widget_count_limit(dashboard=dashboard, user=user)
