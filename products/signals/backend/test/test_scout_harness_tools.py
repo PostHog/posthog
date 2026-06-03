@@ -629,6 +629,31 @@ async def test_emit_finding_returns_skipped_when_scout_emit_disabled(arun_emit, 
     mock_emit.assert_not_called()
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_emit):
+    # scout_config is nullable and a config can be deleted mid-run; a missing config must
+    # NOT emit (a recreated config defaults to dry-run), so it fails closed.
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).delete
+    )()
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-no-config",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "scout_config_missing"
+    mock_emit.assert_not_called()
+
+
 # --- emit_finding (team, run) ownership guard tests ---
 
 

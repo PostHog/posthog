@@ -62,6 +62,7 @@ class EmitResult:
 
     Possible `skipped_reason` values:
       - None: emit fired
+      - "scout_config_missing": no SignalScoutConfig row for this (team, skill) — fail closed
       - "scout_emit_disabled": the scout's config has emit=False (dry-run)
       - "ai_processing_not_approved": team's organization has not approved AI processing
       - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
@@ -339,9 +340,15 @@ def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
     Surfacing the gate result here lets the view return a useful skipped_reason
     instead of "emitted" for an emit the pipeline silently dropped. The per-scout
     `emit` toggle is checked first: a dry-run scout runs and logs but emits nothing.
+
+    Fails closed when no config row exists: `SignalScoutRun.scout_config` is nullable and a
+    config can be deleted mid-run, but a recreated config defaults to dry-run (`emit=False`),
+    so a missing config must not be treated as "emit allowed".
     """
     config = SignalScoutConfig.all_teams.filter(team_id=team.id, skill_name=run.skill_name).first()
-    if config is not None and not config.emit:
+    if config is None:
+        return "scout_config_missing"
+    if not config.emit:
         return "scout_emit_disabled"
     organization = team.organization
     if not organization.is_ai_data_processing_approved:
