@@ -1627,14 +1627,26 @@ def _start_command_workflow(
 
 
 def _count_session_thread_messages(integration: Integration, channel: str | None, thread_ts: str | None) -> int | None:
-    """Best-effort count of messages in a Slack thread (the session). None if unavailable."""
+    """Best-effort count of messages in a Slack thread (the session). None if unavailable.
+
+    Runs in the Slack webhook request path, so the client timeout is bounded: a slow or
+    rate-limited Slack response must not eat into Slack's retry window before we return.
+    """
     if not channel or not thread_ts:
         return None
     try:
-        response = SlackIntegration(integration).client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
+        client = SlackIntegration(integration).client
+        client.timeout = 3
+        response = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
         return len(response.get("messages", []))
     except Exception:
-        logger.warning("posthog_code_mention_count_failed", exc_info=True)
+        logger.warning(
+            "posthog_code_mention_count_failed",
+            integration_id=integration.id,
+            channel=channel,
+            thread_ts=thread_ts,
+            exc_info=True,
+        )
         return None
 
 
@@ -1653,7 +1665,7 @@ def _report_slack_mention_received(event: dict, integration: Integration, slack_
         thread_ts = raw_thread_ts or message_ts
         is_first_message_in_session = raw_thread_ts is None or raw_thread_ts == message_ts
 
-        slack_user_id = str(event.get("user") or "") or None
+        slack_user_id = event.get("user") if isinstance(event.get("user"), str) and event.get("user") else None
         posthog_user = (
             _resolve_posthog_user_from_event(
                 slack_user_id=slack_user_id,
@@ -1694,7 +1706,12 @@ def _report_slack_mention_received(event: dict, integration: Integration, slack_
             send_feature_flags=True,
         )
     except Exception:
-        logger.warning("posthog_code_mention_analytics_failed", exc_info=True)
+        logger.warning(
+            "posthog_code_mention_analytics_failed",
+            slack_team_id=slack_team_id,
+            integration_id=integration.id,
+            exc_info=True,
+        )
 
 
 def _start_mention_workflow(event: dict, integration: Integration, slack_team_id: str, event_id: str | None) -> str:
