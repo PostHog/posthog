@@ -1,3 +1,8 @@
+import importlib
+import importlib.util
+
+from django.apps import apps
+
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
@@ -14,50 +19,15 @@ from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
 
 import products.alerts.backend.api.alert as alert
-from products.actions.backend.routes import register_routes as register_actions_routes
-from products.ai_observability.backend.routes import register_routes as register_ai_observability_routes
 from products.annotations.backend.api import annotation
 from products.batch_exports.backend.api import (
     batch_export as batch_exports,
     file_download,
 )
 from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
-from products.business_knowledge.backend.routes import register_routes as register_business_knowledge_routes
-from products.cdp.backend.routes import register_routes as register_cdp_routes
-from products.conversations.backend.routes import register_routes as register_conversations_routes
-from products.customer_analytics.backend.routes import register_routes as register_customer_analytics_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
-from products.data_modeling.backend.routes import register_routes as register_data_modeling_routes
-from products.data_warehouse.backend.routes import register_routes as register_data_warehouse_routes
-from products.desktop_recordings.backend.routes import register_routes as register_desktop_recordings_routes
-from products.early_access_features.backend.routes import register_routes as register_early_access_features_routes
-from products.endpoints.backend.routes import register_routes as register_endpoints_routes
-from products.error_tracking.backend.routes import register_routes as register_error_tracking_routes
 from products.exports.backend.api import exports
-from products.feature_flags.backend.routes import register_routes as register_feature_flags_routes
-from products.legal_documents.backend.routes import register_routes as register_legal_documents_routes
-from products.links.backend.routes import register_routes as register_links_routes
-from products.live_debugger.backend.routes import register_routes as register_live_debugger_routes
-from products.logs.backend.routes import register_routes as register_logs_routes
-from products.marketing_analytics.backend.routes import register_routes as register_marketing_analytics_routes
-from products.mcp_store.backend.routes import register_routes as register_mcp_store_routes
-from products.messaging.backend.routes import register_routes as register_messaging_routes
-from products.metrics.backend.routes import register_routes as register_metrics_routes
 from products.notebooks.backend.api.notebook import NotebookViewSet
-from products.notifications.backend.routes import register_routes as register_notifications_routes
-from products.posthog_ai.backend.routes import register_routes as register_posthog_ai_routes
-from products.product_tours.backend.routes import register_routes as register_product_tours_routes
-from products.replay_vision.backend.routes import register_routes as register_replay_vision_routes
-from products.revenue_analytics.backend.routes import register_routes as register_revenue_analytics_routes
-from products.signals.backend.routes import register_routes as register_signals_routes
-from products.surveys.backend.routes import register_routes as register_survey_routes
-from products.tasks.backend.routes import register_routes as register_tasks_routes
-from products.tracing.backend.routes import register_routes as register_tracing_routes
-from products.user_interviews.backend.routes import register_routes as register_user_interviews_routes
-from products.visual_review.backend.routes import register_routes as register_visual_review_routes
-from products.web_analytics.backend.routes import register_routes as register_web_analytics_routes
-from products.wizard.backend.routes import register_routes as register_wizard_routes
-from products.workflows.backend.routes import register_routes as register_workflows_routes
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -145,19 +115,7 @@ projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "proj
 environments_router = routers.add(
     "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
 )
-register_tasks_routes(routers)
-register_signals_routes(routers)
-register_visual_review_routes(routers)
-register_user_interviews_routes(routers)
-register_replay_vision_routes(routers)
 project_notebooks_router = projects_router.register(r"notebooks", NotebookViewSet, "project_notebooks", ["project_id"])
-register_early_access_features_routes(routers)
-register_customer_analytics_routes(routers)
-register_data_warehouse_routes(routers)
-register_ai_observability_routes(routers)
-# mcp_store registers a root-level route plus dual project/environment routes, so it
-# runs here once the projects + environments parents exist.
-register_mcp_store_routes(routers)
 
 
 def register_legacy_dual_route_team_nested_viewset(
@@ -218,7 +176,6 @@ projects_router.register(
     "project_my_notifications",
     ["project_id"],
 )
-register_wizard_routes(routers)
 
 # Tasks endpoints
 
@@ -234,10 +191,7 @@ projects_router.register(
     ["team_id"],
 )
 
-# Surveys registers its own routes from products/surveys/backend/routes.py (pilot for
 # product-local route registration via RouterRegistry).
-register_survey_routes(routers)
-register_product_tours_routes(routers)
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -421,20 +375,11 @@ projects_router.register(
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 register_legacy_dual_route_team_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
-# External data resources
-
-register_data_modeling_routes(routers)
-
-register_notifications_routes(routers)
 
 # Organizations nested endpoints
 organizations_router = routers.add(
     "organizations", router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 )
-# feature_flags registers on root + projects + organizations, so it runs once the
-# organizations parent exists.
-register_feature_flags_routes(routers)
-register_cdp_routes(routers)
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"integrations",
@@ -475,7 +420,6 @@ organizations_router.register(
     "organization_cimd_verification_tokens",
     ["organization_id"],
 )
-register_legal_documents_routes(routers)
 organizations_router.register(
     r"proxy_records",
     proxy_record.ProxyRecordViewset,
@@ -558,12 +502,10 @@ from products.product_analytics.backend.api.insight_variable import InsightVaria
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
 router.register(r"element", LegacyElementViewSet, basename="element")
-register_web_analytics_routes(routers)
 router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 register_legacy_dual_route_team_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
-register_actions_routes(routers)
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 
@@ -725,8 +667,6 @@ projects_router.register(
     ["project_id"],
 )
 
-register_error_tracking_routes(routers)
-
 
 register_legacy_dual_route_team_nested_viewset(
     r"quick_filters",
@@ -735,7 +675,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_live_debugger_routes(routers)
 
 projects_router.register(
     r"comments",
@@ -743,15 +682,6 @@ projects_router.register(
     "project_comments",
     ["project_id"],
 )
-
-
-register_workflows_routes(routers)
-
-register_links_routes(routers)
-
-register_business_knowledge_routes(routers)
-
-register_conversations_routes(routers)
 
 
 projects_router.register(
@@ -812,31 +742,12 @@ register_legacy_dual_route_team_nested_viewset(
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
 
-register_messaging_routes(routers)
-
-# Logs endpoints
-register_logs_routes(routers)
-
-# Metrics endpoints
-register_metrics_routes(routers)
-
-register_endpoints_routes(routers)
-
-
-register_tracing_routes(routers)
-
-register_desktop_recordings_routes(routers)
-
 register_legacy_dual_route_team_nested_viewset(
     r"csp-reporting",
     CSPReportingViewSet,
     "project_csp_reporting",
     ["team_id"],
 )
-
-register_marketing_analytics_routes(routers)
-
-register_revenue_analytics_routes(routers)
 
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
@@ -863,4 +774,42 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_posthog_ai_routes(routers)
+
+# --- Product route auto-discovery -----------------------------------------------------
+# Every parent above (root + projects + environments + organizations) and all of core's
+# own routes are registered before this loop. Migrated products then register themselves
+# by exposing `register_routes(routers)` in `products/<name>/backend/routes.py`; the loop
+# finds them via INSTALLED_APPS, so adding a product needs no edit here.
+#
+# Why a loop here, and why eager (not AppConfig.ready()):
+#   - ROOT_URLCONF is imported lazily on first URL resolution, not during django.setup().
+#     `posthog/urls.py` imports this module, so the whole API surface loads at first
+#     request and never at boot — Celery workers and management commands that never
+#     resolve a URL never import it. We keep that.
+#   - ready()-based self-registration would run inside django.setup() in every process,
+#     and registering a route imports its viewset class — so it would drag the entire
+#     product API into setup() everywhere, regressing that laziness. Running the loop at
+#     import of `posthog.api` (i.e. first request) keeps the API out of setup().
+#   - Net: core still triggers registration (via the existing `posthog.api` import) rather
+#     than products self-pushing — you can have "core imports nothing statically" OR "API
+#     stays out of setup()", not both; we keep the API lazy.
+#
+# Order-independence: products only nest onto the four core-owned parents and never onto
+# each other, and all parents exist before this loop, so iteration order does not affect
+# the resolved route set. `RouterRegistry.add()` rejects product callers, making
+# "parents stay core-owned" an enforced invariant rather than a convention.
+#
+# Accepted cost: routes are imported dynamically here, so the core->product import edges
+# are not statically visible to import tooling (tach/grimp). Accepted on purpose — it
+# removes the hand-maintained product list that duplicated PRODUCTS_APPS.
+for _app_config in apps.get_app_configs():
+    if not _app_config.name.startswith("products."):
+        continue
+    _routes_module = f"{_app_config.name}.routes"
+    # find_spec (not try/except ImportError) so a real ImportError inside a routes.py
+    # surfaces instead of being silently swallowed as "no routes module".
+    if importlib.util.find_spec(_routes_module) is None:
+        continue
+    _register_routes = getattr(importlib.import_module(_routes_module), "register_routes", None)
+    if callable(_register_routes):
+        _register_routes(routers)

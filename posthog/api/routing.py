@@ -1,3 +1,4 @@
+import sys
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -61,41 +62,34 @@ class RouterRegistry:
     nested routers feeding a single OpenAPI schema, so a product can't own them
     independently — it looks them up here by name and nests onto them.
 
-    Why core calls the product, not the product calling core
-    --------------------------------------------------------
-    The obvious-looking alternative is to have core expose a registration
-    function that each product imports and calls at its own import time
-    (product-calls-core). We deliberately do the reverse — core imports each
-    product's ``register_routes`` and calls it from one place — for three
-    reasons:
-
-    1. One deterministic assembly point. All routes come together in
-       ``posthog/api/__init__.py`` in an order core controls. That order is
-       load-bearing: a nested parent (``projects``/``environments``/
-       ``organizations``) must already exist before any product nests onto it.
-       Product-calls-core would scatter assembly across N import side effects
-       whose order is whatever import order happens to be — the exact
-       fragility that bit us (a product registering before its parent existed
-       raised ``KeyError`` at import). Here, core simply orders the calls.
-
-    2. Registration stays an explicit call, not an import side effect. With
-       product-calls-core, merely importing a product module (for a model, a
-       task, a type) would mutate global router state as a side effect —
-       surprising, order-dependent, and hard to test. Keeping registration
-       behind ``register_routes(routers)`` means nothing happens until core
-       chooses to invoke it.
-
-    3. Dependency points the safe way. The product depends on this small
-       ``RouterRegistry`` abstraction (passed in), not on concrete core router
-       globals it would have to import. Core already imports products; adding a
-       product->core import for registration would risk import cycles.
+    Core-owned parents are the one invariant
+    ----------------------------------------
+    Core registers all four parents (root + ``projects``/``environments``/
+    ``organizations``) before discovering and invoking product
+    ``register_routes`` (see the auto-discovery loop in
+    ``posthog/api/__init__.py``). Products only ever nest onto those parents and
+    never onto each other, so discovery order does not affect the resolved route
+    set. ``add()`` rejects callers from under ``products.`` to keep "parents stay
+    core-owned" an enforced invariant rather than a convention — a product that
+    tried to publish a parent would reintroduce ordering coupling.
     """
 
     def __init__(self) -> None:
         self._named: dict[str, NestedRegistryItem] = {}
         self._root: Optional[DefaultRouterPlusPlus] = None
 
+    @staticmethod
+    def _reject_product_caller(method: str) -> None:
+        # frame 0 = here, 1 = the public method, 2 = its caller
+        caller_module = sys._getframe(2).f_globals.get("__name__", "")
+        if caller_module.startswith("products."):
+            raise RuntimeError(
+                f"Parent routers are core-owned; {caller_module} must not call RouterRegistry.{method}(). "
+                "Products nest onto existing parents via routers.projects/environments/organizations/root."
+            )
+
     def add(self, name: str, item: NestedRegistryItem) -> NestedRegistryItem:
+        self._reject_product_caller("add")
         if name in self._named:
             raise ValueError(f"Router {name!r} is already registered")
         self._named[name] = item
