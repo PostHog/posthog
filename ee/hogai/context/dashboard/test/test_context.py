@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from posthog.schema import EventsNode, TrendsQuery
 
@@ -317,3 +317,42 @@ class TestDashboardContext(BaseTest):
 
         self.assertIn("Custom: Custom Template Dashboard", result)
         self.assertIn("Custom template result", result)
+
+    @patch("ee.hogai.context.dashboard.context.capture_exception")
+    @patch("ee.hogai.context.insight.context.InsightContext.execute_and_format", new_callable=AsyncMock)
+    async def test_one_failing_insight_does_not_drop_whole_dashboard(self, mock_execute_and_format, mock_capture):
+        """A single insight raising (e.g. a query-prep error outside InsightContext's own
+        try/except) must NOT drop the entire dashboard from context — the dashboard, its
+        surviving insights, and an error placeholder for the failed one should all remain."""
+        mock_execute_and_format.side_effect = [ValueError("boom"), "Insight results: 200 users"]
+
+        insights_data: list[DashboardInsightContext] = [
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="pageview")]),
+                name="Broken Insight",
+                insight_id="insight-1",
+            ),
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="signup")]),
+                name="Working Insight",
+                insight_id="insight-2",
+            ),
+        ]
+
+        dashboard_ctx = DashboardContext(
+            team=self.team,
+            insights_data=insights_data,
+            name="Mixed Dashboard",
+            dashboard_id="789",
+        )
+
+        result = await dashboard_ctx.execute_and_format()
+
+        # The dashboard itself and the working insight survive.
+        self.assertIn("Dashboard name: Mixed Dashboard", result)
+        self.assertIn("Insight results: 200 users", result)
+        # The failed insight degrades to a placeholder instead of taking down the dashboard.
+        self.assertIn("Broken Insight", result)
+        self.assertIn("Error preparing insight context", result)
+        # The failure is surfaced, not silently swallowed.
+        mock_capture.assert_called_once()

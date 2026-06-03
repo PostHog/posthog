@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Sequence
 from typing import Generic
 
+from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 from posthog.models import Team
@@ -94,9 +95,23 @@ class DashboardContext:
                 insights="",
             )
 
-        # Run all insights in parallel with semaphore control
+        # Run all insights in parallel with semaphore control.
+        # return_exceptions=True so that one insight failing (e.g. an unsupported query or a
+        # query-prep error raised outside InsightContext.execute_and_format's own try/except)
+        # does not drop the ENTIRE dashboard from Max's context — which otherwise leaves Max
+        # believing it has no dashboard and falling back to searching for one.
         insight_tasks = [self._execute_insight_with_semaphore(insight) for insight in self.insights]
-        insight_results = await asyncio.gather(*insight_tasks)
+        insight_results = await asyncio.gather(*insight_tasks, return_exceptions=True)
+
+        formatted_insights: list[str] = []
+        for insight, result in zip(self.insights, insight_results):
+            if isinstance(result, BaseException):
+                if isinstance(result, asyncio.CancelledError):
+                    raise result
+                capture_exception(result)
+                formatted_insights.append(f'Insight "{insight.name or "Insight"}": Error preparing insight context.')
+            else:
+                formatted_insights.append(result)
 
         return format_prompt_string(
             prompt_template,
@@ -104,7 +119,7 @@ class DashboardContext:
             dashboard_id=self.dashboard_id,
             dashboard_url=self.dashboard_url,
             description=self.description,
-            insights="\n\n".join(insight_results),
+            insights="\n\n".join(formatted_insights),
         )
 
     async def format_schema(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
