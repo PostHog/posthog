@@ -1,9 +1,7 @@
-import { GroupTypeToColumnIndex, ProjectId } from '../../types'
+import { GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { GroupReadRepository } from './groups/repositories/group-repository.interface'
-
-export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 /**
  * Read-only group type manager backed by a GroupReadRepository. Provides
