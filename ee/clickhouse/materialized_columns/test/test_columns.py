@@ -331,6 +331,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 
@@ -343,6 +344,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=True),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 
@@ -355,6 +357,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 
