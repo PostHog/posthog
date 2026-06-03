@@ -1584,6 +1584,11 @@ class PendingDocument:
     team_id: int
     document_id: UUID
     content: str
+    # Version token of `content` at the moment it was read for classification.
+    # The verdict write is gated on this still matching, so a concurrent refresh
+    # that swaps the content (crawl upsert keeps the same document_id) can't
+    # have a stale verdict applied to the new content. See `set_document_safety`.
+    content_hash: str
 
 
 def list_due_refresh_sources(
@@ -1654,13 +1659,16 @@ def list_documents_pending_classification(
             team__organization__is_ai_data_processing_approved=True,
         )
         .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
-        .values_list("team_id", "id", "content_capped")[:limit]
+        .values_list("team_id", "id", "content_capped", "content_hash")[:limit]
     )
-    return [PendingDocument(team_id=team_id, document_id=doc_id, content=content) for team_id, doc_id, content in rows]
+    return [
+        PendingDocument(team_id=team_id, document_id=doc_id, content=content, content_hash=content_hash)
+        for team_id, doc_id, content, content_hash in rows
+    ]
 
 
 @with_team_scope(canonical=True)
-def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, reason: str = "") -> None:
+def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, content_hash: str, reason: str = "") -> None:
     """
     Persist a classifier outcome on a single document (team-scoped write).
 
@@ -1670,14 +1678,29 @@ def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, reason
     leave ``safety_verdict`` as ``unknown`` (still excluded from search — fail
     closed) and only bump ``classification_attempts`` so the coordinator stops
     re-queuing it once it has retried enough times.
+
+    Both writes are gated on ``content_hash`` (the version of the content that
+    was actually classified) AND ``safety_verdict=unknown``. A crawl refresh
+    keeps the same ``document_id`` while replacing the content and resetting the
+    verdict to ``unknown`` with a new hash, so without this guard an attacker
+    could have benign content classified, swap in a prompt-injection payload
+    mid-flight, and have the stale ``safe`` verdict land on the new chunks. The
+    guard makes the write a no-op whenever the content changed under us — the
+    new content stays ``unknown`` (excluded) and is re-classified next pass.
     """
+    base = KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        content_hash=content_hash,
+        safety_verdict=SafetyVerdict.UNKNOWN,
+    )
     if verdict == SafetyVerdict.UNKNOWN:
-        KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
+        base.update(
             classification_attempts=F("classification_attempts") + 1,
             updated_at=timezone.now(),
         )
         return
-    KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
+    base.update(
         safety_verdict=verdict,
         safety_reason=reason[:1000],
         classification_attempts=0,

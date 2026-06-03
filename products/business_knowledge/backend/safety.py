@@ -80,6 +80,9 @@ class SafetyResult:
     # its attempt counter rather than persisting a (fail-open) SAFE.
     verdict: str
     reason: str
+    # Version token of the classified content, threaded back so the persist
+    # step can refuse to apply this verdict if the content changed mid-flight.
+    content_hash: str
 
 
 def _parse_verdict(response_text: str) -> tuple[str, str]:
@@ -190,13 +193,31 @@ async def _classify_one(client: AsyncClient, doc: PendingDocument) -> SafetyResu
             document_id=str(doc.document_id),
             length=len(content),
         )
-        return SafetyResult(team_id=doc.team_id, document_id=doc.document_id, verdict=SafetyVerdict.UNKNOWN, reason="")
+        return SafetyResult(
+            team_id=doc.team_id,
+            document_id=doc.document_id,
+            verdict=SafetyVerdict.UNKNOWN,
+            reason="",
+            content_hash=doc.content_hash,
+        )
 
     for window in _windows(content):
         verdict, reason = await _classify_window(client, window, document_id=doc.document_id)
         if verdict != SafetyVerdict.SAFE:
-            return SafetyResult(team_id=doc.team_id, document_id=doc.document_id, verdict=verdict, reason=reason)
-    return SafetyResult(team_id=doc.team_id, document_id=doc.document_id, verdict=SafetyVerdict.SAFE, reason="")
+            return SafetyResult(
+                team_id=doc.team_id,
+                document_id=doc.document_id,
+                verdict=verdict,
+                reason=reason,
+                content_hash=doc.content_hash,
+            )
+    return SafetyResult(
+        team_id=doc.team_id,
+        document_id=doc.document_id,
+        verdict=SafetyVerdict.SAFE,
+        reason="",
+        content_hash=doc.content_hash,
+    )
 
 
 async def classify_documents(docs: list[PendingDocument]) -> list[SafetyResult]:

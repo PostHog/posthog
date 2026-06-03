@@ -75,6 +75,7 @@ async def classify_pending_documents_activity() -> dict[str, Any]:
                 document_id=result.document_id,
                 verdict=result.verdict,
                 reason=result.reason,
+                content_hash=result.content_hash,
             )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
     return {"classified": len(results), "unsafe": unsafe}
