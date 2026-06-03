@@ -102,6 +102,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
+    EngineeringAnalytics: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -224,6 +226,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
+    '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -610,6 +614,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
+    EngineeringAnalytics: {
+        projectBased: true,
+        name: 'CI analytics',
+        layout: 'app-container',
+        description:
+            'Open PRs are the unit of work \u2014 track CI health, throughput, and where engineering hours go.',
+        iconType: 'metrics',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -969,6 +981,8 @@ export const productUrls = {
         }
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
+    engineeringAnalytics: (): string => '/engineering-analytics',
+    engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1506,6 +1520,19 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
         sceneKeys: ['BusinessKnowledge'],
+    },
+    {
+        path: 'CI analytics',
+        intents: [ProductKey.ENGINEERING_ANALYTICS],
+        category: ProductItemCategory.UNRELEASED,
+        type: 'engineering_analytics',
+        iconType: 'metrics' as FileSystemIconType,
+        iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+        href: urls.engineeringAnalytics(),
+        flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
+        tags: ['beta'],
+        sceneKey: 'EngineeringAnalytics',
+        sceneKeys: ['EngineeringAnalytics'],
     },
     {
         path: 'Clusters',

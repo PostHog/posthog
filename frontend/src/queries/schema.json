@@ -29396,6 +29396,7 @@
                 "data_warehouse_saved_queries",
                 "early_access_features",
                 "endpoints",
+                "engineering_analytics",
                 "error_tracking",
                 "experiments",
                 "feature_flags",
