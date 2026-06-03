@@ -244,7 +244,7 @@ export interface ReplayScannerApi {
   * `scorer` - Scorer
   * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
-    /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -302,7 +302,7 @@ export interface PatchedReplayScannerApi {
   * `scorer` - Scorer
   * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
-    /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -392,6 +392,10 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string
+    /**
      * Session recording id to return observations for.
      */
     session_id: string
@@ -415,18 +419,9 @@ export type VisionScannersListParams = {
      */
     offset?: number
     /**
- * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-* `name` - Name
-* `-name` - Name (descending)
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `updated_at` - Updated at
-* `-updated_at` - Updated at (descending)
-* `scanner_type` - Scanner type
-* `-scanner_type` - Scanner type (descending)
- */
-    order_by?: string[]
+     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
  * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
@@ -458,18 +453,9 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
- * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `started_at` - Started at
-* `-started_at` - Started at (descending)
-* `completed_at` - Completed at
-* `-completed_at` - Completed at (descending)
-* `status` - Status
-* `-status` - Status (descending)
- */
-    order_by?: string[]
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
      * Filter to observations of a specific session recording.
      */

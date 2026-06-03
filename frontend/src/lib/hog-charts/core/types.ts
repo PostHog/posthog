@@ -192,6 +192,10 @@ export interface ChartConfig {
      *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
      *  Should be referentially stable — pass a module-level constant rather than an inline object. */
     margins?: Partial<ChartMargins>
+    /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
+     *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
+     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+    maxCategoryLabelWidth?: number
 }
 
 export interface TooltipConfig {
@@ -205,6 +209,19 @@ export interface TooltipConfig {
      *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
     placement?: 'follow-data' | 'top' | 'cursor'
 }
+
+/** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
+ *  bars). The two modes are mutually exclusive by construction — pick one. Omit the option
+ *  entirely for the default: a data-derived range with `d3.nice()`. */
+export type ValueDomain =
+    /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
+     *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
+     *  `barLayout: 'percent'` / `percentStackView`. */
+    | readonly [number, number]
+    /** Keep data-derived auto-scaling, but stretch the domain to always cover these values
+     *  (e.g. goal-line targets that sit outside the data). Folded into the range before
+     *  `d3.nice()`. */
+    | { include: readonly number[] }
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
@@ -232,6 +249,20 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
+    /** Horizontal bar charts only — fit the chart to the height it's given instead of expanding the
+     *  container (the {@link minBandSize} default behavior). Rows that don't fit at `minBandSize` are
+     *  dropped, keeping the leading (value-sorted) rows, so bands never crush below `minBandSize` and
+     *  the container never grows or scrolls. Use inside fixed-height tiles such as dashboard cards. */
+    fitToHeight?: boolean
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
+    /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
+     *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
+     *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
+     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
+     *  clamps the radius to the sliver's half-width. Defaults to `false`. */
+    roundStackEnds?: boolean
 }
 
 export interface BarChartConfig extends ChartConfig {
@@ -243,6 +274,8 @@ export interface BarChartConfig extends ChartConfig {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
