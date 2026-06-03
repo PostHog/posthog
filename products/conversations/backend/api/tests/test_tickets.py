@@ -1625,6 +1625,7 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("unread_count_with_read", "unread_count", "get", None, ["ticket:read"], status.HTTP_200_OK),
             ("unread_count_with_write", "unread_count", "get", None, ["ticket:write"], status.HTTP_200_OK),
             ("list_wrong_scope", "list", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("retrieve_wrong_scope", "retrieve", "get", True, ["insight:read"], status.HTTP_403_FORBIDDEN),
             ("unread_count_wrong_scope", "unread_count", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
