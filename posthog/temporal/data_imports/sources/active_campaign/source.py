@@ -31,6 +31,11 @@ class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCam
         return ExternalDataSourceType.ACTIVECAMPAIGN
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `api_url` is where the stored API key is sent; retargeting it must re-require the key.
+        return ["api_url"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ACTIVE_CAMPAIGN,

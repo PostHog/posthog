@@ -43,6 +43,11 @@ class TestActiveCampaignSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.ACTIVECAMPAIGN
 
+    def test_api_url_is_a_connection_host_field(self) -> None:
+        # Changing api_url must force the api_key to be re-entered, so the stored
+        # key is never sent to a freshly-specified host.
+        assert self.source.connection_host_fields == ["api_url"]
+
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
