@@ -1,12 +1,18 @@
 import json
+from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
 import deltalake
+import pyarrow.compute as pc
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
 
 
 def _make_logger():
@@ -180,3 +186,149 @@ class TestWriteToDeltalakeCommitMetadataPassThrough:
             else:
                 assert isinstance(commit_properties, deltalake.CommitProperties)
                 assert commit_properties.custom_metadata == expected_custom_metadata
+
+
+def _create_legacy_delta_table(path: str, *, partitioned: bool = False) -> deltalake.DeltaTable:
+    """Seed a Delta table that mimics what the old dlt pipeline created:
+    business columns plus NOT NULL _dlt_id and _dlt_load_id."""
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64()),
+        pa.field("name", pa.string()),
+        pa.field("_dlt_id", pa.string(), nullable=False),
+        pa.field("_dlt_load_id", pa.string(), nullable=False),
+    ]
+    if partitioned:
+        fields.append(pa.field(PARTITION_KEY, pa.string()))
+
+    data_dict: dict[str, Any] = {
+        "id": pa.array([1, 2]),
+        "name": pa.array(["a", "b"]),
+        "_dlt_id": pa.array(["id1", "id2"]),
+        "_dlt_load_id": pa.array(["load1", "load1"]),
+    }
+    if partitioned:
+        data_dict[PARTITION_KEY] = pa.array(["p0", "p0"])
+
+    table = pa.table(data_dict, schema=pa.schema(fields))
+    deltalake.write_deltalake(path, table, partition_by=PARTITION_KEY if partitioned else None)
+    return deltalake.DeltaTable(path)
+
+
+def _v3_batch(*, partitioned: bool = False) -> pa.Table:
+    """Build an incoming batch the way pipeline_v3 does: no _dlt_* columns."""
+    data_dict: dict[str, Any] = {"id": pa.array([3, 4]), "name": pa.array(["c", "d"])}
+    if partitioned:
+        data_dict[PARTITION_KEY] = pa.array(["p0", "p0"])
+    return pa.table(data_dict)
+
+
+def _make_local_helper(delta_uri: str) -> DeltaTableHelper:
+    """DeltaTableHelper that reads/writes a local filesystem path instead of S3."""
+    helper = DeltaTableHelper(resource_name="test", job=MagicMock(), logger=_make_logger())
+    patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value=delta_uri)).start()
+    patch.object(helper, "_get_credentials", new=MagicMock(return_value={})).start()
+    helper.get_delta_table.cache_clear()
+    return helper
+
+
+class TestLegacyDltTableReconciliation:
+    """Pipeline_v3 must handle dlt-created Delta tables with NOT NULL _dlt_* columns."""
+
+    def test_raw_merge_rejects_missing_non_nullable_columns(self, tmp_path: Path) -> None:
+        """Baseline: proves delta-rs rejects merges when non-nullable columns are absent
+        from the source batch. This is the root cause of the production failures."""
+        delta_path = str(tmp_path / "table")
+        _create_legacy_delta_table(delta_path)
+        batch = _v3_batch()
+        dt = deltalake.DeltaTable(delta_path)
+
+        with pytest.raises(Exception, match="(?i)(invalid data|non-nullable|validation|not found)"):
+            dt.merge(
+                source=batch,
+                source_alias="source",
+                target_alias="target",
+                predicate="source.id = target.id",
+            ).when_matched_update_all().when_not_matched_insert_all().execute()
+
+    @pytest.mark.parametrize("partitioned", [False, True], ids=["flat", "partitioned"])
+    @pytest.mark.asyncio
+    async def test_incremental_merge_into_legacy_table(self, partitioned: bool, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = _create_legacy_delta_table(delta_path, partitioned=partitioned)
+
+        helper = _make_local_helper(delta_path)
+        batch = evolve_pyarrow_schema(_v3_batch(partitioned=partitioned), dt.schema())
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 4
+        assert set(final.column("id").to_pylist()) == {1, 2, 3, 4}
+
+        new_rows = final.filter(pc.is_in(final.column("id"), value_set=pa.array([3, 4])))
+        assert all(v == "" for v in new_rows.column("_dlt_id").to_pylist())
+        assert all(v == "" for v in new_rows.column("_dlt_load_id").to_pylist())
+
+    @pytest.mark.asyncio
+    async def test_append_to_legacy_table(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = _create_legacy_delta_table(delta_path)
+
+        helper = _make_local_helper(delta_path)
+        batch = evolve_pyarrow_schema(_v3_batch(), dt.schema())
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="append",
+            should_overwrite_table=False,
+            primary_keys=None,
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 4
+        assert set(final.column("id").to_pylist()) == {1, 2, 3, 4}
+
+    @pytest.mark.asyncio
+    async def test_full_refresh_overwrite_on_legacy_table(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = _create_legacy_delta_table(delta_path)
+
+        helper = _make_local_helper(delta_path)
+        batch = evolve_pyarrow_schema(_v3_batch(), dt.schema())
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="full_refresh",
+            should_overwrite_table=True,
+            primary_keys=None,
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 2
+        assert all(v == "" for v in final.column("_dlt_id").to_pylist())
+        assert all(v == "" for v in final.column("_dlt_load_id").to_pylist())
+
+    @pytest.mark.asyncio
+    async def test_v3_native_table_still_merges(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1, 2], "name": ["a", "b"]}, schema=schema))
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table({"id": [3], "name": ["c"]})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 3
+        assert set(final.column("id").to_pylist()) == {1, 2, 3}

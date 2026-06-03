@@ -39,8 +39,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
-    _evolve_pyarrow_schema,
     _handle_null_columns_with_definitions,
+    evolve_pyarrow_schema,
     normalize_table_column_names,
     setup_partitioning,
 )
@@ -280,7 +280,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
-        pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
