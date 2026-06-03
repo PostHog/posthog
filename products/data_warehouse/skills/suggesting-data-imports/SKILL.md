@@ -87,7 +87,7 @@ Common join patterns:
 
 - **Don't guess table names.** Always check `posthog:read-data-warehouse-schema` and `posthog:external-data-schemas-list` before saying data doesn't exist.
 - **Check prefixes.** Imported tables are often prefixed (e.g. `stripe_charges` not `charges`). The user might not know the prefix.
-- **OAuth sources require the UI.** Some sources (Google Ads, Meta Ads, Hubspot with OAuth) require browser-based OAuth flows. You can't complete these via MCP — direct the user to the PostHog UI at `/data-warehouse/new`.
+- **OAuth sources require the UI.** Some sources (Google Ads, Meta Ads, Hubspot with OAuth) require browser-based OAuth flows. You can't complete these via MCP — direct the user to the PostHog UI at `/data-warehouse/new-source`.
 - **Not all systems are supported.** If the user's system isn't in the wizard list, suggest using Postgres/MySQL as a bridge if they can export to a database, or mention that custom sources can be requested.
 
 ## Related tools
