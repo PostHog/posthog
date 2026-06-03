@@ -93,8 +93,11 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                 // One-shot per logic mount; if the call fails we silently fall back to default examples.
                 loadTopEvents: async () => {
                     try {
+                        // Over-fetch: `buildSqlExamplesFromEvents` drops PostHog-internal (`$`-prefixed)
+                        // events, so a team whose most-recent events are mostly internal could otherwise
+                        // be left with nothing to surface.
                         const response = await api.eventDefinitions.list({
-                            limit: 10,
+                            limit: 30,
                             ordering: '-last_seen_at',
                         })
                         const names = (response.results ?? []).map((d) => d.name).filter((n): n is string => Boolean(n))
