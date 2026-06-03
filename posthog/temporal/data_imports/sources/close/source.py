@@ -106,7 +106,6 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
             iconPath="/static/services/close.png",
             docsUrl="https://posthog.com/docs/cdp/sources/close",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

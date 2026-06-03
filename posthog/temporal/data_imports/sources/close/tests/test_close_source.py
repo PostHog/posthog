@@ -30,7 +30,7 @@ class TestCloseSource:
         assert config.name.value == "Close"
         assert config.label == "Close"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/close.png"
         assert len(config.fields) == 1
 
