@@ -444,6 +444,92 @@ function TrainingTab(): JSX.Element {
     )
 }
 
+interface FeatureImportance {
+    name: string
+    direction?: string
+    importance: number
+}
+
+/** Pull the typed top-features list + note out of the loosely-typed model_explanation JSON. */
+function parseExplanation(explanation: unknown): { features: FeatureImportance[]; note: string | null } {
+    if (!explanation || typeof explanation !== 'object') {
+        return { features: [], note: null }
+    }
+    const obj = explanation as { top_features?: unknown; note?: unknown }
+    const note = typeof obj.note === 'string' ? obj.note : null
+    const raw = Array.isArray(obj.top_features) ? obj.top_features : []
+    const features = raw
+        .map((f): FeatureImportance | null => {
+            if (!f || typeof f !== 'object') {
+                return null
+            }
+            const { name, direction, importance } = f as Record<string, unknown>
+            if (typeof name !== 'string' || typeof importance !== 'number') {
+                return null
+            }
+            return { name, direction: typeof direction === 'string' ? direction : undefined, importance }
+        })
+        .filter((f): f is FeatureImportance => f !== null)
+        .sort((a, b) => b.importance - a.importance)
+    return { features, note }
+}
+
+/** Horizontal bar chart of a model's top feature importances, coloured by direction. */
+function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.Element | null {
+    const { features, note } = parseExplanation(explanation)
+    if (features.length === 0) {
+        return null
+    }
+    const max = Math.max(...features.map((f) => f.importance))
+    const bars = (
+        <div className="space-y-2">
+            <div className="text-xs text-muted">
+                <span style={{ color: 'var(--success)' }}>● raises</span>{' '}
+                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction
+            </div>
+            <div className="space-y-1">
+                {features.map((f) => {
+                    const isNegative = f.direction === 'negative'
+                    return (
+                        <div key={f.name} className="flex items-center gap-2 text-sm">
+                            <div className="w-48 shrink-0 truncate font-mono text-xs" title={f.name}>
+                                {f.name}
+                            </div>
+                            <div
+                                className="flex-1 rounded h-4 overflow-hidden"
+                                style={{ backgroundColor: 'var(--border)' }}
+                            >
+                                <Tooltip
+                                    title={`${isNegative ? 'Lowers' : 'Raises'} the prediction · importance ${f.importance.toFixed(3)}`}
+                                >
+                                    <div
+                                        className="h-full rounded"
+                                        style={{
+                                            width: `${Math.max(2, (f.importance / max) * 100)}%`,
+                                            backgroundColor: isNegative ? 'var(--danger)' : 'var(--success)',
+                                        }}
+                                    />
+                                </Tooltip>
+                            </div>
+                            <div className="w-10 shrink-0 text-right text-xs tabular-nums text-muted">
+                                {f.importance.toFixed(2)}
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+            {note && <div className="text-xs text-muted italic">{note}</div>}
+        </div>
+    )
+    return (
+        <LemonCollapse
+            size="small"
+            defaultActiveKey="features"
+            panels={[{ key: 'features', header: 'Top feature drivers', content: bars }]}
+        />
+    )
+}
+
 function ModelsTab(): JSX.Element {
     const { models, modelsLoading } = useValues(autoresearchPipelineLogic)
     if (modelsLoading) {
@@ -490,6 +576,7 @@ function ModelsTab(): JSX.Element {
                             <div className="font-semibold">{model.calibration_error?.toFixed(3) ?? '—'}</div>
                         </div>
                     </div>
+                    <FeatureImportanceChart explanation={model.model_explanation} />
                     {model.agent_description && (
                         <div className="text-sm text-muted italic">"{model.agent_description}"</div>
                     )}
