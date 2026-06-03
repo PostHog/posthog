@@ -63,6 +63,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "insight",
     "llm_analytics",
     "notebook",
+    "product_tour",
     "revenue_analytics",
     "session_recording",
     "survey",
@@ -301,6 +302,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
+    if name == "producttour":
+        return "product_tour"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
 

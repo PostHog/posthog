@@ -21,11 +21,12 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
-import { ProductTour, ProgressStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ProductTour, ProgressStatus } from '~/types'
 
 import {
     ProductToursTabs,
@@ -144,6 +145,12 @@ export function ProductToursTable(): JSX.Element {
                     {
                         width: 0,
                         render: function Render(_, tour: ProductTour) {
+                            const editAccessDisabledReason =
+                                getAccessControlDisabledReason(
+                                    AccessControlResourceType.ProductTour,
+                                    AccessControlLevel.Editor,
+                                    tour.user_access_level
+                                ) ?? undefined
                             return (
                                 <More
                                     overlay={
@@ -159,6 +166,7 @@ export function ProductToursTable(): JSX.Element {
                                                 fullWidth
                                                 icon={<IconCopy className="w-4" />}
                                                 onClick={() => duplicateProductTour(tour)}
+                                                disabledReason={editAccessDisabledReason}
                                             >
                                                 Duplicate
                                             </LemonButton>
@@ -169,7 +177,7 @@ export function ProductToursTable(): JSX.Element {
                                                     disabledReason={
                                                         tour.archived
                                                             ? 'Restore your tour before launching.'
-                                                            : undefined
+                                                            : editAccessDisabledReason
                                                     }
                                                     onClick={() => {
                                                         LemonDialog.open({
@@ -208,6 +216,7 @@ export function ProductToursTable(): JSX.Element {
                                                 <LemonButton
                                                     fullWidth
                                                     icon={<IconStopFilled className="w-4" />}
+                                                    disabledReason={editAccessDisabledReason}
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Stop this product tour?',
@@ -244,6 +253,7 @@ export function ProductToursTable(): JSX.Element {
                                                 <LemonButton
                                                     fullWidth
                                                     icon={<IconRefresh className="w-4" />}
+                                                    disabledReason={editAccessDisabledReason}
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Resume this product tour?',
@@ -282,6 +292,7 @@ export function ProductToursTable(): JSX.Element {
                                                 <LemonButton
                                                     fullWidth
                                                     icon={<IconArchive className="w-4" />}
+                                                    disabledReason={editAccessDisabledReason}
                                                     onClick={() => {
                                                         updateProductTour({
                                                             id: tour.id,
@@ -299,7 +310,7 @@ export function ProductToursTable(): JSX.Element {
                                                     disabledReason={
                                                         isProductTourRunning(tour)
                                                             ? 'Stop your tour before archiving.'
-                                                            : undefined
+                                                            : editAccessDisabledReason
                                                     }
                                                     onClick={() => {
                                                         LemonDialog.open({
@@ -340,7 +351,7 @@ export function ProductToursTable(): JSX.Element {
                                                 disabledReason={
                                                     isProductTourRunning(tour)
                                                         ? 'Stop your tour before deleting.'
-                                                        : undefined
+                                                        : editAccessDisabledReason
                                                 }
                                                 onClick={() => {
                                                     LemonDialog.open({

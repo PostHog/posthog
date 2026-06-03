@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { IconCode, IconCursorClick, IconDocument, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -13,6 +14,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
@@ -34,6 +36,8 @@ import {
 import { Query } from '~/queries/Query/Query'
 import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     ActivityScope,
     FeatureFlagFilters,
     FunnelConversionWindowTimeUnit,
@@ -147,6 +151,11 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
 
     const status = getProductTourStatus(productTour)
     const isRunning = isProductTourRunning(productTour)
+    const editAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.ProductTour,
+        AccessControlLevel.Editor,
+        productTour.user_access_level
+    )
 
     return (
         <SceneContent>
@@ -158,6 +167,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                         <SceneMenuBarItem
                             variant="destructive"
                             opensFloatingUi
+                            disabled={!!editAccessDisabledReason}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Delete this product tour?',
@@ -196,6 +206,10 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                     <ButtonPrimitive
                         menuItem
                         variant="danger"
+                        disabled={!!editAccessDisabledReason}
+                        disabledReasons={
+                            editAccessDisabledReason ? { [editAccessDisabledReason]: true } : undefined
+                        }
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this product tour?',
@@ -234,23 +248,58 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                         <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
                             Preview
                         </LemonButton>
-                        <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
-                            Edit
-                        </LemonButton>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.ProductTour}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={productTour.user_access_level}
+                        >
+                            <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
+                                Edit
+                            </LemonButton>
+                        </AccessControlAction>
                         {status === ProgressStatus.Draft && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => {
-                                    if (launchValidationIssues.length > 0) {
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ProductTour}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={productTour.user_access_level}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => {
+                                        if (launchValidationIssues.length > 0) {
+                                            LemonDialog.open({
+                                                title: 'Tour not ready to launch',
+                                                content: (
+                                                    <LaunchValidationContent issues={launchValidationIssues} />
+                                                ),
+                                                maxWidth: 600,
+                                                primaryButton: {
+                                                    children: 'Edit tour',
+                                                    type: 'secondary',
+                                                    onClick: () => editingProductTour(true),
+                                                    size: 'small',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                            return
+                                        }
                                         LemonDialog.open({
-                                            title: 'Tour not ready to launch',
-                                            content: <LaunchValidationContent issues={launchValidationIssues} />,
-                                            maxWidth: 600,
+                                            title: 'Launch this product tour?',
+                                            content: (
+                                                <div className="text-sm text-secondary">
+                                                    The tour will immediately start displaying to users matching
+                                                    the display conditions.
+                                                </div>
+                                            ),
                                             primaryButton: {
-                                                children: 'Edit tour',
-                                                type: 'secondary',
-                                                onClick: () => editingProductTour(true),
+                                                children: 'Launch',
+                                                type: 'primary',
+                                                onClick: launchProductTour,
                                                 size: 'small',
                                             },
                                             secondaryButton: {
@@ -259,91 +308,82 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                                 size: 'small',
                                             },
                                         })
-                                        return
-                                    }
-                                    LemonDialog.open({
-                                        title: 'Launch this product tour?',
-                                        content: (
-                                            <div className="text-sm text-secondary">
-                                                The tour will immediately start displaying to users matching the display
-                                                conditions.
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Launch',
-                                            type: 'primary',
-                                            onClick: launchProductTour,
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
-                            >
-                                Launch
-                            </LemonButton>
+                                    }}
+                                >
+                                    Launch
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                         {isRunning && (
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Stop this product tour?',
-                                        content: (
-                                            <div className="text-sm text-secondary">
-                                                The tour will no longer be displayed to users.
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Stop',
-                                            type: 'primary',
-                                            onClick: stopProductTour,
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ProductTour}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={productTour.user_access_level}
                             >
-                                Stop
-                            </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Stop this product tour?',
+                                            content: (
+                                                <div className="text-sm text-secondary">
+                                                    The tour will no longer be displayed to users.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Stop',
+                                                type: 'primary',
+                                                onClick: stopProductTour,
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    Stop
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                         {status === ProgressStatus.Complete && !productTour.archived && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Resume this product tour?',
-                                        content: (
-                                            <div className="text-sm text-secondary">
-                                                Once resumed, the tour will be visible to your users again.
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Resume',
-                                            type: 'primary',
-                                            onClick: resumeProductTour,
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ProductTour}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={productTour.user_access_level}
                             >
-                                Resume
-                            </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Resume this product tour?',
+                                            content: (
+                                                <div className="text-sm text-secondary">
+                                                    Once resumed, the tour will be visible to your users again.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Resume',
+                                                type: 'primary',
+                                                onClick: resumeProductTour,
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    Resume
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
                     </>
                 }
@@ -354,12 +394,24 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                     <div className="flex items-center justify-between w-full">
                         <span>You have unsaved changes</span>
                         <div className="flex items-center gap-2">
-                            <LemonButton type="secondary" size="xsmall" onClick={discardDraft}>
-                                Discard
-                            </LemonButton>
-                            <LemonButton type="primary" size="xsmall" onClick={() => editingProductTour(true)}>
-                                Continue editing
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ProductTour}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={productTour.user_access_level}
+                            >
+                                <LemonButton type="secondary" size="xsmall" onClick={discardDraft}>
+                                    Discard
+                                </LemonButton>
+                            </AccessControlAction>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ProductTour}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={productTour.user_access_level}
+                            >
+                                <LemonButton type="primary" size="xsmall" onClick={() => editingProductTour(true)}>
+                                    Continue editing
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                     </div>
                 </LemonBanner>

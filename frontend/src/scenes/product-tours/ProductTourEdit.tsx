@@ -3,12 +3,14 @@ import { Form } from 'kea-forms'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ProductTourStatusTag } from './components/ProductToursTable'
 import { ProductTourStepsEditor } from './editor'
@@ -56,24 +58,36 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
                                 Preview
                             </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={discardDraft}
-                                loading={draftActionInProgress === 'discard'}
-                                disabledReason={draftActionInProgress ? 'Discarding draft...' : undefined}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ProductTour}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={productTour.user_access_level}
                             >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={submitProductTourForm}
-                                loading={isProductTourFormSubmitting}
-                                disabledReason={draftActionInProgress ? 'Saving...' : undefined}
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={discardDraft}
+                                    loading={draftActionInProgress === 'discard'}
+                                    disabledReason={draftActionInProgress ? 'Discarding draft...' : undefined}
+                                >
+                                    Cancel
+                                </LemonButton>
+                            </AccessControlAction>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ProductTour}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={productTour.user_access_level}
                             >
-                                Save
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={submitProductTourForm}
+                                    loading={isProductTourFormSubmitting}
+                                    disabledReason={draftActionInProgress ? 'Saving...' : undefined}
+                                >
+                                    Save
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                     }
                 />

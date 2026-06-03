@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +14,7 @@ import { Error404 } from '~/layout/Error404'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NewProductTourModal } from './components/NewProductTourModal'
 import { ProductToursTable } from './components/ProductToursTable'
@@ -33,9 +35,19 @@ function NewTourButton(): JSX.Element {
 
     return (
         <>
-            <LemonButton size="small" type="primary" onClick={() => setIsModalOpen(true)} data-attr="new-product-tour">
-                New
-            </LemonButton>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.ProductTour}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    onClick={() => setIsModalOpen(true)}
+                    data-attr="new-product-tour"
+                >
+                    New
+                </LemonButton>
+            </AccessControlAction>
             <NewProductTourModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}

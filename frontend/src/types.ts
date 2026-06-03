@@ -3812,7 +3812,7 @@ export type ProductTourDraftContent = Partial<
     Pick<ProductTour, 'name' | 'description' | 'content' | 'auto_launch' | 'targeting_flag_filters' | 'linked_flag_id'>
 >
 
-export interface ProductTour {
+export interface ProductTour extends WithAccessControl {
     id: string
     name: string
     description: string

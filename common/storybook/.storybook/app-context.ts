@@ -77,6 +77,7 @@ export const getStorybookAppContext = (): AppContext => ({
         dashboard_template: 'manager',
         insight: 'manager',
         notebook: 'manager',
+        product_tour: 'manager',
         session_recording: 'manager',
         revenue_analytics: 'manager',
         survey: 'manager',

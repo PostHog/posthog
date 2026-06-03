@@ -40,6 +40,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -101,7 +102,7 @@ def _validate_step_targeting(step: dict, idx: int):
         raise serializers.ValidationError(f"Step {idx + 1} requires an element to be selected")
 
 
-class ProductTourSerializer(serializers.ModelSerializer):
+class ProductTourSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """Read-only serializer for ProductTour."""
 
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -130,8 +131,9 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "archived",
+            "user_access_level",
         ]
-        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "created_at", "created_by", "updated_at", "user_access_level"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

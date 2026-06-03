@@ -6,7 +6,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.rbac.user_access_control import model_to_resource
+
+from ee.models.rbac.access_control import AccessControl
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.api.product_tour import get_product_tours_response
@@ -1294,3 +1299,106 @@ class TestProductTourWaitPeriodTargetingFlag(APIBaseTest):
         for g in groups:
             prop_keys = [p["key"] for p in g["properties"]]
             assert "plan" in prop_keys
+
+
+class TestProductTourAccessControl(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+    def _create_tour(self) -> ProductTour:
+        return ProductTour.objects.create(
+            team=self.team,
+            name="Onboarding tour",
+            content={"steps": []},
+            created_by=self.user,
+        )
+
+    def test_model_to_resource_maps_product_tour(self):
+        # Guards the model_to_resource special case: the model name "producttour" does not
+        # match the "product_tour" scope, so without the mapping all object-level checks no-op.
+        assert model_to_resource(self._create_tour()) == "product_tour"
+
+    def test_response_includes_user_access_level(self):
+        tour = self._create_tour()
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["user_access_level"] == "manager"
+
+    def test_member_without_access_cannot_retrieve(self):
+        tour = self._create_tour()
+        AccessControl.objects.create(
+            resource="product_tour", resource_id=tour.id, team=self.team, access_level="none"
+        )
+        other_user = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_member_without_access_cannot_edit(self):
+        tour = self._create_tour()
+        AccessControl.objects.create(
+            resource="product_tour", resource_id=tour.id, team=self.team, access_level="none"
+        )
+        other_user = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(other_user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_viewer_can_retrieve_but_not_edit(self):
+        tour = self._create_tour()
+        AccessControl.objects.create(
+            resource="product_tour", resource_id=tour.id, team=self.team, access_level="none"
+        )
+        other_user = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(
+            resource="product_tour",
+            resource_id=tour.id,
+            team=self.team,
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=other_user, organization=self.organization),
+        )
+        self.client.force_login(other_user)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+        assert retrieve_response.json()["user_access_level"] == "viewer"
+
+        edit_response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"name": "Renamed"},
+            format="json",
+        )
+        assert edit_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_member_without_access_cannot_list(self):
+        tour = self._create_tour()
+        AccessControl.objects.create(
+            resource="product_tour", resource_id=tour.id, team=self.team, access_level="none"
+        )
+        other_user = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/")
+        assert response.status_code == status.HTTP_200_OK
+        ids = [tour["id"] for tour in response.json()["results"]]
+        assert str(tour.id) not in ids
+
+    def test_creator_keeps_access_despite_none_access_control(self):
+        tour = self._create_tour()
+        AccessControl.objects.create(
+            resource="product_tour", resource_id=tour.id, team=self.team, access_level="none"
+        )
+        # The creator (self.user) bypasses the resource-level "none" default.
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
+        assert response.status_code == status.HTTP_200_OK

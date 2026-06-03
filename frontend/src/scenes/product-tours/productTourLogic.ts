@@ -16,8 +16,10 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DateRange } from '~/queries/schema/schema-general'
 import {
+    ActivityScope,
     Breadcrumb,
     FeatureFlagBasicType,
     FeatureFlagFilters,
@@ -667,6 +669,19 @@ export const productTourLogic = kea<productTourLogicType>([
         },
     })),
     selectors({
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.productTour],
+            (productTour: ProductTour | null): SidePanelSceneContext | null => {
+                return productTour?.id && productTour.id !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.PRODUCT_TOUR,
+                          activity_item_id: `${productTour.id}`,
+                          access_control_resource: 'product_tour',
+                          access_control_resource_id: `${productTour.id}`,
+                      }
+                    : null
+            },
+        ],
         breadcrumbs: [
             (s) => [s.productTour],
             (productTour: ProductTour | null): Breadcrumb[] => [
