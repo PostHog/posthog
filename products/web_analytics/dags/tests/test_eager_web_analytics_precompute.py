@@ -1,3 +1,6 @@
+from collections.abc import MutableMapping
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
@@ -191,7 +194,7 @@ class TestEagerBaselineLogging(APIBaseTest):
     """The op mirrors lifecycle events to structlog so the run is queryable in
     Loki / PostHog — `context.log` alone only reaches the Dagster UI."""
 
-    def _events(self, cap_logs: list[dict], name: str) -> list[dict]:
+    def _events(self, cap_logs: list[MutableMapping[str, Any]], name: str) -> list[MutableMapping[str, Any]]:
         return [log for log in cap_logs if log.get("event") == name]
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
