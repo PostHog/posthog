@@ -5,6 +5,7 @@ from urllib.parse import quote
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
@@ -14,7 +15,7 @@ from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID
+from ee.api.agentic_provisioning.test.base import _RSA_KEY, HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID
 
 DUMMY_CALLBACK = "https://marketplace.stripe.com/oauth/callback"
 
@@ -86,10 +87,13 @@ class TestAgenticAuthorize(APIBaseTest):
         STRIPE_SIGNING_SECRET=HMAC_SECRET,
         STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK,
         STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
+        OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
+        OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
     )
     def test_full_a1_flow_with_token_exchange(self):
         # The token exchange resolves the legacy Stripe OAuth app by client_id and now
-        # hard-fails if it's missing, so the e2e flow needs the app row to exist.
+        # hard-fails if it's missing, so the e2e flow needs the app row to exist. The
+        # model enforces RS256, which requires OIDC_RSA_PRIVATE_KEY to be set.
         OAuthApplication.objects.create(
             name="PostHog Stripe App",
             client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
@@ -97,6 +101,7 @@ class TestAgenticAuthorize(APIBaseTest):
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://localhost",
+            algorithm="RS256",
         )
         self._set_pending_auth("state_e2e", self.user.email)
 
