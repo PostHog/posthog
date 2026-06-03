@@ -337,10 +337,8 @@ class TestPollForTurnSurfacesAgentError:
                 await poll_for_turn(fake_task_run, skip_lines=0)
 
         # The value persisted to TaskRun.error_message carries the category + 429 text.
-        persist.assert_awaited_once()
-        persisted_message = persist.await_args.args[1]
-        assert "upstream_provider_failure" in persisted_message
-        assert "429 rate_limit_error" in persisted_message
+        expected = "upstream_provider_failure: API Error: 429 rate_limit_error"
+        persist.assert_awaited_once_with(str(fake_task_run.id), expected)
         assert "upstream_provider_failure" in str(exc_info.value)
         assert "429 rate_limit_error" in str(exc_info.value)
 
