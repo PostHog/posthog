@@ -8,7 +8,6 @@ import { RasterizationMetrics } from '../metrics'
 const log = createLogger()
 
 const LAUNCH_ARGS = [
-    '--no-sandbox',
     '--disable-dev-shm-usage',
     '--mute-audio',
     ...(process.env.CHROME_HOST_RESOLVER_RULES

@@ -335,6 +335,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "OrganizationDomain": [
         "last_verification_retry",
     ],
+    "Subscription": [
+        "next_delivery_date",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -378,6 +381,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+    ],
+    "Subscription": [
+        # Scheduler-derived field; keep it out of user-facing change diffs even when another
+        # field changes in the same save (signal_exclusions only governs whether the signal fires).
+        "next_delivery_date",
     ],
     "Cohort": [
         "version",

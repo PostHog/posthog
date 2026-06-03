@@ -120,20 +120,20 @@ describe('unrenderableContentKinds', () => {
     })
 })
 
-describe('buildStreamItems — scaffold detection + grouping', () => {
+describe('buildStreamItems — internal tag detection + grouping', () => {
     const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
-    const userTypedScaffold = (text: string): CompatMessage => ({
+    const userTypedInternal = (text: string): CompatMessage => ({
         role: 'user',
         content: [{ type: 'text', text }] as unknown as CompatMessage['content'],
     })
     const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
 
-    it('returns plain bubbles for a non-scaffold conversation', () => {
+    it('returns plain bubbles for a conversation with no internal tags', () => {
         const items = buildStreamItems([userText('Hi there'), assistant('Hello')])
         expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble'])
     })
 
-    it('groups a single scaffold-only user message into a one-pill group', () => {
+    it('groups a single internal-tag-only user message into a one-pill group', () => {
         const items = buildStreamItems([userText('<system_reminder>foo</system_reminder>')])
         expect(items).toHaveLength(1)
         expect(items[0].kind).toBe('internal-group')
@@ -143,13 +143,13 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
         }
     })
 
-    it('groups consecutive scaffold messages into a single pill', () => {
-        // Four scaffold messages, then the user's real question.
+    it('groups consecutive internal tag messages into a single pill', () => {
+        // Four internal tag messages, then the user's real question.
         const items = buildStreamItems([
-            userTypedScaffold('<system_reminder>foo</system_reminder>'),
-            userTypedScaffold('<system_reminder>\nbar\n</system_reminder>'),
-            userTypedScaffold('<voice_mode>off</voice_mode>'),
-            userTypedScaffold('<attached_context>\nbaz\n</attached_context>'),
+            userTypedInternal('<system_reminder>foo</system_reminder>'),
+            userTypedInternal('<system_reminder>\nbar\n</system_reminder>'),
+            userTypedInternal('<voice_mode>off</voice_mode>'),
+            userTypedInternal('<attached_context>\nbaz\n</attached_context>'),
             userText('what changed?'),
             assistant('looking into it...'),
         ])
@@ -163,9 +163,9 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
         }
     })
 
-    it('breaks grouping when a bubble interrupts the scaffold run', () => {
-        // [scaffold, bubble, scaffold] should produce TWO groups, not one — the
-        // pill marks chronological position, not "all scaffolds ever".
+    it('breaks grouping when a bubble interrupts the internal tag run', () => {
+        // [internal, bubble, internal] should produce TWO groups, not one — the
+        // pill marks chronological position, not "all internal tags ever".
         const items = buildStreamItems([
             userText('<system_reminder>a</system_reminder>'),
             userText('first question'),
@@ -175,22 +175,22 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
         expect(items.map((i) => i.kind)).toEqual(['internal-group', 'bubble', 'internal-group', 'bubble'])
     })
 
-    it('does not classify an assistant-role wrapper as scaffold (models can emit `<system_reminder>` in output)', () => {
+    it('does not classify an assistant-role wrapper as internal (models can emit `<system_reminder>` in output)', () => {
         const items = buildStreamItems([
             userText('hi'),
-            // Unusual but legal: an assistant reply that contains a scaffold-looking wrapper. Render it.
+            // Unusual but legal: an assistant reply that contains an internal-tag-looking wrapper. Render it.
             { role: 'assistant', content: '<system_reminder>foo</system_reminder>' },
         ])
         expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble'])
     })
 
-    it('does not classify a wrapper-plus-extra-text user message as scaffold', () => {
+    it('does not classify a wrapper-plus-extra-text user message as internal', () => {
         // User wrote actual text — we'd lose information by hiding it.
         const items = buildStreamItems([userText('foo <system_reminder>bar</system_reminder> baz')])
         expect(items.map((i) => i.kind)).toEqual(['bubble'])
     })
 
-    it('does not classify unrelated wrapper tags as scaffold', () => {
+    it('does not classify unrelated wrapper tags as internal', () => {
         // `<thinking>` and friends are not in the allowlist — models can emit them as visible content.
         const items = buildStreamItems([
             userText('<thinking>foo</thinking>'),
@@ -200,12 +200,12 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
         expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble', 'bubble'])
     })
 
-    it('drops `system`-role messages entirely (HIDDEN_ROLES) before scaffold classification', () => {
+    it('drops `system`-role messages entirely (HIDDEN_ROLES) before internal tag classification', () => {
         const items = buildStreamItems([{ role: 'system', content: 'You are an assistant.' }, userText('hello')])
         expect(items.map((i) => i.kind)).toEqual(['bubble'])
     })
 
-    it('keeps a single scaffold sandwiched between bubbles intact (no merging across bubbles)', () => {
+    it('keeps a single internal tag message sandwiched between bubbles intact (no merging across bubbles)', () => {
         const items = buildStreamItems([
             userText('first'),
             userText('<system_reminder>x</system_reminder>'),
@@ -278,7 +278,7 @@ describe('buildStreamItems — internal messages (thinking, tool_result) collaps
         expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble', 'internal-group', 'bubble'])
     })
 
-    it('coalesces a scaffold + thinking + tool_result run into a single pill', () => {
+    it('coalesces an internal tag + thinking + tool_result run into a single pill', () => {
         const items = buildStreamItems([
             userText('<system_reminder>be concise</system_reminder>'),
             thinking('let me think'),
@@ -349,47 +349,48 @@ describe('buildStreamItems — internal messages (thinking, tool_result) collaps
 
     it('preserves the role of the first hidden message on the group (alignment is label-based; role kept for analytics)', () => {
         const items = buildStreamItems([thinking('first reasoning step')])
-        expect(items).toHaveLength(1)
+        expect(items.map((i) => i.kind)).toEqual(['internal-group'])
         if (items[0].kind === 'internal-group') {
             expect(items[0].role).toBe('assistant (thinking)')
         }
     })
 
-    it('groups Anthropic typed tool_result parts under the `tool_result` label (renders agent-side)', () => {
-        const userToolResultBlob: CompatMessage = {
-            role: 'user',
-            content: [
-                { type: 'tool_result', tool_use_id: 't1', content: 'row 1' },
-                { type: 'tool_result', tool_use_id: 't2', content: 'row 2' },
-            ] as unknown as CompatMessage['content'],
-        }
-        const items = buildStreamItems([userToolResultBlob])
+    it.each<[name: string, message: CompatMessage, expectedLabels: string[]]>([
+        [
+            'Anthropic typed tool_result parts (renders agent-side)',
+            {
+                role: 'user',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'row 1' },
+                    { type: 'tool_result', tool_use_id: 't2', content: 'row 2' },
+                ] as unknown as CompatMessage['content'],
+            },
+            ['tool_result'],
+        ],
+        [
+            'custom function-shape user-role tool_result',
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'function',
+                        tool_name: 'fetch_account_context',
+                        content: '<current_account_data>...</current_account_data>',
+                    },
+                ] as unknown as CompatMessage['content'],
+            },
+            ['tool_result'],
+        ],
+        [
+            'internal tags under their tag-name label (renders user-side)',
+            { role: 'user', content: '<system_reminder>foo</system_reminder>' },
+            ['system_reminder'],
+        ],
+    ])('groups a single message into one internal-group: %s', (_, message, expectedLabels) => {
+        const items = buildStreamItems([message])
+        expect(items.map((i) => i.kind)).toEqual(['internal-group'])
         if (items[0].kind === 'internal-group') {
-            expect(items[0].labels.every((l) => l === 'tool_result')).toBe(true)
-        }
-    })
-
-    it('groups custom function-shape user-role tool_result under the `tool_result` label', () => {
-        const userFunctionResult: CompatMessage = {
-            role: 'user',
-            content: [
-                {
-                    type: 'function',
-                    tool_name: 'fetch_account_context',
-                    content: '<current_account_data>...</current_account_data>',
-                },
-            ] as unknown as CompatMessage['content'],
-        }
-        const items = buildStreamItems([userFunctionResult])
-        if (items[0].kind === 'internal-group') {
-            expect(items[0].labels).toEqual(['tool_result'])
-        }
-    })
-
-    it('groups scaffold tags under their tag-name label (renders user-side)', () => {
-        const items = buildStreamItems([{ role: 'user', content: '<system_reminder>foo</system_reminder>' }])
-        if (items[0].kind === 'internal-group') {
-            expect(items[0].labels).toEqual(['system_reminder'])
+            expect(items[0].labels).toEqual(expectedLabels)
         }
     })
 })

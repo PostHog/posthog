@@ -78,7 +78,16 @@ function createEntry(entry) {
                 '@posthog/mcp-ui': path.resolve(__dirname, '..', '..', 'services', 'mcp', 'src', 'ui-apps', 'lib'),
                 '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
                 '@posthog/quill': path.resolve(__dirname, '..', '..', 'packages', 'quill', 'packages', 'quill', 'src'),
-                storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
+                '@posthog/quill-charts': path.resolve(
+                    __dirname,
+                    '..',
+                    '..',
+                    'packages',
+                    'quill',
+                    'packages',
+                    'charts',
+                    'src'
+                ),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',

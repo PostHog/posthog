@@ -99,13 +99,6 @@
             "intents": ["data_warehouse", "data_warehouse_saved_queries"]
         },
         {
-            "path": "Deployments",
-            "category": "Tools",
-            "iconType": null,
-            "type": "deployments",
-            "intents": ["deployments"]
-        },
-        {
             "path": "Early access features",
             "category": "Features",
             "iconType": null,
