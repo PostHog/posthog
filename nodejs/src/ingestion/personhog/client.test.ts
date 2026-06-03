@@ -390,6 +390,37 @@ describe('PersonHogClient', () => {
                 expect(result).toEqual([])
                 expect(handler).not.toHaveBeenCalled()
             })
+
+            it('chunks large batches into multiple gRPC calls', async () => {
+                let callCount = 0
+                const batchSizes: number[] = []
+
+                const client = createMockClient({
+                    getGroupsBatch: (req) => {
+                        callCount++
+                        batchSizes.push(req.keys.length)
+                        return {
+                            results: req.keys.map((key) => ({
+                                key,
+                                group: makeProtoGroup({ groupProperties: jsonBytes({ chunked: true }) }),
+                            })),
+                        }
+                    },
+                })
+
+                // 300 items should produce 2 chunks: 250 + 50
+                const count = 300
+                const teamIds = Array.from({ length: count }, (_, i) => i + 1)
+                const groupTypeIndexes = Array.from({ length: count }, () => 0)
+                const groupKeys = Array.from({ length: count }, (_, i) => `key-${i}`)
+
+                const result = await client.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+
+                expect(callCount).toBe(2)
+                expect(batchSizes).toEqual([250, 50])
+                expect(result).toHaveLength(300)
+                expect(result.every((r) => r.group_properties.chunked === true)).toBe(true)
+            })
         })
 
         describe('fetchGroupTypesByTeamIds', () => {
