@@ -12,6 +12,10 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
     from dlt.common.data_types.typing import TDataType
+else:
+    # Runtime placeholder so get_type_hints() on the dataclasses below resolves without importing
+    # dlt (kept type-only above). The real, mypy-visible type comes from the TYPE_CHECKING branch.
+    TDataType = str
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
