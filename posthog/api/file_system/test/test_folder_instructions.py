@@ -1,4 +1,5 @@
 from typing import cast
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 
@@ -29,7 +30,7 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/desktop_file_system/{folder_id}/instructions/"
 
     def _folder_id_for_path(self, path: str) -> str:
-        return str(FileSystem.objects.unscoped().get(team=self.team, surface="desktop", path=path, type="folder").id)
+        return str(FileSystem.objects.get(team=self.team, surface="desktop", path=path, type="folder").id)
 
     def test_new_channel_gets_blank_instructions_automatically(self):
         folder_id = self._create_desktop_folder()
@@ -86,7 +87,7 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
         get = self.client.get(self._instructions_url(folder_id))
         self.assertEqual(get.json()["content"], "second")
 
-        rows = FileSystemFolderInstructions.objects.unscoped().filter(folder_id=folder_id).order_by("version")
+        rows = FileSystemFolderInstructions.objects.unscoped().filter(folder_id=UUID(folder_id)).order_by("version")
         self.assertEqual(
             [(r.version, r.content, r.is_latest) for r in rows],
             [(1, "", False), (2, "first", False), (3, "second", True)],

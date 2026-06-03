@@ -132,6 +132,7 @@ rules:
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
                               |FileSystem
+                              |FileSystemFolderInstructions
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -365,6 +366,7 @@ rules:
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
                         |FileSystem
+                        |FileSystemFolderInstructions
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
