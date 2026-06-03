@@ -436,6 +436,10 @@ snapshots:
         hash: v1.k794b7964.d074f490925cf72e2b41e358613e0cf0d1538900a2c94a9c8e5665b1812aabe4.wyeIj5VIlyOMw_Mn0jDzJfP0CoL6IX0GHixgpOM0OIk
     components-funneltooltip--with-long-name--light:
         hash: v1.k794b7964.ff44f29c8924a73c4fda5872c7fa9ca7907e0e3447cae3df778713382eebca83.VrmiW2CaaWOhd-ZdL5ASeNZVDsAByHiMShQpwBqe_TA
+    components-funneltooltip--with-long-unbroken-name--dark:
+        hash: v1.k794b7964.d4172780f1cb9b6577a9033d2f32759c0390565f5e31f1a998c5cf716cab372f.t__g5LgnJhE5dnQmEn9gOumcPZYLrXlb_eH5BZbCMig
+    components-funneltooltip--with-long-unbroken-name--light:
+        hash: v1.k794b7964.3ee447e85097decb46775693560b37ad52ff93826bef9aec37cb3842d7a79ce4.PKOEEP3Sw1XQi9Ixoqh8kVo0jEO--GoPyvD_nANXZD8
     components-hedgehogmode--profile-picture-hog--dark:
         hash: v1.k794b7964.969bdab0c4f15b4457bc162b9ad87ec0341d5e98ed3a9279494cc2f019c12250.5eEGiofVhJFttdE4ETVy01n1PTA-WrkIsgHZEB9rG5I
     components-hedgehogmode--profile-picture-hog--light:
