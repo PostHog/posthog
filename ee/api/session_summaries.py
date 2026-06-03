@@ -1025,6 +1025,9 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
     def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         """Scope filters — narrow *which sessions* are considered, before the latest-per-session dedupe."""
         params = request.GET
+        # Only the default (null-context) summaries, matching the retrieve path's `get_summary` semantics —
+        # otherwise the list could surface a focused (`focus_area`) row that retrieve doesn't return.
+        queryset = queryset.filter(extra_summary_context__isnull=True)
         if date_from := params.get("date_from"):
             _validate_date_param("date_from", date_from)
             queryset = queryset.filter(created_at__gte=relative_date_parse(date_from, self.team.timezone_info))

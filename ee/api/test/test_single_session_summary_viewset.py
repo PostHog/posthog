@@ -88,7 +88,6 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
             "session-a",
             exception_event_ids=["evt-1", "evt-2"],
             visual_confirmation=True,
-            focus_area="checkout",
         )
 
         response = self.client.get(self._url())
@@ -101,7 +100,7 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self.assertTrue(row["has_exceptions"])
         self.assertTrue(row["visual_confirmation"])
         self.assertEqual(row["model_used"], "gpt-4o")
-        self.assertEqual(row["extra_summary_context"], {"focus_area": "checkout"})
+        self.assertIsNone(row["extra_summary_context"])
         self.assertEqual(row["session_outcome"]["success"], True)
         # The full summary JSON must not leak into the list shape.
         self.assertNotIn("summary", row)
@@ -277,6 +276,21 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self._make_summary("sess-focused-only", focus_area="checkout")
         response = self.client.get(self._url("sess-focused-only"))
         self.assertEqual(response.status_code, 404)
+
+    def test_list_only_returns_default_context_summaries(self) -> None:
+        # List keys on the default (null-context) summary, like retrieve — a focused-only session
+        # does not appear, and a session with both shows its default row (even if focused is newer).
+        self._make_summary("sess-default-only")
+        self._make_summary("sess-focused-only", focus_area="checkout")
+        default = self._make_summary("sess-both")
+        default.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        default.save(update_fields=["created_at"])
+        self._make_summary("sess-both", focus_area="checkout")
+
+        results = {row["session_id"]: row for row in self.client.get(self._url()).json()["results"]}
+        self.assertIn("sess-default-only", results)
+        self.assertNotIn("sess-focused-only", results)
+        self.assertIsNone(results["sess-both"]["extra_summary_context"])
 
     def test_retrieve_returns_latest_summary_when_multiple_exist(self) -> None:
         older = self._make_summary("session-a", model_used="gpt-old")
