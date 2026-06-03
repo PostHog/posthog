@@ -114,6 +114,7 @@ class TeamAdmin(admin.ModelAdmin):
         "delete_recordings",
         "api_token_display",
         "admit_state",
+        "ai_gateway_actions",
         "policy_cache_blob",
     ]
 
@@ -124,8 +125,6 @@ class TeamAdmin(admin.ModelAdmin):
         TeamExperimentsConfigInline,
         UserProductListInline,
     ]
-
-    actions = ["enable_llm_gateway", "revoke_llm_gateway", "clear_llm_gateway_revoke"]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -235,12 +234,13 @@ class TeamAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "LLM Gateway",
+            "AI Gateway",
             {
                 "fields": [
                     "llm_gateway_enabled_at",
                     "llm_gateway_revoked_at",
                     "admit_state",
+                    "ai_gateway_actions",
                     "policy_cache_blob",
                 ],
                 "description": mark_safe(
@@ -358,53 +358,94 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
-    @admin.action(description="Enable LLM gateway access (set enabled_at to now)")
-    def enable_llm_gateway(self, request, queryset):
+    def enable_ai_gateway_view(self, request, object_id):
         from django.utils import timezone
 
-        teams = list(queryset)
-        changed = 0
-        for team in teams:
-            if team.llm_gateway_enabled_at is None:
-                team.llm_gateway_enabled_at = timezone.now()
-                team.save()
-                changed += 1
-        self.message_user(
-            request,
-            f"Enabled {changed} team(s) for LLM gateway ({len(teams) - changed} already enabled).",
-            level=messages.SUCCESS,
-        )
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+        if team.llm_gateway_enabled_at is None:
+            team.llm_gateway_enabled_at = timezone.now()
+            team.save()
+            self.message_user(
+                request,
+                f"Enabled AI gateway access for team '{team.name}'.",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was already enabled (since {team.llm_gateway_enabled_at.isoformat()}).",
+                level=messages.INFO,
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
-    @admin.action(description="Revoke LLM gateway access (set revoked_at to now)")
-    def revoke_llm_gateway(self, request, queryset):
+    def revoke_ai_gateway_view(self, request, object_id):
         from django.utils import timezone
 
-        teams = list(queryset)
-        changed = 0
-        for team in teams:
-            if team.llm_gateway_revoked_at is None:
-                team.llm_gateway_revoked_at = timezone.now()
-                team.save()
-                changed += 1
-        self.message_user(
-            request,
-            f"Revoked {changed} team(s) from LLM gateway ({len(teams) - changed} already revoked).",
-            level=messages.WARNING,
-        )
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+        if team.llm_gateway_revoked_at is None:
+            team.llm_gateway_revoked_at = timezone.now()
+            team.save()
+            self.message_user(
+                request,
+                f"Revoked AI gateway access for team '{team.name}'.",
+                level=messages.WARNING,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was already revoked (since {team.llm_gateway_revoked_at.isoformat()}).",
+                level=messages.INFO,
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
-    @admin.action(description="Clear LLM gateway revoke (set revoked_at to null)")
-    def clear_llm_gateway_revoke(self, request, queryset):
-        teams = list(queryset)
-        changed = 0
-        for team in teams:
-            if team.llm_gateway_revoked_at is not None:
-                team.llm_gateway_revoked_at = None
-                team.save()
-                changed += 1
-        self.message_user(
-            request,
-            f"Cleared LLM gateway revoke for {changed} team(s) ({len(teams) - changed} were not revoked).",
-            level=messages.SUCCESS,
+    def clear_ai_gateway_revoke_view(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+        if team.llm_gateway_revoked_at is not None:
+            team.llm_gateway_revoked_at = None
+            team.save()
+            self.message_user(
+                request,
+                f"Cleared AI gateway revoke for team '{team.name}'.",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was not revoked.",
+                level=messages.INFO,
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    @admin.display(description="Actions")
+    def ai_gateway_actions(self, team: Team):
+        if not team.pk:
+            return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/ai_gateway_actions.html",
+                {
+                    "team": team,
+                    "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
+                    "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
+                    "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
+                    "team_name_escaped": escapejs(team.name),
+                    "is_enabled": team.llm_gateway_enabled_at is not None,
+                    "is_revoked": team.llm_gateway_revoked_at is not None,
+                },
+            )
         )
 
     @admin.display(description="Admit state")
@@ -499,6 +540,21 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/delete-recordings/workflows/",
                 self.admin_site.admin_view(self.delete_recordings_workflows_fragment),
                 name="posthog_team_delete_recordings_workflows",
+            ),
+            path(
+                "<path:object_id>/enable-ai-gateway/",
+                self.admin_site.admin_view(self.enable_ai_gateway_view),
+                name="posthog_team_enable_ai_gateway",
+            ),
+            path(
+                "<path:object_id>/revoke-ai-gateway/",
+                self.admin_site.admin_view(self.revoke_ai_gateway_view),
+                name="posthog_team_revoke_ai_gateway",
+            ),
+            path(
+                "<path:object_id>/clear-ai-gateway-revoke/",
+                self.admin_site.admin_view(self.clear_ai_gateway_revoke_view),
+                name="posthog_team_clear_ai_gateway_revoke",
             ),
         ]
         return custom_urls + urls
