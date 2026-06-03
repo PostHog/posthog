@@ -1579,7 +1579,9 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
-        timeout-minutes: 30
+        # Temporal shards run full migrations per shard on master (no PR schema-cache
+        # priming) and were tipping over 30m, flipping the deploy gate to failure.
+        timeout-minutes: ${{ matrix.segment == 'Temporal' && 40 || 30 }}
 
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
