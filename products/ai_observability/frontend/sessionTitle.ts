@@ -1,10 +1,10 @@
+import { normalizeMessages } from './messageNormalization'
 import { CompatMessage } from './types'
 import {
     extractTextContent,
     hasStringContentField,
     isInternalTagMessage,
     isInternalToolResultUserMessage,
-    normalizeMessages,
 } from './utils'
 
 // Framework root-span names that carry no meaning as a title, so we ignore them.

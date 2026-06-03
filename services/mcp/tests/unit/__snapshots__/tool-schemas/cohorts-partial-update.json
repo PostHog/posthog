@@ -110,9 +110,7 @@
                                                                                     "const": "hogql",
                                                                                     "type": "string"
                                                                                 },
-                                                                                "value": {
-                                                                                    "default": null
-                                                                                }
+                                                                                "value": {}
                                                                             },
                                                                             "required": ["type", "key"],
                                                                             "type": "object"
@@ -383,9 +381,7 @@
                                                         "const": "person",
                                                         "type": "string"
                                                     },
-                                                    "value": {
-                                                        "default": null
-                                                    }
+                                                    "value": {}
                                                 },
                                                 "required": ["type", "key"],
                                                 "type": "object"

@@ -82,8 +82,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.378.1
-      version: 1.378.1
+      specifier: ^1.379.1
+      version: 1.379.1
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -329,7 +329,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -357,7 +357,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -439,7 +439,7 @@ importers:
         version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
       '@storybook/react-webpack5':
         specifier: ^8.6.14
-        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
+        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
       '@storybook/test-runner':
         specifier: ^0.19.1
         version: 0.19.1(storybook@8.6.18(prettier@3.8.2))
@@ -493,7 +493,7 @@ importers:
         version: 2.0.0(webpack@5.88.2)
       webpack:
         specifier: 5.88.2
-        version: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+        version: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli:
         specifier: ^5.1.4
         version: 5.1.4(webpack@5.88.2)
@@ -749,7 +749,7 @@ importers:
         version: link:../packages/quill/packages/charts
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.379.1)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1076,7 +1076,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -2216,7 +2216,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2256,7 +2256,7 @@ importers:
         version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2302,7 +2302,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2401,7 +2401,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2463,7 +2463,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2496,7 +2496,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2580,7 +2580,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2728,7 +2728,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2809,7 +2809,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2911,7 +2911,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3064,7 +3064,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3186,7 +3186,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3282,7 +3282,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3548,7 +3548,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3588,7 +3588,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3603,7 +3603,7 @@ importers:
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.379.1)(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3703,7 +3703,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -7674,10 +7674,6 @@ packages:
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
 
-  '@opentelemetry/api-logs@0.208.0':
-    resolution: {integrity: sha512-CjruKY9V6NMssL/T1kAFgzosF1v9o6oeN+aX5JB/C/xPNtmgIJqcXHG7fA82Ou1zCpWGl4lROQUKwUNE1pMCyg==}
-    engines: {node: '>=8.0.0'}
-
   '@opentelemetry/api-logs@0.218.0':
     resolution: {integrity: sha512-fmEWp5kXlGEc3i/lR698Hz41DfGyN4Tbe4g7L1AxSc7fF8Xeh/FQ9Quqpa9dVA413Q1Ad43QOLzU4JoXgbFPWw==}
     engines: {node: '>=8.0.0'}
@@ -7717,12 +7713,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
 
-  '@opentelemetry/core@2.2.0':
-    resolution: {integrity: sha512-FuabnnUm8LflnieVxs6eP7Z383hgQU4W1e3KJS6aOG3RxWxcHyBxH8fDMHNgu/gFx/M2jvTOW/4/PHhLz6bjWw==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.0.0 <1.10.0'
-
   '@opentelemetry/core@2.5.0':
     resolution: {integrity: sha512-ka4H8OM6+DlUhSAZpONu0cPBtPPTQKxbxVzC4CzVx5+K4JnroJVBtDzLAMx4/3CDTJXRvVFhpFjtl4SaiTNoyQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -7737,12 +7727,6 @@ packages:
 
   '@opentelemetry/exporter-logs-otlp-grpc@0.218.0':
     resolution: {integrity: sha512-hoxrNH1l/Xy6F9WTJ5IK+6j1r9nQFlPOmrnTlhYHTySdunfXLmUCPv3bQtKYntxag9h3wLYBZQ2HI6FOx+BT2g==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': ^1.3.0
-
-  '@opentelemetry/exporter-logs-otlp-http@0.208.0':
-    resolution: {integrity: sha512-jOv40Bs9jy9bZVLo/i8FwUiuCvbjWDI+ZW13wimJm4LjnlwJxGgB+N/VWOZUTpM+ah/awXeQqKdNlpLf2EjvYg==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
@@ -8053,12 +8037,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
 
-  '@opentelemetry/otlp-exporter-base@0.208.0':
-    resolution: {integrity: sha512-gMd39gIfVb2OgxldxUtOwGJYSH8P1kVFFlJLuut32L6KgUC4gl1dMhn+YC2mGn0bDOiQYSk/uHOdSjuKp58vvA==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': ^1.3.0
-
   '@opentelemetry/otlp-exporter-base@0.218.0':
     resolution: {integrity: sha512-ZwqpkNL5W7RyGJPDZ9g06DvKp8KFTWPJPN12anpMQYSKpTSU0z3EIZuPq9vPGpS8siFyOqDYDAuCwlNO9FqgbA==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -8067,12 +8045,6 @@ packages:
 
   '@opentelemetry/otlp-grpc-exporter-base@0.218.0':
     resolution: {integrity: sha512-H/lCGJ536N98VpYJOaWTQOkv4Dx6TnmStK6Rqfu1W7KkFbPAx04hjdYEMZF/YbnHzPUSIK4kM6OE2GKGBTpV9A==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': ^1.3.0
-
-  '@opentelemetry/otlp-transformer@0.208.0':
-    resolution: {integrity: sha512-DCFPY8C6lAQHUNkzcNT9R+qYExvsk6C5Bto2pbNxgicpcSWbe2WHShLxkOxIdNcBiYPdVHv/e7vH7K6TI+C+fQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
@@ -8135,12 +8107,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
-  '@opentelemetry/resources@2.2.0':
-    resolution: {integrity: sha512-1pNQf/JazQTMA0BiO5NINUzH0cbLbbl7mntLa4aJNmCCXSj0q03T5ZXXL0zw4G55TjdL9Tz32cznGClf+8zr5A==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.3.0 <1.10.0'
-
   '@opentelemetry/resources@2.5.0':
     resolution: {integrity: sha512-F8W52ApePshpoSrfsSk1H2yJn9aKjCrbpQF1M9Qii0GHzbfVeFUB+rc3X4aggyZD8x9Gu3Slua+s6krmq6Dt8g==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -8153,23 +8119,11 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
-  '@opentelemetry/sdk-logs@0.208.0':
-    resolution: {integrity: sha512-QlAyL1jRpOeaqx7/leG1vJMp84g0xKP6gJmfELBpnI4O/9xPX+Hu5m1POk9Kl+veNkyth5t19hRlN6tNY1sjbA==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.4.0 <1.10.0'
-
   '@opentelemetry/sdk-logs@0.218.0':
     resolution: {integrity: sha512-QvnNdugatFTVCJXH0Mcu7GOOJSylA9j127kIezOE4YwTI4YbowRons2K4WZTv5FMS8T4q9P0NdaRHdkSmeAIag==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.4.0 <1.10.0'
-
-  '@opentelemetry/sdk-metrics@2.2.0':
-    resolution: {integrity: sha512-G5KYP6+VJMZzpGipQw7Giif48h6SGQ2PFKEYCybeXJsOCB4fp8azqMAAzE5lnnHK3ZVwYQrgmFbsUJO/zOnwGw==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.9.0 <1.10.0'
 
   '@opentelemetry/sdk-metrics@2.7.1':
     resolution: {integrity: sha512-MpDJdkiFDs3Pm1RHO3KByuZbuBdJEXEAkiC0+yJdsZGVCdf1RpHR6n+LHDcS7ffmfrt5kVCzJSCfm4z2C7v0uQ==}
@@ -8185,12 +8139,6 @@ packages:
 
   '@opentelemetry/sdk-trace-base@2.0.1':
     resolution: {integrity: sha512-xYLlvk/xdScGx1aEqvxLwf6sXQLXCjk3/1SQT9X9AoN5rXRhkdvIFShuNNmtTEPRBqcsMbS4p/gJLNI2wXaDuQ==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.3.0 <1.10.0'
-
-  '@opentelemetry/sdk-trace-base@2.2.0':
-    resolution: {integrity: sha512-xWQgL0Bmctsalg6PaXExmzdedSp3gyKV8mQBwK/j9VGdCDu2fmXIb2gAehBKbkXCpJ4HPkgv3QfoJWRT4dHWbw==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
@@ -9051,8 +8999,8 @@ packages:
   '@posthog/core@1.28.3':
     resolution: {integrity: sha512-SOy0aphKawZzp8jxfeOpTcXPwi6ii0I2V6tX8YXnM+WbxKKR/R+BXLK0jS6LV8kZtW3H5YxmPAfuIbUP1UnGTw==}
 
-  '@posthog/core@1.30.2':
-    resolution: {integrity: sha512-d7RTpfi+/q5+SZ+4f1WhanfEtNBz9onMmUxn3BO0GDT8N5ZT4DEP3LqFisqeP+xkJTaFPWCOVA/nGyKmUX9y9g==}
+  '@posthog/core@1.30.4':
+    resolution: {integrity: sha512-57RyT+moR9YGzMTZxbMEPnx6elDeBLzyUd1rfn5XB5yZO425ylKy1nZ1YuKT3CG27bAspUz5J1zHo9y4ygNRCQ==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -9110,8 +9058,8 @@ packages:
   '@posthog/types@1.372.9':
     resolution: {integrity: sha512-B7k9S+H9WUKHXxe1HOkQWbpWtMcrBvsodm5stZaLQ3pYxf9TowtwssdzTtX4hHjzSYqgrS1IpNnJX4vs1KgBzA==}
 
-  '@posthog/types@1.378.1':
-    resolution: {integrity: sha512-bKOXVWySe5oKFjV6X9VW9jngIm14d4BvnT7l/Eb7e6DrT5uD+XclvbRdhC5f1/l5KwoIU+qswBobHRPlix2D1w==}
+  '@posthog/types@1.379.1':
+    resolution: {integrity: sha512-Wr14NDmjl3sUVTgjpIojdsnS5+pNKi53IOD7Q+dAjrNlvGxYcLRkrgJ3AQm6//4NO451L7jCXgfx1x3AkZ7ZBw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -19412,8 +19360,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.378.1:
-    resolution: {integrity: sha512-pr9hu7J9eKCWlDxGfn5jbqcaTvaS+quRVxMKo7XRiKHPtFpXoIStOctkRTMumz8LucgD4l5NVbtsaZDi6OrrLQ==}
+  posthog-js@1.379.1:
+    resolution: {integrity: sha512-eQ7kG4km594L6kzFIsVrjfGoeqmH/+iS/vPN9UVMtQ/IHict8HWCd4vl2iqIfkcfERQOurbwP9vlgoXTeC3izg==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -28641,10 +28589,6 @@ snapshots:
 
   '@open-draft/until@2.1.0': {}
 
-  '@opentelemetry/api-logs@0.208.0':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-
   '@opentelemetry/api-logs@0.218.0':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -28725,11 +28669,6 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/semantic-conventions': 1.39.0
 
-  '@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/semantic-conventions': 1.39.0
-
   '@opentelemetry/core@2.5.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -28749,15 +28688,6 @@ snapshots:
       '@opentelemetry/otlp-grpc-exporter-base': 0.218.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/otlp-transformer': 0.218.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.218.0(@opentelemetry/api@1.9.0)
-
-  '@opentelemetry/exporter-logs-otlp-http@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/otlp-exporter-base': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/otlp-transformer': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
 
   '@opentelemetry/exporter-logs-otlp-http@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
@@ -29206,12 +29136,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@opentelemetry/otlp-exporter-base@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/otlp-transformer': 0.208.0(@opentelemetry/api@1.9.0)
-
   '@opentelemetry/otlp-exporter-base@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -29225,17 +29149,6 @@ snapshots:
       '@opentelemetry/core': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/otlp-exporter-base': 0.218.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/otlp-transformer': 0.218.0(@opentelemetry/api@1.9.0)
-
-  '@opentelemetry/otlp-transformer@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-metrics': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-trace-base': 2.2.0(@opentelemetry/api@1.9.0)
-      protobufjs: 7.6.1
 
   '@opentelemetry/otlp-transformer@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
@@ -29300,12 +29213,6 @@ snapshots:
       '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.36.0
 
-  '@opentelemetry/resources@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/semantic-conventions': 1.39.0
-
   '@opentelemetry/resources@2.5.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -29318,13 +29225,6 @@ snapshots:
       '@opentelemetry/core': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.39.0
 
-  '@opentelemetry/sdk-logs@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
-
   '@opentelemetry/sdk-logs@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -29332,12 +29232,6 @@ snapshots:
       '@opentelemetry/core': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.39.0
-
-  '@opentelemetry/sdk-metrics@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
 
   '@opentelemetry/sdk-metrics@2.7.1(@opentelemetry/api@1.9.0)':
     dependencies:
@@ -29381,13 +29275,6 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.0.1(@opentelemetry/api@1.9.0)
-      '@opentelemetry/semantic-conventions': 1.39.0
-
-  '@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.39.0
 
   '@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.0)':
@@ -30414,9 +30301,9 @@ snapshots:
     dependencies:
       '@posthog/types': 1.372.9
 
-  '@posthog/core@1.30.2':
+  '@posthog/core@1.30.4':
     dependencies:
-      '@posthog/types': 1.378.1
+      '@posthog/types': 1.379.1
 
   '@posthog/core@1.7.1':
     dependencies:
@@ -30462,9 +30349,9 @@ snapshots:
     transitivePeerDependencies:
       - rxjs
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.379.1)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.378.1
+      posthog-js: 1.379.1
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -30473,7 +30360,7 @@ snapshots:
 
   '@posthog/types@1.372.9': {}
 
-  '@posthog/types@1.378.1': {}
+  '@posthog/types@1.379.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -32043,7 +31930,7 @@ snapshots:
       ts-dedent: 2.2.0
       vite: 5.4.21(@types/node@25.8.0)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
 
-  '@storybook/builder-webpack5@8.6.18(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
+  '@storybook/builder-webpack5@8.6.18(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
     dependencies:
       '@storybook/core-webpack': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@types/semver': 7.7.1
@@ -32061,12 +31948,12 @@ snapshots:
       semver: 7.8.0
       storybook: 8.6.18(prettier@3.8.2)
       style-loader: 3.3.3(webpack@5.88.2)
-      terser-webpack-plugin: 5.6.0(postcss@8.5.15)(webpack@5.88.2)
+      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack@5.88.2)
       ts-dedent: 2.2.0
       url: 0.11.1
       util: 0.12.5
       util-deprecate: 1.0.2
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-dev-middleware: 6.1.3(webpack@5.88.2)
       webpack-hot-middleware: 2.25.4
       webpack-virtual-modules: 0.6.2
@@ -32160,7 +32047,7 @@ snapshots:
     dependencies:
       storybook: 8.6.18(prettier@3.8.2)
 
-  '@storybook/preset-react-webpack@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
+  '@storybook/preset-react-webpack@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
     dependencies:
       '@storybook/core-webpack': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@storybook/react': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
@@ -32175,7 +32062,7 @@ snapshots:
       semver: 7.8.0
       storybook: 8.6.18(prettier@3.8.2)
       tsconfig-paths: 4.2.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
     optionalDependencies:
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -32209,7 +32096,7 @@ snapshots:
       react-docgen-typescript: 2.2.2(typescript@6.0.3)
       tslib: 2.8.1
       typescript: 6.0.3
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
     transitivePeerDependencies:
       - supports-color
 
@@ -32247,10 +32134,10 @@ snapshots:
       - supports-color
       - typescript
 
-  '@storybook/react-webpack5@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
+  '@storybook/react-webpack5@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
     dependencies:
-      '@storybook/builder-webpack5': 8.6.18(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
-      '@storybook/preset-react-webpack': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
+      '@storybook/builder-webpack5': 8.6.18(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
+      '@storybook/preset-react-webpack': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
       '@storybook/react': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
@@ -34614,17 +34501,17 @@ snapshots:
 
   '@webpack-cli/configtest@2.1.1(webpack-cli@5.1.4)(webpack@5.88.2)':
     dependencies:
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.88.2)
 
   '@webpack-cli/info@2.0.2(webpack-cli@5.1.4)(webpack@5.88.2)':
     dependencies:
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.88.2)
 
   '@webpack-cli/serve@2.0.5(webpack-cli@5.1.4)(webpack@5.88.2)':
     dependencies:
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.88.2)
 
   '@xmldom/xmldom@0.8.13': {}
@@ -35193,7 +35080,7 @@ snapshots:
       loader-utils: 2.0.4
       make-dir: 3.1.0
       schema-utils: 2.7.1
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   babel-plugin-istanbul@6.1.1:
     dependencies:
@@ -36298,7 +36185,7 @@ snapshots:
       postcss-value-parser: 4.2.0
       schema-utils: 2.7.1
       semver: 6.3.1
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   css-loader@6.8.1(webpack@5.88.2):
     dependencies:
@@ -36310,7 +36197,7 @@ snapshots:
       postcss-modules-values: 4.0.0(postcss@8.5.15)
       postcss-value-parser: 4.2.0
       semver: 7.8.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   css-prefers-color-scheme@10.0.0(postcss@8.5.15):
     dependencies:
@@ -37894,7 +37781,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   file-uri-to-path@1.0.0: {}
 
@@ -38013,7 +37900,7 @@ snapshots:
       semver: 7.8.0
       tapable: 2.3.0
       typescript: 6.0.3
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   form-data@4.0.5:
     dependencies:
@@ -38676,7 +38563,7 @@ snapshots:
   html-webpack-harddisk-plugin@2.0.0(html-webpack-plugin@5.5.3(webpack@5.88.2))(webpack@5.88.2):
     dependencies:
       html-webpack-plugin: 5.5.3(webpack@5.88.2)
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   html-webpack-plugin@5.5.3(webpack@5.88.2):
     dependencies:
@@ -38685,7 +38572,7 @@ snapshots:
       lodash: 4.18.1
       pretty-error: 4.0.0
       tapable: 2.2.1
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   htmlparser2@3.10.1:
     dependencies:
@@ -40930,7 +40817,7 @@ snapshots:
       less: 4.2.2
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   less@3.13.1:
     dependencies:
@@ -43248,7 +43135,7 @@ snapshots:
       postcss: 8.5.15
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   postcss-logical@8.0.0(postcss@8.5.15):
     dependencies:
@@ -43585,15 +43472,10 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.378.1:
+  posthog-js@1.379.1:
     dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/exporter-logs-otlp-http': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.7.1(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@posthog/core': 1.30.2
-      '@posthog/types': 1.378.1
+      '@posthog/core': 1.30.4
+      '@posthog/types': 1.379.1
       core-js: 3.40.0
       dompurify: 3.4.0
       fflate: 0.4.8
@@ -44040,7 +43922,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   rc-cascader@3.34.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45104,7 +44986,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
     optionalDependencies:
       sass: 1.56.0
 
@@ -45768,11 +45650,11 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   style-loader@3.3.3(webpack@5.88.2):
     dependencies:
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   style-search@0.1.0: {}
 
@@ -46137,6 +46019,18 @@ snapshots:
       ansi-escapes: 4.3.2
       supports-hyperlinks: 2.3.0
 
+  terser-webpack-plugin@5.6.0(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack@5.88.2):
+    dependencies:
+      '@jridgewell/trace-mapping': 0.3.29
+      jest-worker: 27.5.1
+      schema-utils: 4.3.3
+      terser: 5.46.0
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+    optionalDependencies:
+      '@swc/core': 1.15.18
+      esbuild: 0.25.12
+      postcss: 8.5.15
+
   terser-webpack-plugin@5.6.0(@swc/core@1.15.18)(esbuild@0.27.7)(postcss@8.5.15)(webpack@5.105.4(@swc/core@1.15.18)(esbuild@0.27.7)(postcss@8.5.15)):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.29
@@ -46147,16 +46041,6 @@ snapshots:
     optionalDependencies:
       '@swc/core': 1.15.18
       esbuild: 0.27.7
-      postcss: 8.5.15
-
-  terser-webpack-plugin@5.6.0(postcss@8.5.15)(webpack@5.88.2):
-    dependencies:
-      '@jridgewell/trace-mapping': 0.3.29
-      jest-worker: 27.5.1
-      schema-utils: 4.3.3
-      terser: 5.46.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
-    optionalDependencies:
       postcss: 8.5.15
 
   terser@5.19.1:
@@ -47350,7 +47234,7 @@ snapshots:
       import-local: 3.1.0
       interpret: 3.1.1
       rechoir: 0.8.0
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-merge: 5.8.0
 
   webpack-dev-middleware@6.1.3(webpack@5.88.2):
@@ -47361,7 +47245,7 @@ snapshots:
       range-parser: 1.2.1
       schema-utils: 4.3.3
     optionalDependencies:
-      webpack: 5.88.2(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
 
   webpack-hot-middleware@2.25.4:
     dependencies:
@@ -47421,7 +47305,7 @@ snapshots:
       - postcss
       - uglify-js
 
-  webpack@5.88.2(postcss@8.5.15)(webpack-cli@5.1.4):
+  webpack@5.88.2(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4):
     dependencies:
       '@types/eslint-scope': 3.7.7
       '@types/estree': 1.0.8
@@ -47444,7 +47328,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       tapable: 2.3.0
-      terser-webpack-plugin: 5.6.0(postcss@8.5.15)(webpack@5.88.2)
+      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(esbuild@0.25.12)(postcss@8.5.15)(webpack@5.88.2)
       watchpack: 2.5.1
       webpack-sources: 3.3.4
     optionalDependencies:
