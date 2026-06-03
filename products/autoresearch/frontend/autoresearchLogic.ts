@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import type { autoresearchLogicType } from './autoresearchLogicType'
 import {
@@ -74,6 +76,14 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to resume pipeline')
             }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        // Reload whenever the list route is entered — the scene logic can stay mounted across
+        // navigation (e.g. returning from the create flow), so afterMount alone leaves the list
+        // showing a stale snapshot that omits a just-created pipeline.
+        [urls.autoresearch()]: () => {
+            actions.loadPipelines()
         },
     })),
     afterMount(({ actions }) => {
