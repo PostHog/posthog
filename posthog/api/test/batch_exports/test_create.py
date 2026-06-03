@@ -22,8 +22,9 @@ from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.batch_exports.models import BatchExport
 from posthog.temporal.common.codec import EncryptionCodec
+
+from products.batch_exports.backend.models.batch_export import BatchExport
 
 pytestmark = [
     pytest.mark.django_db,
@@ -209,7 +210,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
 
     # ensure high-frequency-batch-exports feature flag is enabled
     with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        "products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled",
         return_value=True,
     ):
         response = create_batch_export(
@@ -379,7 +380,7 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
 
     client.force_login(user)
     with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        "products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled",
         return_value=False,
     ) as feature_enabled:
         response = create_batch_export(

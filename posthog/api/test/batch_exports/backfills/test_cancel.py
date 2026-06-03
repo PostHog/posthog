@@ -15,7 +15,8 @@ from posthog.api.test.batch_exports.operations import (
     get_batch_export_backfill_ok,
     list_batch_export_backfills_ok,
 )
-from posthog.batch_exports.models import BatchExportRun
+
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 
 pytestmark = [
     pytest.mark.usefixtures("temporal_worker", "cleanup"),

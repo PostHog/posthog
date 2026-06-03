@@ -140,20 +140,19 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(displayLabels).toEqual(['Chrome'])
     })
 
-    it('places each aggregated_value at the index matching its own band — zero everywhere else', () => {
+    it('collapses to a single series whose data holds each band value in order', () => {
         const results = [
             mkResult({ id: 'a', label: 'A', aggregated_value: 10 }),
             mkResult({ id: 'b', label: 'B', aggregated_value: 20 }),
             mkResult({ id: 'c', label: 'C', aggregated_value: 30 }),
         ]
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(series[0].data).toEqual([10, 0, 0])
-        expect(series[1].data).toEqual([0, 20, 0])
-        expect(series[2].data).toEqual([0, 0, 30])
+        expect(series).toHaveLength(1)
+        expect(series[0].data).toEqual([10, 20, 30])
     })
 
     it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined])(
-        'replaces non-finite aggregated_value (%p) with 0 at the result index',
+        'replaces non-finite aggregated_value (%p) with 0',
         (badValue) => {
             const { series } = buildTrendsBarAggregatedSeries([mkResult({ aggregated_value: badValue })], {
                 getColor: () => RED,
@@ -162,11 +161,45 @@ describe('buildTrendsBarAggregatedSeries', () => {
         }
     )
 
-    it('passes per-result colors through from getColor', () => {
+    it('exposes per-result colors and labels as per-bar entries on the single series', () => {
         const colors = ['#aaa', '#bbb', '#ccc']
-        const results = colors.map((_, i) => mkResult({ id: `r${i}` }))
+        const results = colors.map((_, i) => mkResult({ id: `r${i}`, label: `L${i}` }))
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: (_r, i) => colors[i] })
-        expect(series.map((s) => s.color)).toEqual(colors)
+        expect(series).toHaveLength(1)
+        expect(series[0].bars?.map((b) => b.color)).toEqual(colors)
+        expect(series[0].bars?.map((b) => b.label)).toEqual(['L0', 'L1', 'L2'])
+        // Series-level color falls back to the first bar so a tooltip/legend has something sane.
+        expect(series[0].color).toBe(colors[0])
+    })
+
+    it('dims the previous-compare bar color, matching the time-series builder', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', compare_label: 'current' }),
+            mkResult({ id: 'b', label: 'B', compare_label: 'previous' }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(series[0].bars?.map((b) => b.color)).toEqual([RED, hexToRGBA(RED, 0.5)])
+    })
+
+    it('builds per-bar meta by index when buildMeta is provided', () => {
+        const results = [mkResult({ id: 'a' }), mkResult({ id: 'b' })]
+        const { series } = buildTrendsBarAggregatedSeries<TrendsBarResultLike, { idx: number }>(results, {
+            getColor: () => RED,
+            buildMeta: (_r, i) => ({ idx: i }),
+        })
+        expect(series[0].bars?.map((b) => b.meta)).toEqual([{ idx: 0 }, { idx: 1 }])
+    })
+
+    it('keeps the sparse multi-series stack when stackBreakdowns is set', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'F', order: 0, breakdown_value: 'Chrome', aggregated_value: 10 }),
+            mkResult({ id: 'b', label: 'F', order: 0, breakdown_value: 'Safari', aggregated_value: 20 }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
+        // Stacked breakdowns share a band and genuinely stack, so they stay as one series per row.
+        expect(series).toHaveLength(2)
+        expect(series[0].data).toEqual([10, 0])
+        expect(series[1].data).toEqual([0, 20])
     })
 
     it.each([
@@ -207,9 +240,8 @@ describe('buildTrendsBarAggregatedSeries', () => {
             getHidden: (_r, i) => i === 1,
         })
         expect(displayLabels).toEqual(['A', 'C'])
-        expect(series).toHaveLength(2)
-        expect(series[0].data).toEqual([1, 0])
-        expect(series[1].data).toEqual([0, 3])
+        expect(series).toHaveLength(1)
+        expect(series[0].data).toEqual([1, 3])
     })
 })
 
