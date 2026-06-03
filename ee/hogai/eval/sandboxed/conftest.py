@@ -270,7 +270,7 @@ def _sandbox_settings(
     tasks queue in the developer's environment.
 
     Also patches ``posthoganalytics.feature_enabled`` to return True for all
-    flags so permission checks (TasksAccessPermission) and workflow guards pass.
+    flags so workflow guards pass.
     """
     from unittest.mock import patch
 

@@ -10,7 +10,11 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.connection_token import (
+    SANDBOX_JWT_STATE_KID_KEY,
+    get_primary_sandbox_jwt_kid,
+    get_sandbox_jwt_public_key,
+)
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
@@ -38,6 +42,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "GH_TOKEN",
     "LLM_GATEWAY_URL",
     "POSTHOG_RESUME_RUN_ID",
+    "BASH_ENV",
 }
 
 
@@ -175,6 +180,11 @@ def _build_environment_variables(
     if github_token:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
+
+    # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
+    # agent-server launch (see `_build_agent_server_command`) so backend maintenance execs
+    # don't source a script that a resume snapshot could control. It stays in
+    # RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS so a user-supplied env var can't add it here.
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
@@ -357,6 +367,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             sandbox_state = {
                 "sandbox_id": sandbox.id,
                 "sandbox_url": credentials.url,
+                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
             }
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token

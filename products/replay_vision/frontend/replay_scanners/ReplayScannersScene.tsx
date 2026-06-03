@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { XRayHog } from 'lib/components/hedgehogs'
@@ -21,12 +21,26 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPill } from '../components/FilterPill'
 import { VisionQuotaMeter } from './components/VisionQuotaMeter'
 import { replayScannersLogic } from './replayScannersLogic'
-import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
+import {
+    ENABLED_OPTIONS,
+    EnabledFilter,
+    SCANNER_TYPE_OPTIONS,
+    ScannerType,
+    ReplayScanner,
+    scannerTypeLabel,
+} from './types'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
     label,
 }))
+
+const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
+    monitor: 'primary',
+    classifier: 'completion',
+    scorer: 'warning',
+    summarizer: 'success',
+}
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -35,8 +49,16 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannersScene(): JSX.Element {
-    const { filteredScanners, scanners, scannersLoading, search, enabledFilter, scannerTypeFilter, hasActiveFilters } =
-        useValues(replayScannersLogic)
+    const {
+        filteredScanners,
+        scanners,
+        scannersLoading,
+        togglingIds,
+        search,
+        enabledFilter,
+        scannerTypeFilter,
+        hasActiveFilters,
+    } = useValues(replayScannersLogic)
     const {
         loadScanners,
         deleteScanner,
@@ -75,10 +97,11 @@ export function ReplayScannersScene(): JSX.Element {
                         <LemonSwitch
                             checked={scanner.enabled}
                             onChange={() => toggleScannerEnabled(scanner.id)}
+                            disabled={togglingIds.includes(scanner.id)}
                             size="small"
                         />
                     </AccessControlAction>
-                    <span className={scanner.enabled ? 'text-success' : 'text-muted'}>
+                    <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
                 </div>
@@ -88,7 +111,11 @@ export function ReplayScannersScene(): JSX.Element {
         {
             title: 'Type',
             key: 'scanner_type',
-            render: (_, scanner) => <LemonTag type="option">{scanner.scanner_type}</LemonTag>,
+            render: (_, scanner) => (
+                <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
+                    {scannerTypeLabel(scanner.scanner_type)}
+                </LemonTag>
+            ),
             sorter: (a, b) => a.scanner_type.localeCompare(b.scanner_type),
         },
         {

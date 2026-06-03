@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Collection, Iterable
 from typing import Any, cast
 
@@ -598,15 +597,13 @@ class TestMaterializeViewActivity:
     ):
         # regression: multiple batches with case-sensitive columns must materialize cleanly.
         #
-        # per-batch mode="append" writes route through delta-rs's DataFusion-backed
-        # writer, which lowercases identifiers and fails with
-        # "Generic DeltaTable error: Schema error: No field named personid. ...
-        # Did you mean 'personId'?" on tables whose column names contain uppercase
-        # characters. the activity streams every batch through a single mode="overwrite"
-        # transaction to take the case-safe create path; this test guards both invariants:
-        #   - all rows from every batch are written and column casing is preserved;
-        #   - the delta history contains a single version (i.e. one commit), which would
-        #     regress to N versions if someone reintroduced per-batch append.
+        # delta-rs's DataFusion-backed append writer can lowercase identifiers and fail with
+        # "Generic DeltaTable error: Schema error: No field named personid. ... Did you mean
+        # 'personId'?" on tables whose column names contain uppercase characters. the activity
+        # writes the first batch with mode="overwrite" (creating the table from the exact arrow
+        # schema, pinning case) and appends later batches with schema_mode="merge" — the
+        # data_imports write path. this asserts every batch's rows land and casing survives
+        # across the overwrite + append commits.
         camel_case_names = ["Event", "DistinctId", "personId", "CamelCaseColumn"]
 
         def mock_hogql_table(*args, **kwargs):
@@ -653,10 +650,6 @@ class TestMaterializeViewActivity:
             materialized = delta_table.to_pyarrow_table()
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
-            # one commit per materialization — guards against reintroducing per-batch
-            # append, which would record N+ versions and route through the broken
-            # DataFusion-backed writer.
-            assert len(delta_table.history()) == 1
 
     async def test_zero_row_materialization_writes_empty_parquet(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -712,18 +705,9 @@ class TestMaterializeViewActivity:
             assert pyarrow_table.num_rows == 0
             assert set(pyarrow_table.column_names) == {"id", "name"}
 
-    async def test_aborted_write_releases_producer_parked_on_full_queue(
-        self, activity_environment, ateam, anode, ajob, bucket_name, adag
-    ):
-        # regression: when the consumer (write) aborts while the producer is still
-        # streaming, the producer must not be orphaned. its queue ops run in a thread
-        # via asyncio.to_thread (not cancellable), so a plain blocking put against the
-        # bounded queue would park that thread forever once the consumer stops draining,
-        # and the cleanup join (await producer_task) would hang with it. the producer's
-        # _put/_get poll a stop_event that cleanup sets, so the parked op returns and the
-        # task is reaped. we yield far more batches than the queue holds (maxsize=2) and
-        # make write_deltalake raise without draining, guaranteeing the producer parks;
-        # the activity must surface the write error promptly instead of hanging.
+    async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
+        # regression: a failure in a per-batch write_deltalake call must surface from the
+        # activity so Temporal retries, rather than being swallowed.
         names = ["a", "b"]
 
         def mock_hogql_table(*args, **kwargs):
@@ -765,7 +749,5 @@ class TestMaterializeViewActivity:
                 node_id=str(anode.id),
                 job_id=str(ajob.id),
             )
-            # wait_for fails the test rather than hanging the suite if the producer is
-            # orphaned and the cleanup join blocks forever.
             with pytest.raises(RuntimeError, match="boom"):
-                await asyncio.wait_for(activity_environment.run(materialize_view_activity, inputs), timeout=10)
+                await activity_environment.run(materialize_view_activity, inputs)

@@ -33,20 +33,21 @@ from ..facade.contracts import (
     ApproveRunRequestInput,
     CreateRepoInput,
     CreateRunInput,
+    FinalizeRunRequestInput,
     QuarantineInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
-from ..facade.enums import ReviewDecision
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
-    AutoApproveResultSerializer,
     BaselineOverviewSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    FinalizeResultSerializer,
+    FinalizeRunInputSerializer,
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
@@ -531,37 +532,62 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=ApproveRunInputSerializer,
-        responses={200: OpenApiResponse(response=AutoApproveResultSerializer)},
+        responses={200: OpenApiResponse(response=RunSerializer)},
     )
     @action(detail=True, methods=["post"])
     def approve(self, request: TypedRequest[ApproveRunRequestInput], pk: str, **kwargs) -> Response:
-        """Approve visual changes for snapshots in this run.
+        """Mark snapshots reviewed (DB only).
 
-        With approve_all=true, approves all changed+new snapshots and returns
-        signed baseline YAML. With specific snapshots, approves only those.
+        Records the per-snapshot "Accept change" decision. Does not commit the baseline
+        or change the GitHub gate — call finalize to ship the run.
         """
         body = request.validated_data
         run_id = UUID(pk)
         user_id = cast(int, request.user.id)
 
         try:
-            if body.approve_all:
-                result = api.approve_all(run_id=run_id, user_id=user_id, team_id=self.team_id)
-                return Response(AutoApproveResultSerializer(instance=result).data)
-
-            input_dto = ApproveRunInput(
-                run_id=run_id,
-                user_id=user_id,
-                snapshots=body.snapshots,
-                commit_to_github=body.commit_to_github,
-            )
-            run = api.approve_run(input_dto, team_id=self.team_id)
-            return Response(
-                AutoApproveResultSerializer(instance=contracts.AutoApproveResult(run=run, baseline_content="")).data
-            )
-
+            input_dto = ApproveRunInput(run_id=run_id, user_id=user_id, snapshots=body.snapshots)
+            run = api.approve_snapshots(input_dto, team_id=self.team_id)
+            return Response(RunSerializer(instance=run).data)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.StaleRunError as e:
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
+        except api.ArtifactNotFoundError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @validated_request(
+        request_serializer=FinalizeRunInputSerializer,
+        responses={200: OpenApiResponse(response=FinalizeResultSerializer)},
+    )
+    @action(detail=True, methods=["post"])
+    def finalize(self, request: TypedRequest[FinalizeRunRequestInput], pk: str, **kwargs) -> Response:
+        """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+
+        Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
+        and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
+        any still-pending changed/new snapshot is approved first. With commit_to_github=false
+        the server returns the signed baseline YAML instead of committing it.
+        """
+        body = request.validated_data
+        run_id = UUID(pk)
+        user_id = cast(int, request.user.id)
+
+        try:
+            result = api.finalize_run(
+                run_id=run_id,
+                user_id=user_id,
+                team_id=self.team_id,
+                approve_all=body.approve_all,
+                commit_to_github=body.commit_to_github,
+            )
+            return Response(FinalizeResultSerializer(instance=result).data)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.RunNotFullyResolvedError as e:
+            return Response({"detail": str(e), "code": "not_fully_resolved"}, status=status.HTTP_409_CONFLICT)
         except api.StaleRunError as e:
             return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
         except api.ArtifactNotFoundError as e:
@@ -583,6 +609,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response
         except api.GitHubCommitError:
             return Response({"detail": "GitHub commit failed"}, status=status.HTTP_502_BAD_GATEWAY)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @extend_schema(
         request=None,
@@ -600,26 +628,3 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": "Run must be completed and not yet approved"}, status=status.HTTP_400_BAD_REQUEST
             )
         return Response(RecomputeResultSerializer(instance=result).data)
-
-    @extend_schema(request=None, responses={200: AutoApproveResultSerializer}, deprecated=True)
-    @action(detail=True, methods=["post"], url_path="auto-approve")
-    def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
-        """CLI auto-approve: approve all and return baseline YAML for local write."""
-        try:
-            result = api.approve_all(
-                run_id=UUID(pk),
-                user_id=cast(int, request.user.id),
-                team_id=self.team_id,
-                review_decision=ReviewDecision.AUTO_APPROVED,
-                commit_to_github=False,
-            )
-        except api.RunNotFoundError:
-            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
-        except api.StaleRunError as e:
-            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
-        except api.ArtifactNotFoundError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except ValueError:
-            return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(AutoApproveResultSerializer(instance=result).data)

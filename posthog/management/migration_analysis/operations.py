@@ -383,18 +383,38 @@ class AddIndexAnalyzer(OperationAnalyzer):
 
 
 class AddIndexConcurrentlyAnalyzer(OperationAnalyzer):
-    """Analyzer for AddIndexConcurrently - always safe as it's designed for non-locking index creation."""
+    """Analyzer for AddIndexConcurrently.
+
+    Non-blocking, but NOT idempotent: it emits a bare CREATE INDEX CONCURRENTLY
+    with no IF NOT EXISTS and no way to disable lock_timeout. Under the deploy
+    retry loop a single lock_timeout cancellation leaves an invalid index and
+    every retry then fails with "relation already exists". ConcurrentIndexIdempotencyPolicy
+    blocks this; the score here keeps the per-operation report consistent.
+    """
 
     operation_type = "AddIndexConcurrently"
-    default_score = 0
+    default_score = 2
 
     def analyze(self, op) -> OperationRisk:
         model_name = getattr(op, "model_name", None)
         return OperationRisk(
             type=self.operation_type,
-            score=0,
-            reason="Concurrent index creation is safe (non-blocking)",
+            score=2,
+            reason="AddIndexConcurrently is non-idempotent (bare CREATE INDEX CONCURRENTLY, no lock_timeout control)",
             details={"model": model_name},
+            guidance=f"""Don't use AddIndexConcurrently. It emits CREATE INDEX CONCURRENTLY with no IF NOT EXISTS and cannot set lock_timeout, so a single lock-timeout cancellation during deploy leaves an invalid index and every bin/migrate retry then fails with "relation already exists".
+
+Use RunSQL wrapped in SeparateDatabaseAndState:
+
+    migrations.SeparateDatabaseAndState(
+        state_operations=[migrations.AddIndex(...)],
+        database_operations=[migrations.RunSQL(
+            sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS my_idx ON my_table (col);",
+            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS my_idx;",
+        )],
+    )
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-indexes)""",
         )
 
 
@@ -462,13 +482,14 @@ class RunSQLAnalyzer(OperationAnalyzer):
                         score=1,
                         reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
                         details={"sql": sql},
+                        guidance="Also prefix with `SET lock_timeout = 0;` so the deploy lock_timeout can't cancel the build and leave an invalid index that defeats IF NOT EXISTS on retry.",
                     )
                 return OperationRisk(
                     type=self.operation_type,
                     score=2,
                     reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
                     details={"sql": sql},
-                    guidance="Add IF NOT EXISTS for idempotency: CREATE INDEX CONCURRENTLY IF NOT EXISTS",
+                    guidance='Make this idempotent and uncancellable: `SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...`. Without IF NOT EXISTS, a cancelled build leaves an invalid index and every bin/migrate retry fails with "relation already exists".',
                 )
             elif "DROP" in sql and "INDEX" in sql:
                 if "IF EXISTS" in sql:
@@ -847,17 +868,36 @@ class RemoveIndexAnalyzer(OperationAnalyzer):
 
 
 class RemoveIndexConcurrentlyAnalyzer(OperationAnalyzer):
-    """Analyzer for RemoveIndexConcurrently - safe non-blocking index removal."""
+    """Analyzer for RemoveIndexConcurrently.
+
+    Non-blocking, but NOT idempotent: emits a bare DROP INDEX CONCURRENTLY with
+    no IF EXISTS. After a partial failure the retry loop fails with "index does
+    not exist". ConcurrentIndexIdempotencyPolicy blocks this; the score here
+    keeps the per-operation report consistent.
+    """
 
     operation_type = "RemoveIndexConcurrently"
-    default_score = 0
+    default_score = 2
 
     def analyze(self, op) -> OperationRisk:
         return OperationRisk(
             type=self.operation_type,
-            score=0,
-            reason="Concurrent index removal is safe (non-blocking)",
+            score=2,
+            reason="RemoveIndexConcurrently is non-idempotent (bare DROP INDEX CONCURRENTLY, no IF EXISTS)",
             details={"model": op.model_name if hasattr(op, "model_name") else "unknown"},
+            guidance=f"""Don't use RemoveIndexConcurrently. It emits DROP INDEX CONCURRENTLY with no IF EXISTS, so after a partial failure every bin/migrate retry fails with "index does not exist".
+
+Use RunSQL wrapped in SeparateDatabaseAndState:
+
+    migrations.SeparateDatabaseAndState(
+        state_operations=[migrations.RemoveIndex(...)],
+        database_operations=[migrations.RunSQL(
+            sql="DROP INDEX CONCURRENTLY IF EXISTS my_idx;",
+            reverse_sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS my_idx ON my_table (col);",
+        )],
+    )
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-indexes)""",
         )
 
 

@@ -327,10 +327,7 @@ async fn build_remote_resolution(
     let refresh_task = crate::stages::resolution::remote::pool::spawn_refresh_task(pool.clone());
 
     Ok((
-        Some(RemoteResolutionContext {
-            pool,
-            config: remote_config,
-        }),
+        Some(RemoteResolutionContext::new(pool, remote_config)),
         Some(refresh_task),
     ))
 }

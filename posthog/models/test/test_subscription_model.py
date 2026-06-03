@@ -15,7 +15,8 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
-from posthog.models.subscription import (
+
+from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
@@ -23,7 +24,6 @@ from posthog.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -473,7 +473,7 @@ class TestSubscriptionLimit(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
         self._create_subscriptions(2)
-        with patch("posthog.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
+        with patch("products.exports.backend.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
             result = Subscription.check_subscription_limit(self.team.id, self.organization)
         assert result is not None
         assert "2" in result
