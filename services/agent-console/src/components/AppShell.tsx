@@ -16,6 +16,7 @@ import {
     BotIcon,
     ExternalLinkIcon,
     LibraryIcon,
+    Loader2Icon,
     LogOutIcon,
     MonitorIcon,
     MoonIcon,
@@ -85,14 +86,29 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
  * skip mounting the dock entirely (it would otherwise immediately try to
  * fetch agents and 401).
  *
- * Loading + error states still render the chrome so the user sees the
- * familiar layout while `/api/auth/me` resolves.
+ * While `/api/auth/me` is in flight (`loading: true`) we render a
+ * neutral placeholder — NEITHER the authed chrome nor the unauthed
+ * surface. Picking either eagerly causes a visible flash the moment
+ * the fetch resolves the other way; a blank background is the least
+ * jarring intermediate state.
  */
 function AuthRoutedShell({ children }: { children: React.ReactNode }): React.ReactElement {
     const { loading, info } = useSession()
-    const showUnauthedSurface = !loading && info != null && !info.authenticated
 
-    if (showUnauthedSurface) {
+    if (loading) {
+        return (
+            <div
+                className="flex h-screen w-screen items-center justify-center bg-background text-muted-foreground"
+                aria-busy
+                aria-live="polite"
+            >
+                <Loader2Icon className="h-5 w-5 animate-spin" aria-hidden />
+                <span className="sr-only">Loading…</span>
+            </div>
+        )
+    }
+
+    if (info != null && !info.authenticated) {
         return (
             <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
                 <UnauthedScreen />
