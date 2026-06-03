@@ -199,7 +199,6 @@ doesn't conflict with concurrent PRs.
 - postmark
 - productboard
 - quickbooks
-- recharge
 - recurly
 - ringcentral
 - salesloft
