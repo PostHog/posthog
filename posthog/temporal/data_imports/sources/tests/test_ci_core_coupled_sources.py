@@ -8,6 +8,10 @@ from pathlib import Path
 # excludes the coupled ones via its `coupled` list; this test fails if a Core/CorePOE file
 # gains a runtime import of a source missing from that list — which would otherwise let a
 # sources-only PR silently skip the Core test that exercises it.
+#
+# Deliberately uses stdlib ast over a path walk, NOT the repo's `grimp` dependency: grimp
+# does not descend posthog/temporal/data_imports/ (an implicit namespace package — no
+# __init__.py), so its graph contains zero source modules and the guard would pass blind.
 
 # Only leaf imports (sources.<vendor>...) are counted. A bare
 # `from ...sources import SourceRegistry / load_all_sources` is intentionally NOT flagged:
