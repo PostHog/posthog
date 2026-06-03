@@ -20,6 +20,7 @@ logger = structlog.get_logger(__name__)
 SIGNALS_CURSOR_DISPATCH_FLAG = "signals-cursor-dispatch"
 
 CURSOR_AGENTS_API_URL = "https://api.cursor.com/v1/agents"
+CURSOR_AGENT_WEB_URL_BASE = "https://cursor.com/agents"
 CURSOR_REQUEST_TIMEOUT_SECONDS = 30
 
 POSTHOG_MCP_URL = "https://mcp.posthog.com/mcp"
@@ -193,6 +194,15 @@ def dispatch_report_to_cursor(
     except requests.RequestException as e:
         raise CursorDispatchError(f"Request to Cursor failed: {e}") from e
 
+    if response.status_code == 409:
+        # Cursor rejects a duplicate agentId; this report was already dispatched.
+        existing_id = agent_id_for_report(str(report.id))
+        return CursorDispatchResult(
+            agent_id=existing_id,
+            agent_url=f"{CURSOR_AGENT_WEB_URL_BASE}/{existing_id}",
+            agent_status="already_dispatched",
+        )
+
     if response.status_code >= 400:
         raise CursorDispatchError(f"Cursor returned {response.status_code}: {response.text[:500]}")
 
@@ -201,8 +211,9 @@ def dispatch_report_to_cursor(
     except ValueError as e:
         raise CursorDispatchError(f"Cursor returned a non-JSON response: {e}") from e
 
+    agent = data.get("agent") or {}
     return CursorDispatchResult(
-        agent_id=data.get("id"),
-        agent_url=data.get("url"),
-        agent_status=data.get("status"),
+        agent_id=agent.get("id"),
+        agent_url=agent.get("url"),
+        agent_status=agent.get("status"),
     )

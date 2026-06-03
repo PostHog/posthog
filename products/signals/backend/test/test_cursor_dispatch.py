@@ -152,11 +152,14 @@ class TestDispatchToCursorEndpoint(APIBaseTest):
 
     def test_dispatch_posts_to_cursor_and_returns_agent(self):
         report = self._create_report()
-        cursor_response = MagicMock(status_code=200)
+        cursor_response = MagicMock(status_code=201)
         cursor_response.json.return_value = {
-            "id": "agent_123",
-            "url": "https://cursor.com/agents/agent_123",
-            "status": "queued",
+            "agent": {
+                "id": "bc-agent_123",
+                "url": "https://cursor.com/agents/bc-agent_123",
+                "status": "ACTIVE",
+            },
+            "run": {"id": "run-1", "status": "RUNNING"},
         }
 
         with (
@@ -168,9 +171,9 @@ class TestDispatchToCursorEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
-            "agent_id": "agent_123",
-            "agent_url": "https://cursor.com/agents/agent_123",
-            "agent_status": "queued",
+            "agent_id": "bc-agent_123",
+            "agent_url": "https://cursor.com/agents/bc-agent_123",
+            "agent_status": "ACTIVE",
         }
 
         mock_post.assert_called_once()
@@ -187,3 +190,17 @@ class TestDispatchToCursorEndpoint(APIBaseTest):
         assert "P1" in prompt_text
         assert "billing/views.py" in prompt_text
         assert "abc123" in prompt_text
+
+    def test_duplicate_dispatch_returns_already_dispatched(self):
+        report = self._create_report()
+        conflict = MagicMock(status_code=409)
+        conflict.json.return_value = {"error": {"code": "agent_id_conflict", "message": "exists"}}
+        with (
+            patch(FLAG_PATH, return_value=True),
+            self.settings(CURSOR_API_KEY="test-key"),
+            patch(POST_PATH, return_value=conflict),
+        ):
+            response = self.client.post(self._url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["agent_status"] == "already_dispatched"
+        assert response.json()["agent_id"] == f"bc-{report.id}"
