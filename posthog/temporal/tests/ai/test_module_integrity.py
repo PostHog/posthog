@@ -64,7 +64,6 @@ class TestAITemporalModuleIntegrity:
             "create_posthog_code_routing_rule_activity",
             "cascade_posthog_code_repository_activity",
             "discover_posthog_code_repository_via_agent_activity",
-            "select_posthog_code_repository_activity",
             "classify_posthog_code_task_needs_repo_activity",
             "post_posthog_code_no_repos_activity",
             "post_posthog_code_repo_picker_activity",
@@ -245,6 +244,9 @@ class TestSignalsProductModuleIntegrity:
             "TeamSignalReingestionWorkflow",
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
+            "RunSignalsScoutWorkflow",
+            "SignalsScoutCoordinatorWorkflow",
+            "CustomSignalAgentWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -295,6 +297,9 @@ class TestSignalsProductModuleIntegrity:
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
+            "fetch_enabled_signals_scout_runs_activity",
+            "run_signals_scout_activity",
+            "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

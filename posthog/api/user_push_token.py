@@ -67,7 +67,7 @@ class UserPushTokenUnregisterRequestSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class UserPushTokenViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/push_tokens/` — manage the authenticated user's push notification tokens."""
 

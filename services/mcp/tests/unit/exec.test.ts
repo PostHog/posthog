@@ -462,6 +462,7 @@ describe('exec tool', () => {
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
                     POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
                 },
@@ -473,7 +474,7 @@ describe('exec tool', () => {
                 getDistinctId: async () => 'test-distinct-id',
                 trackEvent: async () => {},
             }
-            const v2Tools = await getToolsFromContext(context, { version: 2 })
+            const v2Tools = await getToolsFromContext(context)
             const queryRetention = v2Tools.find((t) => t.name === 'query-retention')
             expect(queryRetention).not.toBeUndefined()
             const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
@@ -513,6 +514,66 @@ describe('exec tool', () => {
         })
     })
 
+    describe('search command', () => {
+        it('returns a plain array of matching tool names', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExec([flagTool])
+            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
+        it('rejects an overly long search pattern before compiling the regex', async () => {
+            const exec = createExec([makeMockTool()])
+            const longPattern = 'a'.repeat(201)
+            await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
+                /pattern too long/i
+            )
+        })
+
+        it('hints scope-gated tools that match but are hidden by missing scopes', async () => {
+            const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
+                {
+                    name: 'external-data-sources-refresh-schemas',
+                    title: 'Refresh available schemas',
+                    description: 'Fetch the latest table list from the remote database',
+                    missingScopes: ['external_data_source:write'],
+                },
+                {
+                    name: 'external-data-schemas-list',
+                    title: 'List data import schemas',
+                    description: 'List all table schemas',
+                    missingScopes: ['external_data_source:read'],
+                },
+            ])
+            const result = JSON.parse(
+                (await exec.handler(mockContext, {
+                    command: 'search external-data-sources|external-data-schemas',
+                })) as string
+            )
+            expect(result.matches).toEqual([])
+            expect(result.scope_gated_matches).toEqual([
+                { name: 'external-data-sources-refresh-schemas', missing_scopes: ['external_data_source:write'] },
+                { name: 'external-data-schemas-list', missing_scopes: ['external_data_source:read'] },
+            ])
+            expect(result.hint).toContain('external_data_source:read')
+            expect(result.hint).toContain('external_data_source:write')
+        })
+
+        it('does not hint scope-gated tools that do not match the query', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExecTool([flagTool], mockContext, 'desc', 'cmd', undefined, undefined, [
+                {
+                    name: 'external-data-schemas-list',
+                    title: 'List data import schemas',
+                    description: 'List all table schemas',
+                    missingScopes: ['external_data_source:read'],
+                },
+            ])
+            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+    })
+
     describe('deprecated tool redirects', () => {
         it.each([
             ['entity-search', 'execute-sql'],
@@ -524,7 +585,7 @@ describe('exec tool', () => {
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
-                new RegExp(`removed in MCP v2[\\s\\S]*${replacement}`)
+                new RegExp(`was removed[\\s\\S]*${replacement}`)
             )
         })
 
@@ -572,6 +633,7 @@ describe('exec tool', () => {
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
                     POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
                 },
@@ -590,15 +652,15 @@ describe('exec tool', () => {
         // silently drop the tail of the instructions.
         it('keeps the tool description within 2048 characters', async () => {
             const context = createSnapshotContext()
-            const v2Tools = await getToolsFromContext(context, { version: 2 })
+            const v2Tools = await getToolsFromContext(context)
             const toolInfos = v2Tools.map((t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, 2).category,
+                category: getToolDefinition(t.name).category,
             }))
             const queryToolInfos = v2Tools
                 .filter((t) => t.name.startsWith('query-'))
                 .map((t) => {
-                    const def = getToolDefinition(t.name, 2)
+                    const def = getToolDefinition(t.name)
                     return {
                         name: t.name,
                         title: def.title,
@@ -634,17 +696,15 @@ describe('exec tool', () => {
         // so the snapshot has to follow it to keep catching drift in those blocks.
         it('matches the full exec tool schema', async () => {
             const context = createSnapshotContext()
-            const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
-                a.name.localeCompare(b.name)
-            )
+            const v2Tools = [...(await getToolsFromContext(context))].sort((a, b) => a.name.localeCompare(b.name))
             const toolInfos = v2Tools.map((t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, 2).category,
+                category: getToolDefinition(t.name).category,
             }))
             const queryToolInfos = v2Tools
                 .filter((t) => t.name.startsWith('query-'))
                 .map((t) => {
-                    const def = getToolDefinition(t.name, 2)
+                    const def = getToolDefinition(t.name)
                     return {
                         name: t.name,
                         title: def.title,

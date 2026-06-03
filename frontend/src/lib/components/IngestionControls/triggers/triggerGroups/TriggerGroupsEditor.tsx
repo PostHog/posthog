@@ -16,8 +16,9 @@ import {
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { EventTriggerSelect } from 'lib/components/IngestionControls/triggers/EventTrigger'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { TRIGGER_GROUPS_MIN_SDK_VERSION } from 'scenes/settings/environment/ReplayTriggers'
@@ -95,6 +96,11 @@ export function TriggerGroupsEditor(): JSX.Element {
         confirmCreateFromLegacy,
     } = useActions(replayTriggersV2Logic)
 
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     const handleDeleteTriggerGroup = (id: string): void => {
         if (triggerGroups.length === 1) {
             setDeleteModalGroupId(id)
@@ -134,6 +140,7 @@ export function TriggerGroupsEditor(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 onClick={showCreateFromLegacyModal}
+                                disabledReason={restrictedReason}
                                 data-attr="trigger-group-migrate-from-legacy"
                             >
                                 Migrate from legacy recording conditions
@@ -144,6 +151,7 @@ export function TriggerGroupsEditor(): JSX.Element {
                             icon={<IconPlus />}
                             size="small"
                             onClick={() => setIsAddingGroup(true)}
+                            disabledReason={restrictedReason}
                             data-attr="trigger-group-add"
                         >
                             Add

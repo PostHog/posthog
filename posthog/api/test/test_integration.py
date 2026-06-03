@@ -16,7 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.integration import IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -1012,7 +1012,6 @@ class TestIntegrationAPIKeyAccess:
         "kind,scope,expected_status,expected_detail_substring",
         [
             ("slack", "integration:read", status.HTTP_200_OK, None),
-            ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
             ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
             # GitHub and Twilio resolve via the queryset, but the channels action's kind
             # guard rejects them with a 400 before SlackIntegration is constructed.
@@ -2057,7 +2056,7 @@ class TestStripeIntegrationOAuthTokens:
         assert OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
 
-    @patch("posthog.models.integration.StripeClient")
+    @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
     def test_write_posthog_secrets_uses_account_scope(self, mock_settings, MockStripeClient):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
@@ -2086,7 +2085,7 @@ class TestStripeIntegrationOAuthTokens:
         assert secret_payloads["posthog_project_id"] == str(self.team.pk)
         assert secret_payloads["posthog_oauth_client_id"] == self.oauth_app.client_id
 
-    @patch("posthog.models.integration.StripeClient")
+    @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
     def test_clear_posthog_secrets_uses_account_scope(self, mock_settings, MockStripeClient):
         mock_settings.STRIPE_APP_SECRET_KEY = "sk_test"
@@ -2118,7 +2117,7 @@ class TestStripeIntegrationOAuthTokens:
             ("write_uses_live_when_flag_missing", "write_posthog_secrets", {}, "sk_live"),
         ]
     )
-    @patch("posthog.models.integration.StripeClient")
+    @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
     def test_stripe_client_secret_selection(
         self, _name, method_name, config, expected_key, mock_settings, MockStripeClient
@@ -2145,7 +2144,7 @@ class TestStripeIntegrationOAuthTokens:
         MockStripeClient.assert_called_once_with(expected_key)
 
     @patch("posthog.models.integration.capture_exception")
-    @patch("posthog.models.integration.StripeClient")
+    @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
     def test_write_posthog_secrets_skips_when_sandbox_keys_missing(self, mock_settings, MockStripeClient, mock_capture):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
@@ -2172,7 +2171,7 @@ class TestStripeIntegrationOAuthTokens:
         assert isinstance(captured_exc, NotImplementedError)
 
     @patch("posthog.models.integration.capture_exception")
-    @patch("posthog.models.integration.StripeClient")
+    @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
     def test_clear_posthog_secrets_skips_and_revokes_tokens_when_sandbox_keys_missing(
         self, mock_settings, MockStripeClient, mock_capture
@@ -2870,7 +2869,7 @@ class TestAnthropicIntegration:
         mock_client.get.return_value = {"data": []}
         return mock_client
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_create_with_valid_key(self, mock_anthropic_class, client: HttpClient):
         self._mock_anthropic_validate_key(mock_anthropic_class)
 
@@ -2900,7 +2899,7 @@ class TestAnthropicIntegration:
         assert get_call.args[0] == "/v1/agents"
         assert get_call.kwargs["options"]["headers"]["anthropic-beta"] == "managed-agents-2026-04-01"
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_create_strips_whitespace_from_api_key(self, mock_anthropic_class, client: HttpClient):
         self._mock_anthropic_validate_key(mock_anthropic_class)
 
@@ -2915,7 +2914,7 @@ class TestAnthropicIntegration:
         integration = Integration.objects.get(id=response.json()["id"])
         assert integration.sensitive_config == {"api_key": "sk-ant-test"}
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_create_without_workspace_label_uses_default_id(self, mock_anthropic_class, client: HttpClient):
         self._mock_anthropic_validate_key(mock_anthropic_class)
 
@@ -2931,7 +2930,7 @@ class TestAnthropicIntegration:
         assert integration.config == {}
         assert integration.integration_id == f"workspace-{self.team.pk}"
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_create_rejects_existing_workspace_without_force(self, mock_anthropic_class, client: HttpClient):
         self._mock_anthropic_validate_key(mock_anthropic_class)
 
@@ -2956,7 +2955,7 @@ class TestAnthropicIntegration:
         integration = Integration.objects.get(id=first_id)
         assert integration.sensitive_config == {"api_key": "sk-ant-first"}
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_create_overwrites_with_force_flag(self, mock_anthropic_class, client: HttpClient):
         self._mock_anthropic_validate_key(mock_anthropic_class)
 
@@ -2995,7 +2994,7 @@ class TestAnthropicIntegration:
             ({"api_key": "sk-ant-test", "workspace_label": 42}, "Workspace label must be a string"),
         ],
     )
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_create_rejects_invalid_payload(
         self,
         mock_anthropic_class,
@@ -3024,7 +3023,7 @@ class TestAnthropicIntegration:
             ("APIConnectionError", "Could not reach Anthropic"),
         ],
     )
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_create_rejects_anthropic_failures(
         self,
         mock_anthropic_class,
@@ -3067,7 +3066,7 @@ class TestAnthropicIntegration:
             created_by=self.user,
         )
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_anthropic_managed_agents_action(self, mock_anthropic_class, client: HttpClient):
         from django.core.cache import cache
 
@@ -3101,7 +3100,7 @@ class TestAnthropicIntegration:
         assert path_arg == "/v1/agents"
         assert headers["anthropic-beta"] == "managed-agents-2026-04-01"
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_anthropic_managed_agents_action_caches_default_page(self, mock_anthropic_class, client: HttpClient):
         from django.core.cache import cache
 
@@ -3121,7 +3120,7 @@ class TestAnthropicIntegration:
         # Second hit served from cache → SDK called only once.
         assert mock_client.get.call_count == 1
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_anthropic_managed_agents_action_translates_auth_error(self, mock_anthropic_class, client: HttpClient):
         from django.core.cache import cache
 
@@ -3144,7 +3143,7 @@ class TestAnthropicIntegration:
         integration.refresh_from_db()
         assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_anthropic_managed_agents_action_rejects_wrong_kind(self, mock_anthropic_class, client: HttpClient):
         slack_integration = Integration.objects.create(
             team=self.team,
@@ -3164,7 +3163,7 @@ class TestAnthropicIntegration:
         assert "is not an Anthropic integration" in str(response.json())
         mock_anthropic_class.assert_not_called()
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_anthropic_managed_agent_environments_action(self, mock_anthropic_class, client: HttpClient):
         from django.core.cache import cache
 
@@ -3185,7 +3184,7 @@ class TestAnthropicIntegration:
         assert body["next_cursor"] == "abc"
         assert body["has_more"] is True
 
-    @patch("posthog.models.integration.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_anthropic_managed_agent_vaults_action(self, mock_anthropic_class, client: HttpClient):
         from django.core.cache import cache
 
@@ -3204,3 +3203,40 @@ class TestAnthropicIntegration:
         body = response.json()
         assert body["vaults"] == [{"id": "vault_1", "display_name": "Customer secrets"}]
         assert body["has_more"] is False
+
+
+class TestSlackPostHogCodeKindDeprecated:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_slack_posthog_code_integration_rejected(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "slack-posthog-code", "config": {}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "deprecated" in json.dumps(response.json()).lower()
+        assert not Integration.objects.filter(team=self.team, kind="slack-posthog-code").exists()
+
+    def test_validate_kind_rejects_slack_posthog_code(self):
+        serializer = IntegrationSerializer(data={"kind": "slack-posthog-code", "config": {}})
+
+        assert not serializer.is_valid()
+        assert "kind" in serializer.errors
+        assert "deprecated" in str(serializer.errors["kind"]).lower()
+
+    def test_validate_kind_accepts_other_kinds(self):
+        # Sanity check — the validator must not reject unrelated kinds.
+        serializer = IntegrationSerializer(data={"kind": "slack", "config": {}})
+
+        serializer.is_valid()
+        assert "kind" not in serializer.errors

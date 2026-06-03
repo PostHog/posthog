@@ -9,7 +9,7 @@ use property_vals_rs::{
     fan_out::{extract_tuple, fan_out, fan_out_group},
     producer::AggregatedProducer,
     types::{Event, GroupIdentify, PropertyValueMessage},
-    worker::worker_loop,
+    worker::{worker_loop, ReductionConfig},
 };
 use serve_metrics::setup_metrics_routes;
 use tokio::net::TcpListener;
@@ -100,6 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
+        true,
     )
     .await?;
 
@@ -112,6 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
+        true,
     )
     .await?;
 
@@ -124,6 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         merger_handle.clone(),
         config.output_topic.clone(),
         produce_timeout,
+        config.emit_event_name,
     )
     .await?;
 
@@ -143,24 +146,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let excluded_events = shared_config.excluded_property_keys.clone();
     let excluded_groups = shared_config.excluded_property_keys.clone();
+    let max_property_value_len = shared_config.max_property_value_len;
+    let aggregate_by_event_name = shared_config.aggregate_by_event_name;
 
     tokio::spawn(worker_loop::<Event, _, _>(
         shared_config.clone(),
         events_consumer,
         events_producer,
         events_handle.clone(),
-        move |e: &Event| fan_out(e, &excluded_events),
+        move |e: &Event| {
+            fan_out(
+                e,
+                &excluded_events,
+                max_property_value_len,
+                aggregate_by_event_name,
+            )
+        },
         "events",
-        0,
+        ReductionConfig::default(),
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
         shared_config.clone(),
         groups_consumer,
         groups_producer,
         groups_handle.clone(),
-        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups),
+        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups, max_property_value_len),
         "groups",
-        0,
+        ReductionConfig::default(),
     ));
     tokio::spawn(worker_loop::<PropertyValueMessage, _, _>(
         shared_config.clone(),
@@ -169,7 +181,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         merger_handle.clone(),
         |m: &PropertyValueMessage| extract_tuple(m),
         "merger",
-        shared_config.max_values_per_key,
+        ReductionConfig {
+            max_values_per_key: shared_config.max_values_per_key,
+            seen_cache_capacity: shared_config.merger_seen_cache_capacity,
+        },
     ));
     drop(events_handle);
     drop(groups_handle);

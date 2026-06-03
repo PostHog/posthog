@@ -15,6 +15,8 @@ permissions:
     contents: read
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
@@ -334,6 +336,13 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -353,11 +362,11 @@ jobs:
                   pnpm --filter=@posthog/frontend build
 
             - name: Collect static files
-              run: |
-                  # KLUDGE: posthog-js now bundles rrweb and ships image-bitmap-data-url-worker-*.js.map
-                  # KLUDGE: under its own dist; the worker references the map alongside, so copy it into
-                  # KLUDGE: dist/ or django's collectstatic fails on the missing source map
-                  cp frontend/node_modules/posthog-js/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+              # The image-bitmap-data-url-worker-*.js.map files are already mirrored
+              # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
+              # (see common/esbuilder/utils.mjs), which runs as part of the
+              # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |

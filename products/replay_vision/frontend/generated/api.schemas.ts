@@ -29,7 +29,6 @@ export const ObservationStatusEnumApi = {
  * `classifier` - Classifier
  * `scorer` - Scorer
  * `summarizer` - Summarizer
- * `indexer` - Indexer
  */
 export type ScannerTypeEnumApi = (typeof ScannerTypeEnumApi)[keyof typeof ScannerTypeEnumApi]
 
@@ -38,7 +37,6 @@ export const ScannerTypeEnumApi = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
-    Indexer: 'indexer',
 } as const
 
 /**
@@ -67,13 +65,12 @@ export const ScannerProviderEnumApi = {
 export interface ScannerSnapshotApi {
     /** Scanner name at run time. */
     name: string
-    /** Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.
+    /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
@@ -93,11 +90,6 @@ export interface ScannerSnapshotApi {
 }
 
 /**
- * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
- */
-export type ScannerResultApiEventIdMapping = { [key: string]: unknown }
-
-/**
  * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
  */
 export interface ScannerResultApi {
@@ -108,8 +100,6 @@ export interface ScannerResultApi {
      * @minimum 0
      */
     signals_count: number
-    /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
-    event_id_mapping: ScannerResultApiEventIdMapping
 }
 
 /**
@@ -247,15 +237,14 @@ export interface ReplayScannerApi {
     name: string
     /** Free-form description shown in the scanner management UI. */
     description?: string
-    /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+    /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
-    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -306,15 +295,14 @@ export interface PatchedReplayScannerApi {
     name?: string
     /** Free-form description shown in the scanner management UI. */
     description?: string
-    /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+    /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
-    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -404,6 +392,10 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string
+    /**
      * Session recording id to return observations for.
      */
     session_id: string
@@ -427,26 +419,16 @@ export type VisionScannersListParams = {
      */
     offset?: number
     /**
- * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-* `name` - Name
-* `-name` - Name (descending)
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `updated_at` - Updated at
-* `-updated_at` - Updated at (descending)
-* `scanner_type` - Scanner type
-* `-scanner_type` - Scanner type (descending)
- */
-    order_by?: string[]
+     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
- * Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).
+ * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
 * `monitor` - Monitor
 * `classifier` - Classifier
 * `scorer` - Scorer
 * `summarizer` - Summarizer
-* `indexer` - Indexer
  */
     scanner_type?: VisionScannersListScannerType
 }
@@ -456,7 +438,6 @@ export type VisionScannersListScannerType =
 
 export const VisionScannersListScannerType = {
     Classifier: 'classifier',
-    Indexer: 'indexer',
     Monitor: 'monitor',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
@@ -472,18 +453,9 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
- * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `started_at` - Started at
-* `-started_at` - Started at (descending)
-* `completed_at` - Completed at
-* `-completed_at` - Completed at (descending)
-* `status` - Status
-* `-status` - Status (descending)
- */
-    order_by?: string[]
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
      * Filter to observations of a specific session recording.
      */

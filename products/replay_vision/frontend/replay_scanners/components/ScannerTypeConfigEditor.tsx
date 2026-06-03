@@ -39,12 +39,28 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
 
     if (scanner.scanner_type === 'monitor') {
         return (
-            <Field name="scanner_config.prompt" label="Prompt">
-                <LemonTextArea
-                    placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
-                    minRows={6}
-                />
-            </Field>
+            <div className="space-y-4">
+                <Field name="scanner_config.prompt" label="Prompt">
+                    <LemonTextArea
+                        placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
+                        minRows={6}
+                    />
+                </Field>
+                <Field name="scanner_config.allow_inconclusive">
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch checked={!!value} onChange={onChange} />
+                            <div>
+                                <div className="text-sm font-medium">Allow inconclusive verdicts</div>
+                                <div className="text-xs text-muted">
+                                    Lets the model answer `inconclusive` when the recording doesn't contain enough
+                                    evidence to decide. Otherwise it must commit to `yes` or `no`.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </Field>
+            </div>
         )
     }
 
@@ -142,17 +158,6 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                     }}
                 </Field>
             </div>
-        )
-    }
-
-    if (scanner.scanner_type === 'indexer') {
-        return (
-            <Field name="scanner_config.prompt" label="Prompt">
-                <LemonTextArea
-                    placeholder="Focus on the user's actions and goals. Ignore loading screens and animation noise."
-                    minRows={6}
-                />
-            </Field>
         )
     }
 

@@ -93,7 +93,7 @@ async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> None:
     """Emit an issue_created signal for a single error tracking issue."""
     from posthog.models import Team
 
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     team = await Team.objects.aget(id=input.team_id)
 

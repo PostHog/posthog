@@ -1,7 +1,7 @@
 import re
 import json
-from functools import cached_property
-from typing import Any, cast
+from functools import cache, cached_property
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -18,7 +18,6 @@ import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -27,7 +26,7 @@ from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import EmbeddingModelName, ProductKey
+from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -42,16 +41,27 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.tasks.exports.csv_exporter import _sanitize_formula_injection
+from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.utils import absolute_uri
 
 from ..facade.api import parse_interviewee_identifier
 from ..facade.enums import SEARCH_DOCUMENT_TYPES
+from ..invite_email import build_invite_email_context, validate_invite_message, validate_invite_subject
 from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
 
-elevenlabs_client = ElevenLabs()
+if TYPE_CHECKING:
+    from elevenlabs import ElevenLabs
+
+
+@cache
+def _get_elevenlabs_client() -> "ElevenLabs":
+    # Deferred import + cached instance: the elevenlabs SDK is slow to import and
+    # only the audio transcription path needs it, not every process that loads this module.
+    from elevenlabs import ElevenLabs
+
+    return ElevenLabs()
 
 
 class _InterviewLinksCSVRenderer(csvrenderers.CSVRenderer):
@@ -89,7 +99,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def _transcribe_audio(self, audio: File, interviewee_emails: list[str]) -> str:
-        transcript = elevenlabs_client.speech_to_text.convert(
+        transcript = _get_elevenlabs_client().speech_to_text.convert(
             model_id="scribe_v1",
             file=audio,
             num_speakers=10,  # Maximum number of speakers, not expected one
@@ -321,7 +331,6 @@ class UserInterviewSearchResultSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the interview row was created.")
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
@@ -496,6 +505,26 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Ordered list of questions the voice agent should work through during the interview.",
     )
+    invite_subject = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "Subject line for the invitation email. Plain text only — URLs, angle brackets, and control "
+            "characters are rejected. Leave blank to use the default subject. Personalization is handled by "
+            "the email template, so do not include placeholders."
+        ),
+    )
+    invite_message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text=(
+            "Intro message shown in the invitation email body, above the interview link. Plain prose only — "
+            "URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank "
+            "to use the default copy."
+        ),
+    )
 
     class Meta:
         model = UserInterviewTopic
@@ -508,8 +537,16 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
             "topic",
             "agent_context",
             "questions",
+            "invite_subject",
+            "invite_message",
         )
         read_only_fields = ("id", "created_by", "created_at")
+
+    def validate_invite_subject(self, value: str | None) -> str | None:
+        return validate_invite_subject(value)
+
+    def validate_invite_message(self, value: str | None) -> str | None:
+        return validate_invite_message(value)
 
     MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
 
@@ -783,7 +820,10 @@ class SendInvitesRequestSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
         max_length=200,
-        help_text="Override the default email subject line. Defaults to a friendly prompt referencing the topic.",
+        help_text=(
+            "Override the email subject line for this send. Plain text only — URLs, angle brackets, and "
+            "control characters are rejected. Falls back to the topic's saved subject, then a default."
+        ),
     )
     reply_to = serializers.EmailField(
         required=False,
@@ -795,8 +835,10 @@ class SendInvitesRequestSerializer(serializers.Serializer):
         help_text="If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately.",
     )
 
+    def validate_subject(self, value: str | None) -> str | None:
+        return validate_invite_subject(value)
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
+
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Planned user interview topics: who we want to target and what we want to ask about."""
 
@@ -902,10 +944,10 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         rows = [
             {
-                "interviewee_identifier": _sanitize_formula_injection(r["identifier"]),
-                "interviewee_email": _sanitize_formula_injection(r["email"] or ""),
-                "user_name": _sanitize_formula_injection(r["user_name"]),
-                "interview_url": _sanitize_formula_injection(r["interview_url"]),
+                "interviewee_identifier": sanitize_formula_injection(r["identifier"]),
+                "interviewee_email": sanitize_formula_injection(r["email"] or ""),
+                "user_name": sanitize_formula_injection(r["user_name"]),
+                "interview_url": sanitize_formula_injection(r["interview_url"]),
             }
             for r in results
         ]
@@ -950,8 +992,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        topic_label = topic.topic or "a quick research interview"
-        subject = params.validated_data.get("subject") or f"Got 5 minutes to talk about {topic_label}?"
+        subject_override = params.validated_data.get("subject") or ""
         reply_to = params.validated_data.get("reply_to")
         if not reply_to and topic.created_by_id and topic.created_by and topic.created_by.email:
             reply_to = topic.created_by.email
@@ -968,18 +1009,19 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append({**base, "sent": False, "reason": "not_an_email"})
                 continue
 
+            built = build_invite_email_context(
+                topic=topic,
+                user_name=link["user_name"],
+                interview_url=link["interview_url"],
+                subject_override=subject_override,
+            )
             campaign_key = f"interview_invite_{link['sharing_configuration'].id}"
             try:
                 message = EmailMessage(
                     campaign_key=campaign_key,
                     template_name="interview_invite",
-                    subject=subject,
-                    template_context={
-                        "user_name": link["user_name"],
-                        "topic": topic_label,
-                        "interview_url": link["interview_url"],
-                        "site_url": settings.SITE_URL,
-                    },
+                    subject=built["subject"],
+                    template_context=built["template_context"],
                     reply_to=reply_to,
                 )
                 message.add_recipient(email=link["email"], name=link["user_name"])
@@ -1213,7 +1255,6 @@ class BulkIntervieweeContextResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier)."""
 
