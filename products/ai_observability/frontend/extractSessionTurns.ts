@@ -1,16 +1,9 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { normalizeMessage, normalizeMessages } from './messageNormalization'
 import { messageSignature } from './messageSignature'
 import { CompatMessage } from './types'
-import {
-    eventLabel,
-    formatAiErrorForDisplay,
-    getToolNamesCalled,
-    normalizeMessage,
-    normalizeMessages,
-    readAiInput,
-    readAiOutput,
-} from './utils'
+import { eventLabel, formatAiErrorForDisplay, getToolNamesCalled, readAiInput, readAiOutput } from './utils'
 
 // Heuristic mirrors the AI observability skill script `print_summary.py` at
 // `products/ai_observability/skills/exploring-llm-traces/scripts/` — keep in sync.
