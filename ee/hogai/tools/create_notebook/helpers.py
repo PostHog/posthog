@@ -5,6 +5,7 @@ from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notebooks.backend.models import Notebook
+from products.posthog_ai.backend.models.assistant import AgentArtifact
 
 from ee.hogai.artifacts.handlers.visualization import VisualizationHandler
 from ee.hogai.artifacts.manager import ArtifactManager
@@ -17,7 +18,6 @@ from ee.hogai.artifacts.types import (
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
 from ee.hogai.utils.types.base import AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
 
 
 class ArtifactStatus(Enum):

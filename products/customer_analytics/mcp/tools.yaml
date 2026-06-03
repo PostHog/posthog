@@ -73,7 +73,6 @@ tools:
                 description: >
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
-        mcp_version: 1
         feature_flag: customer-analytics-csp
     accounts-notebooks-create:
         operation: accounts_notebooks_create
@@ -121,7 +120,6 @@ tools:
         description: >
             List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result
             includes the notebook `short_id`, `title`, `content`, and authorship metadata.
-        mcp_version: 1
         feature_flag: customer-analytics-csp
     accounts-notebooks-retrieve:
         operation: accounts_notebooks_retrieve
@@ -136,7 +134,6 @@ tools:
         description: >
             Fetch a single account notebook by its `short_id`. Returns the full notebook including `content`
             (ProseMirror JSON document structure) and authorship metadata.
-        mcp_version: 1
         feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
@@ -177,7 +174,6 @@ tools:
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
             account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
             zendesk_id external identifiers) and `tags`.
-        mcp_version: 1
         feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
@@ -292,7 +288,6 @@ tools:
                 description: >
                     Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
                     the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-partial-update:
         operation: groups_types_metrics_partial_update
         enabled: true
@@ -341,7 +336,6 @@ tools:
                 description: >
                     Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
                     the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-update:
         operation: groups_types_metrics_update
         enabled: false

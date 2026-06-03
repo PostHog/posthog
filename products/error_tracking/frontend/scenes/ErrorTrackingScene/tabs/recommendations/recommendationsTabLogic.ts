@@ -7,7 +7,12 @@ import api from 'lib/api'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
 import type { recommendationsTabLogicType } from './recommendationsTabLogicType'
-import type { AlertsRecommendation, ErrorTrackingRecommendation, LongRunningIssuesRecommendation } from './types'
+import type {
+    AlertsRecommendation,
+    ErrorTrackingRecommendation,
+    LongRunningIssuesRecommendation,
+    SourceMapsRecommendation,
+} from './types'
 
 export const isAlertsRecommendation = (
     recommendation: ErrorTrackingRecommendation
@@ -16,6 +21,10 @@ export const isAlertsRecommendation = (
 export const isLongRunningIssuesRecommendation = (
     recommendation: ErrorTrackingRecommendation
 ): recommendation is LongRunningIssuesRecommendation => recommendation.type === 'long_running_issues'
+
+export const isSourceMapsRecommendation = (
+    recommendation: ErrorTrackingRecommendation
+): recommendation is SourceMapsRecommendation => recommendation.type === 'source_maps'
 
 const POLL_INTERVAL_MS = 500
 

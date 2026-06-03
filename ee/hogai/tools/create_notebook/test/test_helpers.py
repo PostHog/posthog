@@ -8,11 +8,11 @@ from posthog.schema import TrendsQuery, VisualizationMessage
 from posthog.constants import AvailableFeature
 
 from products.notebooks.backend.models import Notebook
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.helpers import save_notebook_to_db
-from ee.models.assistant import AgentArtifact, Conversation
 from ee.models.rbac.access_control import AccessControl
 
 

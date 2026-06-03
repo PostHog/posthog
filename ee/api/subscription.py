@@ -31,16 +31,19 @@ from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.security.url_validation import is_url_allowed
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
+from products.exports.backend.temporal.subscriptions.types import (
+    ProcessSubscriptionWorkflowInputs,
+    SubscriptionTriggerType,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -201,10 +204,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if msg:
                 raise ValidationError({"subscription": [msg]})
 
-        if not self.initial_data:
-            # Create
-            if not attrs.get("dashboard") and not attrs.get("insight"):
-                raise ValidationError("Either dashboard or insight is required for an export.")
+        if self.instance is None:
+            # Create: a subscription must export an insight, a dashboard, or an AI prompt.
+            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
+                raise ValidationError("A subscription must have an insight, a dashboard, or a prompt.")
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})

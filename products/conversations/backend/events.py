@@ -12,12 +12,66 @@ from posthog.api.capture import capture_internal
 from posthog.event_usage import groups as build_groups
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.team import Team
 
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.person_lookup import _get_persons_by_email
 
 logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "conversations_events"
+
+# Channels whose customer email is tied to a provider-verified identity and is therefore safe
+# to use for organization attribution.
+_EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, Channel.TEAMS.value})
+
+
+def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
+    """Resolve the customer organization's ``$groups`` for a ticket.
+
+    Returns ``(process_person, groups)``. ``groups`` is ``None`` when the
+    customer can't be tied to a PostHog organization.
+
+    The web widget sets ``ticket.distinct_id`` to a real PostHog distinct_id,
+    so the membership is found directly. Other channels (Slack, Email, MS
+    Teams) set ``distinct_id`` to the customer email (or empty), so we fall
+    back to looking the person up by ``properties.email`` in ClickHouse and
+    resolving the membership through that person's real distinct_ids.
+    """
+    # 1. Real distinct_id (web widget). An identified person is authoritative: if they
+    # have no org membership, don't guess via email (a shared email could resolve to a
+    # different person's org), so return early instead of falling through.
+    if ticket.distinct_id:
+        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id])
+        if any(p.is_identified for p in persons):
+            membership = (
+                OrganizationMembership.objects.select_related("organization")
+                .filter(user__distinct_id=ticket.distinct_id)
+                .first()
+            )
+            if membership:
+                return True, build_groups(membership.organization, team)
+            return False, None
+
+    # 2. Email fallback, restricted to channels with a provider-verified email identity.
+    # Never trust the public widget's attacker-controlled anonymous_traits.email here.
+    if ticket.channel_source not in _EMAIL_FALLBACK_CHANNELS:
+        return False, None
+
+    email = (ticket.anonymous_traits or {}).get("email") or ticket.email_from
+    if email:
+        person = _get_persons_by_email(team, [email]).get(email.lower())
+        if person is not None and person.distinct_ids:
+            membership = (
+                OrganizationMembership.objects.select_related("organization")
+                .filter(user__distinct_id__in=person.distinct_ids)
+                .first()
+            )
+            if membership:
+                return True, build_groups(membership.organization, team)
+
+    return False, None
 
 
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
@@ -40,20 +94,12 @@ def capture_ticket_created(ticket: Ticket) -> None:
     team = ticket.team
     team_id = team.id
     process_person = False
-    if ticket.distinct_id:
-        try:
-            persons = get_persons_by_distinct_ids(team_id, [ticket.distinct_id])
-            if any(p.is_identified for p in persons):
-                membership = (
-                    OrganizationMembership.objects.select_related("organization")
-                    .filter(user__distinct_id=ticket.distinct_id)
-                    .first()
-                )
-                if membership:
-                    process_person = True
-                    properties["$groups"] = build_groups(membership.organization, team)
-        except Exception:
-            logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
+    try:
+        process_person, groups = _resolve_org_groups(ticket, team)
+        if groups is not None:
+            properties["$groups"] = groups
+    except Exception:
+        logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
     capture_internal(
         token=team.api_token,

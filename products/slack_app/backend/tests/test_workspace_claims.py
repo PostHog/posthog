@@ -3,6 +3,7 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import RequestFactory, TestCase, override_settings
 
 import requests
@@ -120,6 +121,7 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.signing_secret = "posthog-code-helper-test-secret"
 
     def _call(self, mock_post_return, **call_overrides) -> bool | None:
@@ -195,6 +197,83 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
                 slack_team_id="T123", kinds=["slack"], incoming_host="us.posthog.com"
             )
         assert result is None
+
+    def test_definitive_true_answer_is_cached(self):
+        # Second call with the same workspace must not re-issue the HTTP probe — a single flake
+        # in a follow-up request should not re-flap routing for a workspace we just confirmed.
+        from products.slack_app.backend.api import does_other_region_claim_workspace
+
+        with (
+            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
+            patch("products.slack_app.backend.api.requests.post") as mock_post,
+        ):
+            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+            mock_post.return_value = self._response(200, {"claimed": True})
+            first = does_other_region_claim_workspace(
+                slack_team_id="T_CACHE", kinds=["slack"], incoming_host="eu.posthog.com"
+            )
+            second = does_other_region_claim_workspace(
+                slack_team_id="T_CACHE", kinds=["slack"], incoming_host="eu.posthog.com"
+            )
+            assert first is True
+            assert second is True
+            assert mock_post.call_count == 1
+
+    def test_definitive_false_answer_is_cached(self):
+        from products.slack_app.backend.api import does_other_region_claim_workspace
+
+        with (
+            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
+            patch("products.slack_app.backend.api.requests.post") as mock_post,
+        ):
+            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+            mock_post.return_value = self._response(200, {"claimed": False})
+            first = does_other_region_claim_workspace(
+                slack_team_id="T_CACHE_FALSE", kinds=["slack"], incoming_host="eu.posthog.com"
+            )
+            second = does_other_region_claim_workspace(
+                slack_team_id="T_CACHE_FALSE", kinds=["slack"], incoming_host="eu.posthog.com"
+            )
+            assert first is False
+            assert second is False
+            assert mock_post.call_count == 1
+
+    def test_none_answer_is_not_cached(self):
+        # A flake must not poison the cache: the next event re-probes and may get a real answer.
+        from products.slack_app.backend.api import does_other_region_claim_workspace
+
+        with (
+            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
+            patch("products.slack_app.backend.api.requests.post") as mock_post,
+        ):
+            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+            mock_post.side_effect = [
+                requests.ConnectionError("transient"),
+                self._response(200, {"claimed": True}),
+            ]
+            first = does_other_region_claim_workspace(
+                slack_team_id="T_FLAKE", kinds=["slack"], incoming_host="eu.posthog.com"
+            )
+            second = does_other_region_claim_workspace(
+                slack_team_id="T_FLAKE", kinds=["slack"], incoming_host="eu.posthog.com"
+            )
+            assert first is None
+            assert second is True
+            assert mock_post.call_count == 2
+
+    def test_cache_is_keyed_by_kinds(self):
+        # Two different kind sets for the same workspace must probe independently — claims can
+        # differ per integration kind even though the workspace id is shared.
+        from products.slack_app.backend.api import does_other_region_claim_workspace
+
+        with (
+            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
+            patch("products.slack_app.backend.api.requests.post") as mock_post,
+        ):
+            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+            mock_post.return_value = self._response(200, {"claimed": True})
+            does_other_region_claim_workspace(slack_team_id="T_KIND", kinds=["slack"], incoming_host="eu.posthog.com")
+            assert mock_post.call_count == 1
 
     def test_signed_request_is_accepted_by_validator(self):
         # End-to-end roundtrip: the sent headers + body, fed into the receiver's verifier, must

@@ -5,8 +5,7 @@ import structlog
 
 from posthog.hogql.ai import hit_openai
 
-from posthog.api.annotation_context import build_annotations_block, resolve_dashboard_date_range
-
+from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_dashboard_date_range
 from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)

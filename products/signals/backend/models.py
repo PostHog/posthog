@@ -24,6 +24,7 @@ class SignalSourceConfig(UUIDModel):
         ERROR_TRACKING = "error_tracking", "Error tracking"
         PGANALYZE = "pganalyze", "pganalyze"
         SIGNALS_SCOUT = "signals_scout", "Signals scout"
+        LOGS = "logs", "Logs"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -34,6 +35,7 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_REOPENED = "issue_reopened", "Issue reopened"
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
         CROSS_SOURCE_ISSUE = "cross_source_issue", "Cross source issue"
+        ALERT_STATE_CHANGE = "alert_state_change", "Alert state change"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)
@@ -89,6 +91,7 @@ class SignalTeamConfig(UUIDModel):
         related_name="signal_team_config",
     )
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
+    default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -180,7 +183,7 @@ class SignalReport(UUIDModel):
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
     conversation = deprecate_field(
-        models.ForeignKey("ee.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
+        models.ForeignKey("posthog_ai.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
     )
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
