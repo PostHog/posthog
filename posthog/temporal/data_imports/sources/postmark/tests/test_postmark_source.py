@@ -26,7 +26,7 @@ class TestPostmarkSource:
         assert config.name.value == "Postmark"
         assert config.label == "Postmark"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/postmark.png"
         assert len(config.fields) == 1
 
