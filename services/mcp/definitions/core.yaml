@@ -56,6 +56,87 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    desktop-file-system-count-by-path-create:
+        operation: desktop_file_system_count_by_path_create
+        enabled: false
+    desktop-file-system-count-create:
+        operation: desktop_file_system_count_create
+        enabled: false
+    desktop-file-system-create:
+        operation: desktop_file_system_create
+        enabled: false
+    desktop-file-system-destroy:
+        operation: desktop_file_system_destroy
+        enabled: false
+    desktop-file-system-link-create:
+        operation: desktop_file_system_link_create
+        enabled: false
+    desktop-file-system-list:
+        operation: desktop_file_system_list
+        enabled: false
+    desktop-file-system-log-view-create:
+        operation: desktop_file_system_log_view_create
+        enabled: false
+    desktop-file-system-log-view-retrieve:
+        operation: desktop_file_system_log_view_retrieve
+        enabled: false
+    desktop-file-system-move-create:
+        operation: desktop_file_system_move_create
+        enabled: false
+    desktop-file-system-partial-update:
+        operation: desktop_file_system_partial_update
+        enabled: false
+    desktop-file-system-retrieve:
+        operation: desktop_file_system_retrieve
+        enabled: false
+    desktop-file-system-shortcut-create:
+        operation: desktop_file_system_shortcut_create
+        enabled: false
+    desktop-file-system-shortcut-destroy:
+        operation: desktop_file_system_shortcut_destroy
+        enabled: false
+    desktop-file-system-shortcut-list:
+        operation: desktop_file_system_shortcut_list
+        enabled: false
+    desktop-file-system-shortcut-partial-update:
+        operation: desktop_file_system_shortcut_partial_update
+        enabled: false
+    desktop-file-system-shortcut-reorder-create:
+        operation: desktop_file_system_shortcut_reorder_create
+        enabled: false
+    desktop-file-system-shortcut-retrieve:
+        operation: desktop_file_system_shortcut_retrieve
+        enabled: false
+    desktop-file-system-shortcut-update:
+        operation: desktop_file_system_shortcut_update
+        enabled: false
+    desktop-file-system-undo-delete-create:
+        operation: desktop_file_system_undo_delete_create
+        enabled: false
+    desktop-file-system-unfiled-retrieve:
+        operation: desktop_file_system_unfiled_retrieve
+        enabled: false
+    desktop-file-system-update:
+        operation: desktop_file_system_update
+        enabled: false
+    desktop-persisted-folder-create:
+        operation: desktop_persisted_folder_create
+        enabled: false
+    desktop-persisted-folder-destroy:
+        operation: desktop_persisted_folder_destroy
+        enabled: false
+    desktop-persisted-folder-list:
+        operation: desktop_persisted_folder_list
+        enabled: false
+    desktop-persisted-folder-partial-update:
+        operation: desktop_persisted_folder_partial_update
+        enabled: false
+    desktop-persisted-folder-retrieve:
+        operation: desktop_persisted_folder_retrieve
+        enabled: false
+    desktop-persisted-folder-update:
+        operation: desktop_persisted_folder_update
+        enabled: false
     domains-create:
         operation: domains_create
         enabled: false
@@ -128,6 +209,27 @@ tools:
     file-system-retrieve:
         operation: file_system_retrieve
         enabled: false
+    file-system-shortcut-create:
+        operation: file_system_shortcut_create
+        enabled: false
+    file-system-shortcut-destroy:
+        operation: file_system_shortcut_destroy
+        enabled: false
+    file-system-shortcut-list:
+        operation: file_system_shortcut_list
+        enabled: false
+    file-system-shortcut-partial-update:
+        operation: file_system_shortcut_partial_update
+        enabled: false
+    file-system-shortcut-reorder-create:
+        operation: file_system_shortcut_reorder_create
+        enabled: false
+    file-system-shortcut-retrieve:
+        operation: file_system_shortcut_retrieve
+        enabled: false
+    file-system-shortcut-update:
+        operation: file_system_shortcut_update
+        enabled: false
     file-system-undo-delete-create:
         operation: file_system_undo_delete_create
         enabled: false
@@ -193,6 +295,24 @@ tools:
         enabled: false
     organizations-projects-promoted-product-intent-retrieve:
         operation: organizations_projects_promoted_product_intent_retrieve
+        enabled: false
+    persisted-folder-create:
+        operation: persisted_folder_create
+        enabled: false
+    persisted-folder-destroy:
+        operation: persisted_folder_destroy
+        enabled: false
+    persisted-folder-list:
+        operation: persisted_folder_list
+        enabled: false
+    persisted-folder-partial-update:
+        operation: persisted_folder_partial_update
+        enabled: false
+    persisted-folder-retrieve:
+        operation: persisted_folder_retrieve
+        enabled: false
+    persisted-folder-update:
+        operation: persisted_folder_update
         enabled: false
     project-get:
         operation: organizations_projects_retrieve
