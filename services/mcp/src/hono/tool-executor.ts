@@ -224,7 +224,8 @@ export class ToolExecutor {
             this.instructionsBuilder.buildExecToolDescription(),
             commandReference,
             clientContext.mcpConsumer,
-            trackInnerCall
+            trackInnerCall,
+            state.scopeGatedTools
         )
 
         return {

@@ -1,17 +1,18 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { buildTheme } from 'lib/charts/utils/theme'
 import {
     BarChart,
     buildYTickFormatter,
     DEFAULT_Y_AXIS_ID,
+    MAX_CATEGORY_LABEL_WIDTH,
     ReferenceLines,
     TimeSeriesBarChart,
     ValueLabels,
-} from 'lib/hog-charts'
-import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
-import { MAX_CATEGORY_LABEL_WIDTH } from 'lib/hog-charts/utils/text-measure'
+} from '@posthog/quill-charts'
+import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
+
+import { buildTheme } from 'lib/charts/utils/theme'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
