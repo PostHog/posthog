@@ -204,7 +204,6 @@ doesn't conflict with concurrent PRs.
 - ringcentral
 - salesloft
 - sendgrid
-- servicenow
 - sftp
 - sharepoint
 - smartsheet
