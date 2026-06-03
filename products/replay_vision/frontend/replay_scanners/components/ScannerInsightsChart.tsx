@@ -51,7 +51,7 @@ function buildQuery(
                             type: PropertyFilterType.Event,
                             key: 'scanner_output_verdict',
                             operator: PropertyOperator.Exact,
-                            value: 'true',
+                            value: 'yes',
                         },
                     ],
                 },

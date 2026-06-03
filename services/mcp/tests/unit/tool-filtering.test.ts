@@ -720,9 +720,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'notebooks-collaboration',
                 'replay-vision',
                 'tasks',
+                'promoted-product',
             ])
         )
-        expect(flags).toHaveLength(10)
+        expect(flags).toHaveLength(11)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
@@ -840,7 +841,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 expect(tools).toContain('unrelated-tool')
             })
 
-            it.each(['control_a', 'control_b', 'intent', false, true, undefined])(
+            it.each(['control', 'control_b', 'intent', false, true, undefined])(
                 'hides variant-gated tool when flag value is %p',
                 (flagValue) => {
                     const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': flagValue })

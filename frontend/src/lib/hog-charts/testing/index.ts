@@ -1,5 +1,5 @@
 export { dimensions, ensureJsdom, makeSeries, mockRect, setupJsdom, setupSyncRaf } from './jsdom'
-export { clickAtIndex, hoverAtIndex } from './interactions'
+export { clickAtIndex, hoverAtIndex, hoverUntilTooltip } from './interactions'
 export { getHogChart } from './accessor'
 export type { GetHogChartOptions, HogChart, TooltipSnapshot } from './accessor'
 export { renderHogChart } from './render'

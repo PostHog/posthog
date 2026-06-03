@@ -167,6 +167,7 @@ rules:
                               |MessageTemplate
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
+                              |MCPIntentEmbeddingCache
                               |MCPSession
                               |OptOutSyncConfig
                               |Node
@@ -395,6 +396,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |MCPIntentClusterSnapshot
+                        |MCPIntentEmbeddingCache
                         |MCPSession
                         |OptOutSyncConfig
                         |Node
