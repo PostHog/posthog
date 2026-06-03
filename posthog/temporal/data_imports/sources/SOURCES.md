@@ -122,17 +122,105 @@ the row lists both.
 These are registered in `__init__.py` with `unreleasedSource=True` and a stub `source.py`. They have no
 sync logic yet — picking up any of them means following the [implementing-warehouse-sources skill](/.agents/skills/implementing-warehouse-sources/SKILL.md).
 
-active_campaign, adjust, aircall, airtable, amazon_ads, amplitude, apple_search_ads, appsflyer, asana,
-ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, campaign_monitor,
-chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, copper, datadog,
-dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
-fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
-instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, marketo,
-microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
-pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
-recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, smartsheet,
-square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
-youtube_analytics, zoho_crm, zoom, zuora.
+One source per line (kept alphabetical) so adding or removing a source only touches its own line and
+doesn't conflict with concurrent PRs.
+
+- active_campaign
+- adjust
+- aircall
+- airtable
+- amazon_ads
+- amplitude
+- apple_search_ads
+- appsflyer
+- asana
+- ashby
+- auth0
+- azure_blob
+- bamboohr
+- bigcommerce
+- box
+- braintree
+- braze
+- brevo
+- campaign_monitor
+- chartmogul
+- circleci
+- clickup
+- close
+- cockroachdb
+- confluence
+- convertkit
+- copper
+- datadog
+- dynamodb
+- elasticsearch
+- eventbrite
+- facebook_pages
+- firebase
+- freshdesk
+- freshsales
+- front
+- fullstory
+- gitlab
+- gong
+- google_analytics
+- google_drive
+- gorgias
+- granola
+- greenhouse
+- helpscout
+- instagram
+- intercom
+- iterable
+- jira
+- kafka
+- launchdarkly
+- lever
+- mailerlite
+- marketo
+- microsoft_teams
+- mixpanel
+- monday
+- netsuite
+- notion
+- okta
+- omnisend
+- onedrive
+- oracle
+- outreach
+- pagerduty
+- pardot
+- paypal
+- pendo
+- pipedrive
+- plaid
+- postmark
+- productboard
+- quickbooks
+- recharge
+- recurly
+- ringcentral
+- salesloft
+- sendgrid
+- servicenow
+- sftp
+- sharepoint
+- smartsheet
+- square
+- surveymonkey
+- trello
+- twilio
+- twitter_ads
+- webflow
+- woocommerce
+- workday
+- wrike
+- xero
+- youtube_analytics
+- zoho_crm
+- zoom
+- zuora
 
 ---
 
