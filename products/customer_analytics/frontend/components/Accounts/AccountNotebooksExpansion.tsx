@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
@@ -12,7 +12,7 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
-import { ConfigureFieldButton } from './ConfigureFieldButton'
+import { EditAccountLinksButton } from './EditAccountLinksButton'
 
 const PREVIEW_MAX_CHARS = 200
 
@@ -34,11 +34,13 @@ const LINK_ICONS: Record<string, JSX.Element> = {
 }
 
 function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
-    const { links, accountLoading, isFieldSaving } = useValues(accountLinksLogic({ accountId }))
-    const { updateAccountField } = useActions(accountLinksLogic({ accountId }))
+    const { links, accountLoading } = useValues(accountLinksLogic({ accountId }))
     return (
         <div className="flex flex-col gap-1">
-            <h4 className="secondary uppercase text-secondary mb-1">Useful links</h4>
+            <div className="flex items-center gap-1 mb-1">
+                <h4 className="secondary uppercase text-secondary mb-0">Useful links</h4>
+                <EditAccountLinksButton accountId={accountId} />
+            </div>
             {accountLoading ? (
                 <>
                     <LemonSkeleton className="h-7 w-32" />
@@ -46,31 +48,20 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                     <LemonSkeleton className="h-7 w-32" />
                 </>
             ) : (
-                links.map((link) => {
-                    const configField = link.configField
-                    return (
-                        <div key={link.key} className="flex items-center gap-1">
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                fullWidth
-                                icon={LINK_ICONS[link.key]}
-                                to={link.to ?? undefined}
-                                targetBlank={link.targetBlank}
-                                disabledReason={link.disabledReason ?? undefined}
-                            >
-                                {link.label}
-                            </LemonButton>
-                            {configField ? (
-                                <ConfigureFieldButton
-                                    field={configField}
-                                    loading={isFieldSaving(configField.key)}
-                                    onSave={(value) => updateAccountField(configField.key, value)}
-                                />
-                            ) : null}
-                        </div>
-                    )
-                })
+                links.map((link) => (
+                    <LemonButton
+                        key={link.key}
+                        type="tertiary"
+                        size="small"
+                        fullWidth
+                        icon={LINK_ICONS[link.key]}
+                        to={link.to ?? undefined}
+                        targetBlank={link.targetBlank}
+                        disabledReason={link.disabledReason ?? undefined}
+                    >
+                        {link.label}
+                    </LemonButton>
+                ))
             )}
         </div>
     )

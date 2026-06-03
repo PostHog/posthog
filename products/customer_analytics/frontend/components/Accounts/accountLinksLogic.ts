@@ -23,12 +23,28 @@ export interface AccountLinksLogicProps {
     accountId: string
 }
 
-export type AccountConfigFieldKey = 'external_id' | 'billing_id' | 'slack_channel_id' | 'usage_dashboard_link'
+export type AccountLinkFieldKey = 'external_id' | 'billing_id' | 'slack_channel_id' | 'usage_dashboard_link'
 
-export interface AccountConfigField {
-    key: AccountConfigFieldKey
+export interface AccountLinkFieldDef {
+    key: AccountLinkFieldKey
     label: string
     placeholder: string
+}
+
+export type AccountLinkFieldValues = Record<AccountLinkFieldKey, string>
+
+export const ACCOUNT_LINK_FIELDS: AccountLinkFieldDef[] = [
+    { key: 'external_id', label: 'External ID', placeholder: 'e.g. cust_acme_001' },
+    { key: 'billing_id', label: 'Billing ID', placeholder: 'e.g. cus_acme_123' },
+    { key: 'slack_channel_id', label: 'Slack channel ID', placeholder: 'e.g. C0123456789' },
+    { key: 'usage_dashboard_link', label: 'Usage dashboard link', placeholder: 'https://…' },
+]
+
+const EMPTY_FIELDS: AccountLinkFieldValues = {
+    external_id: '',
+    billing_id: '',
+    slack_channel_id: '',
+    usage_dashboard_link: '',
 }
 
 export interface AccountLink {
@@ -37,14 +53,6 @@ export interface AccountLink {
     to: string | null
     targetBlank: boolean
     disabledReason: string | null
-    configField: AccountConfigField | null
-}
-
-const CONFIG_FIELDS: Record<AccountConfigFieldKey, AccountConfigField> = {
-    external_id: { key: 'external_id', label: 'Set external ID', placeholder: 'e.g. cust_acme_001' },
-    usage_dashboard_link: { key: 'usage_dashboard_link', label: 'Set usage dashboard link', placeholder: 'https://…' },
-    slack_channel_id: { key: 'slack_channel_id', label: 'Set Slack channel ID', placeholder: 'e.g. C0123456789' },
-    billing_id: { key: 'billing_id', label: 'Set billing ID', placeholder: 'e.g. cus_acme_123' },
 }
 
 function revenueDashboardUrl(externalId: string, billingId: string | null): string {
@@ -60,9 +68,13 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
         values: [teamLogic, ['currentTeamId']],
     })),
     actions({
-        updateAccountField: (fieldKey: AccountConfigFieldKey, value: string) => ({ fieldKey, value }),
-        fieldUpdateStarted: (fieldKey: AccountConfigFieldKey) => ({ fieldKey }),
-        fieldUpdateFinished: (fieldKey: AccountConfigFieldKey) => ({ fieldKey }),
+        openEditor: true,
+        closeEditor: true,
+        setFieldValue: (fieldKey: AccountLinkFieldKey, value: string) => ({ fieldKey, value }),
+        setFormValues: (values: AccountLinkFieldValues) => ({ values }),
+        saveLinks: true,
+        saveStarted: true,
+        saveFinished: true,
     }),
     loaders(({ props, values }) => ({
         account: [
@@ -80,24 +92,37 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
         ],
     })),
     reducers({
-        savingFields: [
-            {} as Record<string, true>,
+        editorOpen: [
+            false,
             {
-                fieldUpdateStarted: (state, { fieldKey }) => ({ ...state, [fieldKey]: true }),
-                fieldUpdateFinished: (state, { fieldKey }) => {
-                    const next = { ...state }
-                    delete next[fieldKey]
-                    return next
-                },
+                openEditor: () => true,
+                closeEditor: () => false,
+            },
+        ],
+        formValues: [
+            EMPTY_FIELDS,
+            {
+                setFormValues: (_, { values }) => values,
+                setFieldValue: (state, { fieldKey, value }) => ({ ...state, [fieldKey]: value }),
+            },
+        ],
+        savingLinks: [
+            false,
+            {
+                saveStarted: () => true,
+                saveFinished: () => false,
             },
         ],
     }),
     selectors({
-        isFieldSaving: [
-            (s) => [s.savingFields],
-            (savingFields: Record<string, true>) =>
-                (fieldKey: AccountConfigFieldKey): boolean =>
-                    !!savingFields[fieldKey],
+        currentFieldValues: [
+            (s) => [s.account],
+            (account: AccountApi | null): AccountLinkFieldValues => ({
+                external_id: account?.external_id ?? '',
+                billing_id: account?.properties?.billing_id ?? '',
+                slack_channel_id: account?.properties?.slack_channel_id ?? '',
+                usage_dashboard_link: account?.properties?.usage_dashboard_link ?? '',
+            }),
         ],
         links: [
             (s) => [s.account],
@@ -113,7 +138,6 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: externalId ? urls.group(ORGANIZATION_GROUP_TYPE_INDEX, externalId) : null,
                         targetBlank: false,
                         disabledReason: externalId ? null : 'No external ID set',
-                        configField: externalId ? null : CONFIG_FIELDS.external_id,
                     },
                     {
                         key: 'revenue',
@@ -121,7 +145,6 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: externalId ? revenueDashboardUrl(externalId, billingId) : null,
                         targetBlank: false,
                         disabledReason: externalId ? null : 'No external ID set',
-                        configField: externalId ? null : CONFIG_FIELDS.external_id,
                     },
                     {
                         key: 'usage-dashboard',
@@ -129,7 +152,6 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: usageDashboardLink,
                         targetBlank: true,
                         disabledReason: usageDashboardLink ? null : 'No usage dashboard link set',
-                        configField: usageDashboardLink ? null : CONFIG_FIELDS.usage_dashboard_link,
                     },
                     {
                         key: 'slack',
@@ -137,7 +159,6 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: slackChannelId ? `${SLACK_ARCHIVES_ORIGIN}/${slackChannelId}` : null,
                         targetBlank: true,
                         disabledReason: slackChannelId ? null : 'No Slack channel set',
-                        configField: slackChannelId ? null : CONFIG_FIELDS.slack_channel_id,
                     },
                     {
                         key: 'billing-admin',
@@ -145,36 +166,41 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: billingId ? `${BILLING_ADMIN_ORIGIN}/admin/billing/customer/${billingId}/change/` : null,
                         targetBlank: true,
                         disabledReason: billingId ? null : 'No billing ID set',
-                        configField: billingId ? null : CONFIG_FIELDS.billing_id,
                     },
                 ]
             },
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        updateAccountField: async ({ fieldKey, value }) => {
-            if (values.isFieldSaving(fieldKey)) {
-                return
-            }
-            const trimmed = value.trim()
-            if (!trimmed) {
+        openEditor: () => {
+            actions.setFormValues(values.currentFieldValues)
+        },
+        saveLinks: async () => {
+            if (values.savingLinks) {
                 return
             }
             const projectId = String(values.currentTeamId)
-            actions.fieldUpdateStarted(fieldKey)
+            const form = values.formValues
+            const orNull = (value: string): string | null => value.trim() || null
+            actions.saveStarted()
             try {
                 const current = await accountsRetrieve(projectId, props.accountId)
-                const body =
-                    fieldKey === 'external_id'
-                        ? { external_id: trimmed }
-                        : { properties: { ...current.properties, [fieldKey]: trimmed } as PatchedAccountApiProperties }
-                const updated = await accountsPartialUpdate(projectId, props.accountId, body)
+                const updated = await accountsPartialUpdate(projectId, props.accountId, {
+                    external_id: orNull(form.external_id),
+                    properties: {
+                        ...current.properties,
+                        billing_id: orNull(form.billing_id),
+                        slack_channel_id: orNull(form.slack_channel_id),
+                        usage_dashboard_link: orNull(form.usage_dashboard_link),
+                    } as PatchedAccountApiProperties,
+                })
                 actions.loadAccountSuccess(updated)
+                actions.closeEditor()
             } catch (error) {
-                posthog.captureException(error as Error, { scope: 'accountLinksLogic.updateAccountField' })
-                lemonToast.error('Failed to save')
+                posthog.captureException(error as Error, { scope: 'accountLinksLogic.saveLinks' })
+                lemonToast.error('Failed to save links')
             } finally {
-                actions.fieldUpdateFinished(fieldKey)
+                actions.saveFinished()
             }
         },
     })),

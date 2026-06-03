@@ -35,12 +35,6 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     ...overrides,
 })
 
-const linkByKey = (
-    logic: ReturnType<typeof accountLinksLogic.build>,
-    key: string
-): ReturnType<typeof accountLinksLogic.build>['values']['links'][number] | undefined =>
-    logic.values.links.find((l) => l.key === key)
-
 describe('accountLinksLogic', () => {
     let logic: ReturnType<typeof accountLinksLogic.build>
 
@@ -60,63 +54,76 @@ describe('accountLinksLogic', () => {
         logic?.unmount()
     })
 
-    it('spreads existing properties when setting a property field, without clobbering siblings', async () => {
+    it('openEditor pre-fills the form from the current account', async () => {
+        await mountWith(
+            buildAccount({ external_id: 'ext-1', properties: { billing_id: 'cus_1', slack_channel_id: 'C1' } })
+        )
+        logic.actions.openEditor()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editorOpen).toBe(true)
+        expect(logic.values.formValues).toEqual({
+            external_id: 'ext-1',
+            billing_id: 'cus_1',
+            slack_channel_id: 'C1',
+            usage_dashboard_link: '',
+        })
+    })
+
+    it('saveLinks PATCHes external_id top-level and spreads properties without clobbering', async () => {
         await mountWith(
             buildAccount({
-                properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: null },
+                external_id: 'ext-1',
+                properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: 'old' },
             })
         )
-        const updated = buildAccount({
-            properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: null, slack_channel_id: 'C999' },
-        })
+        const updated = buildAccount({ external_id: 'ext-2' })
         mockAccountsPartialUpdate.mockResolvedValue(updated)
 
-        logic.actions.updateAccountField('slack_channel_id', 'C999')
+        logic.actions.openEditor()
+        logic.actions.setFormValues({
+            external_id: 'ext-2',
+            billing_id: 'new',
+            slack_channel_id: 'C9',
+            usage_dashboard_link: '',
+        })
+        logic.actions.saveLinks()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
-            properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: null, slack_channel_id: 'C999' },
+            external_id: 'ext-2',
+            properties: {
+                csm: { id: 1, email: 'csm@example.com' },
+                billing_id: 'new',
+                slack_channel_id: 'C9',
+                usage_dashboard_link: null,
+            },
         })
         expect(logic.values.account).toEqual(updated)
-        expect(linkByKey(logic, 'slack')?.disabledReason).toBeNull()
-        expect(linkByKey(logic, 'slack')?.configField).toBeNull()
+        expect(logic.values.editorOpen).toBe(false)
     })
 
-    it('trims the value before saving', async () => {
-        await mountWith(buildAccount({ properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: null } }))
-        mockAccountsPartialUpdate.mockResolvedValue(buildAccount({ properties: { billing_id: 'cus_new' } }))
+    it('saveLinks sends null for empty or whitespace fields', async () => {
+        await mountWith(buildAccount({ external_id: 'ext-1', properties: { billing_id: 'b' } }))
+        mockAccountsPartialUpdate.mockResolvedValue(buildAccount())
 
-        logic.actions.updateAccountField('billing_id', '  cus_new  ')
+        logic.actions.setFormValues({
+            external_id: '',
+            billing_id: '',
+            slack_channel_id: '   ',
+            usage_dashboard_link: '',
+        })
+        logic.actions.saveLinks()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
-            properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: 'cus_new' },
+            external_id: null,
+            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null },
         })
     })
 
-    it('sends external_id as a top-level field with no properties key', async () => {
-        await mountWith(buildAccount({ external_id: null }))
-        mockAccountsPartialUpdate.mockResolvedValue(buildAccount({ external_id: 'ext-9' }))
-
-        logic.actions.updateAccountField('external_id', 'ext-9')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', { external_id: 'ext-9' })
-        expect(linkByKey(logic, 'organization')?.disabledReason).toBeNull()
-        expect(linkByKey(logic, 'revenue')?.disabledReason).toBeNull()
-    })
-
-    it('does nothing for an empty value', async () => {
-        await mountWith(buildAccount({ properties: { slack_channel_id: null } }))
-
-        logic.actions.updateAccountField('slack_channel_id', '   ')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockAccountsPartialUpdate).not.toHaveBeenCalled()
-    })
-
-    it('flips isFieldSaving during the in-flight window', async () => {
-        await mountWith(buildAccount({ properties: { billing_id: null } }))
+    it('flips savingLinks during the in-flight window', async () => {
+        await mountWith(buildAccount())
         let resolveUpdate!: (value: AccountApi) => void
         mockAccountsPartialUpdate.mockReturnValueOnce(
             new Promise<AccountApi>((resolve) => {
@@ -124,17 +131,17 @@ describe('accountLinksLogic', () => {
             })
         )
 
-        logic.actions.updateAccountField('billing_id', 'cus_new')
+        logic.actions.saveLinks()
         await new Promise<void>((r) => setTimeout(r, 0))
-        expect(logic.values.isFieldSaving('billing_id')).toBe(true)
+        expect(logic.values.savingLinks).toBe(true)
 
-        resolveUpdate(buildAccount({ properties: { billing_id: 'cus_new' } }))
+        resolveUpdate(buildAccount())
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.isFieldSaving('billing_id')).toBe(false)
+        expect(logic.values.savingLinks).toBe(false)
     })
 
-    it('is a no-op while a save for the same field is already in flight', async () => {
-        await mountWith(buildAccount({ properties: { billing_id: null } }))
+    it('is a no-op while a save is already in flight', async () => {
+        await mountWith(buildAccount())
         let resolveFirst!: (value: AccountApi) => void
         mockAccountsPartialUpdate.mockReturnValueOnce(
             new Promise<AccountApi>((resolve) => {
@@ -142,26 +149,27 @@ describe('accountLinksLogic', () => {
             })
         )
 
-        logic.actions.updateAccountField('billing_id', 'a')
+        logic.actions.saveLinks()
         await new Promise<void>((r) => setTimeout(r, 0))
-        logic.actions.updateAccountField('billing_id', 'b')
+        logic.actions.saveLinks()
         await new Promise<void>((r) => setTimeout(r, 0))
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledTimes(1)
-
         resolveFirst(buildAccount())
         await expectLogic(logic).toFinishAllListeners()
     })
 
-    it('leaves the link disabled on failure', async () => {
-        await mountWith(buildAccount({ properties: { slack_channel_id: null } }))
+    it('keeps the editor open and account unchanged on failure', async () => {
+        const initial = buildAccount({ external_id: 'ext-1' })
+        await mountWith(initial)
         mockAccountsPartialUpdate.mockRejectedValueOnce(new Error('boom'))
 
-        logic.actions.updateAccountField('slack_channel_id', 'C1')
+        logic.actions.openEditor()
+        logic.actions.saveLinks()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.isFieldSaving('slack_channel_id')).toBe(false)
-        expect(linkByKey(logic, 'slack')?.disabledReason).toBe('No Slack channel set')
-        expect(linkByKey(logic, 'slack')?.configField).not.toBeNull()
+        expect(logic.values.editorOpen).toBe(true)
+        expect(logic.values.savingLinks).toBe(false)
+        expect(logic.values.account).toEqual(initial)
     })
 })
