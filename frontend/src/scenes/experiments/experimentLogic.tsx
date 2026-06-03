@@ -1422,8 +1422,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
+                // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
+                const experimentHandle = experiment.feature_flag_key || experiment.name
                 tryShowMCPHint('experiments.launch', {
-                    derivedPrompt: experiment.name ? `Launch experiment ${experiment.name}` : undefined,
+                    derivedPrompt: experimentHandle ? `Launch experiment ${experimentHandle}` : undefined,
                 })
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')
