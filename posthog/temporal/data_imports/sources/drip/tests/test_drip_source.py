@@ -29,7 +29,7 @@ class TestDripSource:
         assert config.label == "Drip"
         assert config.iconPath == "/static/services/drip.png"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
 
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_token", "account_id"]

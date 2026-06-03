@@ -93,7 +93,6 @@ You can find your API token under **Settings → User Settings → API** in Drip
             iconPath="/static/services/drip.png",
             docsUrl="https://posthog.com/docs/cdp/sources/drip",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
