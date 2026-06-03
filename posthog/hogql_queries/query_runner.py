@@ -2164,9 +2164,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
-            # `query_supports_breakdown` is guaranteed here: queries without a `breakdownFilter`
-            # field set `should_ignore_dashboard_breakdown` above and never reach this branch.
-            self.query.breakdownFilter = dashboard_filter.breakdown_filter
+            # `hasattr` is guaranteed truthy here (queries without `breakdownFilter` set
+            # `should_ignore_dashboard_breakdown` above), but the check also narrows the type for mypy.
+            if hasattr(self.query, "breakdownFilter"):
+                self.query.breakdownFilter = dashboard_filter.breakdown_filter
         self.__post_init__()
 
 
