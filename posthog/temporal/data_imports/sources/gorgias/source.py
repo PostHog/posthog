@@ -99,7 +99,6 @@ This source authenticates with HTTP Basic Auth (email + API key) and requires re
             iconPath="/static/services/gorgias.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gorgias",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

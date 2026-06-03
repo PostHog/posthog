@@ -44,7 +44,6 @@ class TestGorgiasSource:
     def test_source_config_fields(self) -> None:
         config = GorgiasSource().get_source_config
         assert config.label == "Gorgias"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == "alpha"
 
         fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
