@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -18,8 +20,50 @@ import { LazyPersonColumnCell, ToolsDisplay } from './aiObservabilityColumnRende
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
+
+function SessionColumn({ sessionId }: { sessionId: string }): JSX.Element {
+    const { dateFilter } = useValues(aiObservabilitySharedLogic)
+    const { getSessionTitle } = useValues(llmSessionTitleLazyLoaderLogic)
+    const { ensureSessionTitleLoaded } = useActions(llmSessionTitleLazyLoaderLogic)
+
+    useEffect(() => {
+        if (sessionId) {
+            ensureSessionTitleLoaded(sessionId)
+        }
+    }, [sessionId, ensureSessionTitleLoaded])
+
+    const title = getSessionTitle(sessionId)
+    const truncatedId = `${sessionId.slice(0, 4)}...${sessionId.slice(-4)}`
+    const sessionUrl = `${urls.aiObservabilitySession(sessionId)}?${new URLSearchParams({
+        ...(dateFilter.dateFrom && { date_from: dateFilter.dateFrom }),
+        ...(dateFilter.dateTo && { date_to: dateFilter.dateTo }),
+    }).toString()}`
+
+    if (title === undefined) {
+        return <LemonSkeleton className="h-4 w-48" />
+    }
+
+    if (!title) {
+        return (
+            <strong>
+                <Tooltip title={sessionId}>
+                    <Link className="ph-no-capture font-mono" to={sessionUrl}>
+                        {truncatedId}
+                    </Link>
+                </Tooltip>
+            </strong>
+        )
+    }
+
+    return (
+        <Link className="ph-no-capture font-semibold truncate block max-w-md" to={sessionUrl} title={title}>
+            {title}
+        </Link>
+    )
+}
 
 export function AIObservabilitySessionsScene(): JSX.Element {
     const { applyUrlState } = useActions(aiObservabilitySharedLogic)
@@ -82,23 +126,9 @@ export function AIObservabilitySessionsScene(): JSX.Element {
                 ),
                 columns: {
                     session_id: {
-                        title: 'Session ID',
-                        render: function RenderSessionId(x) {
-                            const sessionId = x.value as string
-                            const truncated = `${sessionId.slice(0, 4)}...${sessionId.slice(-4)}`
-                            const sessionUrl = `${urls.aiObservabilitySession(sessionId)}?${new URLSearchParams({
-                                ...(dateFilter.dateFrom && { date_from: dateFilter.dateFrom }),
-                                ...(dateFilter.dateTo && { date_to: dateFilter.dateTo }),
-                            }).toString()}`
-                            return (
-                                <strong>
-                                    <Tooltip title={sessionId}>
-                                        <Link className="ph-no-capture font-mono" to={sessionUrl}>
-                                            {truncated}
-                                        </Link>
-                                    </Tooltip>
-                                </strong>
-                            )
+                        title: 'Session',
+                        render: function RenderSession(x) {
+                            return <SessionColumn sessionId={x.value as string} />
                         },
                     },
                     distinct_id: {
