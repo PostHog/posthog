@@ -95,8 +95,10 @@ class PostHogConfig(AppConfig):
             from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 
             explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
-            if explicit_team_id is not None:
+            if explicit_team_id:
                 # Operator override: pin the flag-definitions team explicitly.
+                # Truthiness, not `is not None`: an empty env var means "unset" and must
+                # fall through to the defaults below, not crash on int("").
                 provider = HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
             elif settings.SELF_CAPTURE and not settings.E2E_TESTING:
                 # Local/self-hosted: read flag definitions from the dogfood team
