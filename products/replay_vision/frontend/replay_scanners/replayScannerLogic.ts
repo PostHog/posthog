@@ -600,6 +600,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 // eslint-disable-next-line no-console
                 console.warn('[replay-vision] scanner estimate failed', error)
+                if (values.estimateRequestVersion !== version) {
+                    return
+                }
                 actions.loadScannerEstimateFailure()
             }
         },
