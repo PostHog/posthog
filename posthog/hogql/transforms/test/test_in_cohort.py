@@ -176,8 +176,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
-        pretty_response = pretty_print_response_in_tests(response, self.team.pk)
-        assert "\n".join(line.rstrip() for line in pretty_response.split("\n")) == self.snapshot  # type: ignore
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
         self.assertEqual(len(response.results or []), 1)
         self.assertEqual((response.results or [])[0][0], random_uuid)
 
@@ -284,8 +283,7 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
         )
         # person1 matches both cohorts (2 rows) + person2 matches only cohort2 (1 row) = 3
         assert len(off_response.results or []) == 3
-        off_pretty_response = pretty_print_response_in_tests(off_response, self.team.pk)
-        assert "\n".join(line.rstrip() for line in off_pretty_response.split("\n")) == self.snapshot
+        assert pretty_print_response_in_tests(off_response, self.team.pk) == self.snapshot
 
         always_response = execute_hogql_query(
             query,

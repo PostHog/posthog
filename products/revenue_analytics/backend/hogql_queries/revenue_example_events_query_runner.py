@@ -157,14 +157,6 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             modifiers=self.modifiers,
         )
 
-        deduped_rows: list[tuple[Any, ...]] = []
-        seen_rows: set[tuple[Any, ...]] = set()
-        for row in cast(list[tuple[Any, ...]], response.results):
-            if row in seen_rows:
-                continue
-            seen_rows.add(row)
-            deduped_rows.append(row)
-
         results = [
             (
                 {
@@ -188,7 +180,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                 row[8],
                 row[9],
             )
-            for row in deduped_rows
+            for row in cast(list[tuple[Any, ...]], response.results)
         ]
 
         return RevenueExampleEventsQueryResponse(

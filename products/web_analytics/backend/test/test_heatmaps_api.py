@@ -417,7 +417,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             [
                 "min_150",
                 {"date_from": "2023-03-08", "viewport_width_min": "150"},
-                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 2), heatmap_result(0.11, 2)],
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1), heatmap_result(0.11, 2)],
             ],
             [
                 "min_161",
@@ -425,7 +425,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 [
                     heatmap_result(0.08, 1),
                     heatmap_result(0.09, 1),
-                    heatmap_result(0.1, 2),
+                    heatmap_result(0.1, 1),
                 ],
             ],
             [
@@ -440,7 +440,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             [
                 "min_161_and_max_192",
                 {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192},
-                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 2)],
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1)],
             ],
         ]
     )

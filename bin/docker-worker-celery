@@ -102,13 +102,9 @@ echo
 
 ./bin/migrate-check
 
-# The web container may still be finishing bin/migrate on fresh Hobby installs.
-# Complete no-op async migrations here as well so Celery startup does not race
-# against the web migration process.
-SKIP_ASYNC_MIGRATIONS_SETUP=1 python manage.py run_async_migrations --complete-noop-migrations
-
 SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker ${FLAGS[*]} &
 
 # Exit if any processes exit, and exit with it's exit code
 wait -n
 exit $?
+
