@@ -65,6 +65,7 @@ the row lists both.
 | hubspot       | HTTP                        | requests                                                        | ✅                          |
 | klaviyo       | HTTP                        | requests                                                        | ✅                          |
 | linear        | HTTP                        | requests                                                        | ✅                          |
+| lever         | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads  | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailjet       | HTTP                        | requests                                                        | ✅                          |
@@ -177,7 +178,6 @@ doesn't conflict with concurrent PRs.
 - jira
 - kafka
 - launchdarkly
-- lever
 - mailerlite
 - marketo
 - microsoft_teams
