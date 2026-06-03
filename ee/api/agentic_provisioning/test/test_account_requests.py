@@ -724,6 +724,7 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
 
         props = mock_capture.call_args.kwargs["properties"]
         if expects_client:
+            assert partner is not None
             assert props["client_name"] == "Attribution Test Client"
             assert props["partner_id"] == str(partner.id)
         else:
