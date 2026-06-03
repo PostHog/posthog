@@ -290,6 +290,33 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
+    it('SECURITY: refuses to attach integration bearer over plaintext http even when the host is allowed', async () => {
+        // Smokescreen owns SSRF but filters by destination, not scheme — it
+        // won't stop the team's OAuth bearer being sent in cleartext to an
+        // allowlisted public host. The host validator only checks `url.host`,
+        // so the https-only guard is the runner's job on the credential path.
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                kind: 'external',
+                id: 'linear',
+                url: 'http://mcp.linear.app/linear',
+                secrets: [],
+                auth: { integration: 'linear:T01' },
+            },
+        ]
+        await expect(
+            openMcpClients(refs, {
+                integrations: { 'linear:T01': { kind: 'linear', access_token: 'tok_abc' } },
+                secrets: {},
+                transportFactory: factory,
+                // Host is allowed — only the scheme should reject it.
+                integrationHostValidator: () => true,
+            })
+        ).rejects.toThrow(/mcp_integration_unsafe_scheme: linear:T01 → http:/)
+        await closePairs(pairs)
+    })
+
     it('throws mcp_integration_not_resolved when the integration ref is missing', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
@@ -451,110 +478,6 @@ describe('openMcpClients', () => {
         // path; we already asserted the per-client closure logged once.
         await close()
         await closePairs(pairs)
-    })
-
-    describe('SECURITY: assertSafeExternalMcpUrl', () => {
-        it.each([
-            { label: 'plain HTTP', url: 'http://mcp.linear.app/sse' },
-            { label: 'WebSocket', url: 'ws://example.com/mcp' },
-            { label: 'file URL', url: 'file:///etc/passwd' },
-        ])('rejects the $label scheme', async ({ url }) => {
-            const { factory, pairs } = await buildEchoFactory()
-            await expect(
-                openMcpClients([{ kind: 'external', id: 'x', url, secrets: [] }], {
-                    integrations: {},
-                    secrets: {},
-                    transportFactory: factory,
-                })
-            ).rejects.toThrow(/mcp_unsafe_url: scheme must be https/)
-            await closePairs(pairs)
-        })
-
-        it.each([
-            { label: 'localhost', url: 'https://localhost/mcp' },
-            { label: 'IPv4 loopback literal', url: 'https://127.0.0.1/mcp' },
-            { label: 'AWS / Azure / GCP metadata service IP', url: 'https://169.254.169.254/latest/meta-data/' },
-            { label: 'RFC1918 10.x', url: 'https://10.0.0.1/mcp' },
-            { label: 'RFC1918 192.168.x', url: 'https://192.168.1.1/mcp' },
-            { label: 'RFC1918 172.16-31.x', url: 'https://172.20.0.1/mcp' },
-            { label: 'GCP metadata DNS name', url: 'https://metadata.google.internal/computeMetadata/v1/' },
-            { label: '.internal TLD', url: 'https://api.internal/mcp' },
-            { label: 'IPv6 loopback', url: 'https://[::1]/mcp' },
-            { label: 'IPv4-mapped IPv6 metadata IP', url: 'https://[::ffff:169.254.169.254]/mcp' },
-            { label: 'IPv4-mapped IPv6 metadata IP (hex form)', url: 'https://[::ffff:a9fe:a9fe]/mcp' },
-            { label: 'IPv4-mapped IPv6 loopback', url: 'https://[::ffff:127.0.0.1]/mcp' },
-            { label: 'IPv4-mapped IPv6 RFC1918', url: 'https://[::ffff:10.0.0.1]/mcp' },
-        ])('rejects the unsafe host: $label', async ({ url }) => {
-            const { factory, pairs } = await buildEchoFactory()
-            await expect(
-                openMcpClients([{ kind: 'external', id: 'x', url, secrets: [] }], {
-                    integrations: {},
-                    secrets: {},
-                    transportFactory: factory,
-                })
-            ).rejects.toThrow(/mcp_unsafe_url: (scheme|hostname)/)
-            await closePairs(pairs)
-        })
-
-        it('accepts a normal public HTTPS URL', async () => {
-            const { factory, pairs } = await buildEchoFactory()
-            const { close } = await openMcpClients(
-                [{ kind: 'external', id: 'x', url: 'https://mcp.linear.app/sse', secrets: [] }],
-                { integrations: {}, secrets: {}, transportFactory: factory }
-            )
-            await close()
-            await closePairs(pairs)
-        })
-
-        it.each([
-            { label: 'plaintext loopback', url: 'http://localhost:8787/mcp' },
-            { label: 'IPv4 loopback literal', url: 'http://127.0.0.1:8787/mcp' },
-            { label: 'RFC1918', url: 'http://10.0.0.1/mcp' },
-        ])('with allowPrivateMcpHosts, accepts $label (dev escape)', async ({ url }) => {
-            const { factory, pairs } = await buildEchoFactory()
-            const { close } = await openMcpClients([{ kind: 'external', id: 'x', url, secrets: [] }], {
-                integrations: {},
-                secrets: {},
-                transportFactory: factory,
-                allowPrivateMcpHosts: true,
-            })
-            await close()
-            await closePairs(pairs)
-        })
-
-        it('still rejects invalid URLs even with allowPrivateMcpHosts (URL parsing is unconditional)', async () => {
-            const { factory, pairs } = await buildEchoFactory()
-            await expect(
-                openMcpClients([{ kind: 'external', id: 'x', url: 'not a url', secrets: [] }], {
-                    integrations: {},
-                    secrets: {},
-                    transportFactory: factory,
-                    allowPrivateMcpHosts: true,
-                })
-            ).rejects.toThrow(/mcp_unsafe_url: not a valid URL/)
-            await closePairs(pairs)
-        })
-
-        it('does NOT apply the URL safety check to kind: agent (URL minted by trusted resolver)', async () => {
-            // The agent-variant URL comes from the runner's own resolver, not
-            // the author's spec — so the SSRF floor doesn't apply. (The
-            // existing kind:'agent' test uses `https://ingress.local/` which
-            // would be rejected by the floor; this confirms it still works.)
-            const { factory, pairs, targets } = await buildEchoFactory()
-            const { close } = await openMcpClients([{ kind: 'agent', slug: 'weekly-digest' }], {
-                integrations: {},
-                secrets: {},
-                transportFactory: factory,
-                callerContext: { teamId: 1, sessionId: 's' },
-                agentMcpResolver: async (slug) => ({
-                    url: `https://ingress.local/agents/${slug}/mcp`,
-                    headers: {},
-                }),
-            })
-            expect(targets[0].url).toBe('https://ingress.local/agents/weekly-digest/mcp')
-            await close()
-            await closePairs(pairs)
-        })
     })
 
     describe('devMcpBearerToken (dev-only auth fallback)', () => {
