@@ -33,7 +33,6 @@ class ShortcutSource(SimpleSource[ShortcutSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHORTCUT,
             label="Shortcut",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Shortcut API token to sync your Shortcut data into the PostHog Data warehouse.
 

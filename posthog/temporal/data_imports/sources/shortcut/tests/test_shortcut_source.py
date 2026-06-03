@@ -24,7 +24,7 @@ class TestShortcutSource:
 
         assert config.name.value == "Shortcut"
         assert config.label == "Shortcut"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/shortcut.png"
         assert len(config.fields) == 1
