@@ -741,30 +741,6 @@ class ClickHousePrinter(BasePrinter):
             f"AND ({materialized_column_sql} IS NOT NULL))"
         )
 
-    def _get_optimized_nullable_materialized_range_operation(self, node: ast.CompareOperation) -> str | None:
-        if node.op not in self._RANGE_OP_TO_CH_NAME:
-            return None
-
-        source = self._get_materialized_range_source(node.left)
-        if source is None:
-            return None
-
-        property_source, is_string_source = source
-        if not property_source.is_nullable:
-            return None
-
-        right_constant = node.right if isinstance(node.right, ast.Constant) else None
-        if right_constant is None or right_constant.value is None:
-            return None
-
-        if is_string_source and not isinstance(right_constant.type, ast.StringType):
-            return None
-
-        materialized_column_sql = str(property_source)
-        constant_sql = self.visit(node.right)
-        op_name = self._RANGE_OP_TO_CH_NAME[node.op]
-        return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
-
     def _get_materialized_range_source(self, expr: ast.Expr) -> tuple[PrintableMaterializedColumn, bool] | None:
         physical_source = self._get_physical_materialized_column_source(expr)
         if physical_source is not None:
@@ -1489,9 +1465,6 @@ class ClickHousePrinter(BasePrinter):
         # Special cases when we should not add any null checks
         if in_join_constraint or not_nullable or in_index_hint:
             return op
-
-        if optimized_nullable_materialized_range := self._get_optimized_nullable_materialized_range_operation(node):
-            return optimized_nullable_materialized_range
 
         # Special optimization for "Eq" operator
         if (

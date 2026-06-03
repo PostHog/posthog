@@ -455,6 +455,7 @@ class TestHogQLTypeSystem:
 
     def test_resolver_infers_conditional_and_aggregate_function_types(self) -> None:
         self._assert_first_column_type("SELECT if(true, 1, 2.0)", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT ifNull(1.5, 0)", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT multiIf(true, 1, false, 2.0, 3)", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT coalesce(1, 2.0)", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT count() FROM events", ast.IntegerType(nullable=False))

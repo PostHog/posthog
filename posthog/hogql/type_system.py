@@ -865,6 +865,7 @@ def infer_array_constant_type(items: list[ast.ConstantType], dialect: HogQLDiale
 
 def infer_array_access_constant_type(array_type: ast.ConstantType) -> ast.ConstantType:
     if isinstance(array_type, ast.ArrayType):
+        # ClickHouse returns the item type's default value for out-of-bounds access on non-nullable arrays.
         return dataclasses.replace(array_type.item_type, nullable=array_type.nullable or array_type.item_type.nullable)
     if isinstance(array_type, ast.StringArrayType):
         return ast.StringType(nullable=True)
@@ -944,8 +945,11 @@ def _infer_generic_function_type(
     if normalized_name in {"and", "or", "xor", "not"}:
         return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
-    if normalized_name in {"if", "ifnull"}:
+    if normalized_name == "if":
         return least_common_supertype(arg_types[1:], dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+
+    if normalized_name == "ifnull":
+        return least_common_supertype(arg_types, dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
 
     if normalized_name == "multiif":
         if len(arg_types) < 3:
