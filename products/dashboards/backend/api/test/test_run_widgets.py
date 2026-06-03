@@ -1,20 +1,28 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test.utils import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.clickhouse.client.execute import UntaggedQueryError
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.models import Person
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
 from products.dashboards.backend.widgets.session_replay_list import (
     SESSION_REPLAY_ORDER_BY,
+    run_session_replay_list_widget,
     validate_session_replay_list_config,
 )
 from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
@@ -22,8 +30,6 @@ from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTI
 
 class TestWidgetRegistry(APIBaseTest):
     def test_widget_registry_catalog_and_expected_types_stay_in_sync(self) -> None:
-        from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
-
         registry_types = frozenset(WIDGET_REGISTRY.keys())
         assert EXPECTED_WIDGET_TYPES == registry_types
         assert frozenset(WIDGET_CATALOG.keys()) == registry_types
@@ -217,13 +223,6 @@ class TestDashboardRunWidgets(APIBaseTest):
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_tags_queries_in_debug_mode(self, mock_list_recordings: MagicMock) -> None:
-        from django.test.utils import override_settings
-
-        from posthog.clickhouse.client.execute import UntaggedQueryError
-        from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-
-        from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
-
         mock_list_recordings.return_value = ([], False, None, None)
 
         def assert_tagged(*_args: object, **_kwargs: object) -> tuple[list[object], bool, None, None]:
@@ -246,9 +245,6 @@ class TestDashboardRunWidgets(APIBaseTest):
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
-        from posthog.models import Person
-        from posthog.session_recordings.models.session_recording import SessionRecording
-
         person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
         recording = SessionRecording(
             session_id="019e6a07-04fe-792c-b828-49375b8d42e8",

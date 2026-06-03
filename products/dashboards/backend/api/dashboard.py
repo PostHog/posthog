@@ -101,6 +101,7 @@ from products.dashboards.backend.widget_layouts import (
 )
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
+    SESSION_REPLAY_LIST_WIDGET_TYPE,
     get_widget_registry_entry,
     validate_widget_config,
 )
@@ -2637,7 +2638,7 @@ class DashboardsViewSet(
                 }
                 continue
 
-            if widget.widget_type == "session_replay_list":
+            if widget.widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
                 throttle_error = get_replay_listing_throttle_error(request, self)
                 if throttle_error:
                     results_by_id[tile_id] = {
