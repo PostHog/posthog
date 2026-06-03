@@ -565,6 +565,19 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="clean up old SCIM request logs",
         )
 
+        from ee.tasks.reconcile_stuck_conversations import reconcile_stuck_conversations
+
+        # Safety net for Max AI conversations left stuck IN_PROGRESS by a worker that died
+        # mid-generation (the in-process status reset never ran). Releases the stale lock so
+        # the conversation accepts new messages again.
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/15"),
+            reconcile_stuck_conversations.s(),
+            name="reconcile stuck Max conversations",
+            expires_seconds=15 * 60,
+        )
+
     # Check integrations to refresh every minute
     add_periodic_task_with_expiry(
         sender,

@@ -490,6 +490,80 @@ class TestConversation(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["detail"], "Cannot continue streaming from an idle conversation")
 
+    def test_stale_in_progress_conversation_with_new_message_is_reconciled(self):
+        """A conversation stuck IN_PROGRESS (worker died) with no running workflow is released, not 409'd."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
+        )
+        # Force the lock to look stale (auto_now would otherwise keep updated_at fresh).
+        Conversation.objects.filter(id=conversation.id).update(
+            updated_at=timezone.now() - datetime.timedelta(minutes=10)
+        )
+
+        with (
+            patch(
+                "ee.hogai.core.executor.AgentExecutor.has_running_workflow",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_has_running_workflow,
+            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()) as mock_astream,
+            patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"conversation": str(conversation.id), "content": "test query", "trace_id": str(uuid.uuid4())},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_has_running_workflow.assert_called_once()
+        mock_astream.assert_called_once()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.status, Conversation.Status.IDLE)
+
+    def test_stale_in_progress_conversation_with_running_workflow_still_conflicts(self):
+        """If Temporal confirms a workflow is still running, a new message is still rejected with 409."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
+        )
+        Conversation.objects.filter(id=conversation.id).update(
+            updated_at=timezone.now() - datetime.timedelta(minutes=10)
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.has_running_workflow",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_has_running_workflow:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"conversation": str(conversation.id), "content": "test query", "trace_id": str(uuid.uuid4())},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        mock_has_running_workflow.assert_called_once()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.status, Conversation.Status.IN_PROGRESS)
+
+    def test_recent_in_progress_conversation_with_new_message_skips_temporal_check(self):
+        """A freshly in-progress conversation still 409s without an extra Temporal lookup on the hot path."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.has_running_workflow",
+            new_callable=AsyncMock,
+        ) as mock_has_running_workflow:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"conversation": str(conversation.id), "content": "test query", "trace_id": str(uuid.uuid4())},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        mock_has_running_workflow.assert_not_called()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.status, Conversation.Status.IN_PROGRESS)
+
     def test_stream_from_nonexistent_conversation_without_content(self):
         """Test that streaming from a non-existent conversation without content returns an error."""
         conversation_uuid = str(uuid.uuid4())

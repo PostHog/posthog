@@ -2,6 +2,7 @@ import time
 import uuid
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
@@ -63,6 +64,13 @@ from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+# A conversation still claiming to be non-IDLE after this long is a candidate for stale-lock
+# reconciliation. The runner refreshes `updated_at` when it acquires the lock, so a genuine
+# generation stays under this window; anything older is verified against Temporal before reset.
+# Comfortably larger than the brief main-workflow -> queued-workflow handoff, during which the
+# status is legitimately non-IDLE while no workflow momentarily shows as running.
+STALE_CONVERSATION_LOCK_THRESHOLD = timedelta(minutes=2)
 
 RESEARCH_RATE_LIMIT_MESSAGE = (
     "You've reached the usage limit for Research mode, which is currently in beta "
@@ -378,6 +386,23 @@ class ConversationViewSet(
             serializer.validated_data.get("is_sandbox", False)
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
         )
+
+        # Self-heal a stale lock: `status` is flipped to IN_PROGRESS by the runner and reset to
+        # IDLE in a `finally`. A killed worker or a workflow timeout skips that cleanup, leaving the
+        # conversation stuck non-IDLE so every future message is rejected with a 409. When a
+        # long-stale row claims to be busy but no Temporal workflow is actually running, release the
+        # lock and treat it as idle. Sandbox conversations don't run the Temporal chat workflow, so
+        # they're left untouched.
+        if (
+            not is_idle
+            and not is_sandbox
+            and conversation.updated_at is not None
+            and timezone.now() - conversation.updated_at > STALE_CONVERSATION_LOCK_THRESHOLD
+            and not asgi_async_to_sync(AgentExecutor(conversation).has_running_workflow)()
+        ):
+            conversation.status = Conversation.Status.IDLE
+            conversation.save(update_fields=["status", "updated_at"])
+            is_idle = True
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
             if not is_new_conversation and is_idle and has_message and not has_resume_payload:

@@ -43,6 +43,39 @@ class TestAgentExecutor(BaseTest):
         self.assertEqual(manager._conversation.id, self.conversation.id)
         self.assertIsInstance(manager._redis_stream, ConversationRedisStream)
 
+    @staticmethod
+    def _aiter(items):
+        async def gen():
+            for item in items:
+                yield item
+
+        return gen()
+
+    @patch("ee.hogai.core.executor.async_connect", new_callable=AsyncMock)
+    async def test_has_running_workflow_true(self, mock_connect):
+        """Returns True when Temporal reports a running workflow for the conversation."""
+        mock_client = Mock()
+        mock_client.list_workflows = Mock(return_value=self._aiter([Mock()]))
+        mock_connect.return_value = mock_client
+
+        self.assertTrue(await self.manager.has_running_workflow())
+
+    @patch("ee.hogai.core.executor.async_connect", new_callable=AsyncMock)
+    async def test_has_running_workflow_false(self, mock_connect):
+        """Returns False when no workflow is running (stale lock case)."""
+        mock_client = Mock()
+        mock_client.list_workflows = Mock(return_value=self._aiter([]))
+        mock_connect.return_value = mock_client
+
+        self.assertFalse(await self.manager.has_running_workflow())
+
+    @patch("ee.hogai.core.executor.async_connect", new_callable=AsyncMock)
+    async def test_has_running_workflow_fails_safe_when_temporal_unavailable(self, mock_connect):
+        """Fails safe to True if Temporal can't be reached, so a live lock is never wrongly released."""
+        mock_connect.side_effect = Exception("temporal unavailable")
+
+        self.assertTrue(await self.manager.has_running_workflow())
+
     @patch("ee.hogai.core.executor.async_connect")
     async def test_start_workflow_and_stream_success(self, mock_connect):
         """Test successful workflow start and streaming."""

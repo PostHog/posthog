@@ -215,6 +215,34 @@ class AgentExecutor:
             span.set_attribute("posthog_ai.outcome", "timeout")
             return False
 
+    async def has_running_workflow(self) -> bool:
+        """Whether any Temporal workflow for this conversation is currently running.
+
+        `Conversation.status` is only an optimistic cache, flipped back to IDLE by an in-process
+        `finally` in the runner (`_lock_conversation`). A killed worker or a workflow execution
+        timeout skips that cleanup and leaves the row stuck IN_PROGRESS, so the status flag alone
+        can't be trusted. Temporal is the source of truth.
+
+        The query matches both the main workflow (`conversation-{id}`) and queued-message
+        workflows (`conversation-{id}-queued-...`), so an in-flight queued generation is not
+        mistaken for idle.
+        """
+        query = f'WorkflowId STARTS_WITH "conversation-{self._conversation.id}" AND ExecutionStatus = "Running"'
+        try:
+            client = await async_connect()
+            async for _ in client.list_workflows(query=query):
+                return True
+        except Exception as e:
+            logger.warning(
+                "Failed to check for running conversation workflow",
+                conversation_id=str(self._conversation.id),
+                error=str(e),
+            )
+            # Fail safe: if Temporal can't be reached, assume a workflow IS running so we never
+            # wrongly release a live lock and start a duplicate generation.
+            return True
+        return False
+
     async def stream_conversation(self) -> AsyncGenerator[AssistantOutput, Any]:
         """Stream conversation updates from Redis stream.
 
