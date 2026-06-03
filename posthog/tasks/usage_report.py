@@ -25,7 +25,6 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
-from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -33,7 +32,8 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
+from posthog.models import GroupTypeMapping, OrganizationMembership, User
+from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
@@ -44,6 +44,7 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1078,6 +1079,7 @@ def get_teams_with_ai_event_count_in_period(
 AI_COST_MARKUP_PERCENT = 0.2
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
+AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
 # Region-to-team mapping for where AI events are stored
 CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
@@ -1087,6 +1089,23 @@ CLOUD_REGION_TO_URL = {
     "EU": "https://eu.posthog.com",
     "US": "https://us.posthog.com",
 }
+
+
+def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
+    """Resolve the $group_N index that holds the customer cloud URL for the internal AI events team."""
+    for mapping in get_group_types_for_team(team_id):
+        if mapping.get("group_type") == AI_BILLING_INSTANCE_GROUP_TYPE:
+            index = mapping.get("group_type_index")
+            return int(index) if index is not None else None
+    return None
+
+
+def build_ai_billing_region_filter(team_id: int, region_url: str) -> dict[str, str] | None:
+    instance_group_index = get_ai_billing_instance_group_type_index(team_id)
+    if instance_group_index is None:
+        return None
+
+    return {"region_group_property": f"$group_{instance_group_index}", "region_url": region_url}
 
 
 @timed_log()
@@ -1115,7 +1134,7 @@ def get_teams_with_ai_credits_used_in_period(
     6. Convert 1:1 to credits
 
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
-    We filter by $group_1 which contains the region URL (https://eu.posthog.com or https://us.posthog.com).
+    We filter by the configured `instance` group column, which contains the region URL.
     """
     region = get_instance_region()
 
@@ -1129,6 +1148,9 @@ def get_teams_with_ai_credits_used_in_period(
         return []
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
+    region_filter_params = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
+    if region_filter_params is None:
+        return []
 
     with tags_context(
         product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report="ai_credits", kind="usage_report"
@@ -1185,7 +1207,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
+                        AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -1209,7 +1231,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
+                        AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
@@ -1239,11 +1261,11 @@ def get_teams_with_ai_credits_used_in_period(
             """,
             {
                 "team_to_query": team_to_query,
-                "region_url": CLOUD_REGION_TO_URL[region],
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+                **region_filter_params,
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
