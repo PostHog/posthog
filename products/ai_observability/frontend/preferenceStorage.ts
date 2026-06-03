@@ -1,7 +1,16 @@
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const teamPrefix = teamId ? `${teamId}__` : ''
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 
-export const aiObservabilityPreferenceStorage = {
-    persist: true,
-    prefix: `${teamPrefix}ai_observability`,
-} as const
+interface AIObservabilityPreferenceStorageConfig {
+    persist: true
+    storageKey: string
+}
+
+export function buildAiObservabilityStorageConfig(storageKey: string): AIObservabilityPreferenceStorageConfig {
+    const teamId = getCurrentTeamIdOrNone()
+    const teamPrefix = teamId ? `${teamId}__` : ''
+
+    return {
+        persist: true,
+        storageKey: `${teamPrefix}ai_observability.${storageKey}`,
+    }
+}

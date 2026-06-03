@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -472,5 +474,19 @@ describe('AI observability persisted preferences', () => {
         expect(secondLogic.values.isTraceReviewPanelExpanded).toBe(true)
 
         secondLogic.unmount()
+    })
+
+    it('scopes explicit storage keys to the current team', () => {
+        const logic = aiObservabilityTraceLogic({ tabId: 'team-scoped-tab' })
+        logic.mount()
+        logic.actions.setIsRenderingMarkdown(false)
+
+        const storageKey = `${MOCK_TEAM_ID}__ai_observability.trace.isRenderingMarkdown`
+        expect(window.localStorage[storageKey]).toBe('false')
+        expect(
+            Object.getOwnPropertyNames(window.localStorage).filter((key) => key.endsWith('trace.isRenderingMarkdown'))
+        ).toEqual([storageKey])
+
+        logic.unmount()
     })
 })

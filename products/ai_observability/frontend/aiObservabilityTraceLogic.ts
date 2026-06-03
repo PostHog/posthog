@@ -31,7 +31,7 @@ import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from 
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import type { aiObservabilityTraceLogicType } from './aiObservabilityTraceLogicType'
-import { aiObservabilityPreferenceStorage } from './preferenceStorage'
+import { buildAiObservabilityStorageConfig } from './preferenceStorage'
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
@@ -122,7 +122,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         loadNeighbors: (traceId: string, timestamp: string) => ({ traceId, timestamp }),
     }),
 
-    reducers({
+    reducers(() => ({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         highlightMessageIndex: [
@@ -170,7 +170,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
         isRenderingMarkdown: [
             true as boolean,
-            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.isRenderingMarkdown' },
+            buildAiObservabilityStorageConfig('trace.isRenderingMarkdown'),
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
@@ -178,7 +178,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         isRenderingXml: [
             false as boolean,
-            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.isRenderingXml' },
+            buildAiObservabilityStorageConfig('trace.isRenderingXml'),
             {
                 setIsRenderingXml: (_, { isRenderingXml }) => isRenderingXml,
                 toggleXmlRendering: (state) => !state,
@@ -225,7 +225,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         displayOption: [
             DisplayOption.CollapseExceptOutputAndLastInput as DisplayOption,
-            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.displayOption' },
+            buildAiObservabilityStorageConfig('trace.displayOption'),
             {
                 setDisplayOption: (_, { displayOption }) => displayOption,
                 handleTextViewFallback: () => DisplayOption.ExpandAll,
@@ -233,7 +233,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         eventTypeExpandedMap: [
             {} as Record<string, boolean>,
-            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.eventTypeExpandedMap' },
+            buildAiObservabilityStorageConfig('trace.eventTypeExpandedMap'),
             {
                 toggleEventTypeExpanded: (state, { eventType }) => ({
                     ...state,
@@ -243,12 +243,12 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         isTraceReviewPanelExpanded: [
             false as boolean,
-            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.isTraceReviewPanelExpanded' },
+            buildAiObservabilityStorageConfig('trace.isTraceReviewPanelExpanded'),
             {
                 setTraceReviewPanelExpanded: (_, { isExpanded }) => isExpanded,
             },
         ],
-    }),
+    })),
 
     loaders(({ values }) => ({
         commentCount: [
