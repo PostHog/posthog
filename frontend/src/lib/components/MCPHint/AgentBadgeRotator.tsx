@@ -24,8 +24,7 @@ export function AgentBadgeRotator({ className }: { className?: string }): JSX.El
         setIndex((current) => (current + 1) % AGENTS.length)
     }, ROTATE_INTERVAL_MS)
 
-    const safeIndex = index % AGENTS.length
-    const agent = AGENTS[safeIndex]
+    const agent = AGENTS[index]
     const classes = cn('font-semibold rainbow-text-fading', {
         'rainbow-text-animating': !isStorybook,
     })
