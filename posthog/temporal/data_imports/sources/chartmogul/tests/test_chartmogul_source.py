@@ -27,7 +27,7 @@ class TestChartMogulSource:
 
         assert config.name == SchemaExternalDataSourceType.CHART_MOGUL
         assert config.label == "ChartMogul"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.fields is not None
         field_names = [f.name for f in config.fields]

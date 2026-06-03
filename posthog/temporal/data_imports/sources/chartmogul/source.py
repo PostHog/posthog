@@ -41,7 +41,6 @@ You can find your API key in your [ChartMogul admin settings](https://app.chartm
             iconPath="/static/services/chartmogul.png",
             docsUrl="https://posthog.com/docs/cdp/sources/chartmogul",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
