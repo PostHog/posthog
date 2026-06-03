@@ -37,7 +37,6 @@ import {
     AutoresearchModelApi,
     AutoresearchPipelineApi,
     AutoresearchPipelineStatusEnumApi,
-    AutoresearchRunApi,
     AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
@@ -738,55 +737,6 @@ function OnlinePerformanceTab(): JSX.Element {
     )
 }
 
-function RunsTab(): JSX.Element {
-    const { runs, runsLoading } = useValues(autoresearchPipelineLogic)
-    if (runsLoading) {
-        return <Spinner />
-    }
-    if (runs.length === 0) {
-        return (
-            <EmptyTab icon={<IconRefresh />} title="No inference or validation runs yet" cta={<ScoreNowButton />}>
-                Scoring and validation runs land here. Score now to create the first inference run, or wait for the
-                daily scheduled workflow.
-            </EmptyTab>
-        )
-    }
-    return (
-        <div className="space-y-2">
-            <div className="flex justify-end">
-                <ScoreNowButton />
-            </div>
-            {runs.map((run: AutoresearchRunApi) => (
-                <div key={run.id} className="border rounded p-3 flex justify-between items-center">
-                    <div className="space-y-0.5">
-                        <div className="text-sm font-semibold">
-                            {run.run_type} · {run.id.slice(0, 8)}
-                        </div>
-                        <div className="text-xs text-muted">
-                            {run.rows_scored != null ? `${run.rows_scored.toLocaleString()} users` : '—'} ·{' '}
-                            {run.started_at ? dayjs(run.started_at).fromNow() : ''}
-                        </div>
-                        {run.error && <div className="text-xs text-danger">{run.error}</div>}
-                    </div>
-                    <LemonTag
-                        type={
-                            run.status === 'completed'
-                                ? 'success'
-                                : run.status === 'failed'
-                                  ? 'danger'
-                                  : run.status === 'running'
-                                    ? 'highlight'
-                                    : 'default'
-                        }
-                    >
-                        {run.status}
-                    </LemonTag>
-                </div>
-            ))}
-        </div>
-    )
-}
-
 function SuggestionForm(): JSX.Element {
     const { suggestionDraft, suggestionPriority, suggestionSubmitResultLoading } = useValues(autoresearchPipelineLogic)
     const { setSuggestionDraft, setSuggestionPriority, submitSuggestion } = useActions(autoresearchPipelineLogic)
@@ -992,7 +942,6 @@ export function AutoresearchPipelineScene(): JSX.Element {
         { key: 'models', label: 'Models', content: <ModelsTab /> },
         { key: 'predictions', label: 'Predictions', content: <PredictionsTab /> },
         { key: 'online_performance', label: 'Online performance', content: <OnlinePerformanceTab /> },
-        { key: 'runs', label: 'Runs', content: <RunsTab /> },
         { key: 'suggestions', label: 'Suggestions', content: <SuggestionsTab /> },
         { key: 'settings', label: 'Settings', content: <SettingsTab /> },
     ]

@@ -43,7 +43,6 @@ export type AutoresearchPipelineTab =
     | 'models'
     | 'predictions'
     | 'online_performance'
-    | 'runs'
     | 'suggestions'
     | 'settings'
 
@@ -53,7 +52,6 @@ const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
     'models',
     'predictions',
     'online_performance',
-    'runs',
     'suggestions',
     'settings',
 ]
