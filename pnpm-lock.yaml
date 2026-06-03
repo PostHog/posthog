@@ -82,8 +82,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.378.1
-      version: 1.378.1
+      specifier: ^1.379.1
+      version: 1.379.1
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -329,7 +329,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -357,7 +357,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -445,7 +445,7 @@ importers:
         version: 0.19.1(storybook@8.6.18(prettier@3.8.2))
       '@storybook/theming':
         specifier: ^8.6.14
-        version: 8.6.14(storybook@8.6.18(prettier@3.8.2))
+        version: 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@storybook/types':
         specifier: 'catalog:'
         version: 8.6.14(storybook@8.6.18(prettier@3.8.2))
@@ -603,6 +603,12 @@ importers:
       '@posthog/products-alerts':
         specifier: workspace:*
         version: link:../products/alerts
+      '@posthog/products-annotations':
+        specifier: workspace:*
+        version: link:../products/annotations
+      '@posthog/products-batch-exports':
+        specifier: workspace:*
+        version: link:../products/batch_exports
       '@posthog/products-business-knowledge':
         specifier: workspace:*
         version: link:../products/business_knowledge
@@ -642,6 +648,9 @@ importers:
       '@posthog/products-experiments':
         specifier: workspace:*
         version: link:../products/experiments
+      '@posthog/products-exports':
+        specifier: workspace:*
+        version: link:../products/exports
       '@posthog/products-feature-flags':
         specifier: workspace:*
         version: link:../products/feature_flags
@@ -735,9 +744,12 @@ importers:
       '@posthog/quill':
         specifier: workspace:*
         version: link:../packages/quill/packages/quill
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../packages/quill/packages/charts
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.379.1)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1064,7 +1076,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1550,6 +1562,9 @@ importers:
       luxon:
         specifier: ^3.4.4
         version: 3.5.0
+      lz4:
+        specifier: ^0.6.5
+        version: 0.6.5
       node-fetch:
         specifier: ^2.6.1
         version: 2.6.9(encoding@0.1.13)
@@ -1803,7 +1818,7 @@ importers:
         version: 0.19.1(@types/node@25.8.0)(storybook@8.6.18(prettier@3.8.2))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       '@storybook/theming':
         specifier: ^8.6.14
-        version: 8.6.14(storybook@8.6.18(prettier@3.8.2))
+        version: 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@tailwindcss/vite':
         specifier: ^4.1.17
         version: 4.2.2(vite@5.4.21(@types/node@25.8.0)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
@@ -1868,6 +1883,70 @@ importers:
       vite-plugin-dts:
         specifier: ^4.5.4
         version: 4.5.4(@types/node@25.8.0)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+
+  packages/quill/packages/charts:
+    dependencies:
+      '@floating-ui/react':
+        specifier: ^0.27.19
+        version: 0.27.19(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      d3-array:
+        specifier: ^3.2.4
+        version: 3.2.4
+      d3-color:
+        specifier: ^3.1.0
+        version: 3.1.0
+      d3-scale:
+        specifier: ^4.0.2
+        version: 4.0.2
+      d3-shape:
+        specifier: ^3.2.0
+        version: 3.2.0
+      dayjs:
+        specifier: 1.11.11
+        version: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      simple-statistics:
+        specifier: ^7.8.3
+        version: 7.8.8
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '>=9.3.4'
+        version: 9.3.4
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/d3-array':
+        specifier: ^3.2.1
+        version: 3.2.2
+      '@types/d3-color':
+        specifier: ^3.1.3
+        version: 3.1.3
+      '@types/d3-scale':
+        specifier: ^4.0.8
+        version: 4.0.9
+      '@types/d3-shape':
+        specifier: ^3.1.6
+        version: 3.1.8
+      '@types/jest':
+        specifier: 'catalog:'
+        version: 29.5.14
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.27)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
 
   packages/quill/packages/components:
     dependencies:
@@ -2137,7 +2216,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2177,7 +2256,7 @@ importers:
         version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2193,6 +2272,8 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/analytics_platform: {}
+
+  products/annotations: {}
 
   products/batch_exports: {}
 
@@ -2221,7 +2302,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2320,7 +2401,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2382,7 +2463,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2415,7 +2496,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2499,7 +2580,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2647,7 +2728,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2701,6 +2782,8 @@ importers:
         specifier: 'catalog:'
         version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
 
+  products/exports: {}
+
   products/feature_flags:
     dependencies:
       '@posthog/icons':
@@ -2726,7 +2809,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2828,7 +2911,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2981,7 +3064,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3103,7 +3186,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3176,6 +3259,9 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.36.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/charts
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3196,7 +3282,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3245,6 +3331,12 @@ importers:
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/charts
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3254,6 +3346,9 @@ importers:
       kea-forms:
         specifier: 'catalog:'
         version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
@@ -3456,7 +3551,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3496,7 +3591,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3511,7 +3606,7 @@ importers:
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.379.1)(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3611,7 +3706,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.378.1
+        version: 1.379.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -7582,10 +7677,6 @@ packages:
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
 
-  '@opentelemetry/api-logs@0.208.0':
-    resolution: {integrity: sha512-CjruKY9V6NMssL/T1kAFgzosF1v9o6oeN+aX5JB/C/xPNtmgIJqcXHG7fA82Ou1zCpWGl4lROQUKwUNE1pMCyg==}
-    engines: {node: '>=8.0.0'}
-
   '@opentelemetry/api-logs@0.218.0':
     resolution: {integrity: sha512-fmEWp5kXlGEc3i/lR698Hz41DfGyN4Tbe4g7L1AxSc7fF8Xeh/FQ9Quqpa9dVA413Q1Ad43QOLzU4JoXgbFPWw==}
     engines: {node: '>=8.0.0'}
@@ -7625,12 +7716,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
 
-  '@opentelemetry/core@2.2.0':
-    resolution: {integrity: sha512-FuabnnUm8LflnieVxs6eP7Z383hgQU4W1e3KJS6aOG3RxWxcHyBxH8fDMHNgu/gFx/M2jvTOW/4/PHhLz6bjWw==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.0.0 <1.10.0'
-
   '@opentelemetry/core@2.5.0':
     resolution: {integrity: sha512-ka4H8OM6+DlUhSAZpONu0cPBtPPTQKxbxVzC4CzVx5+K4JnroJVBtDzLAMx4/3CDTJXRvVFhpFjtl4SaiTNoyQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -7645,12 +7730,6 @@ packages:
 
   '@opentelemetry/exporter-logs-otlp-grpc@0.218.0':
     resolution: {integrity: sha512-hoxrNH1l/Xy6F9WTJ5IK+6j1r9nQFlPOmrnTlhYHTySdunfXLmUCPv3bQtKYntxag9h3wLYBZQ2HI6FOx+BT2g==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': ^1.3.0
-
-  '@opentelemetry/exporter-logs-otlp-http@0.208.0':
-    resolution: {integrity: sha512-jOv40Bs9jy9bZVLo/i8FwUiuCvbjWDI+ZW13wimJm4LjnlwJxGgB+N/VWOZUTpM+ah/awXeQqKdNlpLf2EjvYg==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
@@ -7961,12 +8040,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
 
-  '@opentelemetry/otlp-exporter-base@0.208.0':
-    resolution: {integrity: sha512-gMd39gIfVb2OgxldxUtOwGJYSH8P1kVFFlJLuut32L6KgUC4gl1dMhn+YC2mGn0bDOiQYSk/uHOdSjuKp58vvA==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': ^1.3.0
-
   '@opentelemetry/otlp-exporter-base@0.218.0':
     resolution: {integrity: sha512-ZwqpkNL5W7RyGJPDZ9g06DvKp8KFTWPJPN12anpMQYSKpTSU0z3EIZuPq9vPGpS8siFyOqDYDAuCwlNO9FqgbA==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -7975,12 +8048,6 @@ packages:
 
   '@opentelemetry/otlp-grpc-exporter-base@0.218.0':
     resolution: {integrity: sha512-H/lCGJ536N98VpYJOaWTQOkv4Dx6TnmStK6Rqfu1W7KkFbPAx04hjdYEMZF/YbnHzPUSIK4kM6OE2GKGBTpV9A==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': ^1.3.0
-
-  '@opentelemetry/otlp-transformer@0.208.0':
-    resolution: {integrity: sha512-DCFPY8C6lAQHUNkzcNT9R+qYExvsk6C5Bto2pbNxgicpcSWbe2WHShLxkOxIdNcBiYPdVHv/e7vH7K6TI+C+fQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
@@ -8043,12 +8110,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
-  '@opentelemetry/resources@2.2.0':
-    resolution: {integrity: sha512-1pNQf/JazQTMA0BiO5NINUzH0cbLbbl7mntLa4aJNmCCXSj0q03T5ZXXL0zw4G55TjdL9Tz32cznGClf+8zr5A==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.3.0 <1.10.0'
-
   '@opentelemetry/resources@2.5.0':
     resolution: {integrity: sha512-F8W52ApePshpoSrfsSk1H2yJn9aKjCrbpQF1M9Qii0GHzbfVeFUB+rc3X4aggyZD8x9Gu3Slua+s6krmq6Dt8g==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -8061,23 +8122,11 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
-  '@opentelemetry/sdk-logs@0.208.0':
-    resolution: {integrity: sha512-QlAyL1jRpOeaqx7/leG1vJMp84g0xKP6gJmfELBpnI4O/9xPX+Hu5m1POk9Kl+veNkyth5t19hRlN6tNY1sjbA==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.4.0 <1.10.0'
-
   '@opentelemetry/sdk-logs@0.218.0':
     resolution: {integrity: sha512-QvnNdugatFTVCJXH0Mcu7GOOJSylA9j127kIezOE4YwTI4YbowRons2K4WZTv5FMS8T4q9P0NdaRHdkSmeAIag==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.4.0 <1.10.0'
-
-  '@opentelemetry/sdk-metrics@2.2.0':
-    resolution: {integrity: sha512-G5KYP6+VJMZzpGipQw7Giif48h6SGQ2PFKEYCybeXJsOCB4fp8azqMAAzE5lnnHK3ZVwYQrgmFbsUJO/zOnwGw==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.9.0 <1.10.0'
 
   '@opentelemetry/sdk-metrics@2.7.1':
     resolution: {integrity: sha512-MpDJdkiFDs3Pm1RHO3KByuZbuBdJEXEAkiC0+yJdsZGVCdf1RpHR6n+LHDcS7ffmfrt5kVCzJSCfm4z2C7v0uQ==}
@@ -8093,12 +8142,6 @@ packages:
 
   '@opentelemetry/sdk-trace-base@2.0.1':
     resolution: {integrity: sha512-xYLlvk/xdScGx1aEqvxLwf6sXQLXCjk3/1SQT9X9AoN5rXRhkdvIFShuNNmtTEPRBqcsMbS4p/gJLNI2wXaDuQ==}
-    engines: {node: ^18.19.0 || >=20.6.0}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.3.0 <1.10.0'
-
-  '@opentelemetry/sdk-trace-base@2.2.0':
-    resolution: {integrity: sha512-xWQgL0Bmctsalg6PaXExmzdedSp3gyKV8mQBwK/j9VGdCDu2fmXIb2gAehBKbkXCpJ4HPkgv3QfoJWRT4dHWbw==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
@@ -8959,8 +9002,8 @@ packages:
   '@posthog/core@1.28.3':
     resolution: {integrity: sha512-SOy0aphKawZzp8jxfeOpTcXPwi6ii0I2V6tX8YXnM+WbxKKR/R+BXLK0jS6LV8kZtW3H5YxmPAfuIbUP1UnGTw==}
 
-  '@posthog/core@1.30.2':
-    resolution: {integrity: sha512-d7RTpfi+/q5+SZ+4f1WhanfEtNBz9onMmUxn3BO0GDT8N5ZT4DEP3LqFisqeP+xkJTaFPWCOVA/nGyKmUX9y9g==}
+  '@posthog/core@1.30.4':
+    resolution: {integrity: sha512-57RyT+moR9YGzMTZxbMEPnx6elDeBLzyUd1rfn5XB5yZO425ylKy1nZ1YuKT3CG27bAspUz5J1zHo9y4ygNRCQ==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -9018,8 +9061,8 @@ packages:
   '@posthog/types@1.372.9':
     resolution: {integrity: sha512-B7k9S+H9WUKHXxe1HOkQWbpWtMcrBvsodm5stZaLQ3pYxf9TowtwssdzTtX4hHjzSYqgrS1IpNnJX4vs1KgBzA==}
 
-  '@posthog/types@1.378.1':
-    resolution: {integrity: sha512-bKOXVWySe5oKFjV6X9VW9jngIm14d4BvnT7l/Eb7e6DrT5uD+XclvbRdhC5f1/l5KwoIU+qswBobHRPlix2D1w==}
+  '@posthog/types@1.379.1':
+    resolution: {integrity: sha512-Wr14NDmjl3sUVTgjpIojdsnS5+pNKi53IOD7Q+dAjrNlvGxYcLRkrgJ3AQm6//4NO451L7jCXgfx1x3AkZ7ZBw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -10430,11 +10473,6 @@ packages:
       typescript:
         optional: true
 
-  '@storybook/components@8.6.14':
-    resolution: {integrity: sha512-HNR2mC5I4Z5ek8kTrVZlIY/B8gJGs5b3XdZPBPBopTIN6U/YHXiDyOjY3JlaS4fSG1fVhp/Qp1TpMn1w/9m1pw==}
-    peerDependencies:
-      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
-
   '@storybook/components@8.6.18':
     resolution: {integrity: sha512-55yViiZzPS/cPBuOeW4QGxGqrusjXVyxuknmbYCIwDtFyyvI/CgbjXRHdxNBaIjz+IlftxvBmmSaOqFG5+/dkA==}
     peerDependencies:
@@ -10496,11 +10534,6 @@ packages:
     peerDependencies:
       storybook: ^8.6.18
 
-  '@storybook/manager-api@8.6.14':
-    resolution: {integrity: sha512-ez0Zihuy17udLbfHZQXkGqwtep0mSGgHcNzGN7iZrMP1m+VmNo+7aGCJJdvXi7+iU3yq8weXSQFWg5DqWgLS7g==}
-    peerDependencies:
-      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
-
   '@storybook/manager-api@8.6.18':
     resolution: {integrity: sha512-BjIp12gEMgzFkEsgKpDIbZdnSWTZpm2dlws8WiPJCpgJtG+HWSxZ0/Ms30Au9yfwzQEKRSbV/5zpsKMGc2SIJw==}
     peerDependencies:
@@ -10517,11 +10550,6 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
-
-  '@storybook/preview-api@8.6.14':
-    resolution: {integrity: sha512-2GhcCd4dNMrnD7eooEfvbfL4I83qAqEyO0CO7JQAmIO6Rxb9BsOLLI/GD5HkvQB73ArTJ+PT50rfaO820IExOQ==}
-    peerDependencies:
-      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
 
   '@storybook/preview-api@8.6.18':
     resolution: {integrity: sha512-joXRXh3GdVvzhbfIgmix1xs90p8Q/nja7AhEAC2egn5Pl7SKsIYZUCYI6UdrQANb2myg9P552LKXfPect8llKg==}
@@ -10602,11 +10630,6 @@ packages:
     resolution: {integrity: sha512-u/RwfWMyHcH0N2hqfMTw2CoZ58IXdeED3b8NmcHc8bmERB3byI5vVAkwYbcD7+WeRHIiym38ZHi0SRn+IpkO3Q==}
     peerDependencies:
       storybook: ^8.6.18
-
-  '@storybook/theming@8.6.14':
-    resolution: {integrity: sha512-r4y+LsiB37V5hzpQo+BM10PaCsp7YlZ0YcZzQP1OCkPlYXmUAFy2VvDKaFRpD8IeNPKug2u4iFm/laDEbs03dg==}
-    peerDependencies:
-      storybook: ^8.2.0 || ^8.3.0-0 || ^8.4.0-0 || ^8.5.0-0 || ^8.6.0-0
 
   '@storybook/theming@8.6.18':
     resolution: {integrity: sha512-n6OEjEtHupa2PdTwWzRepr7cO8NkDd4rgF6BKLitRbujOspLxzMBEqdphs+QLcuiCIgf33SqmEA64QWnbSMhPw==}
@@ -11649,6 +11672,9 @@ packages:
   '@types/d3-array@3.0.3':
     resolution: {integrity: sha512-Reoy+pKnvsksN0lQUlcH6dOGjRZ/3WRwXR//m+/8lt1BXeI4xyaUZoqULNjyXXRuh0Mj4LNpkCvhUpQlY3X5xQ==}
 
+  '@types/d3-array@3.2.2':
+    resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
+
   '@types/d3-axis@3.0.1':
     resolution: {integrity: sha512-zji/iIbdd49g9WN0aIsGcwcTBUkgLsCSwB+uH+LPVDAiKWENMtI3cJEWt+7/YYwelMoZmbBfzA3qCdrZ2XFNnw==}
 
@@ -11663,6 +11689,9 @@ packages:
 
   '@types/d3-color@3.1.0':
     resolution: {integrity: sha512-HKuicPHJuvPgCD+np6Se9MQvS6OCbJmOjGvylzMJRlDwUXjKTTXs6Pwgk79O09Vj/ho3u1ofXnhFOaEWWPrlwA==}
+
+  '@types/d3-color@3.1.3':
+    resolution: {integrity: sha512-iO90scth9WAbmgv7ogoq57O9YpKmFBbmoEoCHDB2xMBY0+/KVrqAaCDyCE16dUspeOvIxFFRI+0sEtqDqy2b4A==}
 
   '@types/d3-contour@3.0.1':
     resolution: {integrity: sha512-C3zfBrhHZvrpAAK3YXqLWVAGo87A4SvJ83Q/zVJ8rFWJdKejUnDYaWZPkA8K84kb2vDA/g90LTQAz7etXcgoQQ==}
@@ -11727,6 +11756,9 @@ packages:
   '@types/d3-scale@4.0.2':
     resolution: {integrity: sha512-Yk4htunhPAwN0XGlIwArRomOjdoBFXC3+kCxK2Ubg7I9shQlVSJy/pG/Ht5ASN+gdMIalpk8TJ5xV74jFsetLA==}
 
+  '@types/d3-scale@4.0.9':
+    resolution: {integrity: sha512-dLmtwB8zkAeO/juAMfnV+sItKjlsw2lKdZVVy6LRr0cBmegxSABiLEpGVmSJJ8O08i4+sGR6qQtb6WtuwJdvVw==}
+
   '@types/d3-selection@2.0.5':
     resolution: {integrity: sha512-71BorcY0yXl12S7lvb01JdaN9TpeUHBDb4RRhSq8U8BEkX/nIk5p7Byho+ZRTsx5nYLMpAbY3qt5EhqFzfGJlw==}
 
@@ -11738,6 +11770,9 @@ packages:
 
   '@types/d3-shape@3.1.0':
     resolution: {integrity: sha512-jYIYxFFA9vrJ8Hd4Se83YI6XF+gzDL1aC5DCsldai4XYYiVNdhtpGbA/GM6iyQ8ayhSp3a148LY34hy7A4TxZA==}
+
+  '@types/d3-shape@3.1.8':
+    resolution: {integrity: sha512-lae0iWfcDeR7qt7rA88BNiqdvPS5pFVPpo5OfjElwNaT2yyekbM0C9vK+yqBqEmHr6lDkRnYNoTBYlAgJa7a4w==}
 
   '@types/d3-time-format@4.0.0':
     resolution: {integrity: sha512-yjfBUe6DJBsDin2BMIulhSHmr5qNR5Pxs17+oW4DoVPyVIXZ+m6bs7j1UVKP08Emv6jRmYrYqxYzO63mQxy1rw==}
@@ -14073,6 +14108,9 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  cuint@0.2.2:
+    resolution: {integrity: sha512-d4ZVpCW31eWwCMe1YT3ur7mUDnTXbgwyzaL320DrcRT45rfjYxkt5QWLrmOJ+/UEAI2+fQgKe/fCjR8l4TpRgw==}
 
   cva@1.0.0-beta.3:
     resolution: {integrity: sha512-CZa8pTkpEygxJRLH9aod/wfnSgK5z/0GJqG/NNehlwam+S8llqCWUXS3eCenvAiW5sTUpwTWE6bJaeeZ/b4pzA==}
@@ -17580,6 +17618,10 @@ packages:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
     hasBin: true
 
+  lz4@0.6.5:
+    resolution: {integrity: sha512-KSZcJU49QZOlJSItaeIU3p8WoAvkTmD9fJqeahQXNu1iQ/kR0/mQLdbrK8JY9MY8f6AhJoMrihp1nu1xDbscSQ==}
+    engines: {node: '>= 0.10'}
+
   magic-string@0.27.0:
     resolution: {integrity: sha512-8UnnX2PeRAPZuN12svgR9j7M1uWMovg/CEnIwIG0LFkXSJJe4PdfUGiTGl8V9bsBHFUtfVINcSyYxd7q+kx9fA==}
     engines: {node: '>=12'}
@@ -19321,8 +19363,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.378.1:
-    resolution: {integrity: sha512-pr9hu7J9eKCWlDxGfn5jbqcaTvaS+quRVxMKo7XRiKHPtFpXoIStOctkRTMumz8LucgD4l5NVbtsaZDi6OrrLQ==}
+  posthog-js@1.379.1:
+    resolution: {integrity: sha512-eQ7kG4km594L6kzFIsVrjfGoeqmH/+iS/vPN9UVMtQ/IHict8HWCd4vl2iqIfkcfERQOurbwP9vlgoXTeC3izg==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -22705,6 +22747,9 @@ packages:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
 
+  xxhashjs@0.2.2:
+    resolution: {integrity: sha512-AkTuIuVTET12tpsVIQo+ZU6f/qDmKuRUcjaqR+OIvm+aCBsZ95i7UVY5WJ9TMsSaZ0DA2WxoZ4acu0sPH+OKAw==}
+
   y-protocols@1.0.7:
     resolution: {integrity: sha512-YSVsLoXxO67J6eE/nV4AtFtT3QEotZf5sK5BHxFBXso7VDUT3Tx07IfA6hsu5Q5OmBdMkQVmFZ9QOA7fikWvnw==}
     engines: {node: '>=16.0.0', npm: '>=8.0.0'}
@@ -22731,6 +22776,11 @@ packages:
   yaml@1.10.2:
     resolution: {integrity: sha512-r3vXyErRCYJ7wg28yvBY5VSoAF8ZvlcW9/BwUzEtUsjvX/DKs24dIkuwjtuprwJJHsbyUbLApepYTR1BN4uHrg==}
     engines: {node: '>= 6'}
+
+  yaml@2.8.4:
+    resolution: {integrity: sha512-ml/JPOj9fOQK8RNnWojA67GbZ0ApXAUlN2UQclwv2eVgTgn7O9gg9o7paZWKMp4g0H3nTLtS9LVzhkpOFIKzog==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
 
   yaml@2.9.0:
     resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
@@ -28542,10 +28592,6 @@ snapshots:
 
   '@open-draft/until@2.1.0': {}
 
-  '@opentelemetry/api-logs@0.208.0':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-
   '@opentelemetry/api-logs@0.218.0':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -28626,11 +28672,6 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/semantic-conventions': 1.39.0
 
-  '@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/semantic-conventions': 1.39.0
-
   '@opentelemetry/core@2.5.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -28650,15 +28691,6 @@ snapshots:
       '@opentelemetry/otlp-grpc-exporter-base': 0.218.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/otlp-transformer': 0.218.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.218.0(@opentelemetry/api@1.9.0)
-
-  '@opentelemetry/exporter-logs-otlp-http@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/otlp-exporter-base': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/otlp-transformer': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
 
   '@opentelemetry/exporter-logs-otlp-http@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
@@ -29107,12 +29139,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@opentelemetry/otlp-exporter-base@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/otlp-transformer': 0.208.0(@opentelemetry/api@1.9.0)
-
   '@opentelemetry/otlp-exporter-base@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -29126,17 +29152,6 @@ snapshots:
       '@opentelemetry/core': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/otlp-exporter-base': 0.218.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/otlp-transformer': 0.218.0(@opentelemetry/api@1.9.0)
-
-  '@opentelemetry/otlp-transformer@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-metrics': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-trace-base': 2.2.0(@opentelemetry/api@1.9.0)
-      protobufjs: 7.6.1
 
   '@opentelemetry/otlp-transformer@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
@@ -29201,12 +29216,6 @@ snapshots:
       '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.36.0
 
-  '@opentelemetry/resources@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/semantic-conventions': 1.39.0
-
   '@opentelemetry/resources@2.5.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -29219,13 +29228,6 @@ snapshots:
       '@opentelemetry/core': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.39.0
 
-  '@opentelemetry/sdk-logs@0.208.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
-
   '@opentelemetry/sdk-logs@0.218.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
@@ -29233,12 +29235,6 @@ snapshots:
       '@opentelemetry/core': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.39.0
-
-  '@opentelemetry/sdk-metrics@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
 
   '@opentelemetry/sdk-metrics@2.7.1(@opentelemetry/api@1.9.0)':
     dependencies:
@@ -29282,13 +29278,6 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.0.1(@opentelemetry/api@1.9.0)
-      '@opentelemetry/semantic-conventions': 1.39.0
-
-  '@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.2.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.2.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/semantic-conventions': 1.39.0
 
   '@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.0)':
@@ -30315,9 +30304,9 @@ snapshots:
     dependencies:
       '@posthog/types': 1.372.9
 
-  '@posthog/core@1.30.2':
+  '@posthog/core@1.30.4':
     dependencies:
-      '@posthog/types': 1.378.1
+      '@posthog/types': 1.379.1
 
   '@posthog/core@1.7.1':
     dependencies:
@@ -30363,9 +30352,9 @@ snapshots:
     transitivePeerDependencies:
       - rxjs
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.378.1)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.379.1)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.378.1
+      posthog-js: 1.379.1
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -30374,7 +30363,7 @@ snapshots:
 
   '@posthog/types@1.372.9': {}
 
-  '@posthog/types@1.378.1': {}
+  '@posthog/types@1.379.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -31988,10 +31977,6 @@ snapshots:
       - uglify-js
       - webpack-cli
 
-  '@storybook/components@8.6.14(storybook@8.6.18(prettier@3.8.2))':
-    dependencies:
-      storybook: 8.6.18(prettier@3.8.2)
-
   '@storybook/components@8.6.18(storybook@8.6.18(prettier@3.8.2))':
     dependencies:
       storybook: 8.6.18(prettier@3.8.2)
@@ -32061,10 +32046,6 @@ snapshots:
       '@vitest/utils': 2.1.9
       storybook: 8.6.18(prettier@3.8.2)
 
-  '@storybook/manager-api@8.6.14(storybook@8.6.18(prettier@3.8.2))':
-    dependencies:
-      storybook: 8.6.18(prettier@3.8.2)
-
   '@storybook/manager-api@8.6.18(storybook@8.6.18(prettier@3.8.2))':
     dependencies:
       storybook: 8.6.18(prettier@3.8.2)
@@ -32103,10 +32084,6 @@ snapshots:
       - supports-color
       - uglify-js
       - webpack-cli
-
-  '@storybook/preview-api@8.6.14(storybook@8.6.18(prettier@3.8.2))':
-    dependencies:
-      storybook: 8.6.18(prettier@3.8.2)
 
   '@storybook/preview-api@8.6.18(storybook@8.6.18(prettier@3.8.2))':
     dependencies:
@@ -32219,7 +32196,7 @@ snapshots:
       '@storybook/core-common': 8.6.14(storybook@8.6.18(prettier@3.8.2))
       '@storybook/csf': 0.1.13
       '@storybook/csf-tools': 8.6.14(storybook@8.6.18(prettier@3.8.2))
-      '@storybook/preview-api': 8.6.14(storybook@8.6.18(prettier@3.8.2))
+      '@storybook/preview-api': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@swc/core': 1.15.18
       '@swc/jest': 0.2.37(@swc/core@1.15.18)
       expect-playwright: 0.8.0
@@ -32253,7 +32230,7 @@ snapshots:
       '@storybook/core-common': 8.6.14(storybook@8.6.18(prettier@3.8.2))
       '@storybook/csf': 0.1.13
       '@storybook/csf-tools': 8.6.14(storybook@8.6.18(prettier@3.8.2))
-      '@storybook/preview-api': 8.6.14(storybook@8.6.18(prettier@3.8.2))
+      '@storybook/preview-api': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@swc/core': 1.15.18
       '@swc/jest': 0.2.37(@swc/core@1.15.18)
       expect-playwright: 0.8.0
@@ -32286,10 +32263,6 @@ snapshots:
       '@testing-library/user-event': 14.5.2(@testing-library/dom@10.4.0)
       '@vitest/expect': 2.0.5
       '@vitest/spy': 2.0.5
-      storybook: 8.6.18(prettier@3.8.2)
-
-  '@storybook/theming@8.6.14(storybook@8.6.18(prettier@3.8.2))':
-    dependencies:
       storybook: 8.6.18(prettier@3.8.2)
 
   '@storybook/theming@8.6.18(storybook@8.6.18(prettier@3.8.2))':
@@ -33379,6 +33352,8 @@ snapshots:
 
   '@types/d3-array@3.0.3': {}
 
+  '@types/d3-array@3.2.2': {}
+
   '@types/d3-axis@3.0.1':
     dependencies:
       '@types/d3-selection': 3.0.3
@@ -33393,9 +33368,11 @@ snapshots:
 
   '@types/d3-color@3.1.0': {}
 
+  '@types/d3-color@3.1.3': {}
+
   '@types/d3-contour@3.0.1':
     dependencies:
-      '@types/d3-array': 3.0.3
+      '@types/d3-array': 3.2.2
       '@types/geojson': 7946.0.12
 
   '@types/d3-delaunay@6.0.1': {}
@@ -33438,7 +33415,7 @@ snapshots:
 
   '@types/d3-interpolate@3.0.1':
     dependencies:
-      '@types/d3-color': 3.1.0
+      '@types/d3-color': 3.1.3
 
   '@types/d3-path@3.0.0': {}
 
@@ -33454,6 +33431,10 @@ snapshots:
     dependencies:
       '@types/d3-time': 3.0.0
 
+  '@types/d3-scale@4.0.9':
+    dependencies:
+      '@types/d3-time': 3.0.0
+
   '@types/d3-selection@2.0.5': {}
 
   '@types/d3-selection@3.0.11': {}
@@ -33461,6 +33442,10 @@ snapshots:
   '@types/d3-selection@3.0.3': {}
 
   '@types/d3-shape@3.1.0':
+    dependencies:
+      '@types/d3-path': 3.0.0
+
+  '@types/d3-shape@3.1.8':
     dependencies:
       '@types/d3-path': 3.0.0
 
@@ -36047,7 +36032,7 @@ snapshots:
   cpu-features@0.0.10:
     dependencies:
       buildcheck: 0.0.6
-      nan: 2.24.0
+      nan: 2.27.0
     optional: true
 
   create-ecdh@4.0.4:
@@ -36316,6 +36301,8 @@ snapshots:
       cssom: 0.3.8
 
   csstype@3.2.3: {}
+
+  cuint@0.2.2: {}
 
   cva@1.0.0-beta.3(typescript@6.0.3):
     dependencies:
@@ -41000,7 +40987,7 @@ snapshots:
       micromatch: 4.0.8
       pidtree: 0.6.0
       string-argv: 0.3.2
-      yaml: 2.9.0
+      yaml: 2.8.4
     transitivePeerDependencies:
       - supports-color
 
@@ -41196,6 +41183,13 @@ snapshots:
   luxon@3.7.2: {}
 
   lz-string@1.5.0: {}
+
+  lz4@0.6.5:
+    dependencies:
+      buffer: 5.7.1
+      cuint: 0.2.2
+      nan: 2.27.0
+      xxhashjs: 0.2.2
 
   magic-string@0.27.0:
     dependencies:
@@ -43481,15 +43475,10 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.378.1:
+  posthog-js@1.379.1:
     dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@opentelemetry/api-logs': 0.208.0
-      '@opentelemetry/exporter-logs-otlp-http': 0.208.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/resources': 2.7.1(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@posthog/core': 1.30.2
-      '@posthog/types': 1.378.1
+      '@posthog/core': 1.30.4
+      '@posthog/types': 1.379.1
       core-js: 3.40.0
       dompurify: 3.4.0
       fflate: 0.4.8
@@ -45419,7 +45408,7 @@ snapshots:
       bcrypt-pbkdf: 1.0.2
     optionalDependencies:
       cpu-features: 0.0.10
-      nan: 2.24.0
+      nan: 2.27.0
 
   ssim.js@3.5.0: {}
 
@@ -45452,12 +45441,12 @@ snapshots:
 
   storybook-dark-mode@4.0.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2)):
     dependencies:
-      '@storybook/components': 8.6.14(storybook@8.6.18(prettier@3.8.2))
+      '@storybook/components': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@storybook/core-events': 8.6.14(storybook@8.6.18(prettier@3.8.2))
       '@storybook/global': 5.0.0
       '@storybook/icons': 1.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@storybook/manager-api': 8.6.14(storybook@8.6.18(prettier@3.8.2))
-      '@storybook/theming': 8.6.14(storybook@8.6.18(prettier@3.8.2))
+      '@storybook/manager-api': 8.6.18(storybook@8.6.18(prettier@3.8.2))
+      '@storybook/theming': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       fast-deep-equal: 3.1.3
       memoizerific: 1.11.3
     transitivePeerDependencies:
@@ -47605,6 +47594,10 @@ snapshots:
 
   xtend@4.0.2: {}
 
+  xxhashjs@0.2.2:
+    dependencies:
+      cuint: 0.2.2
+
   y-protocols@1.0.7(yjs@13.6.29):
     dependencies:
       lib0: 0.2.117
@@ -47621,6 +47614,8 @@ snapshots:
   yallist@5.0.0: {}
 
   yaml@1.10.2: {}
+
+  yaml@2.8.4: {}
 
   yaml@2.9.0: {}
 

@@ -38,6 +38,15 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub max_values_per_key: usize,
 
+    #[envconfig(nested = true)]
+    pub length_caps: LengthCaps,
+
+    #[envconfig(default = "false")]
+    pub aggregate_by_event_name: bool,
+
+    #[envconfig(default = "false")]
+    pub emit_event_name: bool,
+
     #[envconfig(default = "0")]
     pub merger_seen_cache_capacity: usize,
 
@@ -67,6 +76,20 @@ pub struct Config {
 
     #[envconfig(from = "BIND_PORT", default = "3302")]
     pub port: u16,
+}
+
+/// Length caps applied at fan-out; tuples exceeding any cap are dropped.
+/// Nested envconfig: each field reads its own UPPER_SNAKE_CASE env var.
+#[derive(Envconfig, Clone, Copy)]
+pub struct LengthCaps {
+    #[envconfig(default = "400")]
+    pub max_property_key_len: usize,
+
+    #[envconfig(default = "255")]
+    pub max_property_value_len: usize,
+
+    #[envconfig(default = "200")]
+    pub max_event_name_len: usize,
 }
 
 #[derive(Clone)]
@@ -177,6 +200,27 @@ mod tests {
         assert_eq!(list.teams, vec![1, 2, 3]);
         let empty: TeamList = "".parse().unwrap();
         assert!(empty.teams.is_empty());
+    }
+
+    #[test]
+    fn length_caps_default_when_env_unset() {
+        let caps = LengthCaps::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(caps.max_property_key_len, 400);
+        assert_eq!(caps.max_property_value_len, 255);
+        assert_eq!(caps.max_event_name_len, 200);
+    }
+
+    #[test]
+    fn length_caps_read_from_env_vars() {
+        let env = std::collections::HashMap::from([
+            ("MAX_PROPERTY_KEY_LEN".to_string(), "500".to_string()),
+            ("MAX_PROPERTY_VALUE_LEN".to_string(), "1000".to_string()),
+            ("MAX_EVENT_NAME_LEN".to_string(), "300".to_string()),
+        ]);
+        let caps = LengthCaps::init_from_hashmap(&env).unwrap();
+        assert_eq!(caps.max_property_key_len, 500);
+        assert_eq!(caps.max_property_value_len, 1000);
+        assert_eq!(caps.max_event_name_len, 300);
     }
 
     fn arb_team_list() -> impl Strategy<Value = Vec<i64>> {

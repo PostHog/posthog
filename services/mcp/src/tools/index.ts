@@ -39,8 +39,12 @@ import {
     getToolDefinition,
 } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
-// Workflows (lifecycle — CRUD lives in generated/workflows.ts)
-import { workflowsArchive, workflowsDisable, workflowsEnable } from './workflows/lifecycle'
+// Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
+import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
+// Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally
+// not registered: editing active workflows is blocked, and exposing disable invited a
+// disable→edit→enable workaround. The factory stays in lifecycle.ts for easy re-enable.
+import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -88,8 +92,13 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Workflows lifecycle (thin wrappers over hog_flows_partial_update so MCP gets
     // an idiomatic enable/disable/archive surface without three new REST endpoints).
     'workflows-enable': workflowsEnable,
-    'workflows-disable': workflowsDisable,
     'workflows-archive': workflowsArchive,
+
+    // Workflows batch (hand-rolled: blast-radius sizing + echo-back guard before fan-out,
+    // composing the existing user_blast_radius / batch_jobs / schedules endpoints).
+    'workflows-blast-radius': workflowsBlastRadius,
+    'workflows-run-batch': workflowsRunBatch,
+    'workflows-schedule-create': workflowsScheduleCreate,
 }
 
 export const getToolsFromContext = async (

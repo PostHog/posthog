@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel
@@ -155,6 +156,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
             "has_description": bool(self.description),
+            "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
             "created_at": self.created_at,
         }
@@ -163,9 +165,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.stats_config.get(key) if self.stats_config else None
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)
-        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

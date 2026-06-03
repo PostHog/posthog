@@ -5,13 +5,14 @@ from posthog.schema import DateRange
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
+
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 from ee.hogai.llm_traces_summaries.tools.find_similar_traces import LLMTracesSummarizerFinder
 from ee.hogai.llm_traces_summaries.tools.generate_stringified_summaries import LLMTraceSummarizerGenerator
 from ee.hogai.llm_traces_summaries.tools.get_traces import LLMTracesSummarizerCollector
 from ee.hogai.llm_traces_summaries.tools.stringify_trace import LLMTracesSummarizerStringifier
 from ee.hogai.llm_traces_summaries.utils.load_from_csv import load_traces_from_csv_files
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 

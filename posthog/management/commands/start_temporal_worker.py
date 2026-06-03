@@ -142,10 +142,6 @@ from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
-)
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
@@ -170,6 +166,10 @@ from posthog.temporal.weekly_digest import (
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
+from products.exports.backend.temporal.subscriptions import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,

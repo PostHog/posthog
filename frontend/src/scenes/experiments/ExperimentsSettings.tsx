@@ -9,6 +9,8 @@ import { DefaultCupedLookbackDays } from 'scenes/settings/environment/DefaultCup
 import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from 'scenes/settings/environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from 'scenes/settings/environment/DefaultOnlyCountMaturedUsers'
+import { DefaultSequentialTestingEnabled } from 'scenes/settings/environment/DefaultSequentialTestingEnabled'
+import { DefaultSequentialTuningParameter } from 'scenes/settings/environment/DefaultSequentialTuningParameter'
 import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
@@ -88,6 +90,24 @@ export function ExperimentsSettings(): JSX.Element {
                     </div>
                 </>
             )}
+            <div>
+                <LemonLabel className="text-base">Default sequential testing</LemonLabel>
+                <p className="text-secondary mt-2">
+                    When enabled, frequentist experiments will use sequential testing by default, producing always-valid
+                    p-values that are robust to peeking. Confidence intervals are wider in exchange. Only applies to the
+                    frequentist statistical method. Can be overridden per experiment.
+                </p>
+                <DefaultSequentialTestingEnabled />
+            </div>
+            <div>
+                <LemonLabel className="text-base">Default sequential testing tuning parameter</LemonLabel>
+                <p className="text-secondary mt-2">
+                    Roughly the sample size at which the always-valid confidence sequence is tightest. Set close to the
+                    expected total sample size of new experiments to minimize the width penalty. Can be overridden per
+                    experiment.
+                </p>
+                <DefaultSequentialTuningParameter />
+            </div>
         </div>
     )
 }

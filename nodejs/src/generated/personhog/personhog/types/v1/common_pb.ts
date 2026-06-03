@@ -28,9 +28,18 @@ export type ReadOptions = Message<'personhog.types.v1.ReadOptions'> & {
      * Top-level proto field names to include in response entities (Person, Group).
      * Empty means all fields are returned (backward-compatible default).
      * Unknown field names are silently ignored.
+     *
+     * Honored by batch/list RPCs only: GetPersons, GetPersonsByUuids,
+     * GetPersonsByDistinctIdsInTeam, GetPersonsByDistinctIds, GetGroups,
+     * GetGroupsBatch, ListGroups.
+     * Single-entity RPCs (GetPerson, GetPersonByUuid, GetPersonByDistinctId,
+     * GetGroup) always return all fields regardless of this mask.
+     *
      * When the properties-related fields ("properties"/"group_properties",
      * "properties_last_updated_at", "properties_last_operation") are all excluded,
-     * the server skips reading them from the database entirely.
+     * the server skips fetching them in SELECT clauses. Note: ListGroups with a
+     * non-empty `search` still reads group_properties in the WHERE filter even
+     * when these fields are excluded from the mask.
      *
      * @generated from field: repeated string field_mask = 2;
      */
