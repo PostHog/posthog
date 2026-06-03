@@ -1446,6 +1446,8 @@ export interface EventsNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: EventsNodeApiResponse
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -1525,6 +1527,8 @@ export interface ActionsNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: ActionsNodeApiResponse
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -1607,6 +1611,8 @@ export interface DataWarehouseNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: DataWarehouseNodeApiResponse
     table_name: string
     timestamp_field: string
@@ -1694,6 +1700,8 @@ export interface GroupNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: GroupNodeApiResponse
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -2031,6 +2039,8 @@ export interface FunnelExclusionEventsNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: FunnelExclusionEventsNodeApiResponse
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -2112,6 +2122,8 @@ export interface FunnelExclusionActionsNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: FunnelExclusionActionsNodeApiResponse
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -2290,6 +2302,8 @@ export interface FunnelsDataWarehouseNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: FunnelsDataWarehouseNodeApiResponse
     table_name: string
     timestamp_field: string
@@ -2949,6 +2963,8 @@ export interface LifecycleDataWarehouseNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: LifecycleDataWarehouseNodeApiResponse
     table_name: string
     timestamp_field: string
@@ -4817,6 +4833,8 @@ export interface ExperimentDataWarehouseNodeApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: ExperimentDataWarehouseNodeApiResponse
     table_name: string
     timestamp_field: string
@@ -6053,6 +6071,8 @@ export interface ConversionGoalFilter1Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
     /** version of the node, used for schema migrations */
@@ -6137,6 +6157,8 @@ export interface ConversionGoalFilter2Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
     /** version of the node, used for schema migrations */
@@ -6224,6 +6246,8 @@ export interface ConversionGoalFilter3Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperatorApi | null
     response?: ConversionGoalFilter3ApiResponse
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string

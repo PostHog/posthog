@@ -391,6 +391,8 @@ const MathType = z.union([
     CalendarHeatmapMathType,
 ])
 
+const FilterLogicalOperator = z.enum(['AND', 'OR'])
+
 const AssistantTrendsEventsNode = z.object({
     custom_name: z.string().optional(),
     event: z.string().nullable().describe('The event or `null` for all events.').optional(),
@@ -409,6 +411,9 @@ const AssistantTrendsEventsNode = z.object({
     name: z.string().optional(),
     optionalInFunnel: z.coerce.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
+    propertiesOperator: FilterLogicalOperator.describe(
+        'Logical operator used to combine `properties` for this series. Defaults to `AND`.'
+    ).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
@@ -430,6 +435,9 @@ const AssistantTrendsActionsNode = z.object({
     name: z.string().describe('Action name from the plan.'),
     optionalInFunnel: z.coerce.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
+    propertiesOperator: FilterLogicalOperator.describe(
+        'Logical operator used to combine `properties` for this series. Defaults to `AND`.'
+    ).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
