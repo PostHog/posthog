@@ -28,7 +28,7 @@ class TestConvertKitSource:
         assert config.name.value == "ConvertKit"
         assert config.label == "ConvertKit"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/convertkit.png"
         assert len(config.fields) == 1
 

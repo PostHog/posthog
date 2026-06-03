@@ -41,7 +41,6 @@ You can create a v4 API key in your [Kit account settings](https://app.kit.com/a
             iconPath="/static/services/convertkit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/convertkit",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
