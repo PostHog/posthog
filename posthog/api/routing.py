@@ -60,6 +60,35 @@ class RouterRegistry:
     The shared parents (``projects``, ``environments``, ``organizations``) are
     nested routers feeding a single OpenAPI schema, so a product can't own them
     independently — it looks them up here by name and nests onto them.
+
+    Why core calls the product, not the product calling core
+    --------------------------------------------------------
+    The obvious-looking alternative is to have core expose a registration
+    function that each product imports and calls at its own import time
+    (product-calls-core). We deliberately do the reverse — core imports each
+    product's ``register_routes`` and calls it from one place — for three
+    reasons:
+
+    1. One deterministic assembly point. All routes come together in
+       ``posthog/api/__init__.py`` in an order core controls. That order is
+       load-bearing: a nested parent (``projects``/``environments``/
+       ``organizations``) must already exist before any product nests onto it.
+       Product-calls-core would scatter assembly across N import side effects
+       whose order is whatever import order happens to be — the exact
+       fragility that bit us (a product registering before its parent existed
+       raised ``KeyError`` at import). Here, core simply orders the calls.
+
+    2. Registration stays an explicit call, not an import side effect. With
+       product-calls-core, merely importing a product module (for a model, a
+       task, a type) would mutate global router state as a side effect —
+       surprising, order-dependent, and hard to test. Keeping registration
+       behind ``register_routes(routers)`` means nothing happens until core
+       chooses to invoke it.
+
+    3. Dependency points the safe way. The product depends on this small
+       ``RouterRegistry`` abstraction (passed in), not on concrete core router
+       globals it would have to import. Core already imports products; adding a
+       product->core import for registration would risk import cycles.
     """
 
     def __init__(self) -> None:

@@ -93,6 +93,17 @@ If the product has no `routes.py` yet, create one (a `register_routes(routers)`
 function wired up with `register_<name>_routes(routers)` in `posthog/api/__init__.py`).
 Only core, non-product viewsets still register directly in `__init__.py`.
 
+**Why core calls `register_routes(routers)` and not the reverse.** A tempting
+alternative is for core to expose a `register(...)` that each product imports and
+calls at its own import time. We deliberately keep the call direction core → product:
+core controls one deterministic assembly order (a nested parent must exist before a
+product nests onto it — scattering this across N product-import side effects
+reintroduces ordering bugs we already hit), registration stays an explicit call
+rather than an import side effect, and the dependency points the safe way (the
+product depends only on the `RouterRegistry` passed in, avoiding a product→core
+import that would risk cycles). See the `RouterRegistry` docstring in
+`posthog/api/routing.py` for the full reasoning.
+
 Do **not** register new endpoints under `environments_router`. Do **not** use the
 dual-route helper (`routers.register_legacy_dual_route`, or
 `register_legacy_dual_route_team_nested_viewset` in `__init__.py`) — it exists only
