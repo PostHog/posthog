@@ -159,6 +159,16 @@ export interface SignalReportStateRequestApi {
     snooze_for?: number
 }
 
+export interface CursorConnectionStatusApi {
+    /** Whether this team has a Cursor integration configured. */
+    connected: boolean
+}
+
+export interface CursorConnectionRequestApi {
+    /** Cursor API key for this team. Stored encrypted on the team's Cursor integration. */
+    api_key: string
+}
+
 /**
  * `inventory.project_context` — free-form orientation about the project's product.
  */

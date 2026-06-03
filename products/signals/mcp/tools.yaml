@@ -137,6 +137,12 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
+    signals-reports-cursor-connection-create:
+        operation: signals_reports_cursor_connection_create
+        enabled: false
+    signals-reports-cursor-connection-retrieve:
+        operation: signals_reports_cursor_connection_retrieve
+        enabled: false
     signals-reports-dispatch-to-cursor-create:
         operation: signals_reports_dispatch_to_cursor_create
         enabled: false

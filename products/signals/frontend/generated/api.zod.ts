@@ -68,6 +68,13 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Get or set this team's Cursor connection (the key a settings UI configures, stored per team).
+ */
+export const SignalsReportsCursorConnectionCreateBody = /* @__PURE__ */ zod.object({
+    api_key: zod.string().describe("Cursor API key for this team. Stored encrypted on the team's Cursor integration."),
+})
+
+/**
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */

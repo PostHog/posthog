@@ -154,6 +154,7 @@ export interface RoleLookupResponseApi {
  * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
+ * `cursor` - Cursor
  * `customerio-app` - Customerio App
  * `customerio-track` - Customerio Track
  * `customerio-webhook` - Customerio Webhook
@@ -193,6 +194,7 @@ export const IntegrationKindEnumApi = {
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
+    Cursor: 'cursor',
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
@@ -373,6 +375,7 @@ export type IntegrationsListParams = {
      * `azure-blob` - Azure Blob
      * `bing-ads` - Bing Ads
      * `clickup` - Clickup
+     * `cursor` - Cursor
      * `customerio-app` - Customerio App
      * `customerio-track` - Customerio Track
      * `customerio-webhook` - Customerio Webhook
@@ -423,6 +426,7 @@ export const IntegrationsListKind = {
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
+    Cursor: 'cursor',
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
