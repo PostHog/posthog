@@ -201,6 +201,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
         setObservationTagFilter: (values: string[]) => ({ values }),
         clearObservationFilters: true,
+        restoreObservationsTableState: (state: {
+            page: number
+            sort: ObservationsSorting | null
+            status: ObservationStatusValue[]
+            triggeredBy: ObservationTriggeredByValue[]
+            verdict: ObservationVerdictValue[]
+            tags: string[]
+        }) => state,
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         requestScannerEstimate: true,
         loadScannerEstimate: true,
@@ -293,12 +301,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 setObservationTagFilter: () => 1,
                 setObservationsSort: () => 1,
                 clearObservationFilters: () => 1,
+                restoreObservationsTableState: (_, { page }) => Math.max(1, page),
             },
         ],
         observationsSort: [
             { columnKey: 'created_at', order: -1 } as ObservationsSorting | null,
             {
                 setObservationsSort: (_, { sorting }) => sorting,
+                restoreObservationsTableState: (_, { sort }) => sort,
             },
         ],
         observationsLoading: [
@@ -350,6 +360,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationStatusFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { status }) => status,
             },
         ],
         observationTriggeredByFilter: [
@@ -357,6 +368,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationTriggeredByFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { triggeredBy }) => triggeredBy,
             },
         ],
         observationVerdictFilter: [
@@ -364,6 +376,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationVerdictFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { verdict }) => verdict,
             },
         ],
         observationTagFilter: [
@@ -371,6 +384,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationTagFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { tags }) => tags,
             },
         ],
         chartDateFrom: ['-14d' as string | null, { setChartDateRange: (_, { dateFrom }) => dateFrom }],
@@ -523,6 +537,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             loadScannerSuccess: ({ scanner }) => {
                 actions.setScannerValues(scanner)
                 actions.requestScannerEstimate()
+                // A deep-link to `?sort=result` can't resolve its order_by until the scanner type is known;
+                // refire once we have it so the initial paint reflects the URL.
+                if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
+                    actions.loadObservations()
+                    actions.loadObservationStats()
+                }
             },
 
             setScannerType: ({ scannerType }) => {
@@ -613,6 +633,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             setObservationsPage: () => actions.loadObservations(),
+            restoreObservationsTableState: () => reloadObservationsAndStats(),
             setObservationsSort: () => actions.loadObservations(),
             // Any change to the filter set has to refresh both the current page and the aggregate cards above it.
             setObservationStatusFilter: () => reloadObservationsAndStats(),
@@ -641,6 +662,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             loadObservationStatsSuccess: () => {
+                scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
+            },
+            // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
+            loadObservationStatsFailure: () => {
                 scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
             },
         }
@@ -689,34 +714,26 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     urlToAction(({ actions, values, props }) => ({
-        // Per-param equality checks keep this idempotent for our own URL writes (no reload loop).
+        // Restore as a single atomic action so the page reducer isn't reset by individual filter setters.
+        // Idempotent: we only dispatch when something actually differs from current state.
         [urls.replayVision(props.id)]: (_, searchParams) => {
-            const page = Number(searchParams.page ?? 1)
-            if (Number.isFinite(page) && page !== values.observationsPage) {
-                actions.setObservationsPage(Math.max(1, page))
-            }
-            const parsedSort = parseSortParam(searchParams.sort) ?? { columnKey: 'created_at', order: -1 }
-            if (
-                parsedSort.columnKey !== values.observationsSort?.columnKey ||
-                parsedSort.order !== values.observationsSort?.order
-            ) {
-                actions.setObservationsSort(parsedSort)
-            }
-            const parsedStatus = parseCsvParam<ObservationStatusValue>(searchParams.status)
-            if (!equal(parsedStatus, values.observationStatusFilter)) {
-                actions.setObservationStatusFilter(parsedStatus)
-            }
-            const parsedTrigger = parseCsvParam<ObservationTriggeredByValue>(searchParams.triggered_by)
-            if (!equal(parsedTrigger, values.observationTriggeredByFilter)) {
-                actions.setObservationTriggeredByFilter(parsedTrigger)
-            }
-            const parsedVerdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict)
-            if (!equal(parsedVerdict, values.observationVerdictFilter)) {
-                actions.setObservationVerdictFilter(parsedVerdict)
-            }
-            const parsedTags = parseCsvParam<string>(searchParams.tags)
-            if (!equal(parsedTags, values.observationTagFilter)) {
-                actions.setObservationTagFilter(parsedTags)
+            const pageRaw = Number(searchParams.page ?? 1)
+            const page = Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1
+            const sort = parseSortParam(searchParams.sort) ?? { columnKey: 'created_at', order: -1 }
+            const status = parseCsvParam<ObservationStatusValue>(searchParams.status)
+            const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(searchParams.triggered_by)
+            const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict)
+            const tags = parseCsvParam<string>(searchParams.tags)
+            const sameAsCurrent =
+                page === values.observationsPage &&
+                sort.columnKey === values.observationsSort?.columnKey &&
+                sort.order === values.observationsSort?.order &&
+                equal(status, values.observationStatusFilter) &&
+                equal(triggeredBy, values.observationTriggeredByFilter) &&
+                equal(verdict, values.observationVerdictFilter) &&
+                equal(tags, values.observationTagFilter)
+            if (!sameAsCurrent) {
+                actions.restoreObservationsTableState({ page, sort, status, triggeredBy, verdict, tags })
             }
         },
     })),

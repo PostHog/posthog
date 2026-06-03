@@ -45,17 +45,16 @@ def compute_observation_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayO
 
 
 def _status_counts(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
-    counts = {"pending": 0, "running": 0, "succeeded": 0, "failed": 0, "ineligible": 0}
+    counts: dict[str, int] = {}
     for row in queryset.values("status").annotate(c=Count("*")):
         counts[row["status"]] = row["c"]
-    succeeded = counts["succeeded"]
-    failed = counts["failed"]
-    ineligible = counts["ineligible"]
-    in_flight = counts["pending"] + counts["running"]
-    total = succeeded + failed + ineligible + in_flight
+    succeeded = counts.get(ObservationStatus.SUCCEEDED, 0)
+    failed = counts.get(ObservationStatus.FAILED, 0)
+    ineligible = counts.get(ObservationStatus.INELIGIBLE, 0)
+    in_flight = counts.get(ObservationStatus.PENDING, 0) + counts.get(ObservationStatus.RUNNING, 0)
     scored = succeeded + failed
     return {
-        "total": total,
+        "total": sum(counts.values()),
         "succeeded": succeeded,
         "failed": failed,
         "ineligible": ineligible,

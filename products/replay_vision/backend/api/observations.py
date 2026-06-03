@@ -1,9 +1,9 @@
 import uuid
 from typing import Any
 
-from django.db.models import F, FloatField, IntegerField, Q, QuerySet
+from django.db.models import F, Q, QuerySet
+from django.db.models.expressions import RawSQL
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast
 
 import structlog
 import django_filters
@@ -277,26 +277,32 @@ class _OrderByFilter(django_filters.CharFilter):
         if key in OBSERVATION_ORDER_FIELDS:
             return qs.order_by(("-" if descending else "") + key, "id")
         if key == "result_score":
+            # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
             qs = qs.annotate(
-                _order_score=Cast(
-                    KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result")),
-                    FloatField(),
+                _order_score=RawSQL(
+                    "CASE WHEN jsonb_typeof(scanner_result -> 'model_output' -> 'score') = 'number' "
+                    "THEN (scanner_result -> 'model_output' ->> 'score')::float ELSE NULL END",
+                    [],
                 ),
             )
             expr = F("_order_score").desc(nulls_last=True) if descending else F("_order_score").asc(nulls_last=True)
             return qs.order_by(expr, "id")
         if key == "scanner_version":
             qs = qs.annotate(
-                _order_version=Cast(
-                    KeyTextTransform("scanner_version", "scanner_snapshot"),
-                    IntegerField(),
+                _order_version=RawSQL(
+                    "CASE WHEN jsonb_typeof(scanner_snapshot -> 'scanner_version') = 'number' "
+                    "THEN (scanner_snapshot ->> 'scanner_version')::int ELSE NULL END",
+                    [],
                 ),
             )
             expr = F("_order_version").desc(nulls_last=True) if descending else F("_order_version").asc(nulls_last=True)
             return qs.order_by(expr, "id")
-        # `result_verdict` — short text enum, plain order_by suffices.
-        path = "scanner_result__model_output__verdict"
-        return qs.order_by(("-" if descending else "") + path, "id")
+        # `result_verdict` — short text enum, annotated so we get nulls-last like the other JSONB keys.
+        qs = qs.annotate(
+            _order_verdict=KeyTextTransform("verdict", KeyTextTransform("model_output", "scanner_result")),
+        )
+        expr = F("_order_verdict").desc(nulls_last=True) if descending else F("_order_verdict").asc(nulls_last=True)
+        return qs.order_by(expr, "id")
 
 
 _MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})

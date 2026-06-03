@@ -653,6 +653,32 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json().get("attr"), attr)
 
+    def test_order_by_result_score_ignores_non_numeric_payloads(self) -> None:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 100}},
+        )
+        # Schema drift / bad write: `score` may be a string. The cast must not 500 the request.
+        for idx, score in enumerate([3.0, "not-a-number", 1.0]):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=result_score")
+        self.assertEqual(resp.status_code, 200)
+        sessions = [r["session_id"] for r in resp.json()["results"]]
+        # Numeric scores first (ascending), bad row last via nulls_last.
+        self.assertEqual(sessions, ["sess-2", "sess-0", "sess-1"])
+
     def test_order_by_result_score_numeric(self) -> None:
         scorer = self._create_scanner(
             name="frustration",

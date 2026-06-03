@@ -4,7 +4,15 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { buildObservationListParams, parseCsvParam, parseSortParam, replayScannerLogic } from './replayScannerLogic'
+import {
+    buildObservationListParams,
+    ObservationStatusValue,
+    ObservationTriggeredByValue,
+    ObservationVerdictValue,
+    parseCsvParam,
+    parseSortParam,
+    replayScannerLogic,
+} from './replayScannerLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
@@ -139,13 +147,13 @@ describe('replayScannerLogic', () => {
         const scorerScanner = { scanner_type: 'scorer' } as ReplayScanner
         const classifierScanner = { scanner_type: 'classifier' } as ReplayScanner
         const emptyValues = {
-            observationStatusFilter: [],
-            observationTriggeredByFilter: [],
-            observationVerdictFilter: [],
-            observationTagFilter: [],
+            observationStatusFilter: [] as ObservationStatusValue[],
+            observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
+            observationVerdictFilter: [] as ObservationVerdictValue[],
+            observationTagFilter: [] as string[],
             observationsSort: null,
             scanner: null,
-        } as const
+        }
 
         it('returns empty params when no filters, sort, or pagination', () => {
             expect(buildObservationListParams({ ...emptyValues })).toEqual({})
