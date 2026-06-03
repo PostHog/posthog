@@ -12,23 +12,23 @@ service CymbalProcess {
   rpc Process(stream ProcessItem) returns (stream ProcessOutcome);
 }
 
-// ProcessItem is one canonical event payload to process. The
-// caller_correlation_id is an opaque caller-provided token that Cymbal echoes
-// on the terminal outcome. It is not interpreted by Cymbal, may be duplicated
-// within a stream, and must not be used for internal in-flight bookkeeping;
-// Cymbal generates unique internal processing IDs when handling items.
+// ProcessItem is one canonical event payload to process. The id is an opaque
+// caller-provided token that Cymbal echoes on the terminal outcome. It is not
+// interpreted by Cymbal, may be duplicated within a stream, and must not be used
+// for internal in-flight bookkeeping; Cymbal generates unique internal
+// processing IDs when handling items.
 message ProcessItem {
-  string caller_correlation_id = 1;
+  string id = 1;
   // Serialized rust/cymbal AnyEvent JSON in the strict canonical shape already
   // accepted by Cymbal's HTTP /process boundary.
   bytes event_json = 2;
 }
 
 // ProcessOutcome is the terminal result for one ProcessItem. Exactly one of
-// done, drop, or error is set for each accepted item, and the caller correlation
-// ID from the ProcessItem is echoed unchanged.
+// done, drop, or error is set for each accepted item, and the caller-provided id
+// from the ProcessItem is echoed unchanged.
 message ProcessOutcome {
-  string caller_correlation_id = 1;
+  string id = 1;
 
   oneof result {
     ProcessDone done = 2;

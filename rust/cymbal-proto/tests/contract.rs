@@ -11,15 +11,15 @@ use cymbal_proto::cymbal::{
 use prost::Message;
 
 #[test]
-fn process_item_serializes_canonical_event_with_opaque_correlation_id() {
+fn process_item_serializes_canonical_event_with_opaque_id() {
     let item = ProcessItem {
-        caller_correlation_id: "caller-1".to_string(),
+        id: "caller-1".to_string(),
         event_json: br#"{"uuid":"0198f1d7-26fb-7f17-9b75-4377002fe472","event":"$exception","team_id":42,"timestamp":"2026-01-01T00:00:00Z","properties":{"$exception_list":[]}}"#.to_vec(),
     };
 
     let decoded = ProcessItem::decode(item.encode_to_vec().as_slice()).unwrap();
 
-    assert_eq!(decoded.caller_correlation_id, "caller-1");
+    assert_eq!(decoded.id, "caller-1");
     assert_eq!(
         decoded.event_json,
         br#"{"uuid":"0198f1d7-26fb-7f17-9b75-4377002fe472","event":"$exception","team_id":42,"timestamp":"2026-01-01T00:00:00Z","properties":{"$exception_list":[]}}"#
@@ -30,20 +30,20 @@ fn process_item_serializes_canonical_event_with_opaque_correlation_id() {
 fn process_outcome_carries_exactly_one_terminal_variant() {
     let outcomes = [
         ProcessOutcome {
-            caller_correlation_id: "done-1".to_string(),
+            id: "done-1".to_string(),
             result: Some(process_outcome::Result::Done(ProcessDone {
                 processed_event_json: br#"{"event":"$exception","properties":{"resolved":true}}"#
                     .to_vec(),
             })),
         },
         ProcessOutcome {
-            caller_correlation_id: "drop-1".to_string(),
+            id: "drop-1".to_string(),
             result: Some(process_outcome::Result::Drop(ProcessDrop {
                 reason: ProcessDropReason::SuppressionRule as i32,
             })),
         },
         ProcessOutcome {
-            caller_correlation_id: "error-1".to_string(),
+            id: "error-1".to_string(),
             result: Some(process_outcome::Result::Error(ProcessError {
                 kind: ProcessErrorKind::Invalid as i32,
                 code: ProcessErrorCode::InvalidPayload as i32,
@@ -96,14 +96,14 @@ fn process_enums_keep_initial_wire_values() {
 }
 
 #[test]
-fn process_contract_allows_duplicate_caller_correlation_ids() {
+fn process_contract_allows_duplicate_ids() {
     let items = [
         ProcessItem {
-            caller_correlation_id: "duplicate".to_string(),
+            id: "duplicate".to_string(),
             event_json: br#"{"event":"$exception","properties":{}}"#.to_vec(),
         },
         ProcessItem {
-            caller_correlation_id: "duplicate".to_string(),
+            id: "duplicate".to_string(),
             event_json: br#"{"event":"$exception","properties":{"second":true}}"#.to_vec(),
         },
     ];
@@ -113,15 +113,15 @@ fn process_contract_allows_duplicate_caller_correlation_ids() {
         .map(|item| ProcessItem::decode(item.encode_to_vec().as_slice()).unwrap())
         .collect();
 
-    assert_eq!(decoded[0].caller_correlation_id, "duplicate");
-    assert_eq!(decoded[1].caller_correlation_id, "duplicate");
+    assert_eq!(decoded[0].id, "duplicate");
+    assert_eq!(decoded[1].id, "duplicate");
     assert_ne!(decoded[0].event_json, decoded[1].event_json);
 }
 
 #[test]
 fn process_error_round_trips_retry_after_hint() {
     let outcome = ProcessOutcome {
-        caller_correlation_id: "retryable-1".to_string(),
+        id: "retryable-1".to_string(),
         result: Some(process_outcome::Result::Error(ProcessError {
             kind: ProcessErrorKind::Dependency as i32,
             code: ProcessErrorCode::DependencyUnavailable as i32,
