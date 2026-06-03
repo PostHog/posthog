@@ -2249,7 +2249,7 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
+                "prompt_token": 3.5e-7,
                 "completion_token": 5.9e-7
             }
         }
