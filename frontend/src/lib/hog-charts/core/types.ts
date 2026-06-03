@@ -29,6 +29,11 @@ export interface Series<Meta = unknown> {
     /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points.
      *  When omitted (or empty), the chart picks a color from `theme.colors` by series index. */
     color?: string
+    /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
+     *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
+     *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
+     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
+    bars?: { color?: string; label?: string; meta?: Meta }[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
