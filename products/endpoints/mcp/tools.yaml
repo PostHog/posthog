@@ -193,7 +193,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{name}'
+        enrich_url: '{params.name}'
         title: Preview endpoint materialization
         description: >
             Preview the materialization transform for an endpoint before enabling it. Returns the transformed HogQL,

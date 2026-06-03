@@ -323,7 +323,7 @@ const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializa
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_preview/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+        return await withPostHogUrl(context, result, `/endpoints/${params.name}`)
     },
 })
 
