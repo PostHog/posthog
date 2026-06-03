@@ -4188,20 +4188,6 @@
             "readOnlyHint": true
         }
     },
-    "pr-lifecycle": {
-        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". metric_quality is \"partial\" — it covers CI events only; review and comment events are not yet available. For aggregate questions (CI health, time to merge, throughput), query the engineering_analytics_pull_requests / engineering_analytics_workflow_runs views with SQL instead.",
-        "category": "Engineering analytics",
-        "feature": "engineering_analytics",
-        "summary": "PR lifecycle timeline",
-        "title": "PR lifecycle timeline",
-        "required_scopes": ["engineering_analytics:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "project-get": {
         "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
         "category": "Core",
