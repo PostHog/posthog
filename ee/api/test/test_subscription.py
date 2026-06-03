@@ -2099,6 +2099,9 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     def test_rejects_without_ai_consent(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
+        # Orgs are AI-approved by default, so opt out explicitly to exercise the consent gate.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(),
@@ -2204,7 +2207,17 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.json()
         assert patch_resp.json()["resource_type"] == "insight"
 
-    def test_re_enabling_ai_sub_with_invalid_prompt_is_rejected(self, mock_is_cloud, mock_flag, mock_sync):
+    @parameterized.expand(
+        [
+            ("whitespace_prompt", "   "),
+            # A NULL prompt (e.g. a row patched directly in the DB) must surface as a 400,
+            # not an AttributeError/500: sanitize_prompt treats None as an empty prompt.
+            ("none_prompt", None),
+        ]
+    )
+    def test_re_enabling_ai_sub_with_invalid_prompt_is_rejected(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, stored_prompt
+    ):
         # An auto-disabled AI sub re-enabled via plain PATCH {enabled:true} would
         # just re-disable on the next tick (burning LLM tokens).
         self._enable_ai()
@@ -2214,7 +2227,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             self._make_ai_payload(),
         )
         sub_id = create_resp.json()["id"]
-        Subscription.objects.filter(pk=sub_id).update(enabled=False, prompt="   ")
+        Subscription.objects.filter(pk=sub_id).update(enabled=False, prompt=stored_prompt)
         patch_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
             {"enabled": True},

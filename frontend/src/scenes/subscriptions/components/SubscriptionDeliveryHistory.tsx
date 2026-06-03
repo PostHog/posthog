@@ -8,8 +8,6 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
-
-import { TZLabel } from 'lib/components/TZLabel'
 import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionApi,

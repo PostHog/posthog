@@ -297,16 +297,23 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        if existing is not None:
-            resource_type = existing.resource_type
-        else:
-            insight, dashboard = attrs.get("insight"), attrs.get("dashboard")
-            try:
+        if existing is None:
+            # Create: a subscription must export an insight, a dashboard, or an AI prompt.
+            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
+                raise ValidationError("A subscription must have an insight, a dashboard, or a prompt.")
+
+        try:
+            if existing is not None:
+                # `resource_type` derives from the row's content; a corrupt row (e.g. a prompt
+                # nulled directly in the DB) leaves nothing to derive from and raises.
+                resource_type = existing.resource_type
+            else:
+                insight, dashboard = attrs.get("insight"), attrs.get("dashboard")
                 resource_type = Subscription.derive_resource_type(
                     insight.id if insight else None, dashboard.id if dashboard else None, attrs.get("prompt")
                 )
-            except ValueError as exc:
-                raise ValidationError(str(exc))
+        except ValueError as exc:
+            raise ValidationError(str(exc))
         content_validators: dict[str, Callable[[dict, Optional[Subscription]], None]] = {
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,
@@ -1029,7 +1036,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(tags=["subscriptions"])
 class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()
