@@ -80,7 +80,7 @@ JWT_SIGNING_KEY: str = os.getenv("JWT_SIGNING_KEY", "") or SECRET_KEY
 JWT_SIGNING_KEY_FALLBACKS: list[str] = (
     get_list(os.environ["JWT_SIGNING_KEY_FALLBACKS"])
     if "JWT_SIGNING_KEY_FALLBACKS" in os.environ
-    else SECRET_KEY_FALLBACKS
+    else (SECRET_KEY_FALLBACKS if JWT_SIGNING_KEY == SECRET_KEY else [])
 )
 
 
