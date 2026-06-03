@@ -97,6 +97,7 @@ the row lists both.
 | snowflake     | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | stripe        | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase      | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
+| surveymonkey  | HTTP                        | requests                                                        | ✅                          |
 | temporalio    | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -210,7 +211,6 @@ doesn't conflict with concurrent PRs.
 - sharepoint
 - smartsheet
 - square
-- surveymonkey
 - trello
 - twilio
 - twitter_ads
