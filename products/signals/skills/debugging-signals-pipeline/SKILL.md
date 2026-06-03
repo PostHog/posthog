@@ -13,7 +13,7 @@ description: >
 
 ## Pipeline flow
 
-```
+```text
 emit_signals_from_fixture
   → signal-emitter (Temporal workflow)
     → buffer-signals (batches signals, 5s flush timer)
