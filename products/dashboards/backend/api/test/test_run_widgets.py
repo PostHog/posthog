@@ -13,6 +13,7 @@ from posthog.scopes import APIScopeObject
 from products.dashboards.backend.constants import DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
+from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
 
 class TestWidgetRegistry(APIBaseTest):
@@ -136,8 +137,6 @@ class TestDashboardRunWidgets(APIBaseTest):
         tile_id = dashboard_json["tiles"][0]["id"]
 
         self._run(dashboard_id, [tile_id])
-
-        from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertEqual(query.volumeResolution, ERROR_TRACKING_LISTING_VOLUME_RESOLUTION)

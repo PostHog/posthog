@@ -67,7 +67,8 @@ def _find_bottom_row_placement(
         if not _layout_overlaps_any(all_layouts, x, placement_y, w, h):
             return {"x": x, "y": placement_y, "w": w, "h": h}
 
-    return {"x": 0, "y": placement_y, "w": w, "h": h}
+    next_y = _dashboard_bottom_y(all_layouts)
+    return {"x": 0, "y": next_y, "w": w, "h": h}
 
 
 def stack_widget_layout_at_bottom(

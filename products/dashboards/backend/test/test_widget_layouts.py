@@ -72,3 +72,21 @@ class TestWidgetLayouts:
 
         assert first["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
         assert second["sm"] == {"x": 6, "y": 0, "w": 6, "h": 5}
+
+    def test_stack_widget_layout_at_bottom_wraps_to_next_row_when_bottom_row_full(self) -> None:
+        existing = [
+            {"x": 0, "y": 0, "w": 6, "h": 5},
+            {"x": 6, "y": 0, "w": 6, "h": 5},
+        ]
+        pending = [
+            {"x": 0, "y": 0, "w": 6, "h": 5},
+            {"x": 6, "y": 0, "w": 6, "h": 5},
+        ]
+
+        layouts = stack_widget_layout_at_bottom(
+            widget_type="error_tracking_list",
+            existing_sm_layouts=existing,
+            pending_sm_layouts=pending,
+        )
+
+        assert layouts["sm"] == {"x": 0, "y": 5, "w": 6, "h": 5}
