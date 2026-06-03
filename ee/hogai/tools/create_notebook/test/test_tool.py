@@ -9,7 +9,11 @@ from products.notebooks.backend.models import Notebook
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tools.create_notebook.tool import CREATE_NOTEBOOK_PROMPT, CreateNotebookTool, build_create_notebook_prompt
 from ee.hogai.utils.types.base import AssistantState, NodePath
-from ee.models.assistant import Conversation
+
+try:
+    from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+except ModuleNotFoundError:
+    from ee.models.assistant import AgentArtifact, Conversation
 
 
 class TestCreateNotebookTool(BaseTest):
@@ -150,7 +154,6 @@ class TestCreateNotebookTool(BaseTest):
         )
 
         assert artifact is not None
-        from ee.models.assistant import AgentArtifact
 
         agent_artifact = AgentArtifact.objects.filter(team=self.team).last()
         notebook = Notebook.objects.filter(team=self.team).first()

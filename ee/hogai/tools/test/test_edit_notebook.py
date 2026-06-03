@@ -19,7 +19,11 @@ from ee.hogai.tools.edit_notebook import (
     build_edit_plan,
 )
 from ee.hogai.utils.types.base import AssistantState, NodePath
-from ee.models.assistant import AgentArtifact, Conversation
+
+try:
+    from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+except ModuleNotFoundError:
+    from ee.models.assistant import AgentArtifact, Conversation
 
 
 def _paragraph(text: str) -> dict:

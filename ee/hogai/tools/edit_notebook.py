@@ -35,7 +35,11 @@ from ee.hogai.tools.create_notebook.tiptap import (
 )
 from ee.hogai.utils.feature_flags import has_notebook_python_feature_flag
 from ee.hogai.utils.types.base import AssistantState, NodePath
-from ee.models.assistant import AgentArtifact
+
+try:
+    from products.posthog_ai.backend.models.assistant import AgentArtifact
+except ModuleNotFoundError:
+    from ee.models.assistant import AgentArtifact
 
 _EDIT_NOTEBOOK_QUERY_NODE_GUIDANCE = """
 # Inserting query nodes
