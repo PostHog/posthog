@@ -76,6 +76,8 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
 // so the (event_name × flag_key) cross product dominates eventproperty cardinality
 // without providing useful per-event scoping (flags are global). The corresponding
 // PropertyDefinition rows ARE still written so flags remain discoverable.
+// $feature_enrollment/ is usually a person property; it's included defensively for the
+// rare cases it arrives as a top-level event property, and carries little cardinality weight.
 pub const SKIP_EVENT_PROPERTY_PREFIXES: [&str; 2] = ["$feature/", "$feature_enrollment/"];
 
 const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
