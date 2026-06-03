@@ -8,6 +8,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
 if TYPE_CHECKING:
@@ -343,7 +344,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         return f"ExperimentTimeseriesRecalculation(exp={self.experiment_id}, metric={metric_uuid}, fingerprint={self.fingerprint}, status={self.status})"
 
 
-class ExperimentMetricsRecalculation(UUIDModel):
+class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     """Tracks batch recalculation of all metrics for an experiment.
 
     The primary key (`id`, a uuid7 from UUIDModel) is the recalculation_id passed to the workflow and folded into
