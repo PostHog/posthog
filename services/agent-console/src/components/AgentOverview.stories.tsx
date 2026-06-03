@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 
 import {
     getAgentStatsFixture,
@@ -14,11 +14,11 @@ const meta: Meta<typeof AgentOverview> = {
     component: AgentOverview,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        ((Story) => (
             <div className="w-[860px]">
                 <Story />
             </div>
-        ),
+        )) as Decorator,
     ],
 }
 
