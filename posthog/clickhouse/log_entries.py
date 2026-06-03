@@ -117,7 +117,7 @@ def KAFKA_LOG_ENTRIES_WS_TABLE_SQL():
     return (
         LOG_ENTRIES_TABLE_BASE_SQL
         + """
-    SETTINGS kafka_skip_broken_messages = 100
+    SETTINGS kafka_skip_broken_messages = 100, kafka_num_consumers = 16
     """
     ).format(
         table_name=KAFKA_LOG_ENTRIES_WS_TABLE_NAME,
