@@ -843,6 +843,10 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         "widths, and (for type 'screenshot') renders the page so heatmap data can be overlaid on it.",
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        query_serializer = SavedHeatmapListQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        params = query_serializer.validated_data
+
         qs = (
             self.safely_get_queryset(self.get_queryset())
             .filter(deleted=False)
@@ -850,33 +854,26 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             .order_by("-updated_at")
         )
 
-        type_param = request.query_params.get("type")
-        status_param = request.query_params.get("status")
-        search = request.query_params.get("search")
-        created_by_param = request.query_params.get("created_by")
-        order = request.query_params.get("order")
-
-        if type_param:
-            qs = qs.filter(type=type_param)
-        if status_param:
-            qs = qs.filter(status=status_param)
-        if search:
-            qs = qs.filter(Q(url__icontains=search) | Q(name__icontains=search))
-        if created_by_param:
+        if params.get("type"):
+            qs = qs.filter(type=params["type"])
+        if params.get("status"):
+            qs = qs.filter(status=params["status"])
+        if params.get("search"):
+            qs = qs.filter(Q(url__icontains=params["search"]) | Q(name__icontains=params["search"]))
+        if params.get("created_by"):
+            qs = qs.filter(created_by_id=params["created_by"])
+        if params.get("order"):
             try:
-                qs = qs.filter(created_by_id=int(created_by_param))
-            except (ValueError, TypeError):
-                return response.Response(
-                    {"error": "Invalid created_by parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
-                )
-        if order:
-            try:
-                qs = qs.order_by(order)
+                qs = qs.order_by(params["order"])
             except FieldError:
-                return response.Response({"error": f"Invalid order field: {order}"}, status=status.HTTP_400_BAD_REQUEST)
+                return response.Response(
+                    {"error": f"Invalid order field: {params['order']}"}, status=status.HTTP_400_BAD_REQUEST
+                )
 
-        limit = int(request.query_params.get("limit", 100))
-        offset = int(request.query_params.get("offset", 0))
+        # Clamp at the boundary rather than via serializer min/max so the OpenAPI
+        # contract (and generated clients) stay unchanged while the page stays bounded.
+        limit = max(1, min(params["limit"], 500))
+        offset = max(0, params["offset"])
         count = qs.count()
         results = qs[offset : offset + limit]
 
