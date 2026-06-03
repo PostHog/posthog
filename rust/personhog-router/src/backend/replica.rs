@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use async_trait::async_trait;
 use personhog_proto::personhog::replica::v1::person_hog_replica_client::PersonHogReplicaClient;
 use personhog_proto::personhog::types::v1::{
@@ -39,8 +41,9 @@ use super::PersonHogBackend;
 use crate::config::RetryConfig;
 
 pub struct ReplicaBackend {
-    channel: Channel,
-    client: PersonHogReplicaClient<Channel>,
+    clients: Vec<PersonHogReplicaClient<Channel>>,
+    channels: Vec<Channel>,
+    next_idx: AtomicUsize,
     retry_config: RetryConfig,
 }
 
@@ -53,6 +56,7 @@ pub struct ReplicaDnsConfig {
     pub keepalive_timeout: Option<Duration>,
     pub max_send_message_size: usize,
     pub max_recv_message_size: usize,
+    pub num_channels: usize,
 }
 
 fn build_dns_endpoint(config: &ReplicaDnsConfig) -> Endpoint {
@@ -84,27 +88,42 @@ fn wrap_client(
 }
 
 impl ReplicaBackend {
-    /// Create a backend using DNS discovery (current behavior).
-    /// Opens a single lazy channel to the ClusterIP service URL.
+    /// DNS discovery: opens multiple lazy channels to the ClusterIP service URL
+    /// with round-robin selection across them.
     pub fn new_dns(config: ReplicaDnsConfig) -> Self {
-        let channel = build_dns_endpoint(&config).connect_lazy();
-        let client = wrap_client(
-            &channel,
-            config.max_send_message_size,
-            config.max_recv_message_size,
+        let num = config.num_channels.max(1);
+        let channels: Vec<Channel> = (0..num)
+            .map(|_| build_dns_endpoint(&config).connect_lazy())
+            .collect();
+        let clients: Vec<_> = channels
+            .iter()
+            .map(|ch| {
+                wrap_client(
+                    ch,
+                    config.max_send_message_size,
+                    config.max_recv_message_size,
+                )
+            })
+            .collect();
+
+        info!(
+            url = config.url,
+            num_channels = num,
+            mode = "dns",
+            "created replica backend"
         );
 
-        info!(url = config.url, mode = "dns", "created replica backend");
-
         Self {
-            channel,
-            client,
+            clients,
+            channels,
+            next_idx: AtomicUsize::new(0),
             retry_config: config.retry_config,
         }
     }
 
-    /// Create a backend using a pre-built balanced channel (k8s discovery mode).
-    /// The channel is fed by an EndpointDiscovery task that watches EndpointSlices.
+    /// K8s discovery: single balanced channel fed by an EndpointDiscovery task
+    /// that watches EndpointSlices. Tower's p2c balancer handles per-request
+    /// load distribution, so a single channel is sufficient.
     pub fn new_k8s(
         channel: Channel,
         retry_config: RetryConfig,
@@ -116,18 +135,21 @@ impl ReplicaBackend {
         info!(mode = "k8s", "created replica backend");
 
         Self {
-            channel,
-            client,
+            clients: vec![client],
+            channels: vec![channel],
+            next_idx: AtomicUsize::new(0),
             retry_config,
         }
     }
 
     fn client(&self) -> PersonHogReplicaClient<Channel> {
-        self.client.clone()
+        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.clients.len();
+        self.clients[idx].clone()
     }
 
     pub fn channel(&self) -> Channel {
-        self.channel.clone()
+        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.channels.len();
+        self.channels[idx].clone()
     }
 
     pub fn retry_config(&self) -> &RetryConfig {
@@ -420,6 +442,7 @@ mod tests {
             keepalive_timeout: None,
             max_send_message_size: 4 * 1024 * 1024,
             max_recv_message_size: 4 * 1024 * 1024,
+            num_channels: 4,
         })
     }
 

@@ -124,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keepalive_timeout: config.backend_keepalive_timeout(),
                 max_send_message_size: config.grpc_max_send_message_size,
                 max_recv_message_size: config.grpc_max_recv_message_size,
+                num_channels: config.replica_channels,
             })),
             None,
         ),

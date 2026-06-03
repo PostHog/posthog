@@ -7,7 +7,7 @@ use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplicaDiscoveryMode {
-    /// DNS mode: static channels to ClusterIP URL (current behavior).
+    /// DNS mode: static channels to ClusterIP URL.
     Dns,
     /// K8s mode: EndpointSlice watcher with client-side p2c balancing.
     K8s,
@@ -115,11 +115,16 @@ pub struct Config {
     #[envconfig(default = "typed")]
     pub proxy_mode: ProxyMode,
 
-    /// URL of the personhog-replica backend (used in DNS discovery mode)
+    /// URL of the personhog-replica backend (DNS mode only)
     #[envconfig(default = "http://127.0.0.1:50051")]
     pub replica_url: String,
 
-    /// Discovery mode for replica endpoints: "dns" (default, current behavior)
+    /// Number of gRPC channels to open to the replica service (DNS mode only).
+    /// Multiple channels distribute requests across K8s service endpoints.
+    #[envconfig(default = "4")]
+    pub replica_channels: usize,
+
+    /// Discovery mode for replica endpoints: "dns" (default)
     /// or "k8s" (EndpointSlice watcher with client-side balancing)
     #[envconfig(default = "dns")]
     pub replica_discovery_mode: ReplicaDiscoveryMode,
