@@ -12,6 +12,7 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
+from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -804,3 +805,42 @@ class ProjectProfileSerializer(serializers.Serializer):
     payload = ProjectProfilePayloadSerializer(
         help_text="Structured profile content. v1 has `inventory` only.",
     )
+
+
+# --- Scout config ----------------------------------------------------------
+
+
+class SignalScoutConfigSerializer(serializers.ModelSerializer):
+    """Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+    """
+
+    skill_name = serializers.CharField(
+        read_only=True,
+        help_text="The `signals-scout-*` skill this config controls. Set at creation, not editable.",
+    )
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=10,
+        max_value=43200,
+        help_text="Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+    )
+    last_run_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the coordinator last dispatched this scout. Null if it has never run.",
+    )
+
+    class Meta:
+        model = SignalScoutConfig
+        fields = ["id", "skill_name", "enabled", "emit", "run_interval_minutes", "last_run_at", "created_at"]
+        read_only_fields = ["id", "created_at"]

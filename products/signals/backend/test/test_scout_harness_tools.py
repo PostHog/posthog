@@ -439,8 +439,10 @@ async def ateam_emit(aorganization_emit):
             source_type="cross_source_issue",
             enabled=True,
         )
-        # Seed a SignalScoutConfig so the run row's FK is valid.
-        await database_sync_to_async(SignalScoutConfig.objects.create)(team=team, skill_name="signals-scout-errors")
+        # Seed a SignalScoutConfig (emit on) so the run's FK is valid and emits aren't dry-run.
+        await database_sync_to_async(SignalScoutConfig.objects.create)(
+            team=team, skill_name="signals-scout-errors", emit=True
+        )
         yield team
 
 
@@ -600,6 +602,30 @@ async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, atea
 
     assert result.emitted is False
     assert result.skipped_reason == "source_disabled"
+    mock_emit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_returns_skipped_when_scout_emit_disabled(arun_emit, ateam_emit):
+    # Fixture seeds an emit-on config; flip it to dry-run to exercise the per-scout gate.
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).update
+    )(emit=False)
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-dry-run",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "scout_emit_disabled"
     mock_emit.assert_not_called()
 
 

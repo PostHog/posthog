@@ -26,7 +26,7 @@ from typing import Any
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutRun, SignalSourceConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ class EmitResult:
 
     Possible `skipped_reason` values:
       - None: emit fired
+      - "scout_emit_disabled": the scout's config has emit=False (dry-run)
       - "ai_processing_not_approved": team's organization has not approved AI processing
       - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
     """
@@ -120,7 +121,7 @@ async def emit_finding(
     )
     logger.info("signals_scout.emit: attempt", extra=attempt_extra)
 
-    preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team)
+    preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
     if preflight is not None:
         logger.warning(
             "signals_scout.emit: skipped %s",
@@ -200,7 +201,7 @@ def emit_finding_sync(
     )
     logger.info("signals_scout.emit: attempt", extra=attempt_extra)
 
-    preflight = _preflight_emit_gates(team)
+    preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         logger.warning(
             "signals_scout.emit: skipped %s",
@@ -330,15 +331,18 @@ def _log_extra(
     }
 
 
-def _preflight_emit_gates(team: Team) -> str | None:
-    """Return the matching skipped_reason if a downstream gate would silently drop
-    the emit; otherwise return None.
+def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
+    """Return the matching skipped_reason if a gate would drop the emit; else None.
 
     `emit_signal()` returns silently when the team's organization has not approved
     AI processing or when `SignalSourceConfig.is_source_enabled(...)` is False.
     Surfacing the gate result here lets the view return a useful skipped_reason
-    instead of "emitted" for an emit the pipeline silently dropped.
+    instead of "emitted" for an emit the pipeline silently dropped. The per-scout
+    `emit` toggle is checked first: a dry-run scout runs and logs but emits nothing.
     """
+    config = SignalScoutConfig.all_teams.filter(team_id=team.id, skill_name=run.skill_name).first()
+    if config is not None and not config.emit:
+        return "scout_emit_disabled"
     organization = team.organization
     if not organization.is_ai_data_processing_approved:
         return "ai_processing_not_approved"

@@ -142,6 +142,56 @@ export interface SignalReportStateRequestApi {
 }
 
 /**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface SignalScoutConfigApi {
+    readonly id: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /** When the coordinator last dispatched this scout. Null if it has never run. */
+    readonly last_run_at: string
+    readonly created_at: string
+}
+
+/**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface PatchedSignalScoutConfigApi {
+    readonly id?: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name?: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /** When the coordinator last dispatched this scout. Null if it has never run. */
+    readonly last_run_at?: string
+    readonly created_at?: string
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
