@@ -46,6 +46,18 @@ Cross-cutting status (refreshed against current code):
   [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
   Every weekly / monthly app below assumes cron and is
   currently blocked on this — but it's a small piece of work.
+- ✅ **Bring-your-own HTTP services via `@posthog/http-request`** —
+  generic GET/POST/PUT/PATCH/DELETE tool with `${SECRET_NAME}`
+  substitution in url, headers, and body. The author drops a bearer
+  into `spec.secrets[]` (via the concierge's `set_secret` flow) and
+  references it as `${TOKEN}` in tool calls; plaintext is
+  substituted server-side before dispatch, so the token never
+  appears in the model's tool-call history. SSRF protection is
+  delegated to smokescreen at the egress hop, same posture as
+  `@posthog/web-fetch`. Works for **any** HTTP API — Slack (paste
+  a bot token, call `chat.postMessage` directly), GitHub (PAT for
+  PR queries), Linear, Stripe, internal services. **This is the
+  default path for v0 of any agent that talks to external services.**
 - ✅ **Runtime MCP support (external endpoints)** —
   `McpRefSchema` is a flat `{ id, url, auth, secrets, tools }`
   shape; the runner opens MCP clients at session start, exposes
@@ -57,6 +69,12 @@ Cross-cutting status (refreshed against current code):
   composability (the old `kind: 'agent'` variant) was removed in
   favour of the single shape — re-adds when a concrete consumer
   lands; see [`agent-as-mcp-server.md`](agent-as-mcp-server.md).
+  **Auth story is the open piece** — `secrets[]` only substitutes
+  into the URL (not headers), and `auth.integration` requires a
+  Django integration kind per provider. The redesign is at
+  [`runtime-mcps-auth-discovery.md`](runtime-mcps-auth-discovery.md).
+  Until that ships, `http-request` is the simpler self-serve path
+  for "I have a token, just call the API."
 - ⚠️ **Document / corpus ingestion + retrieval** — multiple apps
   want a curated, periodically-refreshed corpus to ground
   against. `web-fetch` + `web-search` cover ad-hoc retrieval;
@@ -869,23 +887,30 @@ exist; the data sources don't.
 
 ## Feasibility matrix
 
+Most "blocked on runtime MCP" verdicts moved to ✅ after
+`@posthog/http-request` landed (PR shipping this branch). For most
+services with a token + an HTTP API, the v0 path is now
+`http-request` + `${TOKEN}` substitution. Runtime MCPs remain the
+right call for richly-typed catalogs and per-tool approval gating —
+but they're no longer the only path.
+
 | App                            | Verdict (now)                                                    | What's missing                                           |
 | ------------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------- |
-| SRE Slack bot                  | ✅ v0 + v1 (memory) shipped this branch                          | Grafana / k8s via Cloudflare Tunnel (separate PR)        |
+| SRE Slack bot                  | ✅ v0 + v1 (memory + BYO Slack token) shipped this branch        | Grafana / k8s via Cloudflare Tunnel (separate PR)        |
 | Wake-me-up daily briefing      | ✅ v0 shipped this branch                                        | User-config console panel (nice-to-have)                 |
 | AI documentation agent         | 🟡 Internal-only Slack v0 ships; public docs surface waits       | Per-user memory scope + curated doc corpus               |
 | Wizard for ASS (server)        | ✅ Ship today                                                    | —                                                        |
 | Wizard for ASS (local-CLI)     | 🔴 Blocked                                                       | CLI client to host `local-fs` / `local-git` tools        |
-| Marketing update agent         | 🟡 Slack-only v0 via webhook; full vision waits                  | Runtime MCP (GitHub)                                     |
-| Feature prioritization agent   | ✅ Cron + webhook v0 ships now                                   | Runtime MCP (GitHub) for the curated review surface      |
+| Marketing update agent         | ✅ v0 via `http-request` (GitHub REST + Slack)                   | Typed MCP catalog is a polish item                       |
+| Feature prioritization agent   | ✅ Cron + webhook + GitHub via `http-request` v0                 | Typed MCP catalog is a polish item                       |
 | Competitive pricing agent      | ✅ Cron + webhook v0 ships now                                   | Sheets sink (use memory note)                            |
 | Industry intelligence agent    | 🔴 Two-gap blocked                                               | Email trigger + warehouse-write                          |
 | Customer research agent        | ✅ Webhook v0 ships now                                          | Per-respondent scope is nice-to-have, not blocking       |
 | AI user interviewing agent     | ✅ v0 ships now via skill templates + custom tool for Tremendous | Native incentive integration is convenience, not blocker |
 | Growth review automation       | ✅ Cron + webhook v0 ships now                                   | Agent-to-agent outbound for the fan-out variant          |
-| Gap analysis agent             | 🟡 Cron half ships; data-source MCPs missing                     | Runtime MCP for ticketing & GitHub                       |
-| Financial reconciliation agent | 🟡 Cron half ships; data-source MCPs missing                     | Runtime MCP for Stripe + banking                         |
-| Warpstream forecasting tool    | 🟡 Cron half ships; data-source MCPs missing                     | Runtime MCP for Warpstream + Grafana                     |
+| Gap analysis agent             | ✅ v0 via `http-request` (GitHub + ticketing API tokens)         | Typed MCP catalog is a polish item                       |
+| Financial reconciliation agent | ✅ v0 via `http-request` (Stripe API + banking API tokens)       | Typed MCP catalog is a polish item                       |
+| Warpstream forecasting tool    | ✅ v0 via `http-request` (Warpstream API + Grafana API tokens)   | Typed MCP catalog is a polish item                       |
 
 Legend: ✅ build now · 🟡 v0 buildable with a stripped scope ·
 🔴 blocked on a sibling plan.

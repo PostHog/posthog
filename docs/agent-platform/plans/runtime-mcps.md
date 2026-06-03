@@ -1,5 +1,16 @@
 # Design — runtime `spec.mcps[]` support
 
+> **Auth redesign in progress.** The current auth surface (`secrets[]`
+> for URL substitution only, `auth.integration` requiring a Django
+> integration kind per provider) is the open gap. Self-serve
+> "bring-your-own token" cases should use
+> [`@posthog/http-request`](../../../services/agent-tools/src/tools/http-request.v1.ts)
+> today; the redesigned auth path for runtime MCPs lives at
+> [`runtime-mcps-auth-discovery.md`](runtime-mcps-auth-discovery.md).
+> Until that ships, runtime MCPs are best for typed catalogs +
+> per-tool approval gating (the cases that genuinely benefit from
+> protocol semantics).
+
 **Status:** ✅ shipped, then simplified — see "Post-ship simplification" below.
 The plan as a whole landed (PRs 1-7); the `kind: 'agent'` agent-to-agent
 variant was subsequently ripped out because nothing consumed it. The current
