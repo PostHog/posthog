@@ -22,12 +22,13 @@ import {
 } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
+import type { testSceneMaxContextLogicType } from './maxContextLogic.testType'
 import { MaxContextType, type MaxContextInput } from './maxTypes'
 import { maxMocks } from './testUtils'
 
 const Component = (): null => null
 const SCENE_NOTEBOOK_SHORT_ID = 'scene-notebook'
-const testSceneMaxContextLogic = kea([
+const testSceneMaxContextLogic = kea<testSceneMaxContextLogicType>([
     path(['scenes', 'max', 'maxContextLogicTestScene']),
     selectors({
         maxContext: [
