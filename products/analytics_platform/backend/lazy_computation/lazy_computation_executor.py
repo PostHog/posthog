@@ -28,9 +28,10 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import get_query_tag_value, tags_context
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
+from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -73,6 +74,17 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # where `insert_quorum=auto` waits 600s for an acknowledgement that never comes (the local
 # replica writes immediately but ClickHouse still blocks on the quorum protocol).
 PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
+
+# Debug aid for cache-key matching. When enabled, every execute() emits a
+# `lazy_computation.cache_key` log with the hash and the exact inputs that
+# produced it (normalized query, timezone, breakdown fields). The eager warmer
+# and the user read path both pass through here, so two log lines with the same
+# `team_id`/`table` but different `query_hash` reveal *which* input diverged —
+# the read serves a different cache entry than the warmer populated. Off by
+# default; the `repr(query)` payload is large, so only flip it on for a debugging
+# window. Join on `query_hash` to the existing `lazy_computation.executed` log
+# (jobs_created / cache_state / ready) to see the values the key resolved to.
+LOG_CACHE_KEY_DETAILS = get_from_env("LAZY_COMPUTATION_LOG_CACHE_KEY_DETAILS", False, type_cast=str_to_bool)
 
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
@@ -722,6 +734,23 @@ class LazyComputationExecutor:
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
+
+        if LOG_CACHE_KEY_DETAILS:
+            logger.info(
+                "lazy_computation.cache_key",
+                query_hash=query_hash,
+                table=str(query_info.table),
+                team_id=team.id,
+                timezone=query_info.timezone,
+                breakdown_fields=query_info.breakdown_fields,
+                trigger=get_query_tag_value("trigger"),
+                query_type=get_query_tag_value("query_type"),
+                time_range_start=str(start),
+                time_range_end=str(end),
+                # The exact string fed into the hash (see compute_query_hash). Diff
+                # this between a warmer line and a reader line to find the divergent input.
+                normalized_query=repr(query_info.query),
+            )
 
         errors: list[str] = []
         failures = 0

@@ -10,6 +10,7 @@ from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifiers, TrendsQuery
 
@@ -2672,3 +2673,38 @@ class TestIsNonRetryableError(BaseTest):
     def test_generic_exception_is_retryable(self):
         error = Exception("Something went wrong")
         assert is_non_retryable_error(error) is False
+
+
+_CACHE_KEY_FLAG = "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.LOG_CACHE_KEY_DETAILS"
+
+
+class TestCacheKeyLogging(BaseTest):
+    def _query_info(self) -> QueryInfo:
+        select = parse_select("SELECT uniqExact(person_id) FROM events WHERE event = '$pageview'")
+        assert isinstance(select, ast.SelectQuery)
+        return QueryInfo(query=select, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+
+    def _execute_empty_range(self) -> list:
+        # A zero-width range does no insert/Redis work but still computes the hash
+        # and emits the cache-key log before the executor loop.
+        instant = datetime(2024, 1, 1, tzinfo=UTC)
+        with capture_logs() as logs:
+            LazyComputationExecutor().execute(self.team, self._query_info(), instant, instant)
+        return [entry for entry in logs if entry["event"] == "lazy_computation.cache_key"]
+
+    @patch(_CACHE_KEY_FLAG, True)
+    def test_logs_cache_key_inputs_when_enabled(self):
+        cache_key_logs = self._execute_empty_range()
+
+        assert len(cache_key_logs) == 1
+        entry = cache_key_logs[0]
+        assert entry["query_hash"] == compute_query_hash(self._query_info())
+        assert entry["team_id"] == self.team.id
+        assert entry["timezone"] == "UTC"
+        assert entry["table"] == str(LazyComputationTable.PREAGGREGATION_RESULTS)
+        # The normalized query is the exact string fed into the hash, so it can be diffed.
+        assert "$pageview" in entry["normalized_query"]
+
+    @patch(_CACHE_KEY_FLAG, False)
+    def test_no_cache_key_log_when_disabled(self):
+        assert self._execute_empty_range() == []
