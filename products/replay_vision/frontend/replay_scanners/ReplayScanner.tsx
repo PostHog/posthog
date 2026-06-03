@@ -4,6 +4,7 @@ import { Field, Form } from 'kea-forms'
 import {
     LemonBanner,
     LemonButton,
+    LemonDivider,
     LemonInput,
     LemonSelect,
     LemonSwitch,
@@ -14,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -24,9 +26,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerSceneLogicProps, replayScannerSceneLogic } from './replayScannerSceneLogic'
 import { EditorTab, SCANNER_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
@@ -60,18 +64,25 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
         !isNew && {
             key: 'observations' as EditorTab,
             label: 'Observations',
-            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
-        },
-        {
-            key: 'triggers',
-            label: 'Triggers',
-            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
+            content: (
+                <div className="space-y-4">
+                    <SummarizerMaxChat scannerId={scannerId} tabId={tabId} />
+                    <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />
+                </div>
+            ),
         },
         {
             key: 'configuration',
             label: 'Configuration',
             content: (
                 <div className="space-y-6 max-w-3xl">
+                    <div>
+                        <h3 className="text-base font-semibold mb-1">Details</h3>
+                        <p className="text-sm text-muted m-0">
+                            What this scanner looks for and how it analyzes recordings.
+                        </p>
+                    </div>
+
                     <Field name="name" label="Name">
                         <LemonInput placeholder="e.g. Confused checkout flow" />
                     </Field>
@@ -125,6 +136,14 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                             </div>
                         )}
                     </Field>
+
+                    <LemonDivider />
+
+                    <div>
+                        <h3 className="text-base font-semibold mb-1">Triggers</h3>
+                        <p className="text-sm text-muted m-0">Which completed recordings this scanner runs against.</p>
+                    </div>
+                    <ScannerTriggers scannerId={scannerId} tabId={tabId} />
                 </div>
             ),
         },
@@ -189,6 +208,8 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
 
             {hasUnsavedChanges && !isNew && <LemonBanner type="info">You have unsaved changes.</LemonBanner>}
 
+            <QuotaBanner />
+
             <Form logic={replayScannerLogic} props={{ id: scannerId, tabId }} formKey="scanner" enableFormOnSubmit>
                 <LemonTabs
                     activeKey={activeTab}
@@ -198,6 +219,34 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
             </Form>
         </SceneContent>
     )
+}
+
+const QUOTA_WARN_THRESHOLD = 0.8
+
+// Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
+function QuotaBanner(): JSX.Element | null {
+    const { quota } = useValues(visionQuotaLogic)
+    if (!quota || quota.monthly_quota <= 0) {
+        return null
+    }
+    const resetsOn = dayjs(quota.period_end).format('MMM D')
+    if (quota.exhausted) {
+        return (
+            <LemonBanner type="warning">
+                Monthly Vision quota reached ({quota.usage_this_month.toLocaleString()} /{' '}
+                {quota.monthly_quota.toLocaleString()}). Scheduled scans are paused until {resetsOn}.
+            </LemonBanner>
+        )
+    }
+    if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
+        return (
+            <LemonBanner type="warning">
+                Approaching monthly Vision quota: {quota.usage_this_month.toLocaleString()} of{' '}
+                {quota.monthly_quota.toLocaleString()} used. Schedules will pause once the cap is reached on {resetsOn}.
+            </LemonBanner>
+        )
+    }
+    return null
 }
 
 export default ReplayScannerSceneComponent

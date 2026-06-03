@@ -1,7 +1,7 @@
 import re
 import json
-from functools import cached_property
-from typing import Any, cast
+from functools import cache, cached_property
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -18,7 +18,6 @@ import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -27,7 +26,7 @@ from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import EmbeddingModelName, ProductKey
+from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -42,7 +41,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.tasks.exports.csv_exporter import _sanitize_formula_injection
+from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.utils import absolute_uri
 
 from ..facade.api import parse_interviewee_identifier
@@ -51,7 +50,17 @@ from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInte
 
 logger = structlog.get_logger(__name__)
 
-elevenlabs_client = ElevenLabs()
+if TYPE_CHECKING:
+    from elevenlabs import ElevenLabs
+
+
+@cache
+def _get_elevenlabs_client() -> "ElevenLabs":
+    # Deferred import + cached instance: the elevenlabs SDK is slow to import and
+    # only the audio transcription path needs it, not every process that loads this module.
+    from elevenlabs import ElevenLabs
+
+    return ElevenLabs()
 
 
 class _InterviewLinksCSVRenderer(csvrenderers.CSVRenderer):
@@ -89,7 +98,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def _transcribe_audio(self, audio: File, interviewee_emails: list[str]) -> str:
-        transcript = elevenlabs_client.speech_to_text.convert(
+        transcript = _get_elevenlabs_client().speech_to_text.convert(
             model_id="scribe_v1",
             file=audio,
             num_speakers=10,  # Maximum number of speakers, not expected one
@@ -321,7 +330,6 @@ class UserInterviewSearchResultSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the interview row was created.")
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
@@ -796,7 +804,6 @@ class SendInvitesRequestSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Planned user interview topics: who we want to target and what we want to ask about."""
 
@@ -902,10 +909,10 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         rows = [
             {
-                "interviewee_identifier": _sanitize_formula_injection(r["identifier"]),
-                "interviewee_email": _sanitize_formula_injection(r["email"] or ""),
-                "user_name": _sanitize_formula_injection(r["user_name"]),
-                "interview_url": _sanitize_formula_injection(r["interview_url"]),
+                "interviewee_identifier": sanitize_formula_injection(r["identifier"]),
+                "interviewee_email": sanitize_formula_injection(r["email"] or ""),
+                "user_name": sanitize_formula_injection(r["user_name"]),
+                "interview_url": sanitize_formula_injection(r["interview_url"]),
             }
             for r in results
         ]
@@ -1213,7 +1220,6 @@ class BulkIntervieweeContextResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier)."""
 

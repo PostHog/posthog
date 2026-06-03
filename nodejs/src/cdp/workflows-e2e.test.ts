@@ -25,21 +25,29 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
+import { HogFlow } from '../../src/schema/hogflow'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
-import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import { UUIDT } from '../../src/utils/utils'
+import {
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '../../src/worker/ingestion/persons/repositories/person-repository'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
+import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { HogFunctionInvocationGlobals } from './types'
+import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
@@ -54,13 +62,16 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     let eventsConsumer: CdpEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
+    let hogflowQueue: JobQueue
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
     let mockProducerObserver: KafkaProducerObserver
     let team: Team
     let globals: HogFunctionInvocationGlobals
+    let mockPersonRepo: jest.Mocked<PersonReadRepository>
     let cyclotronPool: Pool
+    let deps: ReturnType<typeof createCdpConsumerDeps>
 
     beforeAll(() => {
         cyclotronPool = new Pool({
@@ -108,12 +119,18 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             ],
         })
 
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        mockPersonRepo = {
+            fetchPerson: jest.fn().mockResolvedValue(undefined),
+            fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
+            fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
+            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
+        }
+
+        deps = { ...createCdpConsumerDeps(hub, kafkaProducer), personRepository: mockPersonRepo }
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
         // Build the hogflow queue for the current mode
-        let hogflowQueue: JobQueue
         if (mode === 'postgres-v2') {
             hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         } else {
@@ -191,13 +208,54 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         workflow: Parameters<FixtureHogFlowBuilder['withWorkflow']>[0],
         opts?: { name?: string }
     ): Promise<string> {
+        const flow = await createWorkflowFlow(workflow, opts)
+        return flow.id
+    }
+
+    /** Same as createWorkflow but returns the full HogFlow object (useful for hand-built invocations) */
+    async function createWorkflowFlow(
+        workflow: Parameters<FixtureHogFlowBuilder['withWorkflow']>[0],
+        opts?: { name?: string }
+    ): Promise<HogFlow> {
         const builder = new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withWorkflow(workflow)
         if (opts?.name) {
             builder.withName(opts.name)
         }
         const flow = builder.build()
         await insertHogFlow(hub.postgres, flow)
-        return flow.id
+        return flow
+    }
+
+    /**
+     * Construct and enqueue a batch-shaped CyclotronJobInvocation directly, mimicking what
+     * CdpBatchHogFlowRequestsConsumer.createHogFlowInvocation would produce. Skips the
+     * blast-radius API call so tests don't need to stand up the Django side.
+     */
+    async function triggerBatchWorkflow(hogFlow: HogFlow, personUuid: string): Promise<void> {
+        const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
+            team,
+            personId: personUuid,
+            siteUrl: hub.SITE_URL,
+        })
+        const filterGlobals = convertToHogFunctionFilterGlobal(invocationGlobals)
+        const invocation = {
+            id: new UUIDT().toString(),
+            state: {
+                event: invocationGlobals.event,
+                personId: personUuid,
+                actionStepCount: 0,
+                variables: {},
+            },
+            teamId: team.id,
+            functionId: hogFlow.id,
+            parentRunId: new UUIDT().toString(),
+            hogFlow,
+            person: invocationGlobals.person,
+            filterGlobals,
+            queue: 'hogflow' as const,
+            queuePriority: 1,
+        }
+        await hogflowQueue.queueInvocations([invocation])
     }
 
     // Reusable action configs
@@ -221,6 +279,14 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     const exitAction = () => ({ type: 'exit' as const, config: {} })
+
+    // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
+    // equality check on the `event` global. The matcher is fail-closed when bytecode
+    // is absent, so fixtures must supply it the same way Django would on save.
+    const eventNameBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+    const eventNameFilter = (eventName: string) => ({
+        filters: { events: [{ id: eventName }], bytecode: eventNameBytecode(eventName) },
+    })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -544,6 +610,128 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
+    // The matcher reads parked jobs via `CYCLOTRON_NODE_DATABASE_URL` (the postgres-v2 backend).
+    // In legacy `postgres` mode the worker parks the job in a different DB the matcher cannot see,
+    // so wakes are postgres-v2-only.
+    const describeMatcher = mode === 'postgres-v2' ? describe : describe.skip
+    describeMatcher('wait_until_condition: subscription matcher wakes parked jobs', () => {
+        let matcher: CdpHogflowSubscriptionMatcherConsumer
+
+        // trigger → wait_condition → (matched branch | timeout continue) → exit
+        const createWaitUntilWorkflow = (waitConfig: Record<string, any>): Promise<string> =>
+            createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: { type: 'wait_until_condition', config: waitConfig },
+                    function_matched: fetchAction('https://example.com/condition-matched'),
+                    function_timeout: fetchAction('https://example.com/timed-out'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_timeout', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                    { from: 'function_timeout', to: 'exit', type: 'continue' },
+                ],
+            })
+
+        // The job is parked when it is available with a scheduled time in the future.
+        const expectParked = async (): Promise<void> => {
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 5000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        }
+
+        beforeEach(() => {
+            matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+        })
+
+        afterEach(async () => {
+            await matcher?.stop().catch(() => {})
+        })
+
+        it('wakes a parked job and takes the matched branch when a subscribed event fires', async () => {
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A subscribed event fires for this person — the matcher wakes the job.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a parked job when a later event satisfies the property condition', async () => {
+            await createWaitUntilWorkflow({
+                // No events list — only a property-based condition. The matcher evaluates the
+                // condition against every incoming event, making property waits event-driven.
+                condition: { filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters },
+                max_wait_duration: '5m',
+            })
+            // Trigger with an event that does not satisfy the condition, so the job parks.
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+
+            // A later $pageview with a posthog URL satisfies the property condition.
+            await matcher.processBatch([
+                createGlobals({ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }),
+            ])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('takes the timeout branch when neither events nor the condition match before max_wait', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('never_fires')],
+                max_wait_duration: '2s',
+            })
+            await triggerWorkflow(createGlobals())
+
+            // An unrelated event passes through the matcher but must not wake the job.
+            await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
+
+            // After max_wait expires the job advances down the continue (timeout) branch.
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/timed-out', expect.anything())
+        })
+
+        it('leaves the job parked when an event matches neither the events nor the condition', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // An unrelated event must not wake the job.
+            await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
+
+            // Give the worker room to (incorrectly) pick the job up — it must not.
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
     describe('wait_until_time_window: window in the future', () => {
         beforeEach(async () => {
             await createWorkflow({
@@ -639,18 +827,21 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     describe('person data survives v2 round-trip', () => {
         beforeEach(async () => {
-            const personRepository = new PostgresPersonRepository(hub.postgres)
-            await personRepository.createPerson(
-                DateTime.utc(),
-                { email: 'test@example.com', name: 'Test User', plan: 'enterprise' },
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
-                { distinctId: 'test-distinct-id' }
-            )
+            const person: InternalPersonWithDistinctId = {
+                id: '1',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                team_id: team.id,
+                properties: { email: 'test@example.com', name: 'Test User', plan: 'enterprise' },
+                properties_last_updated_at: {},
+                properties_last_operation: null,
+                created_at: DateTime.utc(),
+                version: 1,
+                is_identified: true,
+                is_user_id: null,
+                last_seen_at: null,
+                distinct_id: 'test-distinct-id',
+            }
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([person])
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-workflows-e2e-person',
@@ -705,6 +896,134 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                     method: 'POST',
                 })
             )
+        })
+    })
+
+    describe('batch workflow: event.distinct_id resolved at the worker', () => {
+        // A batch-triggered workflow enqueues invocations with personId but an empty
+        // event.distinct_id (blast radius returns UUIDs only). The cyclotron worker is
+        // responsible for resolving one distinct_id per person during its existing
+        // postgres lookup and backfilling state.event.distinct_id — otherwise capture-based
+        // templates defaulting to {event.distinct_id} would silently mint new person profiles.
+        const personUuid = 'aaaaaaaa-1111-1111-1111-111111111111'
+        const personDistinctId = 'batch-person-distinct-id'
+        let hogFlow: HogFlow
+
+        beforeEach(async () => {
+            const person = {
+                id: '2',
+                uuid: personUuid,
+                team_id: team.id,
+                properties: { email: 'batch@example.com', plan: 'enterprise' },
+                properties_last_updated_at: {},
+                properties_last_operation: null,
+                created_at: DateTime.utc(),
+                version: 1,
+                is_identified: true,
+                is_user_id: null,
+                last_seen_at: null,
+            }
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([{ ...person, distinct_id: personDistinctId }])
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([person])
+            mockPersonRepo.fetchDistinctIdsForPersons.mockResolvedValue({
+                [person.id]: [personDistinctId],
+            })
+
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-batch-distinct-id',
+                name: 'Workflows E2E Batch Distinct Id',
+                code: `fetch(inputs.url, { 'method': 'POST', 'body': inputs.distinct_id });`,
+                inputs_schema: [
+                    { key: 'url', type: 'string', required: true },
+                    { key: 'distinct_id', type: 'string', required: true },
+                ],
+            })
+
+            hogFlow = await createWorkflowFlow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: {
+                            // 'batch' trigger so the events consumer skips this workflow —
+                            // it only fires when an invocation is queued directly.
+                            type: 'batch',
+                            filters: { properties: [{ key: 'plan', value: 'enterprise', type: 'person' }] },
+                        },
+                    },
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-batch-distinct-id',
+                            inputs: {
+                                url: { value: 'https://example.com/batch-distinct-id' },
+                                distinct_id: {
+                                    value: '{event.distinct_id}',
+                                    bytecode: ['_H', 1, 32, 'distinct_id', 32, 'event', 1, 2, 38],
+                                },
+                            },
+                        },
+                    },
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+        })
+
+        it("backfills {event.distinct_id} from the person's distinct_id at dequeue", async () => {
+            await triggerBatchWorkflow(hogFlow, personUuid)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 5000)
+
+            // The hog template's `{event.distinct_id}` resolved at runtime to the value
+            // the worker backfilled — proving the full chain: postgres lookup → CyclotronPerson.distinct_id
+            // → state.event.distinct_id mutation → hog input resolution.
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/batch-distinct-id',
+                expect.objectContaining({
+                    body: personDistinctId,
+                    method: 'POST',
+                })
+            )
+        })
+
+        it('does NOT call fetchDistinctIdsForPersons for event-triggered invocations', async () => {
+            // Regression guard for the optimization: when event.distinct_id is set going in,
+            // the persons-manager uses the by-distinct_id lookup which returns the distinct_id
+            // as part of the lookup key — no separate fetchDistinctIdsForPersons RPC needed.
+            // Without this guard, the by-person_id path could accidentally be used for event
+            // triggers and pay an unnecessary postgres round-trip per worker tick.
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-event-no-extra-rpc',
+                name: 'Workflows E2E Event No Extra RPC',
+                code: `fetch(inputs.url, { 'method': 'POST' });`,
+                inputs_schema: [{ key: 'url', type: 'string', required: true }],
+            })
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_1: fetchAction('https://example.com/event-trigger-no-extra-rpc'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            mockPersonRepo.fetchDistinctIdsForPersons.mockClear()
+
+            await triggerWorkflow(createGlobals({ distinct_id: personDistinctId }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalled()
+            }, 5000)
+
+            expect(mockPersonRepo.fetchDistinctIdsForPersons).not.toHaveBeenCalled()
         })
     })
 })

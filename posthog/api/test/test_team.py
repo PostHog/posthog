@@ -440,6 +440,7 @@ def team_api_test_factory():
                     },
                     "client": None,
                     "created_at": ANY,
+                    "ip_address": None,
                 },
                 {
                     "_state": ANY,
@@ -462,6 +463,7 @@ def team_api_test_factory():
                     "user_id": self.user.pk,
                     "was_impersonated": False,
                     "client": None,
+                    "ip_address": "127.0.0.1",
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -488,6 +490,7 @@ def team_api_test_factory():
                         "user_id": self.user.pk,
                         "was_impersonated": False,
                         "client": None,
+                        "ip_address": "127.0.0.1",
                     },
                 )
             assert activity == expected_activity
@@ -1612,6 +1615,29 @@ def team_api_test_factory():
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
+        def test_promoted_product_intent_returns_helper_value(
+            self, mock_get_promoted_product_intent: MagicMock
+        ) -> None:
+            mock_get_promoted_product_intent.return_value = "session_replay"
+
+            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"product_key": "session_replay"}
+            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
+
+        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
+        def test_promoted_product_intent_returns_null_when_helper_returns_none(
+            self, mock_get_promoted_product_intent: MagicMock
+        ) -> None:
+            mock_get_promoted_product_intent.return_value = None
+
+            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"product_key": None}
 
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")

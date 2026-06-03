@@ -1,9 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { replayScannerLogic } from './replayScannerLogic'
+import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ScorerScanner } from './types'
 
 describe('replayScannerLogic', () => {
@@ -12,8 +14,8 @@ describe('replayScannerLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team/vision/scanners/:id/': () => [404, {}],
-                '/api/environments/:team/vision/scanners/:id/observations/': { results: [] },
+                '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
+                '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
             },
         })
         initKeaTests()
@@ -36,6 +38,19 @@ describe('replayScannerLogic', () => {
                 sampling_rate: 1,
             })
         })
+
+        it('new scanner pre-fills from ?template= search param', async () => {
+            const template = defaultScannerTemplates.find((t) => t.key === 'dead_end')!
+            router.actions.push('/replay-vision/new', { template: template.key })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    name: template.scanner_name,
+                    description: template.scanner_description,
+                    scanner_type: template.scanner_type,
+                    scanner_config: template.scanner_config,
+                }),
+            })
+        })
     })
 
     describe('setScannerType', () => {
@@ -44,7 +59,6 @@ describe('replayScannerLogic', () => {
             { type: 'summarizer' as const, expectedConfig: { prompt: '', length: 'medium' } },
             { type: 'classifier' as const, expectedConfig: { prompt: '', tags: [], multi_label: true } },
             { type: 'scorer' as const, expectedConfig: { prompt: '', scale: { min: 0, max: 10 } } },
-            { type: 'indexer' as const, expectedConfig: { prompt: '' } },
         ])(
             'switching to $type replaces scanner_config with the default for that type',
             async ({ type, expectedConfig }) => {
@@ -57,7 +71,9 @@ describe('replayScannerLogic', () => {
         it('does not preserve old prompt across type changes', async () => {
             logic.actions.setScannerValues({ scanner_config: { prompt: 'Was there a refund?' } })
             await expectLogic(logic, () => logic.actions.setScannerType('summarizer')).toMatchValues({
-                scanner: expect.objectContaining({ scanner_config: { prompt: '', length: 'medium' } }),
+                scanner: expect.objectContaining({
+                    scanner_config: { prompt: '', length: 'medium' },
+                }),
             })
         })
     })

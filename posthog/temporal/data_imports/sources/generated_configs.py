@@ -73,7 +73,7 @@ class SnowflakeAuthTypeConfig(config.Config):
 @config.config
 class StripeAuthMethodConfig(config.Config):
     stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
-    selection: Literal["oauth", "api_key"] = "oauth"
+    selection: Literal["api_key", "oauth"] = "api_key"
     stripe_secret_key: str | None = None
 
 
@@ -278,6 +278,14 @@ class ConvexSourceConfig(config.Config):
 @config.config
 class CopperSourceConfig(config.Config):
     pass
+
+
+@config.config
+class CustomSourceConfig(config.Config):
+    manifest_json: str
+    auth_token: str | None = None
+    auth_api_key: str | None = None
+    auth_password: str | None = None
 
 
 @config.config
@@ -688,7 +696,8 @@ class ResendSourceConfig(config.Config):
 
 @config.config
 class RevenueCatSourceConfig(config.Config):
-    pass
+    secret_api_key: str
+    project_id: str
 
 
 @config.config
@@ -864,6 +873,11 @@ class WorkdaySourceConfig(config.Config):
 
 
 @config.config
+class WorkOSSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class WrikeSourceConfig(config.Config):
     pass
 
@@ -938,6 +952,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
         ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
+        ExternalDataSourceType.CUSTOM: CustomSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
@@ -1040,6 +1055,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
         ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
         ExternalDataSourceType.WORKDAY: WorkdaySourceConfig,
+        ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
         ExternalDataSourceType.WRIKE: WrikeSourceConfig,
         ExternalDataSourceType.XERO: XeroSourceConfig,
         ExternalDataSourceType.YOUTUBEANALYTICS: YouTubeAnalyticsSourceConfig,

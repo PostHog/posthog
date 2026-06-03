@@ -9,66 +9,12 @@
  */
 import * as zod from 'zod'
 
-/**
- * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
- */
-export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
-
-export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
-    uuid: zod.string().describe('UUID of the log entry to explain'),
-    timestamp: zod.iso.datetime({ offset: true }).describe('Timestamp of the log entry (used for efficient lookup)'),
-    force_refresh: zod
-        .boolean()
-        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
-        .describe('Force regenerate explanation, bypassing cache'),
-})
-
-export const logsViewsCreateBodyNameMax = 400
-
-export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsCreateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsUpdateBodyNameMax = 400
-
-export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsUpdateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsPartialUpdateBodyNameMax = 400
-
-export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
 
 export const logsAlertsCreateBodyThresholdCountDefault = 100
+export const logsAlertsCreateBodyThresholdCountMin = 0
 
 export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
 export const logsAlertsCreateBodyWindowMinutesDefault = 5
@@ -124,10 +70,10 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsCreateBodyThresholdCountMin)
         .default(logsAlertsCreateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -168,6 +114,7 @@ export const logsAlertsUpdateBodyNameMax = 255
 export const logsAlertsUpdateBodyEnabledDefault = true
 
 export const logsAlertsUpdateBodyThresholdCountDefault = 100
+export const logsAlertsUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsUpdateBodyWindowMinutesDefault = 5
@@ -223,10 +170,10 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsUpdateBodyThresholdCountMin)
         .default(logsAlertsUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -267,6 +214,7 @@ export const logsAlertsPartialUpdateBodyNameMax = 255
 export const logsAlertsPartialUpdateBodyEnabledDefault = true
 
 export const logsAlertsPartialUpdateBodyThresholdCountDefault = 100
+export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsPartialUpdateBodyWindowMinutesDefault = 5
@@ -322,10 +270,10 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(1)
+        .min(logsAlertsPartialUpdateBodyThresholdCountMin)
         .default(logsAlertsPartialUpdateBodyThresholdCountDefault)
         .describe(
-            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -393,6 +341,8 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
 
+export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
+
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
 
@@ -434,7 +384,10 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 .default(null),
         })
         .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
-    threshold_count: zod.number().min(1).describe('Threshold count to evaluate against.'),
+    threshold_count: zod
+        .number()
+        .min(logsAlertsSimulateCreateBodyThresholdCountMin)
+        .describe('Threshold count to evaluate against.'),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('\* `above` - Above\n\* `below` - Below')
@@ -649,6 +602,22 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters applied before bucketing. Same shape as `query-logs`.'),
         })
         .describe('The bucketed-count query to execute.'),
+})
+
+/**
+ * Explain a log entry using AI.
+
+POST /api/environments/:id/logs/explainLogWithAI/
+ */
+export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
+
+export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
+    uuid: zod.string().describe('UUID of the log entry to explain'),
+    timestamp: zod.iso.datetime({ offset: true }).describe('Timestamp of the log entry (used for efficient lookup)'),
+    force_refresh: zod
+        .boolean()
+        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
+        .describe('Force regenerate explanation, bypassing cache'),
 })
 
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
@@ -1103,4 +1072,43 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The sparkline query to execute.'),
+})
+
+export const logsViewsCreateBodyNameMax = 400
+
+export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsCreateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsUpdateBodyNameMax = 400
+
+export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsUpdateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsPartialUpdateBodyNameMax = 400
+
+export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
 })

@@ -1,6 +1,7 @@
 import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { colonDelimitedDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
@@ -37,57 +38,61 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-// Mirrors backend's `_EVENT_ID_CITATION_RE`; keep in sync.
-const EVENT_ID_PATTERN = /\(event_id ([0-9a-f]{16})\)/gi
+type Segment = { kind: 'text'; value: string } | { kind: 'chip'; uuid: string; timestamp_ms: number }
 
-function formatSessionOffset(ms: number): string {
-    const totalSeconds = Math.max(0, Math.floor(ms / 1000))
-    const h = Math.floor(totalSeconds / 3600)
-    const m = Math.floor((totalSeconds % 3600) / 60)
-    const s = totalSeconds % 60
-    if (h > 0) {
-        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+function isSegment(value: unknown): value is Segment {
+    if (!value || typeof value !== 'object') {
+        return false
     }
-    return `${m}:${s.toString().padStart(2, '0')}`
+    const candidate = value as Partial<Segment>
+    if (candidate.kind === 'text') {
+        return typeof (candidate as { value?: unknown }).value === 'string'
+    }
+    if (candidate.kind === 'chip') {
+        const chip = candidate as Partial<Extract<Segment, { kind: 'chip' }>>
+        return typeof chip.uuid === 'string' && typeof chip.timestamp_ms === 'number'
+    }
+    return false
 }
 
-export function CitedText({ observation, text }: { observation: ReplayObservationApi; text: string }): JSX.Element {
-    const mapping = (observation.scanner_result?.event_id_mapping ?? {}) as Record<string, unknown>
-    if (!text || Object.keys(mapping).length === 0) {
+/** Dumb renderer for parsed citation segments. Pass `onSeek` to make citation chips interactive; omit for plain-text timestamps. */
+export function CitedText({
+    text,
+    segments,
+    onSeek,
+}: {
+    text: string
+    segments: unknown
+    onSeek?: (timestampMs: number) => void
+}): JSX.Element {
+    const list = Array.isArray(segments) ? (segments.filter(isSegment) as Segment[]) : []
+    if (list.length === 0) {
         return <>{text}</>
     }
-    const sessionId = observation.session_id
-    const parts: React.ReactNode[] = []
-    let lastIndex = 0
-    let chipIndex = 0
-    EVENT_ID_PATTERN.lastIndex = 0
-    let match: RegExpExecArray | null
-    while ((match = EVENT_ID_PATTERN.exec(text)) !== null) {
-        const [full, hash] = match
-        const citation = mapping[hash.toLowerCase()] as { uuid?: string; timestamp_ms?: number } | undefined
-        if (!citation || typeof citation.timestamp_ms !== 'number') {
-            continue
-        }
-        if (match.index > lastIndex) {
-            parts.push(text.slice(lastIndex, match.index))
-        }
-        parts.push(
-            <Link
-                key={`evt-${chipIndex++}`}
-                to={urls.replaySingle(sessionId, {
-                    secondsOffsetFromStart: Math.max(0, Math.floor(citation.timestamp_ms / 1000)),
-                })}
-            >
-                <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
-                <span className="font-mono">{formatSessionOffset(citation.timestamp_ms)}</span>
-            </Link>
-        )
-        lastIndex = match.index + full.length
-    }
-    if (lastIndex < text.length) {
-        parts.push(text.slice(lastIndex))
-    }
-    return <>{parts}</>
+    return (
+        <>
+            {list.map((segment, i) => {
+                if (segment.kind === 'text') {
+                    return <span key={i}>{segment.value}</span>
+                }
+                const seconds = Math.max(0, Math.floor(segment.timestamp_ms / 1000))
+                const label = colonDelimitedDuration(seconds, null)
+                if (onSeek) {
+                    return (
+                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)} className="ml-0.5">
+                            <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
+                            <span className="font-mono">{label}</span>
+                        </Link>
+                    )
+                }
+                return (
+                    <span key={i} className="text-muted font-mono ml-0.5">
+                        {label}
+                    </span>
+                )
+            })}
+        </>
+    )
 }
 
 export function readConfig(snapshot: ScannerSnapshotApi | null): Record<string, unknown> {
@@ -99,10 +104,16 @@ export function ObservationPrimaryOutput({
     observation,
     compact = false,
     showPrompt = true,
+    onSeek,
+    expandSummary = false,
 }: {
     observation: ReplayObservationApi
     compact?: boolean
     showPrompt?: boolean
+    /** Called with timestamp_ms when a citation chip is clicked. If omitted, citations render as plain text. */
+    onSeek?: (timestampMs: number) => void
+    /** When true (dock/detail), summarizer body wraps in full; when false (table), single-line truncate. */
+    expandSummary?: boolean
 }): JSX.Element | null {
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -112,15 +123,26 @@ export function ObservationPrimaryOutput({
     const scannerType = snapshot.scanner_type
     const config = readConfig(snapshot)
     const prompt = showPrompt && typeof config.prompt === 'string' ? config.prompt : null
+    const summaryClass = expandSummary ? 'text-sm whitespace-pre-wrap' : compact ? 'text-sm truncate' : 'text-sm'
     const bodyClass = compact ? 'text-sm truncate' : 'text-sm'
     const promptClass = 'text-xs text-muted'
 
     if (scannerType === 'monitor') {
-        const verdict = Boolean(result.verdict)
+        const verdict = result.verdict
+        const tagType =
+            verdict === 'yes'
+                ? 'success'
+                : verdict === 'no'
+                  ? 'default'
+                  : verdict === 'inconclusive'
+                    ? 'muted'
+                    : 'muted'
+        const tagLabel =
+            verdict === 'yes' ? 'Yes' : verdict === 'no' ? 'No' : verdict === 'inconclusive' ? 'Inconclusive' : '—'
         return (
             <div className="flex flex-col gap-1">
-                <LemonTag size="medium" type={verdict ? 'success' : 'default'} className="self-start">
-                    {verdict ? 'Yes' : 'No'}
+                <LemonTag size="medium" type={tagType} className="self-start">
+                    {tagLabel}
                 </LemonTag>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
@@ -134,8 +156,8 @@ export function ObservationPrimaryOutput({
             <div className="flex flex-col gap-1">
                 {title && <span className="font-semibold text-sm">{title}</span>}
                 {summary && (
-                    <span className={bodyClass}>
-                        {compact ? summary : <CitedText observation={observation} text={summary} />}
+                    <span className={summaryClass}>
+                        <CitedText text={summary} segments={result.summary_segments} onSeek={onSeek} />
                     </span>
                 )}
             </div>
@@ -145,37 +167,63 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'classifier') {
         const fixedTags = Array.isArray(result.tags) ? (result.tags as string[]) : []
         const freeformTags = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
+        const configuredTags = Array.isArray(config.tags) ? (config.tags as string[]) : []
+        const chosen = new Set(fixedTags)
         const empty = fixedTags.length === 0 && freeformTags.length === 0
+        const renderVocab = (): JSX.Element[] =>
+            configuredTags.map((tag) => {
+                const isChosen = chosen.has(tag)
+                return (
+                    <LemonTag
+                        key={`fixed-${tag}`}
+                        size="medium"
+                        type={isChosen ? 'option' : 'default'}
+                        className={isChosen ? undefined : 'opacity-50 line-through'}
+                    >
+                        {tag}
+                    </LemonTag>
+                )
+            })
+        const renderFreeform = (): JSX.Element[] =>
+            freeformTags.map((tag) => (
+                <LemonTag key={`freeform-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
+                    {tag}
+                </LemonTag>
+            ))
+        if (compact) {
+            return (
+                <div className="flex flex-col gap-1">
+                    <div className="flex flex-wrap gap-1">
+                        {empty ? (
+                            <span className="text-muted text-sm">No tags</span>
+                        ) : (
+                            <>
+                                {fixedTags.map((tag) => (
+                                    <LemonTag key={`fixed-${tag}`} size="medium" type="option">
+                                        {tag}
+                                    </LemonTag>
+                                ))}
+                                {renderFreeform()}
+                            </>
+                        )}
+                    </div>
+                    {prompt && <span className={promptClass}>{prompt}</span>}
+                </div>
+            )
+        }
+        if (configuredTags.length === 0 && empty) {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="text-muted text-sm">No tags</span>
+                    {prompt && <span className={promptClass}>{prompt}</span>}
+                </div>
+            )
+        }
         return (
-            <div className="flex flex-col gap-1">
-                <div className="flex flex-wrap gap-1">
-                    {empty ? (
-                        <span className="text-muted text-sm">No tags</span>
-                    ) : (
-                        <>
-                            {fixedTags.map((tag) => (
-                                <LemonTag
-                                    key={`fixed-${tag}`}
-                                    size="medium"
-                                    type="option"
-                                    title="From the configured tag list"
-                                >
-                                    {tag}
-                                </LemonTag>
-                            ))}
-                            {freeformTags.map((tag) => (
-                                <LemonTag
-                                    key={`freeform-${tag}`}
-                                    size="medium"
-                                    type="default"
-                                    icon={<IconSparkles />}
-                                    title="Free-form tag from the model"
-                                >
-                                    {tag}
-                                </LemonTag>
-                            ))}
-                        </>
-                    )}
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-1">
+                    {renderVocab()}
+                    {renderFreeform()}
                 </div>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
@@ -184,25 +232,26 @@ export function ObservationPrimaryOutput({
 
     if (scannerType === 'scorer') {
         const score = typeof result.score === 'number' ? result.score : null
-        const label = typeof result.label === 'string' ? result.label : null
+        const resultLabel = typeof result.label === 'string' ? result.label : null
         const scale =
             config.scale && typeof config.scale === 'object' ? (config.scale as Record<string, unknown>) : null
         const scaleMax = scale && typeof scale.max === 'number' ? scale.max : null
         const scaleLabel = scale && typeof scale.label === 'string' ? scale.label : null
+        // Prefer the per-observation label (specific); fall back to the configured scale label (axis name).
+        const displayLabel = resultLabel ?? scaleLabel
         return (
             <div className="flex flex-col gap-1">
                 <span className="text-sm">
                     <span className="font-semibold text-base">{score ?? '—'}</span>
                     {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
-                    {scaleLabel && <span className="text-muted text-xs"> {scaleLabel}</span>}
-                    {label && <span className="text-muted"> — {label}</span>}
+                    {displayLabel && <span className="text-muted"> — {displayLabel}</span>}
                 </span>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
         )
     }
 
-    // Indexer / unknown fallback.
+    // Unknown / generic fallback (also covers summarizers that emit facets alongside title/summary).
     const summary = typeof result.summary === 'string' ? result.summary : null
     const userType = typeof result.user_type === 'string' ? result.user_type : null
     const outcome = typeof result.outcome === 'string' ? result.outcome : null
@@ -324,7 +373,13 @@ function ObservationProgress({ observation }: { observation: ReplayObservationAp
     )
 }
 
-export function ObservationDockCard({ observation }: { observation: ReplayObservationApi }): JSX.Element {
+export function ObservationDockCard({
+    observation,
+    onSeek,
+}: {
+    observation: ReplayObservationApi
+    onSeek?: (timestampMs: number) => void
+}): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
@@ -351,7 +406,7 @@ export function ObservationDockCard({ observation }: { observation: ReplayObserv
             )}
 
             {observation.status === 'succeeded' && snapshot && result && (
-                <ObservationPrimaryOutput observation={observation} compact />
+                <ObservationPrimaryOutput observation={observation} compact onSeek={onSeek} expandSummary />
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (

@@ -18,14 +18,19 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.api.file_download import (
+from posthog.models.scoping import team_scope
+
+from products.batch_exports.backend.api.file_download import (
     _calculate_expiration_for_file_download,
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
 )
-from posthog.models import BatchExportDestination, BatchExportFileDownload, BatchExportOnDemand, BatchExportRun
-from posthog.models.scoping import team_scope
-
+from products.batch_exports.backend.models.batch_export import (
+    BatchExportDestination,
+    BatchExportFileDownload,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 
 pytestmark = [
@@ -339,7 +344,9 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
 
     await async_client.aforce_login(user)
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.start_file_download_batch_export") as mock_start:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
         response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports",
             {
@@ -357,6 +364,47 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
     assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
     assert response.json()["code"] == "too_many_concurrent_file_downloads"
     mock_start.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_create_rejects_future_data_interval_end(
+    async_client: AsyncClient,
+    team,
+    user,
+):
+    now = dt.datetime.now(dt.UTC)
+
+    await async_client.aforce_login(user)
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
+        data_interval_end_iso = (now + dt.timedelta(hours=1)).isoformat()
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports",
+            {
+                "file": {
+                    "format": "Parquet",
+                    "compression": "zstd",
+                },
+                "model": "events",
+                "data_interval_start": (now - dt.timedelta(hours=1)).isoformat(),
+                "data_interval_end": data_interval_end_iso,
+            },
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == f"The provided 'data_interval_end' ({data_interval_end_iso}) is in the future"
+
+    mock_start.assert_not_called()
+    assert (
+        await BatchExportRun.objects.filter(
+            batch_export_on_demand__team_id=team.pk,
+            batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+        ).acount()
+        == 0
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -503,7 +551,7 @@ async def test_file_download_cancel_mocked(
     mocked_handle = unittest.mock.AsyncMock()
     mocked_client.get_workflow_handle.return_value = mocked_handle
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.sync_connect") as mocked_connect:
+    with unittest.mock.patch("products.batch_exports.backend.api.file_download.sync_connect") as mocked_connect:
         mocked_connect.return_value = mocked_client
         status_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",

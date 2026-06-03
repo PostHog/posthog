@@ -189,6 +189,9 @@ devbox:
     devbox:cleanup:disk:
         click: hogli_commands.devbox.cli:devbox_cleanup_disk
         description: Free disk space by cleaning caches and build artifacts
+    devbox:sync:
+        click: hogli_commands.devbox.sync:cmd_sync
+        description: Mirror your local PostHog checkout to a devbox
     devbox:task:
         click: hogli_commands.devbox.cli:devbox_task
         description: Run a background agent task on a fresh devbox
@@ -906,6 +909,9 @@ tools:
         bin_script: find-affected-stories
         description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
+    ci:insights:
+        click: hogli_commands.ci_insights:ci_insights
+        description: Show CI insights for the current repo + branch (search/view/plan subcommands)
 utilities:
     nuke:
         steps:
