@@ -1012,7 +1012,6 @@ class TestIntegrationAPIKeyAccess:
         "kind,scope,expected_status,expected_detail_substring",
         [
             ("slack", "integration:read", status.HTTP_200_OK, None),
-            ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
             ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
             # GitHub and Twilio resolve via the queryset, but the channels action's kind
             # guard rejects them with a 400 before SlackIntegration is constructed.
