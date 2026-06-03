@@ -10,7 +10,7 @@ import { AIDataLoading } from 'products/ai_observability/frontend/components/AID
 import { ConversationMessagesDisplay } from 'products/ai_observability/frontend/ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from 'products/ai_observability/frontend/hooks/useAIData'
 import { LLMInputOutput } from 'products/ai_observability/frontend/LLMInputOutput'
-import { normalizeMessages } from 'products/ai_observability/frontend/utils'
+import { normalizeMessages } from 'products/ai_observability/frontend/messageNormalization'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
     const { input, output, tools, isLoading } = useAIData({
