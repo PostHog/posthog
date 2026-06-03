@@ -53,6 +53,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             mcpVendorClient: 'ClaudeCode',
         },
         allTools: [],
+        scopeGatedTools: [],
         distinctId: 'distinct-id',
         ...overrides,
     }
