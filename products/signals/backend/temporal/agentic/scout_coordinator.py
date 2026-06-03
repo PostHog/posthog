@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -58,6 +59,13 @@ class FetchEnabledRunsOutput:
 
 
 @dataclass
+class StampDispatchedRunsInput:
+    """The (team, skill) runs whose child workflow was dispatched this tick."""
+
+    dispatched_runs: list[PlannedRun]
+
+
+@dataclass
 class CoordinatorWorkflowInput:
     """Placeholder input for forward-compat (e.g. future dry-run / debug flags)."""
 
@@ -85,6 +93,34 @@ async def fetch_enabled_signals_scout_runs_activity(
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)()
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
+
+
+@activity.defn
+async def stamp_dispatched_signals_scout_runs_activity(
+    stamp_input: StampDispatchedRunsInput,
+) -> None:
+    """Advance `last_run_at` for the configs whose child workflow was dispatched this tick.
+
+    Split out of planning so the schedule only advances for scouts a child was actually
+    launched for: if fan-out fails (or the coordinator dies) before dispatch, the config
+    stays unstamped and re-dispatches next tick instead of being silently suppressed for a
+    full interval. The trade is a rare double-run if this stamp fails after children started
+    — far less harmful than a day of suppression, and bounded by the activity retry policy.
+    """
+    async with Heartbeater():
+        await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(stamp_input.dispatched_runs)
+
+
+def _stamp_dispatched_runs(dispatched_runs: list[PlannedRun]) -> None:
+    """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
+    activity log."""
+    if not dispatched_runs:
+        return
+    now = timezone.now()
+    predicate = Q()
+    for run in dispatched_runs:
+        predicate |= Q(team_id=run.team_id, skill_name=run.skill_name)
+    SignalScoutConfig.all_teams.filter(predicate).update(last_run_at=now)
 
 
 @dataclass
@@ -136,10 +172,6 @@ def _collect_planned_runs() -> list[PlannedRun]:
             cap=MAX_RUNS_PER_TICK,
         )
         due = due[:MAX_RUNS_PER_TICK]
-
-    # Advance the schedule for everything we dispatch. `.update()` bypasses save(), so this
-    # per-tick write never hits the activity log.
-    SignalScoutConfig.all_teams.filter(pk__in=[d.config_pk for d in due]).update(last_run_at=now)
 
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in due]
     # Stable order for predictable child-workflow ids within the tick.
@@ -205,11 +237,15 @@ class SignalsScoutCoordinatorWorkflow:
     """Coordinator: scans dogfood teams, fans out per-(team, skill) child runs for due scouts.
 
     Dispatch is fire-and-forget: each child is started with `ParentClosePolicy.ABANDON`
-    so it outlives this workflow, and the coordinator returns immediately after the
-    last `start_child_workflow` call. This keeps the coordinator's lifetime to seconds
-    regardless of how many children are dispatched, so the schedule's `SKIP` overlap
+    so it outlives this workflow, and the coordinator returns right after the last
+    `start_child_workflow` call plus one fast bookkeeping activity that advances
+    `last_run_at` for the children it dispatched. This keeps the coordinator's lifetime to
+    seconds regardless of how many children are dispatched, so the schedule's `SKIP` overlap
     policy never collapses ticks at scale. Temporal's task queue + worker concurrency
     handles the throttling — if workers are saturated, the children just queue.
+
+    The schedule advances only after dispatch (not during planning) so a fan-out failure
+    re-dispatches next tick rather than silently suppressing a scout for a full interval.
 
     Idempotency: child workflow IDs are deterministic per `(team_id, skill_name, tick_id)`,
     so a retried coordinator can't double-launch within a single tick. A separate
@@ -246,11 +282,25 @@ class SignalsScoutCoordinatorWorkflow:
         tick_id = workflow.info().workflow_id
         started = 0
         skipped = 0
+        dispatched: list[PlannedRun] = []
         for idx, planned in enumerate(planned_runs):
             if await _start_child(planned=planned, tick_id=tick_id, idx=idx):
                 started += 1
             else:
                 skipped += 1
+            # Both branches mean a child for this (team, skill, tick) now exists (started, or
+            # dedupe-skipped because a retry already started it) — so its schedule should
+            # advance. A hard `start_child` error raises out of `_start_child` before reaching
+            # here, leaving that config unstamped to re-dispatch next tick.
+            dispatched.append(planned)
+
+        # Stamp only after dispatch, so a fan-out failure can't suppress a scout for a day.
+        await workflow.execute_activity(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(dispatched_runs=dispatched),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=5),
+        )
         return CoordinatorWorkflowOutput(
             planned_count=len(planned_runs),
             started_count=started,

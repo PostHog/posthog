@@ -27,7 +27,9 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     FetchEnabledRunsInput,
     PlannedRun,
     SignalsScoutCoordinatorWorkflow,
+    StampDispatchedRunsInput,
     fetch_enabled_signals_scout_runs_activity,
+    stamp_dispatched_signals_scout_runs_activity,
 )
 
 _FLAG_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.feature_enabled"
@@ -206,7 +208,26 @@ async def test_config_within_interval_is_not_due(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_overdue_config_runs_and_stamps_last_run_at(ateam):
+async def test_overdue_config_is_planned_without_stamping(ateam):
+    # Planning only selects due runs — it must NOT advance last_run_at. The schedule is
+    # stamped after dispatch (see test_stamp_activity_advances_dispatched_configs) so a
+    # fan-out failure can't suppress a scout for a full interval.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    old = timezone.now() - timedelta(minutes=2000)
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=old
+    )
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-foo"]
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at == old
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stamp_activity_advances_dispatched_configs(ateam):
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
     old = timezone.now() - timedelta(minutes=2000)
     config = await database_sync_to_async(_create_config)(
@@ -214,9 +235,12 @@ async def test_overdue_config_runs_and_stamps_last_run_at(ateam):
     )
 
     before = timezone.now()
-    planned = await _run_activity()
+    env = ActivityEnvironment()
+    await env.run(
+        stamp_dispatched_signals_scout_runs_activity,
+        StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
+    )
 
-    assert [p.skill_name for p in planned] == ["signals-scout-foo"]
     refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
     assert refreshed.last_run_at is not None and refreshed.last_run_at >= before
 
@@ -397,3 +421,40 @@ async def test_workflow_dispatches_children_fire_and_forget():
         (1, "signals-scout-b"),
         (2, "signals-scout-c"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_hard_dispatch_error_does_not_stamp():
+    # A non-dedupe start_child error must abort before the stamp activity, so the affected
+    # configs stay unstamped and re-dispatch next tick instead of being suppressed.
+    planned = [PlannedRun(team_id=1, skill_name="signals-scout-a")]
+    fake_fetch_result = type("R", (), {"planned_runs": planned})()
+    execute_activity_calls: list[Any] = []
+
+    async def fake_execute_activity(activity, *args, **kwargs):
+        execute_activity_calls.append(activity)
+        return fake_fetch_result
+
+    async def fake_start_child(_workflow_run, run_input, **kwargs):
+        raise RuntimeError("temporal unavailable")
+
+    coordinator = SignalsScoutCoordinatorWorkflow()
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
+            return_value=type("Info", (), {"workflow_id": "tick-1"})(),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",
+            side_effect=fake_start_child,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="temporal unavailable"):
+            await coordinator.run(CoordinatorWorkflowInput())
+
+    # Only the planning activity ran — the stamp activity never executed.
+    assert execute_activity_calls == [fetch_enabled_signals_scout_runs_activity]
