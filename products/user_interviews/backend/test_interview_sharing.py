@@ -1185,7 +1185,7 @@ class TestInviteFieldValidation(_FeatureFlagEnabledMixin):
         }
         response = self.client.post(self._url(), data=payload, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.content
-        topic = UserInterviewTopic.objects.get(id=response.json()["id"])
+        topic = UserInterviewTopic.objects.get(id=response.json()["id"], team=self.team)
         assert topic.invite_subject == subject
         assert topic.invite_message == message
 
