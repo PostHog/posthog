@@ -88,6 +88,7 @@ the row lists both.
 | plain            | HTTP                        | requests                                                        | ✅                          |
 | polar            | HTTP                        | requests                                                        | ✅                          |
 | postgres         | DB protocol                 | psycopg                                                         | ➖                          |
+| recurly          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recharge         | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
@@ -205,7 +206,6 @@ doesn't conflict with concurrent PRs.
 - postmark
 - productboard
 - quickbooks
-- recurly
 - ringcentral
 - salesloft
 - sendgrid
