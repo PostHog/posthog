@@ -11,24 +11,35 @@ import (
 	"time"
 
 	"github.com/posthog/posthog/services/prom-compat/internal/api"
+	"github.com/posthog/posthog/services/prom-compat/internal/config"
+	"github.com/posthog/posthog/services/prom-compat/internal/storage"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	host := envOrDefault("HOST", "0.0.0.0")
-	port := envOrDefault("PORT", "9090")
-	addr := host + ":" + port
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("config load failed", "err", err)
+		os.Exit(1)
+	}
+
+	storeClient, err := storage.NewClient(cfg.ClickHouse)
+	if err != nil {
+		slog.Error("clickhouse client init failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = storeClient.Close() }()
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           api.NewServer(),
+		Addr:              cfg.Host + ":" + cfg.Port,
+		Handler:           api.NewServer(api.Deps{Storage: storeClient}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
-		slog.Info("prom-compat listening", "addr", addr)
+		slog.Info("prom-compat listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("listen failed", "err", err)
 			os.Exit(1)
@@ -47,11 +58,4 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("shutdown complete")
-}
-
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }

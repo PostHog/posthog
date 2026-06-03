@@ -75,6 +75,14 @@ case "$GO_SVC" in
     export HOST="0.0.0.0"
     export PORT="9090"
 
+    # ClickHouse (logs cluster) — defaults aimed at the local hogli dev stack.
+    # Override any of these to point at a different cluster.
+    export CLICKHOUSE_LOGS_CLUSTER_HOST="${CLICKHOUSE_LOGS_CLUSTER_HOST:-localhost}"
+    export CLICKHOUSE_LOGS_CLUSTER_PORT="${CLICKHOUSE_LOGS_CLUSTER_PORT:-9000}"
+    export CLICKHOUSE_LOGS_CLUSTER_USER="${CLICKHOUSE_LOGS_CLUSTER_USER:-default}"
+    export CLICKHOUSE_LOGS_CLUSTER_PASSWORD="${CLICKHOUSE_LOGS_CLUSTER_PASSWORD:-}"
+    export CLICKHOUSE_LOGS_CLUSTER_DATABASE="${CLICKHOUSE_LOGS_CLUSTER_DATABASE:-default}"
+
     # ensure we're in the prom-compat directory for air
     cd services/prom-compat
     ;;

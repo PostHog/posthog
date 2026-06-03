@@ -34,12 +34,24 @@ cd services/prom-compat && go run .
 
 ## Configuration
 
-| Env var | Default   | Required | Purpose          |
-| ------- | --------- | -------- | ---------------- |
-| `HOST`  | `0.0.0.0` | no       | Bind address     |
-| `PORT`  | `9090`    | no       | HTTP listen port |
+| Env var                            | Default   | Required | Purpose                            |
+| ---------------------------------- | --------- | -------- | ---------------------------------- |
+| `HOST`                             | `0.0.0.0` | no       | Bind address                       |
+| `PORT`                             | `9090`    | no       | HTTP listen port                   |
+| `CLICKHOUSE_LOGS_CLUSTER_HOST`     | —         | yes      | ClickHouse hostname (logs cluster) |
+| `CLICKHOUSE_LOGS_CLUSTER_PORT`     | `9000`    | no       | ClickHouse native protocol port    |
+| `CLICKHOUSE_LOGS_CLUSTER_USER`     | —         | yes      | ClickHouse user (prefer read-only) |
+| `CLICKHOUSE_LOGS_CLUSTER_PASSWORD` | —         | no       | ClickHouse password                |
+| `CLICKHOUSE_LOGS_CLUSTER_DATABASE` | —         | yes      | ClickHouse database                |
+| `CH_MAX_OPEN_CONNS`                | `32`      | no       | Connection pool max open           |
+| `CH_MAX_IDLE_CONNS`                | `8`       | no       | Connection pool max idle           |
+| `CH_MAX_LIFETIME`                  | `1h`      | no       | Pooled connection max lifetime     |
+| `CH_DIAL_TIMEOUT`                  | `5s`      | no       | TCP dial timeout                   |
+| `CH_READ_TIMEOUT`                  | `30s`     | no       | Query read timeout                 |
 
-(Additional config arrives in subsequent PRs — ClickHouse, Redis, Postgres, auth, etc.)
+`bin/start-go-service prom-compat` sets the ClickHouse vars to the local hogli dev stack defaults; override any of them via env to point elsewhere.
+
+(Additional config arrives in subsequent PRs — Redis, Postgres, auth, etc.)
 
 ## Endpoints
 
