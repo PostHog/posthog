@@ -886,6 +886,8 @@ class HogQLQueryExecutor:
                     self._execute_direct_postgres_query()
                 elif self.clickhouse_sql is not None:
                     if self.clickhouse_sql == "":
+                        self.results = []
+                        self.types = []
                         if self.error is None:
                             self.error = "Unknown error"
                     else:

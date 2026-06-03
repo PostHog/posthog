@@ -26,6 +26,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
@@ -2040,12 +2041,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response and response.metadata and response.metadata.ch_table_names
         assert any("sessions" in name for name in response.metadata.ch_table_names)
 
-    @patch("posthog.hogql.query.prepare_ast_for_printing", side_effect=ExposedHogQLError("debug failure"))
     @patch("posthog.hogql.query.sync_execute")
-    def test_debug_mode_preserves_prepare_error_without_executing_clickhouse(
-        self, mock_sync_execute, _mock_prepare_ast_for_printing
-    ):
-        response = execute_hogql_query("SELECT 1", team=self.team, modifiers=HogQLQueryModifiers(debug=True))
+    def test_debug_mode_preserves_prepare_error_without_executing_clickhouse(self, mock_sync_execute):
+        def prepare_ast_for_printing_side_effect(*args, **kwargs):
+            if kwargs.get("dialect") == "clickhouse":
+                raise ExposedHogQLError("debug failure")
+            return unmocked_prepare_ast_for_printing(*args, **kwargs)
+
+        with patch("posthog.hogql.query.prepare_ast_for_printing", side_effect=prepare_ast_for_printing_side_effect):
+            response = execute_hogql_query("SELECT 1", team=self.team, modifiers=HogQLQueryModifiers(debug=True))
 
         self.assertEqual(response.error, "debug failure")
         self.assertEqual(response.clickhouse, "")
