@@ -1,4 +1,3 @@
-import io
 import re
 import ssl
 import sys
@@ -120,54 +119,6 @@ class ChunkBytesAsyncStreamIterator:
             raise StopAsyncIteration
 
         return data
-
-
-class DecodedResponse(typing.Protocol):
-    def iter_content(self, chunk_size: int = ...) -> collections.abc.Iterator[bytes]: ...
-
-
-class DecodedResponseStream(io.RawIOBase):
-    """File-like wrapper that buffers decoded requests response chunks for PyArrow."""
-
-    mode = "rb"
-
-    def __init__(self, response: DecodedResponse) -> None:
-        super().__init__()
-        self._chunks = response.iter_content(chunk_size=8192)
-        self._buffer = bytearray()
-
-    def readable(self) -> bool:
-        return True
-
-    def read(self, size: int | None = -1) -> bytes:
-        if size is None or size < 0:
-            chunks = [bytes(self._buffer)]
-            self._buffer.clear()
-            chunks.extend(chunk for chunk in self._chunks if chunk)
-            return b"".join(chunks)
-
-        while len(self._buffer) < size:
-            try:
-                chunk = next(self._chunks)
-            except StopIteration:
-                break
-
-            if chunk:
-                self._buffer.extend(chunk)
-
-        data = bytes(self._buffer[:size])
-        del self._buffer[:size]
-        return data
-
-    def readinto(self, buffer: collections.abc.Buffer) -> int:
-        view = memoryview(buffer)
-        data = self.read(len(view))
-        bytes_read = len(data)
-        view[:bytes_read] = data
-        return bytes_read
-
-    def close(self) -> None:
-        super().close()
 
 
 class ClickHouseClientNotConnected(Exception):
@@ -575,6 +526,8 @@ class ClickHouseClient:
             The response received from the ClickHouse HTTP interface.
         """
         params = {**self.params}
+        # PyArrow reads response.raw directly in stream_query_as_arrow, so keep the HTTP body uncompressed.
+        params["enable_http_compression"] = 0
         if query_id is not None:
             params["query_id"] = query_id
 
@@ -824,7 +777,7 @@ class ClickHouseClient:
         As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
         """
         with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            with pa.ipc.open_stream(pa.PythonFile(DecodedResponseStream(response))) as reader:
+            with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
                 yield from reader
 
     async def astream_query_as_arrow(
