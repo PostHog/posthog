@@ -261,7 +261,7 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class CloseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

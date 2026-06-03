@@ -56,6 +56,7 @@ the row lists both.
 | chartmogul    | HTTP                        | requests                                                        | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse    | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| close         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit    | HTTP                        | requests                                                        | ✅                          |
 | convex        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
@@ -158,7 +159,6 @@ doesn't conflict with concurrent PRs.
 - campaign_monitor
 - circleci
 - clickup
-- close
 - cockroachdb
 - confluence
 - copper
