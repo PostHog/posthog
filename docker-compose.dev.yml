@@ -165,6 +165,9 @@ services:
             CDP_REDIS_HOST: redis7
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+            # PersonHog is required for CDP — point at the local gRPC router
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             kafka:
                 condition: service_started
@@ -563,6 +566,28 @@ services:
             - '2080:8080'
         environment:
             - AUTO_CREATE_SESSIONS=true
+
+    personhog-replica:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-replica
+        environment:
+            PRIMARY_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+        depends_on:
+            db:
+                condition: service_healthy
+        profiles:
+            - ingestion
+
+    personhog-router:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-router
+        depends_on:
+            personhog-replica:
+                condition: service_started
+        profiles:
+            - ingestion
 
     feature-flags:
         extends:
