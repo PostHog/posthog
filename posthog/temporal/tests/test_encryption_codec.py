@@ -59,7 +59,7 @@ def test_prepare_key(key: bytes, expected: bytes) -> None:
     assert base64.urlsafe_b64decode(result) == _resize_key(key)
 
 
-def test_codec_rejects_short_keys_when_not_debug_or_test(codec: EncryptionCodec):
+def test_codec_rejects_short_keys_when_not_debug_or_test():
     class EncryptionSettings:
         TEMPORAL_SECRET_KEY: str | bytes = b"a"
         TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes] = []
