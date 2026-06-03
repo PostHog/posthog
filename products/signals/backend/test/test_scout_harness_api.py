@@ -73,7 +73,7 @@ def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
 
 def _make_run(team: Team, *, task_run_status: str = TaskRun.Status.IN_PROGRESS, **overrides) -> SignalScoutRun:
     """Build a SignalScoutRun bridge row whose TaskRun is in the given status."""
-    config, _ = SignalScoutConfig.objects.get_or_create(team=team)
+    config, _ = SignalScoutConfig.objects.get_or_create(team=team, skill_name="signals-scout-general")
     task_run = _make_task_run(team, status=task_run_status)
     defaults: dict = {
         "task_run": task_run,

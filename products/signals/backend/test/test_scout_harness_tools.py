@@ -440,7 +440,7 @@ async def ateam_emit(aorganization_emit):
             enabled=True,
         )
         # Seed a SignalScoutConfig so the run row's FK is valid.
-        await database_sync_to_async(SignalScoutConfig.objects.create)(team=team)
+        await database_sync_to_async(SignalScoutConfig.objects.create)(team=team, skill_name="signals-scout-errors")
         yield team
 
 
@@ -640,7 +640,7 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
     owning_team = Team.objects.create(organization=org, name="owner")
     other_team = Team.objects.create(organization=org, name="other")
     with team_scope(owning_team.id, canonical=True):
-        config = SignalScoutConfig.objects.create(team=owning_team)
+        config = SignalScoutConfig.objects.create(team=owning_team, skill_name="signals-scout-errors")
         task_run = _make_task_run(owning_team, status=TaskRun.Status.IN_PROGRESS)
         run = SignalScoutRun.objects.create(
             task_run=task_run,
