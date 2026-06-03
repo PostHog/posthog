@@ -1,4 +1,4 @@
-import { kea, path, selectors, type Logic } from 'kea'
+import { kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -27,7 +27,7 @@ import { maxMocks } from './testUtils'
 
 const Component = (): null => null
 const SCENE_NOTEBOOK_SHORT_ID = 'scene-notebook'
-const testSceneMaxContextLogic = kea<Logic>([
+const testSceneMaxContextLogic = kea([
     path(['scenes', 'max', 'maxContextLogicTestScene']),
     selectors({
         maxContext: [
