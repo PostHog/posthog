@@ -263,13 +263,16 @@ jobs:
                         - 'services/mcp/schema/tool-definitions-all.json'
 
             # Detect PRs whose backend changes are confined to data warehouse
-            # import sources. Everything under posthog/temporal/data_imports/sources/**
-            # (source code, their tests, generated_configs.py, SOURCES.md) is
-            # exercised only by the Django Temporal segment — Core/CorePOE ignore
-            # posthog/temporal — so those segments add no coverage for such a PR.
-            # Fails OPEN: an empty or non-source backend file list leaves the
-            # output false, so the full matrix runs. PR events only; push and
-            # merge_group always run everything.
+            # import sources that NO Django Core/CorePOE-collected code imports.
+            # Such a PR is exercised only by the Temporal segment (Core/CorePOE
+            # --ignore=posthog/temporal), so those segments add no coverage.
+            # The `coupled` sources are reverse-imported at runtime by Core tests
+            # (e.g. posthog/hogql/test/test_direct_postgres_query.py imports
+            # postgres) — a PR touching them must run the full matrix or it would
+            # silently skip those tests. `coupled` is kept complete by the guard
+            # test posthog/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
+            # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
+            # PR events only; push and merge_group always run everything.
             - name: Determine if only data warehouse sources changed
               id: sources
               if: github.event_name == 'pull_request'
@@ -277,6 +280,7 @@ jobs:
                   BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
+                  coupled="common postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -285,6 +289,14 @@ jobs:
                               "$prefix"*) ;;
                               *) only_sources=false; break ;;
                           esac
+                          rest=${f#"$prefix"}    # path within sources/
+                          top=${rest%%/*}        # vendor dir (or top-level filename)
+                          for c in $coupled; do
+                              if [ "$top" = "$c" ]; then
+                                  only_sources=false
+                                  break 2
+                              fi
+                          done
                       done
                   fi
                   echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
