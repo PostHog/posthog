@@ -301,7 +301,7 @@ describe('createParseMessageStep', () => {
 
         expect(result.type).toBe(PipelineResultType.DLQ)
         if (result.type === PipelineResultType.DLQ) {
-            expect(result.reason).toBe('invalid_gzip_data')
+            expect(result.reason).toBe('invalid_compressed_data')
         }
     })
 

@@ -36,10 +36,12 @@ from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    COUPON_RESOURCE_NAME as STRIPE_COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME as STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISCOUNT_RESOURCE_NAME as STRIPE_DISCOUNT_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
@@ -129,6 +131,8 @@ class TestExternalDataSource(APIBaseTest):
                             "should_sync": True,
                             "sync_type": "full_refresh",
                         },
+                        {"name": STRIPE_COUPON_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISCOUNT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -1300,6 +1304,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_table_mode": "consolidated",
                     "enabled_columns": None,
                     "available_columns": [],
+                    "source": None,
                 }
             ],
         )
@@ -3298,6 +3303,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "webhook_only": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -3366,6 +3372,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "webhook_only": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -4001,6 +4008,65 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "new_password"
+        mock_validate_credentials.assert_called_once()
+
+    def _servicenow_source(self) -> ExternalDataSource:
+        # ServiceNow's connection target is `instance_url` (not a top-level `host`) and its
+        # secret lives nested inside the `auth_method` container.
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="ServiceNow",
+            created_by=self.user,
+            prefix="servicenow_src",
+            job_inputs={
+                "instance_url": "https://acme.service-now.com",
+                "auth_method": {"selection": "api_key", "api_key": "sk_existing"},
+            },
+        )
+
+    @patch(
+        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_servicenow_instance_url_change_without_credentials_is_rejected(self, mock_validate_credentials):
+        source = self._servicenow_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"instance_url": "https://attacker.example.com"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["instance_url"] == "https://acme.service-now.com"
+        assert source.job_inputs["auth_method"]["api_key"] == "sk_existing"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_servicenow_instance_url_change_with_credentials_succeeds(self, mock_validate_credentials):
+        source = self._servicenow_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "instance_url": "https://new-instance.service-now.com",
+                    "auth_method": {"selection": "api_key", "api_key": "sk_new"},
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["instance_url"] == "https://new-instance.service-now.com"
+        assert source.job_inputs["auth_method"]["api_key"] == "sk_new"
         mock_validate_credentials.assert_called_once()
 
     def _custom_source(self, base_url: str, resource_paths: list[str] | None = None) -> ExternalDataSource:
