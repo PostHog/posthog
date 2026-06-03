@@ -21,7 +21,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.utils import get_instance_region
 
-from ee.models.assistant import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 if TYPE_CHECKING:
     from posthog.models import Team
