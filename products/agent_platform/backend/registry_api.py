@@ -91,7 +91,7 @@ class AgentSkillTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # generation — every action declares its own request/response shape via
     # `@extend_schema`, so this is just the catch-all fallback.
     serializer_class = SkillTemplateDetailSerializer
-    scope_object = "agent_application"
+    scope_object = "agents"
     scope_object_read_actions = ["list", "retrieve_by_name", "versions", "usages"]
     scope_object_write_actions = [
         "create",
@@ -466,7 +466,7 @@ class AgentCustomToolTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
 
     serializer_class = CustomToolTemplateDetailSerializer
-    scope_object = "agent_application"
+    scope_object = "agents"
     scope_object_read_actions = ["list", "retrieve_by_name", "versions", "usages"]
     scope_object_write_actions = ["create", "publish", "archive", "duplicate"]
     lookup_field = "name"

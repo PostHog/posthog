@@ -9,7 +9,7 @@ default CH database) all get caught by CI:
   * hits `/agent_applications/<slug>/sessions/<session_id>/logs/`
   * asserts 200 + the row comes back
   * also asserts the action is declared as a scoped read action so
-    PAT / OAuth callers with `agent_application:read` aren't rejected
+    PAT / OAuth callers with `agents:read` aren't rejected
 """
 
 from __future__ import annotations

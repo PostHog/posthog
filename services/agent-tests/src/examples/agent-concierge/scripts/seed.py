@@ -13,7 +13,7 @@ Usage:
         python services/agent-tests/src/examples/agent-concierge/scripts/seed.py
 
 Env vars:
-    PAT            PostHog personal API key with agent_application:write scope
+    PAT            PostHog personal API key with agents:write scope
     POSTHOG_API    Base API URL (default http://localhost:8010)
     PROJECT_ID     Target project id (default 1)
     SLUG           Application slug (default agent-concierge)

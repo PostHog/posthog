@@ -181,8 +181,23 @@ export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'cron'
           config: {
+              /** @minLength 1 */
+              name: string
+              /** @minLength 1 */
               schedule: string
-              timezone: string
+              timezone?: string
+              /**
+               * @minLength 1
+               * @maxLength 4096
+               */
+              prompt: string
+              external_key?: string
+              catch_up?: 'all' | 'most_recent' | 'skip'
+              /**
+               * @minimum 1
+               * @maximum 604800
+               */
+              max_catch_up_age_seconds?: number
           }
       }
     | {
@@ -360,8 +375,23 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
     | {
           type: 'cron'
           config: {
+              /** @minLength 1 */
+              name: string
+              /** @minLength 1 */
               schedule: string
-              timezone: string
+              timezone?: string
+              /**
+               * @minLength 1
+               * @maxLength 4096
+               */
+              prompt: string
+              external_key?: string
+              catch_up?: 'all' | 'most_recent' | 'skip'
+              /**
+               * @minimum 1
+               * @maximum 604800
+               */
+              max_catch_up_age_seconds?: number
           }
       }
     | {
@@ -1419,7 +1449,7 @@ export interface SkillTemplateDuplicateApi {
      */
     name: string
     /**
-     * Description for the new template. Defaults to the source's description.
+     * Description for the new template (1–1024 chars, non-empty). Omit to keep the source's description.
      * @maxLength 1024
      */
     description?: string

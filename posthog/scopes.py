@@ -18,7 +18,7 @@ APIScopeObject = Literal[
     "access_control",
     "account",
     "activity_log",
-    "agent_application",
+    "agents",
     "alert",
     "annotation",
     "approvals",

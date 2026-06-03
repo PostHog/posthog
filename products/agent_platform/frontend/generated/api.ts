@@ -1436,7 +1436,7 @@ this proxy attaches it after authenticating the Django caller. See
 docs/agent-platform/plans/draft-preview-auth.md.
 
 URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
-Auth: standard PAT / session — `agent_application:read` scope.
+Auth: standard PAT / session — `agents:read` scope.
  */
 export const agentApplicationsPreviewProxy = async (
     projectId: string,

@@ -346,7 +346,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
     """
 
-    scope_object = "agent_application"
+    scope_object = "agents"
     scope_object_write_actions = [
         "create",
         "update",
@@ -602,7 +602,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         docs/agent-platform/plans/draft-preview-auth.md.
 
         URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
-        Auth: standard PAT / session — `agent_application:read` scope.
+        Auth: standard PAT / session — `agents:read` scope.
         """
         application = self.get_object()
         if application is None:
@@ -1344,7 +1344,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
     """
 
-    scope_object = "agent_application"  # share the parent's scope
+    scope_object = "agents"  # share the parent's scope
     # AgentRevision is tenant-scoped via its parent application, not directly.
     # The URL kwarg `project_id` from the parent router defaults to filtering
     # `team__project_id` on the queryset, but AgentRevision only has
@@ -1928,7 +1928,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     so memory edits surface in the agent's audit trail.
     """
 
-    scope_object = "agent_application"  # share the parent's scope
+    scope_object = "agents"  # share the parent's scope
     scope_object_read_actions = ["list_files", "tree", "get_file", "search"]
     scope_object_write_actions = ["create_file", "update_file", "delete_file"]
     # The parent URL kwarg is `application_id`; we override resolution to
@@ -2228,7 +2228,7 @@ class AgentNativeToolsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     wizard show this list to humans + models when picking what to wire up.
     """
 
-    scope_object = "agent_application"
+    scope_object = "agents"
     scope_object_read_actions = ["list"]
 
     @extend_schema(
@@ -2270,7 +2270,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     list without per-agent N+1.
     """
 
-    scope_object = "agent_application"
+    scope_object = "agents"
     scope_object_read_actions = ["stats", "live_sessions"]
 
     @extend_schema(
