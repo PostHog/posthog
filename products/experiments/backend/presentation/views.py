@@ -28,10 +28,8 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -48,7 +46,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     experiment_has_legacy_metrics,
 )
-from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import (
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
@@ -791,37 +788,3 @@ class EnterpriseExperimentsViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
-
-
-@mutable_receiver(model_activity_signal, sender=Experiment)
-@mutable_receiver(model_activity_signal, sender=WebExperiment)
-def handle_experiment_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # WebExperiment is a proxy model — normalize scope to "Experiment" for consistent activity logs
-    scope = "Experiment"
-    is_web_experiment = after_update.type == Experiment.ExperimentType.WEB
-
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    changes = changes_between(scope, previous=before_update, current=after_update)
-
-    if is_web_experiment:
-        # Web experiments don't use parameters (a product experiment field), but it can
-        # get cleared to null during updates, producing a noisy diff
-        changes = [c for c in changes if c.field != "parameters"]
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(changes=changes, name=after_update.name),
-    )
