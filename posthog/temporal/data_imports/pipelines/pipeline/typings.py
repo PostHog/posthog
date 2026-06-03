@@ -13,9 +13,14 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 if TYPE_CHECKING:
     from dlt.common.data_types.typing import TDataType
 else:
-    # Runtime placeholder so get_type_hints() on the dataclasses below resolves without importing
-    # dlt (kept type-only above). The real, mypy-visible type comes from the TYPE_CHECKING branch.
-    TDataType = str
+    # Runtime stub so get_type_hints() on the dataclasses below resolves without importing dlt (kept
+    # type-only above). Deliberately not `str` — nothing should rely on the runtime value, and a named
+    # stub makes accidental use obvious rather than silently passing as a plausible type. The real,
+    # mypy-visible type comes from the TYPE_CHECKING branch.
+    class TDataType:
+        def __repr__(self) -> str:
+            return "<TDataType: type-checking-only stub for dlt.common.data_types.typing.TDataType>"
+
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
