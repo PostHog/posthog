@@ -563,7 +563,9 @@ def format_filter_query(
         id_column=id_column,
         GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
-    return person_id_query, params
+    # get_team_distinct_ids_query embeds a %(team_id)s placeholder, so the returned params must
+    # carry team_id (HogQLCohortQuery inlines its own team_id and doesn't surface this key).
+    return person_id_query, {**params, "team_id": cohort.team_id}
 
 
 def format_cohort_subquery(
