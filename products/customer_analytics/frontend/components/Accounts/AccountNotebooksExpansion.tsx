@@ -43,7 +43,7 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                     <LemonSkeleton className="h-7 w-32" />
                     <LemonSkeleton className="h-7 w-32" />
                 </>
-            ) : links.length > 0 ? (
+            ) : (
                 links.map((link) => (
                     <LemonButton
                         key={link.key}
@@ -51,14 +51,13 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                         size="small"
                         fullWidth
                         icon={LINK_ICONS[link.key]}
-                        to={link.to}
+                        to={link.to ?? undefined}
                         targetBlank={link.targetBlank}
+                        disabledReason={link.disabledReason ?? undefined}
                     >
                         {link.label}
                     </LemonButton>
                 ))
-            ) : (
-                <span className="text-muted text-sm italic">No links available</span>
             )}
         </div>
     )

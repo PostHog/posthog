@@ -22,8 +22,9 @@ export interface AccountLinksLogicProps {
 export interface AccountLink {
     key: string
     label: string
-    to: string
+    to: string | null
     targetBlank: boolean
+    disabledReason: string | null
 }
 
 function revenueDashboardUrl(externalId: string, billingId: string | null): string {
@@ -61,46 +62,43 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 const billingId = account?.properties?.billing_id ?? null
                 const slackChannelId = account?.properties?.slack_channel_id ?? null
                 const usageDashboardLink = account?.properties?.usage_dashboard_link ?? null
-                const links: AccountLink[] = []
-                if (externalId) {
-                    links.push({
+                return [
+                    {
                         key: 'organization',
                         label: 'Organization',
-                        to: urls.group(ORGANIZATION_GROUP_TYPE_INDEX, externalId),
+                        to: externalId ? urls.group(ORGANIZATION_GROUP_TYPE_INDEX, externalId) : null,
                         targetBlank: false,
-                    })
-                    links.push({
+                        disabledReason: externalId ? null : 'No external ID set',
+                    },
+                    {
                         key: 'revenue',
                         label: 'Revenue',
-                        to: revenueDashboardUrl(externalId, billingId),
+                        to: externalId ? revenueDashboardUrl(externalId, billingId) : null,
                         targetBlank: false,
-                    })
-                }
-                if (usageDashboardLink) {
-                    links.push({
+                        disabledReason: externalId ? null : 'No external ID set',
+                    },
+                    {
                         key: 'usage-dashboard',
                         label: 'Usage dashboard',
                         to: usageDashboardLink,
                         targetBlank: true,
-                    })
-                }
-                if (slackChannelId) {
-                    links.push({
+                        disabledReason: usageDashboardLink ? null : 'No usage dashboard link set',
+                    },
+                    {
                         key: 'slack',
                         label: 'Slack channel',
-                        to: `${SLACK_ARCHIVES_ORIGIN}/${slackChannelId}`,
+                        to: slackChannelId ? `${SLACK_ARCHIVES_ORIGIN}/${slackChannelId}` : null,
                         targetBlank: true,
-                    })
-                }
-                if (billingId) {
-                    links.push({
+                        disabledReason: slackChannelId ? null : 'No Slack channel set',
+                    },
+                    {
                         key: 'billing-admin',
                         label: 'Billing admin',
-                        to: `${BILLING_ADMIN_ORIGIN}/admin/billing/customer/${billingId}/change/`,
+                        to: billingId ? `${BILLING_ADMIN_ORIGIN}/admin/billing/customer/${billingId}/change/` : null,
                         targetBlank: true,
-                    })
-                }
-                return links
+                        disabledReason: billingId ? null : 'No billing ID set',
+                    },
+                ]
             },
         ],
     }),
