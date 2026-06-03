@@ -587,7 +587,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 breakpoint()
                 actions.loadScannerEstimateSuccess(response)
             } catch (error) {
-                if (isBreakpoint(error)) {
+                if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
                 // eslint-disable-next-line no-console
