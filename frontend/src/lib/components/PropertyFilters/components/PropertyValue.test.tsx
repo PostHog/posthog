@@ -152,14 +152,29 @@ describe('PropertyValue', () => {
         expect(input).toHaveValue('user.*7$')
     })
 
-    it('trims surrounding whitespace from a pasted value before committing it', async () => {
+    it.each([
+        {
+            label: 'trims surrounding whitespace from a pasted value before committing it',
+            propertyKey: '$ai_trace_id',
+            operator: PropertyOperator.Exact,
+            pastedValue: ' 9c8a6265-382a-4972-9640-b400dabdd83e ',
+            expectedArg: ['9c8a6265-382a-4972-9640-b400dabdd83e'],
+        },
+        {
+            label: 'preserves surrounding whitespace for regex operators, where it can be meaningful',
+            propertyKey: '$current_url',
+            operator: PropertyOperator.Regex,
+            pastedValue: 'foo ',
+            expectedArg: 'foo ',
+        },
+    ])('$label', async ({ propertyKey, operator, pastedValue, expectedArg }) => {
         const onSet = jest.fn()
         render(
             <Provider>
                 <PropertyValue
-                    propertyKey="$ai_trace_id"
+                    propertyKey={propertyKey}
                     type={PropertyFilterType.Event}
-                    operator={PropertyOperator.Exact}
+                    operator={operator}
                     onSet={onSet}
                     value={[]}
                 />
@@ -169,36 +184,11 @@ describe('PropertyValue', () => {
         const user = userEvent.setup()
         const input = screen.getByRole('textbox')
         await user.click(input)
-        await user.paste(' 9c8a6265-382a-4972-9640-b400dabdd83e ')
+        await user.paste(pastedValue)
         await user.keyboard('{Enter}')
 
         await waitFor(() => {
-            expect(onSet).toHaveBeenCalledWith(['9c8a6265-382a-4972-9640-b400dabdd83e'])
-        })
-    })
-
-    it('preserves surrounding whitespace for regex operators, where it can be meaningful', async () => {
-        const onSet = jest.fn()
-        render(
-            <Provider>
-                <PropertyValue
-                    propertyKey="$current_url"
-                    type={PropertyFilterType.Event}
-                    operator={PropertyOperator.Regex}
-                    onSet={onSet}
-                    value={[]}
-                />
-            </Provider>
-        )
-
-        const user = userEvent.setup()
-        const input = screen.getByRole('textbox')
-        await user.click(input)
-        await user.paste('foo ')
-        await user.keyboard('{Enter}')
-
-        await waitFor(() => {
-            expect(onSet).toHaveBeenCalledWith('foo ')
+            expect(onSet).toHaveBeenCalledWith(expectedArg)
         })
     })
 
