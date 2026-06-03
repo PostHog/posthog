@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { fullName } from 'lib/utils'
@@ -22,6 +23,12 @@ function getPreview(notebook: AccountNotebookApi): string {
     return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}…` : collapsed
 }
 
+const LINK_ICONS: Record<string, JSX.Element> = {
+    organization: <IconPeople />,
+    revenue: <IconPiggyBank />,
+    'billing-admin': <IconReceipt />,
+}
+
 function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
     const { links, accountLoading } = useValues(accountLinksLogic({ accountId }))
     return (
@@ -29,20 +36,23 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
             <h4 className="secondary uppercase text-secondary mb-1">Useful links</h4>
             {accountLoading ? (
                 <>
-                    <LemonSkeleton className="h-4 w-24" />
-                    <LemonSkeleton className="h-4 w-20" />
-                    <LemonSkeleton className="h-4 w-28" />
+                    <LemonSkeleton className="h-7 w-32" />
+                    <LemonSkeleton className="h-7 w-32" />
+                    <LemonSkeleton className="h-7 w-32" />
                 </>
             ) : links.length > 0 ? (
                 links.map((link) => (
-                    <Link
+                    <LemonButton
                         key={link.key}
+                        type="tertiary"
+                        size="small"
+                        fullWidth
+                        icon={LINK_ICONS[link.key]}
                         to={link.to}
-                        target={link.targetBlank ? '_blank' : undefined}
-                        className="text-sm"
+                        targetBlank={link.targetBlank}
                     >
                         {link.label}
-                    </Link>
+                    </LemonButton>
                 ))
             ) : (
                 <span className="text-muted text-sm italic">No links available</span>
@@ -106,8 +116,8 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
 
     return (
         <div className="sticky left-0 w-[100cqw] p-3 bg-bg-light">
-            <div className="flex gap-4">
-                <div className="w-1/4">
+            <div className="flex gap-8">
+                <div className="w-fit shrink-0">
                     <UsefulLinks accountId={accountId} />
                 </div>
                 <div className="flex-1 min-w-0">
