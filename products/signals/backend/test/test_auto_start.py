@@ -34,31 +34,26 @@ def _reviewer(login: str) -> ReviewerContent:
 
 
 @pytest.mark.django_db
-def test_resolves_assignee_for_org_member_on_team(organization, team):
+@pytest.mark.parametrize(
+    ("autostart_priority", "report_priority", "expect_match"),
+    [
+        (Priority.P2, Priority.P0, True),  # report priority at/above threshold → match
+        (Priority.P1, Priority.P3, False),  # report priority below threshold → no match
+    ],
+)
+def test_resolve_autostart_assignee(organization, team, autostart_priority, report_priority, expect_match):
     user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
-    SignalUserAutonomyConfig.objects.create(user=user, autostart_priority=Priority.P2.value)
+    SignalUserAutonomyConfig.objects.create(user=user, autostart_priority=autostart_priority.value)
 
     assignee = _resolve_autostart_assignee(
         team_id=team.id,
-        report_priority=Priority.P0,
+        report_priority=report_priority,
         reviewers_content=[_reviewer("octocat")],
         team_default_priority=Priority.P0,
     )
 
-    assert assignee is not None
-    assert assignee.id == user.id
-
-
-@pytest.mark.django_db
-def test_returns_none_when_priority_below_threshold(organization, team):
-    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
-    SignalUserAutonomyConfig.objects.create(user=user, autostart_priority=Priority.P1.value)
-
-    assignee = _resolve_autostart_assignee(
-        team_id=team.id,
-        report_priority=Priority.P3,
-        reviewers_content=[_reviewer("octocat")],
-        team_default_priority=Priority.P0,
-    )
-
-    assert assignee is None
+    if expect_match:
+        assert assignee is not None
+        assert assignee.id == user.id
+    else:
+        assert assignee is None
