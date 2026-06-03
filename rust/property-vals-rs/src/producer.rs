@@ -12,6 +12,10 @@ use tracing::warn;
 
 use crate::types::{PropertyType, TupleKey};
 
+fn str_is_empty(s: &&str) -> bool {
+    s.is_empty()
+}
+
 #[derive(serde::Serialize)]
 pub(crate) struct Outgoing<'a> {
     pub team_id: i64,
@@ -19,6 +23,11 @@ pub(crate) struct Outgoing<'a> {
     pub property_key: &'a str,
     pub property_value: &'a str,
     pub property_count: u64,
+    // Omitted when empty so flag-off (and person/group) messages are identical
+    // to before this field existed, letting the service ship ahead of the
+    // ClickHouse column that reads it.
+    #[serde(skip_serializing_if = "str_is_empty")]
+    pub event_name: &'a str,
 }
 
 #[derive(Debug, Error)]
@@ -44,6 +53,7 @@ pub struct AggregatedProducer {
     inner: FutureProducer<KafkaContext>,
     output_topic: String,
     produce_timeout: Duration,
+    serialize_event_name: bool,
 }
 
 impl AggregatedProducer {
@@ -52,6 +62,7 @@ impl AggregatedProducer {
         liveness: L,
         output_topic: String,
         produce_timeout: Duration,
+        serialize_event_name: bool,
     ) -> Result<Self, KafkaError>
     where
         L: common_liveness::SyncLivenessReporter + Clone + 'static,
@@ -61,6 +72,7 @@ impl AggregatedProducer {
             inner,
             output_topic,
             produce_timeout,
+            serialize_event_name,
         })
     }
 }
@@ -81,6 +93,11 @@ impl Producer for AggregatedProducer {
                 property_key: &tuple.property_key,
                 property_value: &tuple.property_value,
                 property_count: *count,
+                event_name: if self.serialize_event_name {
+                    &tuple.event_name
+                } else {
+                    ""
+                },
             })
             .collect();
 

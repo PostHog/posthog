@@ -57,6 +57,16 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 logger = structlog.get_logger(__name__)
 
 
+def source_supports_column_selection(source_type: str) -> bool:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
+    return bool(source.supports_column_selection)
+
+
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
     "consolidated": frozenset({"consolidated"}),
     "cdc_only": frozenset({"cdc_history"}),
@@ -181,6 +191,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
         "Empty until the source has been refreshed via `refresh_schemas`.",
     )
+    # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
+    # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
+    source = serializers.SerializerMethodField(  # type: ignore[assignment]
+        read_only=True,
+        help_text="Lightweight parent-source summary (id, source_type, column-selection support, the requesting "
+        "user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so "
+        "read-only views can render without fetching the full source and all its schemas.",
+    )
 
     class Meta:
         model = ExternalDataSchema
@@ -205,6 +223,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "cdc_table_mode",
             "enabled_columns",
             "available_columns",
+            "source",
         ]
 
         read_only_fields = [
@@ -217,6 +236,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "status",
             "description",
             "available_columns",
+            "source",
         ]
 
     @extend_schema_field(
@@ -247,6 +267,36 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             for column in columns
             if isinstance(column, dict) and isinstance(column.get("name"), str)
         ]
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "string"},
+                "source_type": {"type": "string"},
+                "supports_column_selection": {"type": "boolean"},
+                "user_access_level": {"type": "string", "nullable": True},
+            },
+        }
+    )
+    def get_source(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        # Gated to the retrieve action (via `include_source` context) so the source endpoint's
+        # nested schema serialization and the schema `list` don't pay for the SourceRegistry lookup.
+        if not self.context.get("include_source"):
+            return None
+        source = schema.source
+        user_access_level = None
+        view = self.context.get("view")
+        user_access_control = getattr(view, "user_access_control", None)
+        if user_access_control is not None:
+            user_access_level = user_access_control.get_user_access_level(source)
+        return {
+            "id": str(source.id),
+            "source_type": source.source_type,
+            "supports_column_selection": source_supports_column_selection(source.source_type),
+            "user_access_level": user_access_level,
+        }
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
@@ -357,6 +407,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             team = Team.objects.get(id=self.context["team_id"])
             if not is_cdc_enabled_for_team(team):
                 raise ValidationError("CDC is not enabled for this team")
+
+        # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
+        # no API list endpoint, so anything other than webhook produces an empty sync).
+        if "sync_type" in data and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
+            if self._is_webhook_only_schema(instance):
+                raise ValidationError(
+                    f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
+                )
 
         # Only update sync_type if it was explicitly provided in the request
         if "sync_type" in data:
@@ -610,6 +668,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return updated_instance
 
+    def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
+        source = schema.source
+        if not source.job_inputs:
+            return False
+        try:
+            source_type = ExternalDataSourceType(source.source_type)
+            source_impl = SourceRegistry.get_source(source_type)
+        except Exception:
+            return False
+        try:
+            config = source_impl.parse_config(source.job_inputs)
+            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+        except Exception:
+            return False
+        return any(s.name == schema.name and s.webhook_only for s in source_schemas)
+
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
         if not source.job_inputs:
@@ -732,10 +806,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = Database.create_for(team_id=self.team_id)
+        # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
+        context["include_source"] = self.action == "retrieve"
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
+        queryset = queryset.exclude(deleted=True).prefetch_related("created_by")
+        if self.action == "retrieve":
+            # retrieve serializes the source summary + table; pull them in one round-trip.
+            queryset = queryset.select_related("source", "table__credential", "table__external_data_source")
+        return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
@@ -901,8 +981,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,
-            "full_refresh_available": True,
+            "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
+            "webhook_only": schema.webhook_only,
             "available_columns": [
                 {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
                 for col_name, col_type, nullable in schema.columns
