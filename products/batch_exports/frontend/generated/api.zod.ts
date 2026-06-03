@@ -1761,3 +1761,38 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
         data_interval_end: zod.iso.datetime({ offset: true }),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
+
+/**
+ * Create a new managed migration/batch import.
+ */
+export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Viewset for BatchImport model
+ */
+export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Viewset for BatchImport model
+ */
+export const ManagedMigrationsPartialUpdateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Pause a running batch import.
+ */
+export const ManagedMigrationsPauseCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Resume a paused batch import.
+ */
+export const ManagedMigrationsResumeCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
