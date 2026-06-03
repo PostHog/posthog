@@ -454,11 +454,15 @@ def count_group_type_mappings_per_team() -> list[dict[str, int]]:
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="count_group_type_mappings_per_team", source="django_orm", client_name=get_client_name()
     ).inc()
-    return list(
-        GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
-        .annotate(total=Count("id"))
-        .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
-    )
+    try:
+        return list(
+            GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+            .annotate(total=Count("id"))
+            .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+        )
+    except DatabaseError:
+        logger.warning("count_group_type_mappings_orm_failure", exc_info=True)
+        return []
 
 
 def project_has_group_types_authoritatively(project_id: int) -> bool:

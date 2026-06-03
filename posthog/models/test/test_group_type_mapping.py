@@ -735,6 +735,30 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
         self._client_patcher.start()
 
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_both_paths_fail_returns_empty_list(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_objects,
+    ):
+        from django.db import DatabaseError
+
+        from posthog.personhog_client.client import get_personhog_client
+
+        mock_client = get_personhog_client()
+        mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
+
+        mock_qs = MagicMock()
+        mock_qs.annotate.return_value.order_by.side_effect = DatabaseError("db is down")
+        mock_objects.values.return_value = mock_qs
+
+        result = count_group_type_mappings_per_team()
+
+        assert result == []
+
 
 # ── Write helper tests ─────────────────────────────────────────────
 
