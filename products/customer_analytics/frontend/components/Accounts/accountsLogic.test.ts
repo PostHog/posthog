@@ -230,6 +230,7 @@ describe('accountsLogic', () => {
                 logic.actions.setTagsFilter(['enterprise'])
                 logic.actions.setCsmFilter(7)
                 logic.actions.setSortOrder({ column: 'name', direction: 'desc' })
+                logic.actions.setTileFilter({ tileId: 'tile-1', expression: 'count() > 5' })
             }).toFinishAllListeners()
 
             expect(router.values.hashParams.view).toEqual({
@@ -237,6 +238,7 @@ describe('accountsLogic', () => {
                 tags: ['enterprise'],
                 csm: 7,
                 sort: { column: 'name', direction: 'desc' },
+                tileFilter: { tileId: 'tile-1', expression: 'count() > 5' },
             })
         })
 
@@ -249,12 +251,13 @@ describe('accountsLogic', () => {
             expect(router.values.hashParams.view).toBeUndefined()
         })
 
-        it('restores filters and sort from the view hash param', async () => {
+        it('restores filters, sort, and tile filter from the view hash param', async () => {
+            const tileFilter = { tileId: 'tile-1', expression: 'count() > 5' }
             router.actions.push(
                 urls.customerAnalyticsAccounts(),
                 {},
                 {
-                    view: { search: 'beta', csm: 7, sort: { column: 'name', direction: 'desc' } },
+                    view: { search: 'beta', csm: 7, sort: { column: 'name', direction: 'desc' }, tileFilter },
                 }
             )
             await expectLogic(logic).toFinishAllListeners()
@@ -263,6 +266,7 @@ describe('accountsLogic', () => {
             expect(logic.values.searchInput).toBe('beta')
             expect(logic.values.csmFilter).toBe(7)
             expect(logic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
+            expect(logic.values.tileFilter).toEqual(tileFilter)
         })
 
         it('restores columns and shields them from the saved column config', async () => {

@@ -222,6 +222,9 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             false,
             {
                 markColumnsOverriddenByUrl: () => true,
+                // Resetting columns is an explicit "use defaults" intent — drop
+                // the URL override so a later saved-config load can still apply.
+                resetColumns: () => false,
             },
         ],
     }),
