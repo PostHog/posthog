@@ -311,9 +311,8 @@ class TestPollForTurnSurfacesAgentError:
         # Temporal activity failure carries the classified error, not "Activity task failed".
         assert expected in str(exc_info.value)
         assert "Activity task failed" not in str(exc_info.value)
-        # TaskRun.error_message (persisted + in-memory) carries it too.
+        # The same classified error is persisted onto TaskRun.error_message.
         persist.assert_awaited_once_with(str(fake_task_run.id), expected)
-        assert fake_task_run.error_message == expected
 
     @pytest.mark.asyncio
     async def test_acceptance_provider_failure_429(self):
@@ -337,8 +336,11 @@ class TestPollForTurnSurfacesAgentError:
             with pytest.raises(RuntimeError) as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=0)
 
-        assert "upstream_provider_failure" in fake_task_run.error_message
-        assert "429 rate_limit_error" in fake_task_run.error_message
+        # The value persisted to TaskRun.error_message carries the category + 429 text.
+        persist.assert_awaited_once()
+        persisted_message = persist.await_args.args[1]
+        assert "upstream_provider_failure" in persisted_message
+        assert "429 rate_limit_error" in persisted_message
         assert "upstream_provider_failure" in str(exc_info.value)
         assert "429 rate_limit_error" in str(exc_info.value)
 
@@ -362,9 +364,9 @@ class TestPollForTurnSurfacesAgentError:
             with pytest.raises(RuntimeError) as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=0)
 
-        assert fake_task_run.error_message == "API Error: 429 rate_limit_error"
-        assert "API Error: 429 rate_limit_error" in str(exc_info.value)
+        # No category prefix — the raw message is persisted and surfaced.
         persist.assert_awaited_once_with(str(fake_task_run.id), "API Error: 429 rate_limit_error")
+        assert "API Error: 429 rate_limit_error" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_missing_structured_error_keeps_generic_behavior(self):

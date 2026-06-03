@@ -285,7 +285,6 @@ async def _drain_final_log(
             cause_text = agent_error.describe()
             # Persist the real cause so the TaskRun stops showing "Activity task failed".
             await _persist_task_run_error_message(str(task_run.id), cause_text)
-            task_run.error_message = cause_text
             raise RuntimeError(
                 f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
                 f"(cause: {cause_text})"
