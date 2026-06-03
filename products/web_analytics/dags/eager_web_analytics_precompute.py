@@ -196,7 +196,7 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
                 "eager_baseline_warming_query_failed",
                 team_id=team.pk,
                 query=label,
-                query_kind=kind,
+                query_kind=label,
                 error_type=type(exc).__name__,
             )
             failed += 1

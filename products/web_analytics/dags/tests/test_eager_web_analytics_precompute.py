@@ -197,14 +197,12 @@ class TestEagerBaselineLogging(APIBaseTest):
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_emits_structured_lifecycle_events_on_success(self, get_runner, _tag, _is_cloud):
-        org = Organization.objects.create(name="Audience")
-        team = Team.objects.create(organization=org, name="t")
         get_runner.return_value = Mock(run=Mock(return_value=None))
 
         with (
             patch(
                 "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
-                (team.pk,),
+                (self.team.pk,),
             ),
             capture_logs() as cap_logs,
         ):
@@ -217,7 +215,7 @@ class TestEagerBaselineLogging(APIBaseTest):
 
         team_logs = self._events(cap_logs, "eager_baseline_warming_team")
         assert len(team_logs) == 1
-        assert team_logs[0]["team_id"] == team.pk
+        assert team_logs[0]["team_id"] == self.team.pk
         assert team_logs[0]["warmed"] == _QUERIES_PER_TEAM
         assert team_logs[0]["failed"] == 0
         assert "duration_ms" in team_logs[0]
@@ -232,14 +230,12 @@ class TestEagerBaselineLogging(APIBaseTest):
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_emits_query_failed_event_with_error_type(self, get_runner, _tag, _is_cloud):
-        org = Organization.objects.create(name="Audience")
-        team = Team.objects.create(organization=org, name="t")
         get_runner.return_value = Mock(run=Mock(side_effect=RuntimeError("boom")))
 
         with (
             patch(
                 "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
-                (team.pk,),
+                (self.team.pk,),
             ),
             capture_logs() as cap_logs,
         ):
@@ -248,7 +244,7 @@ class TestEagerBaselineLogging(APIBaseTest):
         failed = self._events(cap_logs, "eager_baseline_warming_query_failed")
         assert len(failed) == _QUERIES_PER_TEAM
         assert all(f["error_type"] == "RuntimeError" for f in failed)
-        assert all(f["team_id"] == team.pk for f in failed)
+        assert all(f["team_id"] == self.team.pk for f in failed)
 
 
 class TestJobConfiguration:
