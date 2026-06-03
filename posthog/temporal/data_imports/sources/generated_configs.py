@@ -413,7 +413,7 @@ class GorgiasSourceConfig(config.Config):
 
 @config.config
 class GranolaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

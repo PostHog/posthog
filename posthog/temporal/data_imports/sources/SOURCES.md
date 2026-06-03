@@ -67,6 +67,7 @@ the row lists both.
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
+| granola       | HTTP                        | requests                                                        | ✅                          |
 | gorgias       | HTTP                        | requests                                                        | ✅                          |
 | hubspot       | HTTP                        | requests                                                        | ✅                          |
 | klaviyo       | HTTP                        | requests                                                        | ✅                          |
@@ -178,7 +179,6 @@ doesn't conflict with concurrent PRs.
 - gong
 - google_analytics
 - google_drive
-- granola
 - greenhouse
 - helpscout
 - instagram
