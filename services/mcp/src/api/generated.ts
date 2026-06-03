@@ -25946,6 +25946,11 @@ export namespace Schemas {
      */
     export interface Ticket {
       readonly id: string;
+      /**
+         * Stripe-style human-readable identifier (e.g. `tkt_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the ticket UUID and can be used in place of it on detail endpoints.
+         * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+         */
+      readonly display_id: string;
       readonly ticket_number: number;
       readonly channel_source: ChannelSourceEnum;
       readonly channel_detail: ChannelDetailEnum | null;
@@ -32105,6 +32110,11 @@ export namespace Schemas {
      */
     export interface PatchedTicket {
       readonly id?: string;
+      /**
+         * Stripe-style human-readable identifier (e.g. `tkt_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the ticket UUID and can be used in place of it on detail endpoints.
+         * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+         */
+      readonly display_id?: string;
       readonly ticket_number?: number;
       readonly channel_source?: ChannelSourceEnum;
       readonly channel_detail?: ChannelDetailEnum | null;
