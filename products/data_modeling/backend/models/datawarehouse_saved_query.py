@@ -171,11 +171,21 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
         """
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.data_load.saved_query_service import (
             saved_query_workflow_exists,
             sync_saved_query_workflow,
             unpause_saved_query_schedule,
         )
+
+        # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
+        # create or revive a per-query v1 schedule, and clear any lingering frequency that would
+        # cause one to be recreated.
+        if self.id in get_v2_saved_query_ids([self.id]):
+            if self.sync_frequency_interval is not None:
+                self.sync_frequency_interval = None
+                self.save(update_fields=["sync_frequency_interval"])
+            return
 
         try:
             self.setup_model_paths()
