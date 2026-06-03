@@ -110,14 +110,7 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
         actions: [
             accountsColumnConfigLogic,
-            [
-                'setSelectColumns',
-                'selectColumn',
-                'unselectColumn',
-                'moveColumn',
-                'resetColumns',
-                'markColumnsOverriddenByUrl',
-            ],
+            ['setSelectColumns', 'selectColumn', 'unselectColumn', 'moveColumn', 'resetColumns'],
             accountsOverviewTilesLogic,
             ['setTileFilter'],
         ],
@@ -492,14 +485,11 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setSortOrder(sort)
             }
 
-            // A shared link's columns must win over the per-user saved column
-            // config, which loads asynchronously after mount — the guard makes
-            // the late-arriving saved config defer to the URL.
-            if (view.columns) {
-                if (!objectsEqual(view.columns, values.selectColumns)) {
-                    actions.setSelectColumns(view.columns)
-                }
-                actions.markColumnsOverriddenByUrl()
+            // A shared link's columns win over the per-user saved column config;
+            // accountsColumnConfigLogic enforces this by reading the URL when its
+            // async saved-config load resolves.
+            if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
+                actions.setSelectColumns(view.columns)
             }
 
             const tileFilter = view.tileFilter ?? null

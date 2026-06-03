@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -186,7 +187,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         saveColumns: true,
         showColumnConfigurator: true,
         hideColumnConfigurator: true,
-        markColumnsOverriddenByUrl: true,
     }),
     reducers({
         selectColumns: [
@@ -214,17 +214,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
                 saveColumns: () => false,
-            },
-        ],
-        // Set once a shared URL has supplied columns; the per-user saved column
-        // config loads asynchronously after mount and must not clobber them.
-        columnsOverriddenByUrl: [
-            false,
-            {
-                markColumnsOverriddenByUrl: () => true,
-                // Resetting columns is an explicit "use defaults" intent — drop
-                // the URL override so a later saved-config load can still apply.
-                resetColumns: () => false,
             },
         ],
     }),
@@ -270,7 +259,12 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
-            if (savedColumnConfiguration && !values.columnsOverriddenByUrl) {
+            // A shared link's columns (in the URL hash) win over the per-user
+            // saved config, which loads asynchronously after mount. Read the
+            // live URL rather than tracking state, so this stays correct
+            // regardless of later column edits.
+            const urlHasColumns = !!router.values.hashParams?.view?.columns
+            if (savedColumnConfiguration && !urlHasColumns) {
                 actions.setSelectColumns(savedColumnConfiguration.columns)
             }
         },
