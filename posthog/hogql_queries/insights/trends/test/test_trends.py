@@ -63,12 +63,16 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optiona
     return ret_dict
 
 
-def _create_cohort(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    groups = kwargs.pop("groups")
+def _create_cohort(
+    *,
+    team: Team,
+    name: str,
+    groups: list[dict[str, Any]],
+    pending_version: int | None = 0,
+) -> Cohort:
     cohort = Cohort.objects.create(team=team, name=name, groups=groups, last_calculation=timezone.now())
-    cohort.calculate_people_ch(pending_version=0)
+    if pending_version is not None:
+        cohort.calculate_people_ch(pending_version=pending_version)
     return cohort
 
 
@@ -7459,6 +7463,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             name="cohort_2",
             groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
+            pending_version=None,
         )
 
         # try different versions
