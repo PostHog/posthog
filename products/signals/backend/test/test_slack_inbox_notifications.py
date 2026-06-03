@@ -499,7 +499,9 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox-alias",
     )
-    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["shared-login-1", "shared-login-2"])
+    report = _make_ready_report(
+        team, priority=AutonomyPriority.P1, suggested_logins=["shared-login-1", "shared-login-2"]
+    )
 
     mentions = {"shared1@example.com": "U_ONE", "shared2@example.com": "U_TWO"}
 
