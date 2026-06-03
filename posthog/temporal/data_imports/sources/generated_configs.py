@@ -217,7 +217,8 @@ class CalendlySourceConfig(config.Config):
 
 @config.config
 class CampaignMonitorSourceConfig(config.Config):
-    pass
+    api_key: str
+    client_id: str
 
 
 @config.config
@@ -503,7 +504,7 @@ class MailchimpSourceConfig(config.Config):
 
 @config.config
 class MailerLiteSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

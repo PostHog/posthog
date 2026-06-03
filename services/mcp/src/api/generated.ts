@@ -58,7 +58,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -87,6 +87,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -106,7 +110,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -21989,6 +21993,13 @@ export namespace Schemas {
       id: number;
     }
 
+    export interface MoveTileRequest {
+      /** Destination dashboard ID. */
+      to_dashboard: number;
+      /** Tile to move, identified by its dashboard tile ID. */
+      tile: MoveTileTile;
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -26653,7 +26664,7 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -26682,6 +26693,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -26701,7 +26716,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -36716,7 +36731,7 @@ export namespace Schemas {
       needs_updating: boolean;
       /** True when this version equals or exceeds the latest known published version. */
       is_current_or_newer: boolean;
-      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available. Click Releases above to check for any since.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
       status_reason: string;
       /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
       sql_query: string;
@@ -37435,6 +37450,91 @@ export namespace Schemas {
       labels: SurveyQuestionLabel[];
     }
 
+    export interface SurveyResponseAnswer {
+      /** UUID of the survey question this answer belongs to. */
+      question_id: string;
+      /** Zero-based index of the question within the survey. */
+      question_index: number;
+      /** Untranslated question text as configured by the survey author. */
+      question_text: string;
+      /** Question type: open, rating, single_choice, multiple_choice, or link. Determines the shape of the answer field. */
+      question_type: string;
+      /** Resolved answer. String for open/rating/single_choice/link questions, list of strings for multiple_choice questions. Already decoded from the raw $survey_response_<id> property so callers don't need to parse it. */
+      answer: unknown;
+    }
+
+    export interface SurveyResponseExtra {
+      /**
+         * $device_type at the time the response was sent.
+         * @nullable
+         */
+      device_type?: string | null;
+      /**
+         * $browser at the time the response was sent.
+         * @nullable
+         */
+      browser?: string | null;
+      /**
+         * $os (operating system) at the time the response was sent.
+         * @nullable
+         */
+      os?: string | null;
+      /**
+         * $geoip_country_code at submission time.
+         * @nullable
+         */
+      geoip_country_code?: string | null;
+      /**
+         * $geoip_country_name at submission time.
+         * @nullable
+         */
+      geoip_country_name?: string | null;
+      /**
+         * $geoip_city_name at submission time.
+         * @nullable
+         */
+      geoip_city_name?: string | null;
+      /**
+         * $current_url where the survey was submitted.
+         * @nullable
+         */
+      current_url?: string | null;
+      /**
+         * Survey iteration number when the response was sent. Only set for recurring surveys.
+         * @nullable
+         */
+      iteration?: string | null;
+    }
+
+    export interface SurveyResponseRow {
+      /** UUID of the underlying `survey sent` event. Use as the response identifier for archive operations. */
+      uuid: string;
+      /** distinct_id of the respondent. Cross-pivot to the persons API or session recordings. */
+      distinct_id: string;
+      /**
+         * $session_id of the respondent when available. Use to pull the session recording for this response.
+         * @nullable
+         */
+      session_id: string | null;
+      /** Event timestamp when the response was sent (ISO 8601, UTC). */
+      submitted_at: string;
+      /** One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys. */
+      answers: SurveyResponseAnswer[];
+      /** Convenience fields extracted from the event properties (device, browser, geoip, iteration). */
+      extra: SurveyResponseExtra;
+    }
+
+    export interface SurveyResponsesList {
+      /** Survey response rows for the requested page. */
+      results: SurveyResponseRow[];
+      /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
+      has_more: boolean;
+      /** The limit applied to this query (echoed back for pagination). */
+      limit: number;
+      /** The offset applied to this query (echoed back for pagination). */
+      offset: number;
+    }
+
     export interface SurveySerializerCreateUpdateOnly {
       readonly id: string;
       /** @maxLength 400 */
@@ -37899,6 +37999,13 @@ export namespace Schemas {
       stats: SurveyStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyStatsResponseRates;
+      /** Per-question response counts and distributions. Only present when include_per_question_stats=true was passed. For rating questions includes `average`; for choice/rating questions `distribution` maps answer value to count; for open questions `distribution` is empty (use surveys-responses-list to read free-text). */
+      per_question_stats?: unknown[];
+    }
+
+    export interface SurveySummarizeRequest {
+      /** When true, bypass cached summaries and regenerate. Defaults to false. */
+      force_refresh?: boolean;
     }
 
     export interface Synthesize {
@@ -40320,6 +40427,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsMoveTileCreateParams = {
+    format?: EnvironmentsDashboardsMoveTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsMoveTileCreateFormat = typeof EnvironmentsDashboardsMoveTileCreateFormat[keyof typeof EnvironmentsDashboardsMoveTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsMoveTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -45357,6 +45476,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsMoveTileCreateParams = {
+    format?: DashboardsMoveTileCreateFormat;
+    };
+
+    export type DashboardsMoveTileCreateFormat = typeof DashboardsMoveTileCreateFormat[keyof typeof DashboardsMoveTileCreateFormat];
+
+
+    export const DashboardsMoveTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -49214,6 +49345,62 @@ export namespace Schemas {
      * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string;
+    /**
+     * * `popover` - popover
+    * `widget` - widget
+    * `external_survey` - external survey
+    * `api` - api
+     */
+    type?: SurveysListType;
+    };
+
+    export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
+
+
+    export const SurveysListType = {
+      Api: 'api',
+      ExternalSurvey: 'external_survey',
+      Popover: 'popover',
+      Widget: 'widget',
+    } as const;
+
+    export type SurveysResponsesListParams = {
+    /**
+     * When true, exclude responses that have been archived via the archive_response endpoint.
+     */
+    exclude_archived?: boolean;
+    /**
+     * Maximum number of rows to return (1-500). Defaults to 100.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.
+     * @minLength 1
+     */
+    question_id?: string;
+    /**
+     * Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.
+     */
+    score_gte?: number;
+    /**
+     * Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.
+     */
+    score_lte?: number;
+    /**
+     * Only return responses submitted on or after this ISO 8601 timestamp.
+     */
+    since?: string;
+    /**
+     * Only return responses submitted on or before this ISO 8601 timestamp.
+     */
+    until?: string;
     };
 
     export type SurveysStatsRetrieveParams = {
@@ -49225,6 +49412,21 @@ export namespace Schemas {
      * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
      */
     date_to?: string;
+    /**
+     * When true, also return per-question response counts and answer distributions. Adds one extra HogQL query per question, so leave off unless you need the breakdown.
+     */
+    include_per_question_stats?: boolean;
+    };
+
+    export type SurveysSummarizeResponsesCreateParams = {
+    /**
+     * Question UUID. Preferred over question_index — stable across question edits.
+     */
+    question_id?: string;
+    /**
+     * Zero-based question index. Omit to get the survey-wide headline instead.
+     */
+    question_index?: number;
     };
 
     export type SurveysGlobalStatsRetrieveParams = {

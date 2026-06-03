@@ -19,7 +19,7 @@ from posthog.dags import (
     property_definitions,
 )
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     assets=[
@@ -65,5 +65,6 @@ defs = dagster.Definitions(
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
     ],
+    loggers=loggers,
     resources=resources,
 )
