@@ -7,6 +7,7 @@ import {
     barContainsPointOnBandAxis,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
+    resolveGroupedBandSlot,
 } from './bars-under-cursor'
 
 const verticalBar: BarRect = { x: 100, y: 120, width: 50, height: 200, corners: {}, dataIndex: 0 }
@@ -162,5 +163,36 @@ describe('findVisibleStackedSegment — overdraw clip', () => {
         const smallWidth = Math.abs(scales.value(20) - scales.value(0))
         expect(visible?.series.key).toBe('big')
         expect(visible?.nextSmallerExtent).toBeCloseTo(smallWidth, 5)
+    })
+})
+
+describe('resolveGroupedBandSlot', () => {
+    const labels = ['x', 'y']
+    const series: Series[] = [
+        { key: 'a', label: 'A', data: [1, 1] },
+        { key: 'b', label: 'B', data: [2, 2] },
+        { key: 'c', label: 'C', data: [3, 3] },
+    ]
+    const grouped = createBarScales(series, labels, dimensions, { barLayout: 'grouped', axisOrientation: 'vertical' })
+    const start = grouped.band('x')!
+    const bandwidth = grouped.group!.bandwidth()
+    const centerOf = (key: string): number => start + grouped.group!(key)! + bandwidth / 2
+
+    it.each(['a', 'b', 'c'])('returns the slot of the bar the cursor sits inside (%s)', (key) => {
+        expect(resolveGroupedBandSlot(grouped, 'x', centerOf(key))).toEqual({ center: centerOf(key), width: bandwidth })
+    })
+
+    it('snaps to the nearest bar by center when the cursor falls in the inter-bar padding', () => {
+        expect(resolveGroupedBandSlot(grouped, 'x', start - 1000)?.center).toBeCloseTo(centerOf('a'), 5)
+        expect(resolveGroupedBandSlot(grouped, 'x', start + 1000)?.center).toBeCloseTo(centerOf('c'), 5)
+    })
+
+    it('returns undefined for an unknown label', () => {
+        expect(resolveGroupedBandSlot(grouped, 'missing', start)).toBeUndefined()
+    })
+
+    it('returns undefined when there is no group scale (non-grouped layout)', () => {
+        const stacked = createBarScales(series, labels, dimensions, { barLayout: 'stacked' })
+        expect(resolveGroupedBandSlot(stacked, 'x', start)).toBeUndefined()
     })
 })

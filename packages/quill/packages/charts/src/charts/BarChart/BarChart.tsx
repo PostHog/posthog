@@ -54,6 +54,7 @@ import {
     findVisibleStackedSegment,
     iterBarsAtCursor,
     isStackedLayout,
+    resolveGroupedBandSlot,
 } from './utils/bars-under-cursor'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
@@ -309,39 +310,12 @@ function BarChartInner<Meta = unknown>({
                     }
                     return d3Scales.band.bandwidth()
                 },
-                // Resolve the grouped bar under the cursor so the tooltip anchors on that bar's
-                // edge instead of the whole group. Vertical grouped only — other layouts fall
-                // back to the band-center / group-extent anchor.
-                bandSlotAtCursor: (label: string, cursor: { x: number; y: number }) => {
-                    const groupScale = d3Scales.group
-                    const start = d3Scales.band(label)
-                    if (isHorizontal || barLayout !== 'grouped' || !groupScale || start == null) {
-                        return undefined
-                    }
-                    const bandwidth = groupScale.bandwidth()
-                    const local = cursor.x - start
-                    let nearestOffset: number | undefined
-                    let nearestDistance = Infinity
-                    for (const key of groupScale.domain()) {
-                        const offset = groupScale(key)
-                        if (offset == null) {
-                            continue
-                        }
-                        if (local >= offset && local <= offset + bandwidth) {
-                            nearestOffset = offset
-                            break
-                        }
-                        const distance = Math.abs(local - (offset + bandwidth / 2))
-                        if (distance < nearestDistance) {
-                            nearestDistance = distance
-                            nearestOffset = offset
-                        }
-                    }
-                    if (nearestOffset == null) {
-                        return undefined
-                    }
-                    return { center: start + nearestOffset + bandwidth / 2, width: bandwidth }
-                },
+                // Anchor the tooltip on the grouped bar under the cursor instead of the whole
+                // group. Vertical grouped only; other layouts fall back to the band-center anchor.
+                bandSlotAtCursor: (label: string, cursor: { x: number; y: number }) =>
+                    isHorizontal || barLayout !== 'grouped'
+                        ? undefined
+                        : resolveGroupedBandSlot(d3Scales, label, cursor.x),
                 _private: barChartPrivate,
             }
         },

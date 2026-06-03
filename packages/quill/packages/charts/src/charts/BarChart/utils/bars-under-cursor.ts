@@ -119,6 +119,47 @@ export function resolveBarsAtCursor(
     return { hits, strictHit }
 }
 
+/** Band-axis center and width of a single bar — lets a tooltip anchor on the hovered bar. */
+export interface BandSlot {
+    center: number
+    width: number
+}
+
+/** Resolve the grouped bar nearest the cursor along the band axis, returning its center and
+ *  width. `bandAxisCursor` is the cursor coordinate on the band axis (x for vertical charts).
+ *  A cursor inside a slot picks that slot; one in the inter-bar padding picks the nearest by
+ *  center. Returns undefined for non-grouped layouts (no `group` scale) or an unknown label. */
+export function resolveGroupedBandSlot(
+    scales: BarScaleSet,
+    label: string,
+    bandAxisCursor: number
+): BandSlot | undefined {
+    const { band, group } = scales
+    const start = band(label)
+    if (!group || start == null) {
+        return undefined
+    }
+    const width = group.bandwidth()
+    const local = bandAxisCursor - start
+    let nearestOffset: number | undefined
+    let nearestDistance = Infinity
+    for (const key of group.domain()) {
+        const offset = group(key)
+        if (offset == null) {
+            continue
+        }
+        if (local >= offset && local <= offset + width) {
+            return { center: start + offset + width / 2, width }
+        }
+        const distance = Math.abs(local - (offset + width / 2))
+        if (distance < nearestDistance) {
+            nearestDistance = distance
+            nearestOffset = offset
+        }
+    }
+    return nearestOffset == null ? undefined : { center: start + nearestOffset + width / 2, width }
+}
+
 /** Pixel coordinate of a bar's baseline (value-0) edge — the side the bar grows from. */
 function barBaseline(bar: BarRect, isHorizontal: boolean): number {
     return isHorizontal ? bar.x : bar.y + bar.height
