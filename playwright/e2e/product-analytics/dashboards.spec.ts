@@ -237,7 +237,10 @@ test.describe('Dashboards', () => {
         await test.step('verify navigation to dashboards list (not "Not found")', async () => {
             await expect(page).toHaveURL(/\/dashboard(#panel=[a-z]+)?$/)
             await expect(page.getByText('Not found')).not.toBeVisible()
-            await expect(page.getByText(dashboardName)).not.toBeVisible()
+            // Scope to the table: the deletion toast also contains the name, and the
+            // row lingers briefly until delayedDeleteDashboard prunes it — an unscoped
+            // getByText matches both and trips strict mode instead of retrying away.
+            await expect(page.getByTestId('dashboards-table').getByText(dashboardName)).not.toBeVisible()
         })
     })
 
