@@ -45,7 +45,6 @@ the row lists both.
 | Source        | Comm method                 | Primary library                                                 | Tracked transport           |
 | ------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | attio         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| bamboohr      | HTTP                        | requests                                                        | ✅                          |
 | bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
@@ -138,6 +137,7 @@ doesn't conflict with concurrent PRs.
 - ashby
 - auth0
 - azure_blob
+- bamboohr
 - bigcommerce
 - box
 - braintree
