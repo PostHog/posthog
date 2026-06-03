@@ -5807,7 +5807,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type: event|webhook|manual|batch|schedule|tracking_pixel). Other action types: function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch, wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.",
+        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. Behavioral (event-based) cohorts are rejected — for 'did event X', use an 'event' trigger instead. A batch workflow fires only once enabled and a recurring schedule is attached (workflows-schedule-create).",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -5821,7 +5821,7 @@
         }
     },
     "workflows-get": {
-        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
+        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow",
@@ -5848,6 +5848,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-list-batch-jobs": {
+        "description": "List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows the audience filters and variable overrides the run used, plus when it was created. The status field is not tracked — use workflows-logs / workflows-metrics for the outcome of a run.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List workflow batch runs",
+        "title": "List workflow batch runs",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-run": {
         "description": "Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Optional current_action_id starts from a specific node. Returns the execution trace.",
         "category": "Workflows",
@@ -5863,11 +5877,25 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status.",
+        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-disable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",
         "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-update-schedule": {
+        "description": "Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update workflow schedule",
+        "title": "Update workflow schedule",
         "required_scopes": ["hog_flow:write"],
         "annotations": {
             "destructiveHint": false,

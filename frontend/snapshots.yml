@@ -4163,9 +4163,9 @@ snapshots:
     scenes-app-batchexports--backfills-with-estimates--light:
         hash: v1.k794b7964.ff65cb40f7e2201d018187cdbdea18316db0fc4a1d5d1f6354596c3a2f7134b6.Ty5F34_U08a4Xcj4XEr-mFtt7CP_4ulGFFaalXtYxBA
     scenes-app-batchexports--existing-big-query-export--dark:
-        hash: v1.k794b7964.5a2fda343405a843236153a192ab22ba3613ea7590464b97ef24b5a272295c63.4KGbOMQI5P3ksqvsVFv38LBg09rCKAgaV4F719Wxcio
+        hash: v1.k794b7964.c497a11d9bc7c4197179439db96463e5007de1c68fe3b23eed386ffd71698ca7.PWzPAn_tQGmm4DFgQetKTfnqo8X9qrVGNqDB9X13lrA
     scenes-app-batchexports--existing-big-query-export--light:
-        hash: v1.k794b7964.30ec356919af3213fec83a0baa49302ba25d138c61ed6f99138f21ef8faed8f3.cFiXEzU4Uiho9Y5yS_Sf7w55yFuWnrhKRX39enFIEig
+        hash: v1.k794b7964.e32682b42312ab15395bbf6f953dda6a8be6297bf2beee8a6307f4c469a3275a.ZDpnCTUn_ulIPUSvIrci2MAbwiQAIFzaEYceiNefQgQ
     scenes-app-batchexports--history-empty--dark:
         hash: v1.k794b7964.8c7742c97909864ee30c99ffdca41bb7f5487f5db9c71ae2b1e52ec6c5006621.4khsoQSxtDBQZwDnS8Hi6zEQskbCnpsNY0RqxoD2OPg
     scenes-app-batchexports--history-empty--light:
@@ -4187,13 +4187,9 @@ snapshots:
     scenes-app-batchexports--new-azure-blob-export--light:
         hash: v1.k794b7964.2f4fa15b571bd753e50ecc95371b3312d2ae007f94c60d23242ba50be982667c.8AmhbsCHMfm--TPjY0Iv3SS4xSIYXjGgAs1hEn6eudE
     scenes-app-batchexports--new-big-query-export--dark:
-        hash: v1.k794b7964.46c1bbbfd1614c8e98ed13cf8158a6c06e13db9d6b7998ac9993f18f226fabca.1lULOvQgq6-NHwB6ywiUHZlQanVlslaBGlx_YuuXH9s
+        hash: v1.k794b7964.b0017a9704d860ae6dbefea6e35ad51210bcd9b0d1b9e880b40bff062ef0313e.Meevy2ppWpbV6N50Q-EXk7n3F55mpI_kBGxmJif-RG8
     scenes-app-batchexports--new-big-query-export--light:
-        hash: v1.k794b7964.a7f74ef88efd16339eb283b55c2522f1cb5f12f7b8712d6daa86cce126406892.jV4L5DRuUxqr-uKjYNPeyNTrBNqzH_LmFca8lhKanaY
-    scenes-app-batchexports--new-big-query-export-with-integration--dark:
-        hash: v1.k794b7964.b0017a9704d860ae6dbefea6e35ad51210bcd9b0d1b9e880b40bff062ef0313e.4ZitrIL91s40q-7PAttfTwKJR6m7_7AuVnJ3tdjCrm8
-    scenes-app-batchexports--new-big-query-export-with-integration--light:
-        hash: v1.k794b7964.d74e0bf9deea6e90d2f919bcf36fd70546c91c7aef5fc6068ca8ec5ac8e5212e.pL2_3mN2nQvLGMs44hBLwFItesrAIlMK_NTNB-umOfE
+        hash: v1.k794b7964.d74e0bf9deea6e90d2f919bcf36fd70546c91c7aef5fc6068ca8ec5ac8e5212e.C8YO5nra2nSU2_FE6DYg--0rrHu0uYAR0OeevJTuPBk
     scenes-app-batchexports--new-databricks-export--dark:
         hash: v1.k794b7964.d54b3f7c4845b3c5f945b45689f5917c9bcde6a4ac4f72bf40d161f10d4f55fd.93WWAtDciTnt8SaNbW7U0AbnWuGyrb3Y3ZE3AvW6NVI
     scenes-app-batchexports--new-databricks-export--light:

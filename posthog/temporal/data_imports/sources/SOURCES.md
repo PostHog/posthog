@@ -56,8 +56,10 @@ the row lists both.
 | chartmogul    | HTTP                        | requests                                                        | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse    | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| close         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit    | HTTP                        | requests                                                        | ✅                          |
 | convex        | HTTP                        | requests                                                        | ✅                          |
+| copper        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
 | drip          | HTTP                        | requests                                                        | ✅                          |
@@ -78,6 +80,7 @@ the row lists both.
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql         | DB protocol                 | pymysql                                                         | ➖                          |
+| okta          | HTTP                        | requests                                                        | ✅                          |
 | notion        | HTTP                        | requests                                                        | ✅                          |
 | paddle        | HTTP                        | requests                                                        | ✅                          |
 | pagerduty     | HTTP                        | requests                                                        | ✅                          |
@@ -85,6 +88,7 @@ the row lists both.
 | plain         | HTTP                        | requests                                                        | ✅                          |
 | polar         | HTTP                        | requests                                                        | ✅                          |
 | postgres      | DB protocol                 | psycopg                                                         | ➖                          |
+| recurly       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recharge      | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift      | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
@@ -92,11 +96,13 @@ the row lists both.
 | revenuecat    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| servicenow    | HTTP                        | requests                                                        | ✅                          |
 | shopify       | HTTP                        | requests                                                        | ✅                          |
 | shortcut      | HTTP                        | requests                                                        | ✅                          |
 | slack         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snapchat_ads  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake     | DB protocol                 | snowflake-connector-python                                      | ➖                          |
+| square        | HTTP                        | requests                                                        | ✅                          |
 | stripe        | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase      | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey  | HTTP                        | requests                                                        | ✅                          |
@@ -157,7 +163,6 @@ doesn't conflict with concurrent PRs.
 - campaign_monitor
 - circleci
 - clickup
-- close
 - cockroachdb
 - confluence
 - copper
@@ -188,7 +193,6 @@ doesn't conflict with concurrent PRs.
 - mixpanel
 - monday
 - netsuite
-- okta
 - omnisend
 - onedrive
 - oracle
@@ -202,15 +206,13 @@ doesn't conflict with concurrent PRs.
 - postmark
 - productboard
 - quickbooks
-- recurly
 - ringcentral
 - salesloft
 - sendgrid
-- servicenow
 - sftp
 - sharepoint
 - smartsheet
-- square
+- surveymonkey
 - trello
 - twilio
 - twitter_ads

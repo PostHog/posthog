@@ -55,12 +55,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # via their own override if a driver genuinely can't project columns).
     supports_column_selection: bool = False
 
-    # Job-input fields that identify the connection target. Changing any of these on an
-    # existing source must force credential re-entry, so a stored secret can't be redirected
-    # to a different destination (VERIA-311). Sources whose connection target lives in a
-    # differently-named field (e.g. Freshdesk's `subdomain`) override this.
-    connection_host_fields: frozenset[str] = frozenset({"host"})
-
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -124,6 +118,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def get_endpoint_permissions(self, config: ConfigType, team_id: int, endpoints: list[str]) -> dict[str, str | None]:
         """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
         return dict.fromkeys(endpoints)
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        """``job_inputs`` fields that determine where stored credentials are sent.
+
+        Changing one of these on an existing source must require the editor to re-enter the
+        source's secrets — otherwise an org member could retarget the preserved credential at a
+        server they control and exfiltrate it. The update serializer enforces this. ``host`` and
+        the SSH tunnel target are handled separately, so sources whose connection target lives in
+        a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
+        return []
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
