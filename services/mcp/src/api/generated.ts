@@ -26260,6 +26260,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PaginatedUserInterviewTopicList {
@@ -32356,6 +32366,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PatchedUserProductList {
@@ -36756,7 +36776,7 @@ export namespace Schemas {
 
     export interface SendInvitesRequest {
       /**
-         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
          * @maxLength 200
          */
       subject?: string;
