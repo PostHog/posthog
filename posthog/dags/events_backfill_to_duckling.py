@@ -118,6 +118,10 @@ DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
 # into a ready pod instead of contending for the big exclusive shared workers
 # (the cause of the backfill ConnectionTimeouts). Gated so it stays off until
 # duckgres has the colocated warm pool deployed and the server gate is on.
+#
+# Evaluated once at process startup, not per connection/partition — toggling it
+# (including rollback) requires redeploying the Dagster code location so the
+# process restarts and re-reads the env, not just unsetting the variable.
 DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "").strip().lower() in (
     "1",
     "true",
