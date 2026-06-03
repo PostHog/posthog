@@ -17,8 +17,11 @@ from products.business_knowledge.backend.models import KnowledgeDocument, Knowle
 
 class TestSafetyFilteringAndClassification(BaseTest):
     def _ready_text_source(self, name: str, text: str) -> tuple[KnowledgeSource, KnowledgeDocument]:
+        # Text now starts `unknown`; mark it SAFE here to model a doc the
+        # classifier has already cleared, which is what these tests assume.
         source = logic.create_text_source(team_id=self.team.id, created_by_id=self.user.id, name=name, text=text)
         with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
             doc = KnowledgeDocument.objects.get(source_id=source.id)
         return source, doc
 
@@ -51,6 +54,56 @@ class TestSafetyFilteringAndClassification(BaseTest):
         with team_scope(self.team.id, canonical=True):
             KnowledgeDocument.objects.filter(id=doc.id).update(safety_verdict=SafetyVerdict.UNKNOWN)
         assert logic.search_knowledge(self.team.id, "refund") == []
+
+    def test_file_source_starts_unknown_and_is_excluded_until_classified(self) -> None:
+        # File content is opaque (could carry hidden injection), so an uploaded
+        # file must NOT be searchable before the classifier clears it.
+        source = logic.create_file_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Handbook",
+            file_data=b"Our refund policy covers widgets and gadgets.",
+            original_filename="handbook.txt",
+        )
+        with team_scope(self.team.id, canonical=True):
+            doc = KnowledgeDocument.objects.get(source_id=source.id)
+        assert doc.safety_verdict == SafetyVerdict.UNKNOWN
+        assert logic.search_knowledge(self.team.id, "refund") == []
+        # And it's queued for the coordinator to classify.
+        pending_ids = {d.document_id for d in logic.list_documents_pending_classification()}
+        assert doc.id in pending_ids
+
+    def test_text_source_starts_unknown_and_is_excluded_until_classified(self) -> None:
+        # Pasted text is untrusted content too: a member could paste injection
+        # text, so it must NOT be searchable before the classifier clears it.
+        source = logic.create_text_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Refunds",
+            text="Our refund policy covers widgets and gadgets.",
+        )
+        with team_scope(self.team.id, canonical=True):
+            doc = KnowledgeDocument.objects.get(source_id=source.id)
+        assert doc.safety_verdict == SafetyVerdict.UNKNOWN
+        assert doc.content_hash != ""  # version token set so the verdict write can match
+        assert logic.search_knowledge(self.team.id, "refund") == []
+        # And it's queued for the coordinator to classify.
+        pending_ids = {d.document_id for d in logic.list_documents_pending_classification()}
+        assert doc.id in pending_ids
+
+    def test_text_edit_resets_to_unknown_and_is_excluded(self) -> None:
+        _source, doc = self._ready_text_source("Refunds", "Our refund policy covers widgets and gadgets.")
+        assert logic.search_knowledge(self.team.id, "refund") != []
+
+        logic.update_text_source(
+            source_id=_source.id, team_id=self.team.id, name=None, text="Edited: refund window is now 60 days."
+        )
+        with team_scope(self.team.id, canonical=True):
+            new_doc = KnowledgeDocument.objects.get(source_id=_source.id)
+        assert new_doc.safety_verdict == SafetyVerdict.UNKNOWN
+        assert logic.search_knowledge(self.team.id, "refund") == []
+        pending_ids = {d.document_id for d in logic.list_documents_pending_classification()}
+        assert new_doc.id in pending_ids
 
     def test_pending_classification_lists_unknown_live_docs(self) -> None:
         _source, unknown_doc = self._ready_unknown_source("A", "alpha content here")

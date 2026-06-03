@@ -350,7 +350,15 @@ def create_text_source(
         title=name,
         content=text,
         metadata={"source_type": SourceType.TEXT},
-        safety_verdict=SafetyVerdict.SAFE,
+        content_hash=sha256_of(text),
+        # Pasted text is still untrusted *content* — a member who can add a
+        # source could paste prompt-injection text and have the agent surface
+        # it verbatim (search only filters `safety_verdict=SAFE`). The classifier
+        # is the security boundary for everything agent-searchable, so leave the
+        # doc `unknown` (excluded) until the coordinator clears it, same as
+        # URL/crawl/file docs. content_hash is the version token the verdict
+        # write is matched against (see set_document_safety).
+        safety_verdict=SafetyVerdict.UNKNOWN,
     )
 
     chunks = chunk_text(text)
@@ -422,7 +430,12 @@ def update_text_source(
             title=name if name is not None else source.name,
             content=text,
             metadata={"source_type": SourceType.TEXT},
-            safety_verdict=SafetyVerdict.SAFE,
+            content_hash=sha256_of(text),
+            # Edited text is re-classified before it can resurface — see the
+            # rationale in create_text_source. Delete+recreate gives a fresh id,
+            # so there's no stale-verdict race here; content_hash still scopes
+            # the eventual verdict write to exactly this content.
+            safety_verdict=SafetyVerdict.UNKNOWN,
         )
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
         source.status = SourceStatus.READY
@@ -582,7 +595,13 @@ def create_file_source(
             content=text,
             metadata=parsed.metadata,
             content_hash=content_hash,
-            safety_verdict=SafetyVerdict.SAFE,
+            # Files are opaque: a member can upload a PDF/DOCX they merely
+            # downloaded, with hidden/embedded prompt-injection text they never
+            # saw. That's "trusted user, untrusted content" — so leave the doc
+            # `unknown` (excluded from agent search) until the coordinator's
+            # classifier clears it, exactly like URL/crawl docs. Only pasted
+            # text (which the member typed and can see) is trusted SAFE inline.
+            safety_verdict=SafetyVerdict.UNKNOWN,
         )
 
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
