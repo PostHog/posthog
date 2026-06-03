@@ -415,3 +415,15 @@ class ConversationRedisStream:
         except Exception as e:
             await self._write_status(StatusPayload(status="error", error=str(e)))
             raise StreamError("Failed to write to stream")
+        finally:
+            # Close the generator explicitly so its `finally` blocks run now — most importantly the
+            # runner's `_lock_conversation`, which resets `Conversation.status` back to IDLE. On an
+            # error or cancellation we leave the `async for` mid-`yield`; without an explicit
+            # aclose() that cleanup is only driven at GC time, which may never happen before the
+            # activity's event loop is torn down, leaving the conversation stuck IN_PROGRESS. This
+            # `finally` also runs on CancelledError (a BaseException), so the lock is released when
+            # the activity is cancelled, times out, or the worker shuts down gracefully.
+            try:
+                await generator.aclose()
+            except Exception:
+                logger.exception("Failed to close stream generator", stream_key=self._stream_key)

@@ -361,6 +361,53 @@ class TestRedisStream(BaseTest):
             mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
 
     @pytest.mark.asyncio
+    async def test_write_to_stream_closes_generator_on_error(self):
+        """On a write error, the generator is closed so its `finally` (the status-reset lock) runs."""
+        cleanup_ran = False
+
+        async def generator_with_cleanup():
+            nonlocal cleanup_ran
+            try:
+                yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message"))
+            finally:
+                cleanup_ran = True
+
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()
+            mock_client.xadd = AsyncMock(side_effect=Exception("Redis error"))
+
+            with self.assertRaises(Exception):
+                await self.redis_stream.write_to_stream(generator_with_cleanup())
+
+        self.assertTrue(cleanup_ran)
+
+    @pytest.mark.asyncio
+    async def test_write_to_stream_closes_generator_on_cancellation(self):
+        """On cancellation, the generator is still closed so the conversation lock is released."""
+        cleanup_ran = False
+
+        async def generator_with_cleanup():
+            nonlocal cleanup_ran
+            try:
+                while True:
+                    yield (AssistantEventType.MESSAGE, AssistantMessage(content="chunk"))
+            finally:
+                cleanup_ran = True
+
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()
+
+            async def cancel_after_first_write(*args, **kwargs):
+                raise asyncio.CancelledError()
+
+            mock_client.xadd = AsyncMock(side_effect=cancel_after_first_write)
+
+            with self.assertRaises(asyncio.CancelledError):
+                await self.redis_stream.write_to_stream(generator_with_cleanup())
+
+        self.assertTrue(cleanup_ran)
+
+    @pytest.mark.asyncio
     async def test_serializer_integration(self):
         # Test that the serializer is properly integrated
         with patch.object(self.redis_stream, "_redis_client") as mock_client:

@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -653,7 +654,11 @@ class BaseAgentRunner(ABC):
         finally:
             with _tracer.start_as_current_span("posthog_ai.runner.unlock_conversation"):
                 self._conversation.status = Conversation.Status.IDLE
-                await self._conversation.asave(update_fields=["status", "updated_at"])
+                # Shield the reset from cancellation. This runs from the generator's `finally`,
+                # which is typically driven by `aclose()` while the surrounding activity task is
+                # being cancelled. Without shielding, the asave could be interrupted mid-flight and
+                # the lock would leak, leaving the conversation stuck IN_PROGRESS.
+                await asyncio.shield(self._conversation.asave(update_fields=["status", "updated_at"]))
 
     def _capture_exception(self, e: Exception):
         posthoganalytics.capture_exception(

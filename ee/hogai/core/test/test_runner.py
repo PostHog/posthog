@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import cast
@@ -566,6 +567,25 @@ class TestRunnerSubagentBehavior(BaseTest):
         async with runner._lock_conversation():
             await self.conversation.arefresh_from_db()
             self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
+
+        await self.conversation.arefresh_from_db()
+        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+
+    async def test_lock_conversation_resets_status_when_body_is_cancelled(self):
+        """
+        The lock must release (reset to IDLE) even when the wrapped streaming body is cancelled or
+        errors mid-stream — otherwise the conversation is left stuck IN_PROGRESS.
+        """
+        runner, _ = self._create_runner(use_checkpointer=True)
+
+        self.conversation.status = Conversation.Status.IDLE
+        await self.conversation.asave()
+
+        with self.assertRaises(asyncio.CancelledError):
+            async with runner._lock_conversation():
+                await self.conversation.arefresh_from_db()
+                self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
+                raise asyncio.CancelledError()
 
         await self.conversation.arefresh_from_db()
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
