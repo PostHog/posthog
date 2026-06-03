@@ -143,6 +143,21 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         assert "must have an insight, a dashboard, or a prompt" in str(response.json())
 
+    def test_cannot_create_subscription_without_interval(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "insight": self.insight.id,
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "start_date": "2022-01-01T00:00:00",
+                "title": "No interval",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert "interval" in response.json()
+
     def test_can_update_subscription_without_resending_relation(self):
         sub_id = self._create_subscription().json()["id"]
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Updated title"})
