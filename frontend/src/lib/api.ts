@@ -123,6 +123,7 @@ import {
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
+    ExternalDataSchemaWithSource,
     ExternalDataSource,
     ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
@@ -540,6 +541,11 @@ export class ApiRequest {
     }
 
     // # File System
+    // These endpoints operate on the "web" surface — the tree shown in this app's sidebar.
+    // Surface is server-controlled per route (clients can't send it): the `file_system*`
+    // routes are pinned to "web" server-side, while the separate `desktop_file_system*` routes
+    // (used by a different app, not this frontend) serve the "desktop" surface. So every call
+    // from this frontend is implicitly and exclusively scoped to "web".
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system')
     }
@@ -4117,17 +4123,20 @@ const api = {
                 offset = 0,
                 limit = 100,
                 orderBy = '-created_at',
+                search,
             }: {
                 status?: SymbolSetStatusFilter
                 offset: number
                 limit: number
                 orderBy?: SymbolSetOrder
+                search?: string
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
                 const queryString = {
                     order_by: orderBy,
                     status,
                     offset,
                     limit,
+                    search,
                 }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
@@ -5768,6 +5777,9 @@ const api = {
     },
 
     externalDataSchemas: {
+        async get(schemaId: ExternalDataSourceSchema['id']): Promise<ExternalDataSchemaWithSource> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).get()
+        },
         async update(
             schemaId: ExternalDataSourceSchema['id'],
             data: Partial<ExternalDataSourceSchema>
@@ -6745,6 +6757,13 @@ const api = {
             rich_content?: Record<string, unknown> | null
         }): Promise<{ id: string; ticket_number: number }> {
             return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
+        },
+
+        async bulkUpdateStatus(ids: string[], ticketStatus: string): Promise<{ updated: number; ids: string[] }> {
+            return await new ApiRequest()
+                .conversationsTickets()
+                .withAction('bulk_update_status')
+                .create({ data: { ids, status: ticketStatus } })
         },
     },
 

@@ -391,7 +391,16 @@ def test_sample_payload_preserves_json_body_keys():
 
 @pytest.mark.parametrize(
     "header_name",
-    ["Authorization", "authorization", "X-API-Key", "x-auth-token", "Cookie", "Set-Cookie", "Proxy-Authorization"],
+    [
+        "Authorization",
+        "authorization",
+        "X-API-Key",
+        "x-sn-apikey",
+        "x-auth-token",
+        "Cookie",
+        "Set-Cookie",
+        "Proxy-Authorization",
+    ],
 )
 def test_scrub_headers_redacts_auth_headers(header_name: str):
     cleaned = _scrub_headers({header_name: "Bearer sk_live_secret"})

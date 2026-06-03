@@ -10,9 +10,9 @@ import collections.abc
 import orjson
 import pyarrow as pa
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import aupdate_batch_export_run
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 

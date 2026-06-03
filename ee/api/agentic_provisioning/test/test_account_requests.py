@@ -357,6 +357,28 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert pending["partner_id"] == str(self.pkce_partner.id)
         assert pending["scopes"] == ["query:read"]
 
+    def test_pkce_partner_within_ceiling_creates_pending_auth(self):
+        self.pkce_partner.scopes = ["query:read", "insight:read"]
+        self.pkce_partner.save()
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload(scopes=["query:read"])
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+        assert res.json()["type"] == "requires_auth"
+
+    def test_pkce_partner_outside_ceiling_returns_invalid_scope(self):
+        self.pkce_partner.scopes = ["query:read"]
+        self.pkce_partner.save()
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload(scopes=["query:read", "insight:write"])
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_scope"
+
     def test_pkce_partner_new_user_still_gets_direct_code(self):
         payload = self._account_request_payload(email="brand_new@example.com")
         res = self._post_as_pkce_partner(payload)
