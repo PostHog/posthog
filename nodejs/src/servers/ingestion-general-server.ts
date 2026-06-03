@@ -304,7 +304,10 @@ export class IngestionGeneralServer implements NodeServer {
                     })
                 }
 
-                startClientWarnings({ topic: 'client_iwarnings_ingestion', groupId: 'client_iwarnings_ingestion' })
+                startClientWarnings({
+                    topic: 'ingestion-clientwarnings-main-1',
+                    groupId: 'ingestion-clientwarnings-main',
+                })
             } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
                 startClientWarnings()
             } else {

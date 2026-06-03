@@ -265,7 +265,7 @@ pub struct KafkaConfig {
     pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
     pub kafka_historical_topic: String,
-    #[envconfig(default = "events_plugin_ingestion")]
+    #[envconfig(default = "ingestion-clientwarnings-main-1")]
     pub kafka_client_ingestion_warning_topic: String,
     #[envconfig(default = "error_tracking_events")]
     pub kafka_error_tracking_topic: String,

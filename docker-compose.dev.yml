@@ -476,6 +476,7 @@ services:
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
+                    ingestion-clientwarnings-main-1 \
                     clickhouse_groups \
                     clickhouse_person \
                     clickhouse_person_distinct_id \
