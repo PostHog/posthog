@@ -444,9 +444,33 @@ mod tests {
 
     #[test]
     fn finish_upload_failure_message_names_unattached_maps() {
-        assert_eq!(
-            FINISH_UPLOAD_ERROR_MESSAGE,
-            "Failed to finalize symbol upload; maps were not attached"
+        crate::invocation_context::INVOCATION_CONTEXT.get_or_init(|| {
+            let config = crate::invocation_context::InvocationConfig {
+                api_key: "phx_test".to_string(),
+                host: "not a valid url".to_string(),
+                env_id: "1".to_string(),
+                skip_ssl: false,
+                rate_limit: 1000,
+            };
+            let client = crate::api::client::PHClient::from_config(config.clone()).unwrap();
+            crate::invocation_context::InvocationContext::new(config, client)
+        });
+
+        let err = finish_upload(HashMap::from([(
+            "symbol-set-id".to_string(),
+            "content-hash".to_string(),
+        )]))
+        .unwrap_err();
+        let UploadError::Other(err) = err else {
+            panic!("expected UploadError::Other");
+        };
+
+        let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
+        assert!(
+            chain.iter().any(
+                |message| message == "Failed to finalize symbol upload; maps were not attached"
+            ),
+            "finish_upload error chain should explain that maps were not attached, got {chain:?}"
         );
     }
 }
