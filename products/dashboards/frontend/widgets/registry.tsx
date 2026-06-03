@@ -7,6 +7,9 @@ import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailabilit
 import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTrackingWidgetModal'
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
 import { parseErrorTrackingWidgetConfigApiError } from './error_tracking/errorTrackingWidgetConfigValidation'
+import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
+import { SessionReplayWidget } from './session_replay/SessionReplayWidget'
+import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
 
 export type DashboardWidgetConfigApiErrorParser = (
     error: unknown,
@@ -101,6 +104,12 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditErrorTrackingWidgetModal,
         productAccess: 'error_tracking',
         parseConfigApiError: parseErrorTrackingWidgetConfigApiError,
+    },
+    session_replay_list: {
+        Component: SessionReplayWidget,
+        EditModal: EditSessionReplayWidgetModal,
+        productAccess: 'session_recording',
+        parseConfigApiError: parseSessionReplayWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

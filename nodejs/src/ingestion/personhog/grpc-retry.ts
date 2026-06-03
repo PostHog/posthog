@@ -36,6 +36,9 @@ export async function withRetry<T>(
         } catch (error) {
             lastError = error
             if (!isRetryable(error) || attempt === maxRetries) {
+                logger.error(`[PersonHog] gRPC call failed in ${label}`, {
+                    error: String(error),
+                })
                 throw error
             }
             logger.warn(`[${label}] Retryable gRPC error, retrying`, {

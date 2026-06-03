@@ -26,9 +26,18 @@ describe('dashboard widget registry', () => {
         expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
+    it('registers session_replay_list widget', () => {
+        const definition = getDashboardWidgetDefinition('session_replay_list')
+        expect(definition?.Component).toBeTruthy()
+        expect(definition?.EditModal).toBeTruthy()
+        expect(definition?.productAccess).toBe('session_recording')
+        expect(definition?.parseConfigApiError).toBeTruthy()
+    })
+
     it('delegates config api error parsing to the widget registry entry', () => {
         expect(parseDashboardWidgetConfigApiError('unknown_widget_type', new Error('nope'), {})).toBeNull()
         expect(parseDashboardWidgetConfigApiError('error_tracking_list', new Error('nope'), {})).toBeNull()
+        expect(parseDashboardWidgetConfigApiError('session_replay_list', new Error('nope'), {})).toBeNull()
     })
 
     it('registers every catalog key', () => {
