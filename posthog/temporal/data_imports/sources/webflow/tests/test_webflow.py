@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.sources.webflow.webflow import (
 TRANSPORT = "posthog.temporal.data_imports.sources.webflow.webflow.make_tracked_session"
 
 
-def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
+def _make_response(body: Any, status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
     resp._content = json.dumps(body).encode()
