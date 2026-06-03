@@ -4,10 +4,14 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-// `@storybook/react` is not resolvable from this product's node_modules, so the
-// Meta/StoryObj types are intentionally omitted — CSF reads these objects at runtime.
+import type { ReplayScannerApi, UserBasicApi, VisionQuotaApi } from '../generated/api.schemas'
 
-const alice = {
+// Meta/StoryObj are not imported from `@storybook/react`: unlike error_tracking and
+// ai_observability, this product's package.json doesn't declare @storybook/react, so it
+// isn't symlinked into products/replay_vision/node_modules and won't resolve here. CSF
+// reads these plain objects at runtime regardless.
+
+const alice: UserBasicApi = {
     id: 1,
     uuid: '00000000-0000-0000-0000-000000000001',
     first_name: 'Alice',
@@ -15,7 +19,7 @@ const alice = {
     email: 'alice@example.com',
     hedgehog_config: null,
 }
-const bob = {
+const bob: UserBasicApi = {
     id: 2,
     uuid: '00000000-0000-0000-0000-000000000002',
     first_name: 'Bob',
@@ -24,25 +28,26 @@ const bob = {
     hedgehog_config: null,
 }
 
-const scanner = (overrides: Record<string, unknown>): Record<string, unknown> => ({
-    id: '00000000-0000-0000-0000-00000000000a',
-    name: 'Scanner',
-    description: '',
-    scanner_type: 'monitor',
-    scanner_config: { prompt: 'Did the user struggle?' },
-    query: null,
-    sampling_rate: 1,
-    provider: 'google',
-    model: 'gemini-3-flash-preview',
-    enabled: true,
-    emits_signals: false,
-    scanner_version: 1,
-    last_swept_at: '2026-05-12T00:00:00Z',
-    created_at: '2026-05-12T00:00:00Z',
-    updated_at: '2026-05-12T00:00:00Z',
-    created_by: null,
-    ...overrides,
-})
+const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
+    ({
+        id: '00000000-0000-0000-0000-00000000000a',
+        name: 'Scanner',
+        description: '',
+        scanner_type: 'monitor',
+        scanner_config: { prompt: 'Did the user struggle?' },
+        query: null,
+        sampling_rate: 1,
+        provider: 'google',
+        model: 'gemini-3-flash-preview',
+        enabled: true,
+        emits_signals: false,
+        scanner_version: 1,
+        last_swept_at: '2026-05-12T00:00:00Z',
+        created_at: '2026-05-12T00:00:00Z',
+        updated_at: '2026-05-12T00:00:00Z',
+        created_by: null,
+        ...overrides,
+    }) as ReplayScannerApi
 
 const scanners = {
     count: 4,
@@ -85,7 +90,7 @@ const scanners = {
     ],
 }
 
-const quota = {
+const quota: VisionQuotaApi = {
     monthly_quota: 10000,
     usage_this_month: 2400,
     remaining: 7600,
