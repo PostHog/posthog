@@ -39,7 +39,7 @@ class TestSquareSource:
         assert config.name.value == "Square"
         assert config.label == "Square"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is not True
         assert len(config.fields) == 2
 
         access_token_field = config.fields[0]

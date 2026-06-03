@@ -76,7 +76,6 @@ Grant these read permissions to the token for the data you want to sync:
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 
