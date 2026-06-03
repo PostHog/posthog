@@ -177,7 +177,6 @@ doesn't conflict with concurrent PRs.
 - jira
 - kafka
 - launchdarkly
-- lever
 - mailerlite
 - marketo
 - microsoft_teams
