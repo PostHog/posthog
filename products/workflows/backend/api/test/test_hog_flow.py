@@ -9,6 +9,8 @@ from rest_framework import status
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Cohort, Organization, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -1170,6 +1172,41 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json() == {"affected": 4, "total": 10}
+
+    def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
+        # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use
+        # this as a person-count oracle — person:read is also required.
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": []}},
+            headers={"authorization": f"Bearer {key}"},
+        )
+        assert response.status_code == 403, response.json()
+        assert "person:read" in response.json().get("detail", "")
+
+    def test_user_blast_radius_personal_api_key_with_person_read_scope_allowed(self):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow + person",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["hog_flow:read", "person:read"],
+        )
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=1, total=10)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+                headers={"authorization": f"Bearer {key}"},
+            )
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"affected": 1, "total": 10}
 
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""

@@ -695,6 +695,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
         if self.action in ("batch_jobs", "schedules"):
             return ["hog_flow:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["hog_flow:write"]
+        # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
+        # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
+        # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
+        # session auth, so live sizing while editing is unaffected.
+        if self.action == "user_blast_radius":
+            return ["hog_flow:read", "person:read"]
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
