@@ -6056,7 +6056,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's trigger audience matches. Audience is person/cohort, not event behavior. Run before run-batch / schedule-create and show the user.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",
@@ -6079,20 +6079,6 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "workflows-disable": {
-        "description": "Disable / deactivate a live workflow and stop processing events. Confirm with the user before invoking.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Disable workflow",
-        "title": "Disable workflow",
-        "required_scopes": ["hog_flow:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -6168,7 +6154,7 @@
         }
     },
     "workflows-run-batch": {
-        "description": "Broadcast a batch workflow to its matching users now. Workflow must be enabled. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
+        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Run batch workflow",
@@ -6182,7 +6168,7 @@
         }
     },
     "workflows-schedule-create": {
-        "description": "Create a recurring RRULE schedule for a workflow; fires only once enabled. Batch (audience) workflows require acknowledged_affected_count from workflows-blast-radius; schedule-trigger ones don't.",
+        "description": "Create a recurring RRULE schedule for a workflow; fires only once enabled. For batch (audience) workflows each run broadcasts real messages to the audience — STOP and get the user's explicit confirmation first, then pass acknowledged_affected_count from workflows-blast-radius. Schedule-trigger workflows are person-less and don't need it.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Schedule workflow runs",
@@ -6196,7 +6182,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status. A batch/schedule audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
+        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-disable / workflows-archive. A batch/schedule audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",
@@ -6210,7 +6196,7 @@
         }
     },
     "workflows-update-schedule": {
-        "description": "Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience. To stop and restart a workflow's runs, disable/enable the workflow (workflows-disable / workflows-enable).",
+        "description": "Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow schedule",

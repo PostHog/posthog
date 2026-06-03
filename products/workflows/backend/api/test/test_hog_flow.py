@@ -565,6 +565,7 @@ class TestHogFlowAPI(APIBaseTest):
         return flow_id
 
     def test_mcp_cannot_modify_active_workflow(self):
+        # Active workflows are read-only via MCP for now — editing risks breaking already-scheduled runs.
         flow_id = self._create_active_hog_flow()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
@@ -572,7 +573,7 @@ class TestHogFlowAPI(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 400, response.json()
-        assert "enabled (active) workflow via MCP" in response.json()["detail"]
+        assert "active workflow isn't supported via MCP" in response.json()["detail"]
 
     @parameterized.expand([("disable_to_draft", "draft"), ("archive", "archived")])
     def test_mcp_can_disable_active_workflow(self, _name, target_status):
@@ -635,6 +636,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "active"
 
     def test_mcp_cannot_mix_status_with_other_field_updates(self):
+        # Status changes must route through the lifecycle tools — a mixed status + field PATCH is rejected
+        # (here on a draft, so it's the status-mixing guard rather than the active-workflow read-only guard).
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )

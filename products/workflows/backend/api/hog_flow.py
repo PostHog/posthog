@@ -725,27 +725,26 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             logger.warning("Failed to capture hog_flow_created event", error=str(e))
 
     def perform_update(self, serializer):
-        # Guardrails for MCP callers (gated on x-posthog-client: mcp; the frontend and raw API
-        # are unaffected). We check the raw request payload, not serializer.validated_data —
-        # HogFlowSerializer.validate injects derived fields like 'trigger' and
-        # 'billable_action_types' which would otherwise make every status-only PATCH look like
-        # an edit.
+        # Guardrails for MCP/LLM callers (gated on x-posthog-client: mcp; the frontend and raw API are
+        # unaffected). We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
+        # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
+        # status-only PATCH look like a mixed edit.
         if self._is_mcp_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
             has_non_status = bool(keys - {"status"})
 
-            # 1. Live workflows can't be edited. Status-only PATCHes (i.e. the lifecycle
-            # tools) pass through.
+            # Active workflows are read-only via MCP for now: edits can break runs already scheduled or in flight,
+            # and there's no revision history to roll back. Status-only PATCHes (the lifecycle tools) pass through.
             if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
                 raise exceptions.ValidationError(
-                    "You can't edit an enabled (active) workflow via MCP. "
-                    "Disable it first with workflows-disable, then make your changes."
+                    "Editing an active workflow isn't supported via MCP yet — changes can break runs already "
+                    "scheduled or in flight, and there's no revision history to roll back. Don't disable and "
+                    "re-enable it to work around this. If you need different behavior, create a new draft workflow."
                 )
 
-            # 2. Status changes must go through the dedicated lifecycle tools, which send
-            # status-only PATCHes. Mixed payloads are rejected so MCP can't sneak a status
-            # transition through workflows-update.
+            # Status transitions must go through the dedicated lifecycle tools (status-only PATCHes); a mixed
+            # status + field payload is rejected so MCP can't sneak a transition through a field update.
             if has_status and has_non_status:
                 raise exceptions.ValidationError(
                     "Status changes via MCP must use workflows-enable / workflows-disable / "

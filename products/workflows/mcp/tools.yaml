@@ -208,10 +208,12 @@ tools:
         enrich_url: hog-{id}
         title: Update workflow
         description: >
-            Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status. A
-            batch/schedule audience is config.filters.properties — person-property conditions and/or cohort references.
-            Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list
-            cohort; behavioral (event-based) cohorts are rejected.
+            Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks
+            breaking already-scheduled runs); create a new draft for changes instead. Status changes go through
+            workflows-enable / workflows-disable / workflows-archive. A batch/schedule audience is
+            config.filters.properties — person-property conditions and/or cohort references. Prefer person properties
+            or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral
+            (event-based) cohorts are rejected.
         exclude_params:
             - status
         ui_app: workflow
@@ -227,5 +229,4 @@ tools:
         title: Update workflow schedule
         description: >
             Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence
-            reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience. To stop and
-            restart a workflow's runs, disable/enable the workflow (workflows-disable / workflows-enable).
+            reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience.

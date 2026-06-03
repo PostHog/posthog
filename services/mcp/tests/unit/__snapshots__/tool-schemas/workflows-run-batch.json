@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "acknowledged_affected_count": {
-            "description": "The affected-user count from workflows-blast-radius that you showed the user. Rejected if it no longer matches the current audience, forcing a re-check.",
+            "description": "The affected-user count from workflows-blast-radius that you showed the user AND they explicitly confirmed before you called this — never size and fire in one step. Rejected if it no longer matches the current audience, forcing a re-check.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"

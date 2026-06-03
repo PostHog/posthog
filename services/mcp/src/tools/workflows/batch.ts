@@ -13,9 +13,11 @@ type BlastRadius = { affected: number; total: number }
 
 type WorkflowTrigger = { type?: string; filters?: unknown }
 
-type WorkflowSummary = { status: string | undefined; trigger: WorkflowTrigger }
-
-async function fetchWorkflow(context: Context, projectId: string, workflowId: string): Promise<WorkflowSummary> {
+async function fetchWorkflow(
+    context: Context,
+    projectId: string,
+    workflowId: string
+): Promise<{ status: string | undefined; trigger: WorkflowTrigger }> {
     const workflow = await context.api.request<{ status?: string; trigger?: unknown }>({
         method: 'GET',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(workflowId))}/`,
@@ -74,8 +76,9 @@ const RunBatchSchema = z.object({
         .number()
         .int()
         .describe(
-            'The affected-user count from workflows-blast-radius that you showed the user. Rejected if it no ' +
-                'longer matches the current audience, forcing a re-check.'
+            'The affected-user count from workflows-blast-radius that you showed the user AND they explicitly ' +
+                'confirmed before you called this — never size and fire in one step. Rejected if it no longer ' +
+                'matches the current audience, forcing a re-check.'
         ),
     variables: z
         .record(z.string(), z.unknown())
@@ -128,9 +131,10 @@ const ScheduleCreateSchema = z.object({
         .int()
         .optional()
         .describe(
-            'Required for a batch (audience) workflow: the current affected-user count from workflows-blast-radius ' +
-                'that you showed the user. Each firing re-broadcasts to the audience at that time; rejected if it no ' +
-                "longer matches. Not needed for a 'schedule' trigger (person-less — no audience)."
+            'Required for a batch (audience) workflow: the affected-user count from workflows-blast-radius that you ' +
+                'showed the user AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the ' +
+                "audience at that time; rejected if it no longer matches. Not needed for a 'schedule' trigger " +
+                '(person-less — no audience).'
         ),
     variables: z
         .record(z.string(), z.unknown())
