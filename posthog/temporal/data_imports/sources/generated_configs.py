@@ -587,7 +587,7 @@ class PaddleSourceConfig(config.Config):
 
 @config.config
 class PagerDutySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
