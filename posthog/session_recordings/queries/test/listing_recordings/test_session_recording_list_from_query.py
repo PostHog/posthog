@@ -15,7 +15,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from contextlib import ExitStack, nullcontext
+from contextlib import nullcontext
 from unittest.mock import ANY, patch
 
 from django.utils.timezone import now
