@@ -72,7 +72,10 @@ class EncryptionCodec(PayloadCodec):
                 environments.
         """
         if not settings.TEST and not settings.DEBUG:
-            if any(len(key) < 32 for key in (settings.TEMPORAL_SECRET_KEY, *settings.TEMPORAL_FALLBACK_KEYS)):
+            if any(
+                len(key.encode() if isinstance(key, str) else key) < 32
+                for key in (settings.TEMPORAL_SECRET_KEY, *settings.TEMPORAL_FALLBACK_KEYS)
+            ):
                 raise ValueError("Keys must be at least 32 bytes")
 
         main_key = _prepare_key(settings.TEMPORAL_SECRET_KEY)
