@@ -82,6 +82,76 @@ class TestAttributeFilters(APIBaseTest):
         # this optimization was premature and needs more thought, and probably has very little benefit anyway
         self.assertNotIn("in(resource_fingerprint", query_str)
 
+    def test_log_attribute_multikey_filter_emits_coalesce(self):
+        """A `LogPropertyFilter` with `keys` set compiles to a `coalesce()`-based HogQL
+        expression spanning every key, with the type suffix applied per key.
+
+        Calls the helper directly (rather than the full runner → executor → parser pipeline)
+        to keep the test scoped to the compile-time behavior we own here.
+        """
+        from posthog.hogql import ast as hogql_ast
+
+        from products.logs.backend.logs_query_runner import _multikey_log_attribute_to_expr
+
+        filter = LogPropertyFilter(
+            key="posthogDistinctId",
+            keys=["posthogDistinctId", "user.id"],
+            operator=PropertyOperator.EXACT,
+            type=LogPropertyFilterType.LOG_ATTRIBUTE,
+            value=["abc-123", "def-456"],
+        )
+
+        expr = _multikey_log_attribute_to_expr(filter)
+
+        # Compare-op IN over a coalesce() call with one Field per configured key.
+        self.assertIsInstance(expr, hogql_ast.CompareOperation)
+        self.assertEqual(expr.op, hogql_ast.CompareOperationOp.In)  # type: ignore[union-attr]
+        coalesce = expr.left  # type: ignore[union-attr]
+        self.assertIsInstance(coalesce, hogql_ast.Call)
+        self.assertEqual(coalesce.name, "coalesce")  # type: ignore[union-attr]
+        self.assertEqual(len(coalesce.args), 2)  # type: ignore[union-attr]
+        self.assertEqual(coalesce.args[0].chain, ["attributes", "posthogDistinctId__str"])  # type: ignore[union-attr]
+        self.assertEqual(coalesce.args[1].chain, ["attributes", "user.id__str"])  # type: ignore[union-attr]
+
+    def test_log_attribute_multikey_filter_single_key_skips_coalesce(self):
+        """When `keys` has a single entry, the compiled expression is a plain attribute
+        lookup (no `coalesce()` wrapper) — keeps the SQL tidy on the default-config path."""
+        from posthog.hogql import ast as hogql_ast
+
+        from products.logs.backend.logs_query_runner import _multikey_log_attribute_to_expr
+
+        filter = LogPropertyFilter(
+            key="posthogDistinctId",
+            keys=["posthogDistinctId"],
+            operator=PropertyOperator.EXACT,
+            type=LogPropertyFilterType.LOG_ATTRIBUTE,
+            value=["solo-id"],
+        )
+
+        expr = _multikey_log_attribute_to_expr(filter)
+        self.assertIsInstance(expr, hogql_ast.CompareOperation)
+        # Single key: the left side is a Field directly, no coalesce() wrapper.
+        self.assertIsInstance(expr.left, hogql_ast.Field)  # type: ignore[union-attr]
+        self.assertEqual(expr.left.chain, ["attributes", "posthogDistinctId__str"])  # type: ignore[union-attr]
+
+    def test_log_attribute_multikey_filter_is_not_uses_not_in(self):
+        """`IsNot` operator produces NotIn on the coalesce expression."""
+        from posthog.hogql import ast as hogql_ast
+
+        from products.logs.backend.logs_query_runner import _multikey_log_attribute_to_expr
+
+        filter = LogPropertyFilter(
+            key="posthogDistinctId",
+            keys=["posthogDistinctId", "user.id"],
+            operator=PropertyOperator.IS_NOT,
+            type=LogPropertyFilterType.LOG_ATTRIBUTE,
+            value=["alice", "bob"],
+        )
+
+        expr = _multikey_log_attribute_to_expr(filter)
+        self.assertIsInstance(expr, hogql_ast.CompareOperation)
+        self.assertEqual(expr.op, hogql_ast.CompareOperationOp.NotIn)  # type: ignore[union-attr]
+
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
         query = LogsQuery(

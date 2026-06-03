@@ -7788,6 +7788,14 @@ class LogPropertyFilter(BaseModel):
         extra="forbid",
     )
     key: str
+    keys: list[str] | None = None
+    """
+    Optional priority-ordered list of attribute keys. When set, the matcher reads
+    `coalesce(attributes[keys[0]], attributes[keys[1]], …)` against `value` instead of
+    `attributes[key]`. Used by the person profile Logs tab to scope by any of the
+    team's configured `logs_distinct_id_attribute_keys`. When unset, falls back to
+    the single `key`.
+    """
     label: str | None = None
     operator: PropertyOperator
     type: LogPropertyFilterType

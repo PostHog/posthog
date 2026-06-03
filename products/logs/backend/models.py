@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -22,7 +23,12 @@ logger = logging.getLogger(__name__)
 # posthog-js / posthog-react-native SDKs auto-attach `posthogDistinctId` to every log
 # they emit, and the docs instruct OTel-emitting backends to set the same key. Customers
 # whose pipeline uses a different key can override via the `logs_config` endpoint.
-DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
+DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS: list[str] = ["posthogDistinctId"]
+
+
+def _default_logs_distinct_id_attribute_keys() -> list[str]:
+    # Returns a fresh list so the model default isn't shared across rows.
+    return list(DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS)
 
 
 class TeamLogsConfig(models.Model):
@@ -33,13 +39,14 @@ class TeamLogsConfig(models.Model):
     # access to. Mirrors the `TeamExperimentsConfig` precedent.
     team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
 
-    # Log attribute key whose value matches a PostHog person's distinct_id. Used by the
+    # Ordered list of log attribute keys used to identify which person a log belongs to.
+    # For each log row, the first configured key found on that row is matched against the
+    # person's distinct_ids (priority-ordered fallback via SQL COALESCE). Used by the
     # person profile Logs tab and the `query-logs` MCP tool to filter logs to a single
     # user without needing per-team prompt engineering.
-    logs_distinct_id_attribute_key = models.CharField(
-        max_length=200,
-        default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
-        db_default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    logs_distinct_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=_default_logs_distinct_id_attribute_keys,
     )
 
 

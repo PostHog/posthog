@@ -1139,6 +1139,14 @@ export type LogPropertyFilterType =
 export interface LogPropertyFilter extends BasePropertyFilter {
     type: LogPropertyFilterType
     operator: PropertyOperator
+    /**
+     * Optional priority-ordered list of attribute keys. When set, the matcher reads
+     * `coalesce(attributes[keys[0]], attributes[keys[1]], …)` against `value` instead of
+     * `attributes[key]`. Used by the person profile Logs tab to scope by any of the
+     * team's configured `logs_distinct_id_attribute_keys`. When unset, falls back to
+     * the single `key`.
+     */
+    keys?: string[]
 }
 
 export type SpanPropertyFilterType =

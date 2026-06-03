@@ -180,6 +180,52 @@ def _get_property_type(value) -> str:
     return "str"
 
 
+def _multikey_log_attribute_to_expr(filter: LogPropertyFilter) -> ast.Expr:
+    """Compile a `LogPropertyFilter` whose `keys` field is set to a HogQL expression
+    matching `coalesce(attributes[k1__suffix], attributes[k2__suffix], ...) <op> value`.
+
+    Priority-ordered fallback: on each log row, the first non-null configured key's value
+    is matched against `value`. Used by the person profile Logs tab to scope by any of
+    the team's configured `logs_distinct_id_attribute_keys` without needing the runner
+    to grow nested OR-group support.
+
+    Supports `Exact` and `IsNot` operators — sufficient for the pivot use case. Extend
+    here when new operators are needed.
+    """
+    assert filter.keys, "multikey filter must have non-empty keys list"
+
+    # Detect the per-type attribute map suffix the same way the single-key path does.
+    # Distinct_id values are strings, so the `__str` map is the default.
+    type_suffix = "str"
+    if isinstance(filter.value, list) and filter.value:
+        detected = {_get_property_type(v) for v in filter.value}
+        if len(detected) == 1:
+            type_suffix = detected.pop()
+    elif filter.value is not None and not isinstance(filter.value, list):
+        type_suffix = _get_property_type(filter.value)
+
+    coalesce_args: list[ast.Expr] = [ast.Field(chain=["attributes", f"{key}__{type_suffix}"]) for key in filter.keys]
+    attr_expr: ast.Expr = ast.Call(name="coalesce", args=coalesce_args) if len(coalesce_args) > 1 else coalesce_args[0]
+
+    if isinstance(filter.value, list):
+        values_tuple = ast.Tuple(exprs=[ast.Constant(value=str(v)) for v in filter.value])
+        op = ast.CompareOperationOp.NotIn if filter.operator == PropertyOperator.IS_NOT else ast.CompareOperationOp.In
+        return ast.CompareOperation(op=op, left=attr_expr, right=values_tuple)
+
+    if filter.value is None:
+        # Treat as IS_SET / IS_NOT_SET — log row matches if any configured key has a non-null value.
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq
+            if filter.operator == PropertyOperator.IS_NOT
+            else ast.CompareOperationOp.Eq,
+            left=attr_expr,
+            right=ast.Constant(value=None),
+        )
+
+    op = ast.CompareOperationOp.NotEq if filter.operator == PropertyOperator.IS_NOT else ast.CompareOperationOp.Eq
+    return ast.CompareOperation(op=op, left=attr_expr, right=ast.Constant(value=str(filter.value)))
+
+
 class LogsFilterBuilder:
     """Builds HogQL WHERE clause AST from LogsQuery filter fields.
 
@@ -195,6 +241,11 @@ class LogsFilterBuilder:
         self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
         self.log_filters: list[LogPropertyFilter] = []
         self.attribute_filters: list[LogPropertyFilter] = []
+        # Multikey log-attribute filters (e.g. person-profile pivot scoped by a list of
+        # `logs_distinct_id_attribute_keys`). Compiled to a COALESCE-based HogQL expr
+        # directly — bypasses the universal property_to_expr pipeline because the latter
+        # is single-key-only.
+        self.multikey_attribute_filters: list[LogPropertyFilter] = []
         if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
             for property_group in self.query.filterGroup.values:
                 self.resource_attribute_filters = cast(
@@ -230,6 +281,13 @@ class LogsFilterBuilder:
             for property_filter in self.query.filterGroup.values[0].values:
                 # we only do the type mapping for log attributes
                 if property_filter.type != LogPropertyFilterType.LOG_ATTRIBUTE:
+                    continue
+
+                # Multi-key filters (priority-ordered COALESCE) are compiled separately —
+                # property_to_expr is single-key-only, so we bypass the type-suffix rewrite
+                # here and let `where()` call `_multikey_log_attribute_to_expr` instead.
+                if isinstance(property_filter, LogPropertyFilter) and property_filter.keys:
+                    self.multikey_attribute_filters.append(property_filter)
                     continue
 
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
@@ -286,6 +344,13 @@ class LogsFilterBuilder:
 
             if self.attribute_filters:
                 exprs.append(property_to_expr(self.attribute_filters, team=self.team))
+
+            # Multi-key log-attribute pivots (e.g. person-profile scope across a list of
+            # configured `logs_distinct_id_attribute_keys`). Each compiles to a single
+            # COALESCE-based comparison; multiple multi-key filters in the same group
+            # are ANDed alongside the rest.
+            for multikey_filter in self.multikey_attribute_filters:
+                exprs.append(_multikey_log_attribute_to_expr(multikey_filter))
 
             if self.log_filters:
                 for log_filter in self.log_filters:

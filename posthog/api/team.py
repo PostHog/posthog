@@ -101,21 +101,41 @@ tracer = trace.get_tracer(__name__)
 
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
-    logs_distinct_id_attribute_key = serializers.CharField(
-        max_length=200,
+    logs_distinct_id_attribute_keys = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        min_length=1,
+        max_length=10,
         help_text=(
-            "Log attribute key whose value should match a person's distinct_id. "
-            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
-            "Defaults to 'posthogDistinctId' — the convention documented at "
-            "https://posthog.com/docs/logs/link-session-replay and the key the "
-            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
-            "your pipeline emits a different attribute."
+            "Ordered list of log attributes used to identify which person a log "
+            "belongs to. For each log row, the first configured key found on that "
+            "row is matched against the person's distinct_ids (priority-ordered "
+            "fallback via SQL COALESCE). Used by the person profile Logs tab and "
+            "the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the "
+            "key the posthog-js / posthog-react-native SDKs auto-attach; the "
+            "convention is documented at https://posthog.com/docs/logs/link-person. "
+            "Override only if your pipeline emits the person identifier under a "
+            "different key."
         ),
     )
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key"]
+        fields = ["logs_distinct_id_attribute_keys"]
+
+    def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
+        # Trim and dedupe while preserving order. Reject empty strings (caught by
+        # CharField if blank, but explicit here for clarity in the API response).
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for key in value:
+            stripped = key.strip()
+            if not stripped:
+                raise serializers.ValidationError("Attribute keys cannot be empty or whitespace-only.")
+            if stripped in seen:
+                continue
+            seen.add(stripped)
+            cleaned.append(stripped)
+        return cleaned
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
