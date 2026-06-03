@@ -8,10 +8,11 @@ import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.models.subscription import Subscription
 from posthog.utils import absolute_uri
+
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
