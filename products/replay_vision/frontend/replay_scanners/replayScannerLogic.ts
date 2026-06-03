@@ -229,6 +229,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerEstimateFailure: () => false,
             },
         ],
+        estimateRequestVersion: [
+            0,
+            {
+                requestScannerEstimate: (state: number) => state + 1,
+            },
+        ],
         observationStatusFilter: [
             [] as ObservationStatusValue[],
             {
@@ -577,14 +583,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.loadScannerEstimateFailure()
                 return
             }
+            const version = values.estimateRequestVersion
             try {
                 const response = await visionScannersEstimateCreate(String(teamId), {
                     query: scanner.query ?? undefined,
                     sampling_rate: scanner.sampling_rate,
                 })
-                // If a newer loadScannerEstimate fired while this one was in flight, abort so
-                // the slower response can't overwrite the newer one. Re-thrown by `breakpoint()`.
                 breakpoint()
+                if (values.estimateRequestVersion !== version) {
+                    return
+                }
                 actions.loadScannerEstimateSuccess(response)
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {
