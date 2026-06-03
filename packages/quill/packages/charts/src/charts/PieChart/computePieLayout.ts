@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { pie } from 'd3-shape'
 
 import type { ResolvedSeries } from '../../core/types'
 
@@ -108,8 +108,7 @@ export function computePieLayout<Meta = unknown>(opts: ComputePieLayoutOptions<M
         return { slices: [], total: 0, cx, cy, outerRadius, innerRadius, padAngle }
     }
 
-    const pieGenerator = d3
-        .pie<Indexed>()
+    const pieGenerator = pie<Indexed>()
         .value((d) => d.value)
         .padAngle(padAngle)
     if (sort === null) {

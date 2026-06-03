@@ -1,4 +1,4 @@
-import { bisector } from 'd3'
+import { bisector } from 'd3-array'
 
 import { barColorAt } from './color-utils'
 import type {

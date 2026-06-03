@@ -60,7 +60,7 @@ function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCel
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span className="text-xs text-muted">{title}</span>
+            <span className="text-xs text-muted-foreground">{title}</span>
             <Stage width={420} height={220}>
                 <TimeSeriesLineChart
                     series={series}
@@ -87,7 +87,7 @@ function YFormatCell({ title, config, series }: YFormatCellProps): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span className="text-xs text-muted">{title}</span>
+            <span className="text-xs text-muted-foreground">{title}</span>
             <Stage width={420} height={220}>
                 <TimeSeriesLineChart
                     series={series}
