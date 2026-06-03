@@ -20,10 +20,10 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
@@ -70,7 +70,6 @@ export function PageHeaderCustom(): JSX.Element {
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [copyToProjectModalOpen, setCopyToProjectModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
-    const { newTab } = useActions(sceneLogic)
     const { trigger, HogfettiComponent } = useHogfetti()
 
     useOnMountEffect(() => {
@@ -196,7 +195,7 @@ export function PageHeaderCustom(): JSX.Element {
                                             menuItem: true,
                                         }}
                                         data-attr="view-exposure-cohort"
-                                        onClick={() => newTab(urls.cohort(exposureCohortId))}
+                                        onClick={() => newInternalTab(urls.cohort(exposureCohortId))}
                                     >
                                         <IconEye /> View exposure cohort as new tab
                                     </Link>

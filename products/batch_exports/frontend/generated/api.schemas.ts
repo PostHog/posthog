@@ -28,6 +28,8 @@ export const BlankEnumApi = {
 
 /**
  * * `S3` - S3
+ * `AwsS3` - Aws S3
+ * `S3Compatible` - S3 Compatible
  * `Snowflake` - Snowflake
  * `Postgres` - Postgres
  * `Redshift` - Redshift
@@ -44,6 +46,8 @@ export type BatchExportDestinationTypeEnumApi =
 
 export const BatchExportDestinationTypeEnumApi = {
     S3: 'S3',
+    AwsS3: 'AwsS3',
+    S3Compatible: 'S3Compatible',
     Snowflake: 'Snowflake',
     Postgres: 'Postgres',
     Redshift: 'Redshift',
@@ -193,6 +197,8 @@ export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
 
   * `S3` - S3
+  * `AwsS3` - Aws S3
+  * `S3Compatible` - S3 Compatible
   * `Snowflake` - Snowflake
   * `Postgres` - Postgres
   * `Redshift` - Redshift
@@ -1497,6 +1503,74 @@ export interface FileDownloadBatchExportOnDemandApi {
 }
 
 /**
+ * * `completed` - Completed
+ * `failed` - Failed
+ * `paused` - Paused
+ * `running` - Running
+ */
+export type BatchImportStatusEnumApi = (typeof BatchImportStatusEnumApi)[keyof typeof BatchImportStatusEnumApi]
+
+export const BatchImportStatusEnumApi = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Paused: 'paused',
+    Running: 'running',
+} as const
+
+/**
+ * @nullable
+ */
+export type BatchImportApiCreatedBy = { [key: string]: unknown } | null
+
+/**
+ * Serializer for BatchImport model
+ */
+export interface BatchImportApi {
+    readonly id: string
+    readonly team_id: number
+    readonly created_at: string
+    readonly updated_at: string
+    readonly state: unknown
+    /** @nullable */
+    readonly created_by: BatchImportApiCreatedBy
+    readonly status: BatchImportStatusEnumApi
+    /** @nullable */
+    readonly display_status_message: string | null
+    readonly import_config: unknown
+}
+
+export interface PaginatedBatchImportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchImportApi[]
+}
+
+/**
+ * @nullable
+ */
+export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null
+
+/**
+ * Serializer for BatchImport model
+ */
+export interface PatchedBatchImportApi {
+    readonly id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly state?: unknown
+    /** @nullable */
+    readonly created_by?: PatchedBatchImportApiCreatedBy
+    readonly status?: BatchImportStatusEnumApi
+    /** @nullable */
+    readonly display_status_message?: string | null
+    readonly import_config?: unknown
+}
+
+/**
  * * `events` - events
  */
 export type FileDownloadEventsRequestModelEnumApi =
@@ -1737,3 +1811,38 @@ export type FileDownloadBatchExportsLogsRetrieveParams = {
      */
     search?: string
 }
+
+export type ManagedMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+    /**
+     * A search term.
+     */
+    search?: string
+    /**
+     * * `completed` - Completed
+     * `failed` - Failed
+     * `paused` - Paused
+     * `running` - Running
+     */
+    status?: ManagedMigrationsListStatus
+}
+
+export type ManagedMigrationsListStatus = (typeof ManagedMigrationsListStatus)[keyof typeof ManagedMigrationsListStatus]
+
+export const ManagedMigrationsListStatus = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Paused: 'paused',
+    Running: 'running',
+} as const

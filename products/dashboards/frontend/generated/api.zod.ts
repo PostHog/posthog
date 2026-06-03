@@ -289,7 +289,7 @@ export const DashboardsAnalyzeRefreshResultCreateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
- * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
+ * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
 export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
     fromDashboardId: zod.number().describe('Dashboard id the tile currently belongs to.'),
@@ -346,43 +346,26 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
 })
 
-export const dashboardsMoveTilePartialUpdateBodyNameMax = 400
+/**
+ * Soft-delete a single tile from a dashboard.
 
-export const dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault = false
+Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+use the dashboard delete endpoint instead.
+ */
+export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
+})
 
-export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().max(dashboardsMoveTilePartialUpdateBodyNameMax).nullish(),
-        description: zod.string().optional(),
-        pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
-        deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
-        data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .optional()
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
-        quick_filter_ids: zod
-            .array(zod.string())
-            .nullish()
-            .describe('List of quick filter IDs associated with this dashboard'),
-        use_template: zod
-            .string()
-            .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
-        use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
-        delete_insights: zod
-            .boolean()
-            .default(dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault)
-            .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
+export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
+    to_dashboard: zod.number().optional().describe('Destination dashboard ID.'),
+    tile: zod
+        .object({
+            id: zod.number().describe('Dashboard tile ID to move.'),
+        })
+        .optional()
+        .describe('Tile to move, identified by its dashboard tile ID.'),
+})
 
 export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
 
@@ -485,6 +468,146 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .max(dashboardsUpdateTextTileCreateBodyColorMax)
         .nullish()
         .describe('New accent color name, empty string or null to clear. Omit to leave unchanged.'),
+})
+
+/**
+ * Add multiple widget tiles to a dashboard in one atomic request.
+ */
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax = 64
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitMax = 25
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderByDefault = `occurrences`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderDirectionDefault = `DESC`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneStatusDefault = `active`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
+
+export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
+    widgets: zod
+        .array(
+            zod.object({
+                widget_type: zod
+                    .string()
+                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax)
+                    .describe(
+                        'Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+                    ),
+                config: zod
+                    .object({
+                        limit: zod
+                            .number()
+                            .min(1)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitMax)
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitDefault)
+                            .describe('Maximum number of issues to return.'),
+                        orderBy: zod
+                            .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                            .describe(
+                                '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+                            )
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderByDefault)
+                            .describe(
+                                'Issue ranking column.\n\n\* `first_seen` - first_seen\n\* `last_seen` - last_seen\n\* `occurrences` - occurrences\n\* `sessions` - sessions\n\* `users` - users'
+                            ),
+                        orderDirection: zod
+                            .enum(['ASC', 'DESC'])
+                            .describe('\* `ASC` - ASC\n\* `DESC` - DESC')
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderDirectionDefault)
+                            .describe('Sort direction for orderBy.\n\n\* `ASC` - ASC\n\* `DESC` - DESC'),
+                        status: zod
+                            .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
+                            .describe(
+                                '\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed\n\* `all` - all'
+                            )
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneStatusDefault)
+                            .describe(
+                                'Issue status filter.\n\n\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed\n\* `all` - all'
+                            ),
+                        dateRange: zod
+                            .union([
+                                zod.object({
+                                    date_from: zod
+                                        .union([
+                                            zod
+                                                .enum(['-14d', '-1h', '-24h', '-30d', '-3h', '-7d', '-90d'])
+                                                .describe(
+                                                    '\* `-14d` - -14d\n\* `-1h` - -1h\n\* `-24h` - -24h\n\* `-30d` - -30d\n\* `-3h` - -3h\n\* `-7d` - -7d\n\* `-90d` - -90d'
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe(
+                                            "Relative lookback window (for example '-7d'). Omit to use the project default range.\n\n\* `-14d` - -14d\n\* `-1h` - -1h\n\* `-24h` - -24h\n\* `-30d` - -30d\n\* `-3h` - -3h\n\* `-7d` - -7d\n\* `-90d` - -90d"
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Optional relative date range override.'),
+                        filterTestAccounts: zod
+                            .boolean()
+                            .optional()
+                            .describe('When omitted, follows the project default for filtering test accounts.'),
+                    })
+                    .describe(
+                        'Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list).'
+                    ),
+                name: zod
+                    .string()
+                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax)
+                    .nullish()
+                    .describe('Optional custom display name for the widget tile.'),
+                description: zod
+                    .string()
+                    .optional()
+                    .describe('Optional markdown description shown when show_description is enabled.'),
+                layouts: zod
+                    .object({
+                        sm: zod
+                            .object({
+                                x: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Column position in the dashboard grid (0-indexed).'),
+                                y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                                w: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                h: zod.number().optional().describe('Height in grid rows.'),
+                            })
+                            .optional()
+                            .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                        xs: zod
+                            .object({
+                                x: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Column position in the dashboard grid (0-indexed).'),
+                                y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                                w: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                h: zod.number().optional().describe('Height in grid rows.'),
+                            })
+                            .optional()
+                            .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                    })
+                    .optional()
+                    .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                show_description: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether to show the description on the dashboard tile.'),
+            })
+        )
+        .min(1)
+        .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
+        .describe('Widget tiles to add atomically (1–10). Use a single-element list to add one widget.'),
 })
 
 /**

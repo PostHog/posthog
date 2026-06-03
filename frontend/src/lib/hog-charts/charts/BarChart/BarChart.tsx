@@ -5,7 +5,9 @@ import { type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '..
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
+    type BarRoundedCorners,
     type BarShadow,
+    clipToRoundedRects,
     drawBarHighlight,
     drawBars,
     drawBarTracks,
@@ -14,6 +16,7 @@ import {
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { barColorAt } from '../../core/color-utils'
 import { DEFAULT_MARGINS, X_AXIS_TITLE_MARGIN } from '../../core/hooks/useChartMargins'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
@@ -92,6 +95,37 @@ const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
 // Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
 const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
 
+const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+
+/** One fully-rounded rect per band, spanning the union of that band's stacked segments — the
+ *  pill the bar layer is clipped to for `roundStackEnds`. Bars in the same band share a band-axis
+ *  slot (same `dataIndex`), so we group by it and extend along the value axis. */
+function stackPillRects(bars: BarRect[], isHorizontal: boolean): BarRect[] {
+    const byBand = new Map<number, BarRect>()
+    for (const bar of bars) {
+        if (bar.width <= 0 || bar.height <= 0) {
+            continue
+        }
+        const existing = byBand.get(bar.dataIndex)
+        if (!existing) {
+            byBand.set(bar.dataIndex, { ...bar, corners: ALL_CORNERS })
+            continue
+        }
+        if (isHorizontal) {
+            const left = Math.min(existing.x, bar.x)
+            const right = Math.max(existing.x + existing.width, bar.x + bar.width)
+            existing.x = left
+            existing.width = right - left
+        } else {
+            const top = Math.min(existing.y, bar.y)
+            const bottom = Math.max(existing.y + existing.height, bar.y + bar.height)
+            existing.y = top
+            existing.height = bottom - top
+        }
+    }
+    return [...byBand.values()]
+}
+
 function resolveBarShadow(barShadow: BarsConfig['shadow']): BarShadow | undefined {
     if (barShadow === true) {
         return DEFAULT_BAR_SHADOW
@@ -136,12 +170,17 @@ function BarChartInner<Meta = unknown>({
         maxBandRange,
         bandPadding,
         minBandSize,
+        fitToHeight = false,
+        valueDomain,
+        roundStackEnds = false,
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
+    // Fit-to-height drops overflow rows instead of growing the container, so it never sets a
+    // wrapper floor — the chart fills whatever height the tile gives it.
     const wrapperMinHeight = useMemo(() => {
-        if (!isHorizontal || resolvedMinBandSize <= 0) {
+        if (!isHorizontal || fitToHeight || resolvedMinBandSize <= 0) {
             return undefined
         }
         const uniqueBands = new Set(labels).size
@@ -149,7 +188,7 @@ function BarChartInner<Meta = unknown>({
             return undefined
         }
         return uniqueBands * resolvedMinBandSize + HORIZONTAL_CHART_MARGIN_PX
-    }, [isHorizontal, resolvedMinBandSize, labels])
+    }, [isHorizontal, fitToHeight, resolvedMinBandSize, labels])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
@@ -221,6 +260,9 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                fitToHeight,
+                minBandSize: resolvedMinBandSize,
+                valueDomain,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
@@ -270,7 +312,19 @@ function BarChartInner<Meta = unknown>({
                 _private: barChartPrivate,
             }
         },
-        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack, maxBandRange, bandPadding]
+        [
+            yScaleType,
+            barLayout,
+            axisOrientation,
+            stackedData,
+            isHorizontal,
+            divergingStack,
+            maxBandRange,
+            bandPadding,
+            fitToHeight,
+            resolvedMinBandSize,
+            valueDomain,
+        ]
     )
 
     const drawStatic = useCallback(
@@ -328,6 +382,18 @@ function BarChartInner<Meta = unknown>({
                     return { series: s, bars }
                 })
 
+            // `roundStackEnds`: round both outer ends of the whole stack into a pill by clipping
+            // the bar layer to a rounded rect spanning each band's full extent, then drawing the
+            // segments square. The clip rounds the outer corners at the full radius even when the
+            // edge segment is a thin sliver (e.g. the last breakdown of a near-100% step), which
+            // per-segment rounding can't — it would clamp the radius to the sliver's half-width.
+            const stackPills = roundStackEnds
+                ? stackPillRects(
+                      seriesBars.flatMap((sb) => sb.bars),
+                      isHorizontal
+                  )
+                : []
+
             // Tracks are a separate pass so a later series' full-height track can't paint
             // over an earlier series' bar. Track is "share of a whole" semantics — only
             // meaningful for grouped layouts; in stacked/percent every layer would paint
@@ -352,8 +418,15 @@ function BarChartInner<Meta = unknown>({
                 ctx.shadowOffsetX = resolvedShadow.offsetX ?? 0
                 ctx.shadowOffsetY = resolvedShadow.offsetY ?? 0
             }
+            if (stackPills.length > 0) {
+                ctx.save()
+                clipToRoundedRects(ctx, stackPills, barCornerRadius)
+            }
             for (const { series: s, bars } of seriesBars) {
-                drawBars(baseDrawCtx, s, bars, barCornerRadius)
+                drawBars(baseDrawCtx, s, bars, stackPills.length > 0 ? 0 : barCornerRadius)
+            }
+            if (stackPills.length > 0) {
+                ctx.restore()
             }
             if (resolvedShadow) {
                 ctx.restore()
@@ -365,6 +438,7 @@ function BarChartInner<Meta = unknown>({
             barLayout,
             isHorizontal,
             topStackedKeyByAxis,
+            roundStackEnds,
             barCornerRadius,
             barTrack,
             xTickFormatter,
@@ -457,12 +531,35 @@ function BarChartInner<Meta = unknown>({
                 alpha = resetHoverFade()
                 lastHoverKeyRef.current = currentKey
             }
+            // Match the resting bar's pill clip so the darker highlight rounds at the stack's outer
+            // ends instead of poking square corners past them.
+            const hoveredBandPills = roundStackEnds
+                ? stackPillRects(
+                      [
+                          ...iterBarsAtCursor<ResolvedSeries>({
+                              series: coloredSeries,
+                              label: hoveredLabel,
+                              dataIndex: hoverIndex,
+                              scales: d3Scales,
+                              layout: barLayout,
+                              isHorizontal,
+                              stackedData,
+                              topStackedKeyByAxis,
+                          }),
+                      ].map(({ bar }) => bar),
+                      isHorizontal
+                  )
+                : []
+            const highlightRadius = hoveredBandPills.length > 0 ? 0 : barCornerRadius
             ctx.save()
             ctx.globalAlpha = alpha
+            if (hoveredBandPills.length > 0) {
+                clipToRoundedRects(ctx, hoveredBandPills, barCornerRadius)
+            }
             for (const { series: s, bar, isTrackHighlight } of items) {
                 if (isTrackHighlight) {
-                    const parsed = d3.color(s.color)
-                    // Always translucent — `s.color` direct would paint an opaque full-height
+                    const parsed = d3.color(barColorAt(s, bar.dataIndex))
+                    // Always translucent — the bar color direct would paint an opaque full-height
                     // block if d3 can't parse the color.
                     let trackColor: string
                     if (parsed) {
@@ -475,17 +572,18 @@ function BarChartInner<Meta = unknown>({
                         ctx,
                         computeBarTrackRect(bar, trackAxisStart, trackAxisEnd, isHorizontal),
                         trackColor,
-                        barCornerRadius
+                        highlightRadius
                     )
                 } else {
-                    const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
-                    drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
+                    const barColor = barColorAt(s, bar.dataIndex)
+                    const highlightColor = d3.color(barColor)?.darker(0.6).toString() ?? barColor
+                    drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
                 }
             }
             ctx.restore()
             return true
         },
-        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, barTrack]
+        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, roundStackEnds, barCornerRadius, barTrack]
     )
 
     // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels

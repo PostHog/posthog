@@ -368,14 +368,22 @@ def _detect_go_test(file_only: str) -> TestRunConfig:
 
 
 def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None) -> TestRunConfig:
-    """Detect Jest test configuration by finding the nearest package.json."""
-    package_json = _find_nearest(file_only, "package.json")
-    if not package_json:
-        raise click.UsageError(f"No package.json found for: {file_path}")
+    """Detect Jest test configuration by finding the nearest package.json.
 
-    pkg_name = _parse_package_json_name(package_json)
-    if not pkg_name:
-        raise click.UsageError(f"No name field in {package_json.relative_to(REPO_ROOT)}")
+    Tests under products/ are collected by the root @posthog/frontend jest config (its
+    `roots` include ../products), which carries the path aliases and transforms they
+    rely on. The product's own package.json has no jest config, so route them to
+    @posthog/frontend; jest treats the path as a testPathPattern and matches it there.
+    """
+    if file_only.startswith("products/"):
+        pkg_name: str | None = "@posthog/frontend"
+    else:
+        package_json = _find_nearest(file_only, "package.json")
+        if not package_json:
+            raise click.UsageError(f"No package.json found for: {file_path}")
+        pkg_name = _parse_package_json_name(package_json)
+        if not pkg_name:
+            raise click.UsageError(f"No name field in {package_json.relative_to(REPO_ROOT)}")
 
     command = ["pnpm", f"--filter={pkg_name}", "exec", "jest", file_only]
     if node_id:

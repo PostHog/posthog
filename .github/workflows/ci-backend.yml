@@ -13,6 +13,11 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
+        # Heavy test matrices (django, turbo-tests) skip drafts; ready_for_review
+        # re-triggers them when a PR leaves draft. To force them on a draft, add the
+        # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
+        # start without needing a new push. Cheap checks still run on drafts.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
 
 concurrency:
@@ -22,6 +27,8 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -373,6 +380,8 @@ jobs:
         needs: [changes, turbo-discover, detect-snapshot-mode]
         if: >-
             always() &&
+            (github.event.pull_request.draft != true ||
+             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
@@ -394,6 +403,13 @@ jobs:
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start services
               env:
@@ -649,8 +665,11 @@ jobs:
                   # CHANGED_FILES is space-separated (dorny list-files: escape).
                   # Each entry is products/<name>/product.yaml — strip to <name>.
                   names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
+                  # Drop products whose product.yaml was deleted in this PR (e.g. the
+                  # product moved out of products/) — there are no owners left to validate.
+                  names=$(for n in $names; do [ -f "products/$n/product.yaml" ] && printf '%s ' "$n"; done | xargs)
                   if [ -z "$names" ]; then
-                    echo "No product.yaml files in diff after filtering"
+                    echo "No existing product.yaml files in diff after filtering"
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners $names
@@ -663,13 +682,16 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs['persons-SQL'] == 'true'
         timeout-minutes: 20
-        # checks: write is needed so the "Publish Migration risk check" step
-        # can POST to /repos/.../check-runs. Workflow-level perms only grant
-        # contents:read + pull-requests:write.
+        # The "Publish Migration risk check" step posts the check via the
+        # posthog-tests app token, which carries its own checks:write
+        # installation permission — so the check lands in that app's own
+        # (otherwise-empty) check suite rather than floating under a random
+        # run in the crowded github-actions suite. The job's GITHUB_TOKEN
+        # therefore no longer needs checks:write. pull-requests:write is still
+        # required for the migration SQL comment steps below.
         permissions:
             contents: read
             pull-requests: write
-            checks: write
 
         name: Validate migrations
         runs-on: depot-ubuntu-latest
@@ -683,6 +705,13 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose
               env:
@@ -940,6 +969,33 @@ jobs:
                     exit $EXIT_CODE
                   fi
 
+            - name: Get app token for Migration risk check
+              # Mint a posthog-tests installation token so the check is
+              # attributed to that app instead of github-actions[bot]. The
+              # app owns no workflow runs, so its check suite contains only
+              # this check — it shows up as a standalone, deterministically
+              # placed check rather than nesting under an arbitrary run in
+              # the crowded github-actions suite.
+              #
+              # Skipped on fork PRs: the app secrets aren't exposed to
+              # workflows triggered from forks, so the token can't be minted
+              # there. The analyzer still runs in earlier steps and fails the
+              # job on Blocked migrations; reviewers can read the verdict in
+              # the uploaded migration-analysis artifact.
+              #
+              # continue-on-error: publishing the check is auxiliary. A
+              # transient token-mint failure (GitHub API blip, secret
+              # rotation, app misconfig) must not redden check-migrations
+              # when migration validation itself passed. On failure the
+              # token output is empty and the publish step below is skipped.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              id: migration-risk-app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             - name: Publish Migration risk check
               # Migration risk classification is published as a GitHub check on
               # the head commit so it shows up in the PR UI alongside CI checks
@@ -948,20 +1004,28 @@ jobs:
               # parsing the comment. The check is a CI feature; consumers and
               # the analyzer are decoupled.
               #
+              # Published via the posthog-tests app token (see the token step
+              # above) so the check lands in that app's own check suite.
+              #
               # Always published — even with zero migrations to analyze, or
               # when the analyzer crashed — so every PR ends up with a
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
               #
-              # Skipped on PRs from forks: GITHUB_TOKEN is read-only for fork
-              # PRs regardless of the workflow's `permissions:` block, so the
-              # check-runs POST 403s. The analyzer itself still runs in earlier
-              # steps and fails the job on Blocked migrations; reviewers can
-              # read the verdict in the uploaded migration-analysis artifact.
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              # Skipped on PRs from forks: the app token can't be minted there
+              # (secrets are withheld from fork-triggered workflows), so the
+              # check-runs POST would have no credential. The analyzer itself
+              # still runs in earlier steps and fails the job on Blocked
+              # migrations; reviewers can read the verdict in the uploaded
+              # migration-analysis artifact.
+              #
+              # Also skipped when the token step failed: its output is then
+              # empty and the check-runs POST would 401 and redden the job
+              # for a reason unrelated to migration validation.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != ''
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
               run: |
@@ -1238,6 +1302,13 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1500,6 +1571,8 @@ jobs:
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         if: |
             always() &&
+            (github.event.pull_request.draft != true ||
+             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
             (needs.changes.outputs.legacy == 'true' ||
@@ -1546,6 +1619,13 @@ jobs:
             # Pre-tests
 
             # Copies the fully versioned UDF xml file for use in CI testing
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Stop/Start stack with Docker Compose
               shell: bash
               env:
@@ -2199,6 +2279,13 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start stack with Docker Compose
               env:

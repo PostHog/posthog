@@ -219,7 +219,8 @@ class SignalReportSummaryWorkflow:
                 # follower lock wait (≤20m) + agent poll window (≤30m). 45m fits all three.
                 start_to_close_timeout=timedelta(minutes=45),
                 heartbeat_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
+                retry_policy=RetryPolicy(maximum_attempts=2),
             )
             if repo_result.repository is None:
                 log.warning(
@@ -244,7 +245,8 @@ class SignalReportSummaryWorkflow:
                     ),
                     start_to_close_timeout=timedelta(hours=4),
                     heartbeat_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
+                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
                 decision = ReportDecision(
                     title=agentic_result.title,
