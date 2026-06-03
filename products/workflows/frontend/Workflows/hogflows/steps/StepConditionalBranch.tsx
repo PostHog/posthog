@@ -6,6 +6,7 @@ import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -25,8 +26,8 @@ export function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
-    const { edgesByActionId } = useValues(hogFlowEditorLogic)
-    const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
+    const { edgesByActionId, workflow } = useValues(hogFlowEditorLogic)
+    const { setWorkflowAction, setWorkflowActionEdges, setWorkflowInfo } = useActions(hogFlowEditorLogic)
 
     const nodeEdges = edgesByActionId[action.id] ?? []
 
@@ -84,6 +85,40 @@ export function StepConditionalBranchConfiguration({
         setWorkflowActionEdges(action.id, [...removeBranchEdge(branchEdges, index), ...nonBranchEdges])
     }
 
+    const exitOnNoMatch = (): void => {
+        if (!continueEdge) {
+            return
+        }
+
+        // Find the target of the continue edge (where "no match" leads)
+        const noMatchTargetId = continueEdge.to
+
+        // Collect all node IDs reachable from noMatchTargetId (excluding EXIT)
+        const toDelete = new Set<string>()
+        const queue = [noMatchTargetId]
+        while (queue.length > 0) {
+            const id = queue.shift()!
+            if (!id || id === EXIT_NODE_ID || toDelete.has(id)) {
+                continue
+            }
+            toDelete.add(id)
+            workflow.edges.forEach((edge: HogFlow['edges'][number]) => {
+                if (edge.from === id) {
+                    queue.push(edge.to)
+                }
+            })
+        }
+
+        // Update edges: redirect continue edge to EXIT and remove all edges to deleted nodes
+        const updatedEdges = workflow.edges
+            .map((edge: HogFlow['edges'][number]) =>
+                edge.from === action.id && edge.type === 'continue' ? { ...edge, to: EXIT_NODE_ID } : edge
+            )
+            .filter((edge: HogFlow['edges'][number]) => !toDelete.has(edge.to) && !toDelete.has(edge.from))
+        const updatedActions = workflow.actions.filter((a: HogFlowAction) => !toDelete.has(a.id))
+        setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
+    }
+
     return (
         <>
             <StepSchemaErrors />
@@ -131,9 +166,22 @@ export function StepConditionalBranchConfiguration({
                 <LemonCheckbox
                     checked={isExitOnNoMatch}
                     onChange={(checked) => {
-                        if (checked && continueEdge) {
-                            setWorkflowActionEdges(action.id, [...branchEdges, { ...continueEdge, to: EXIT_NODE_ID }])
+                        if (!checked || !continueEdge) {
+                            return
                         }
+                        LemonDialog.open({
+                            title: 'Exit workflow on no match?',
+                            description:
+                                'This will remove all conditions on this step and send everyone who reaches it straight to the exit.',
+                            primaryButton: {
+                                children: 'Remove and exit',
+                                status: 'danger',
+                                onClick: exitOnNoMatch,
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
                     }}
                     disabledReason={
                         isExitOnNoMatch ? 'To reconnect, drag a step onto the "No match" edge in the canvas' : undefined
