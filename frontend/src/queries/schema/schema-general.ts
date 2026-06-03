@@ -2281,6 +2281,8 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit: integer
     offset: integer
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[]
 }
 
 export type AccountsRoleAssignmentFilter = integer | 'unassigned'
@@ -2288,12 +2290,16 @@ export type AccountsRoleAssignmentFilter = integer | 'unassigned'
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
     csm?: AccountsRoleAssignmentFilter
     accountExecutive?: AccountsRoleAssignmentFilter
     accountOwner?: AccountsRoleAssignmentFilter
     allRolesUnassigned?: boolean
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: HogQLExpression
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -3384,7 +3390,6 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
-    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -6582,7 +6587,6 @@ export enum ProductKey {
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
-    DEPLOYMENTS = 'deployments',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
     ERROR_TRACKING = 'error_tracking',
@@ -6771,6 +6775,7 @@ export enum ProductIntentContext {
     VERCEL_INTEGRATION = 'vercel_integration',
 
     // Endpoints
+    ENDPOINTS_VIEWED = 'endpoints_viewed',
     ENDPOINT_CREATED = 'endpoint_created',
     ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
     ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',

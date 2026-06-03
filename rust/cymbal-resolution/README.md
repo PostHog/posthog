@@ -44,7 +44,7 @@ events ──HTTP─────▶│ cymbal                                   
 
 The contract is intentionally split across two streams:
 
-- **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`.
+- **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`.
 - **`Subscribe`** is endpoint freshness and draining state. The cymbal-side `EndpointPool` opens one long-lived stream per pod and treats the latest `LoadEvent` as a freshness snapshot. `LoadEvent` does not carry overload state or suggested batch sizing.
 
 `Error.kind` is the shared control-flow surface:
@@ -84,7 +84,7 @@ Remote resolution is opt-in on the cymbal side. There is intentionally **no sile
 
 Routing is per team. The caller's `EndpointPool` rendezvous-hashes `team:{team_id}` against the pod set so every exception from a given team prefers a single pod, maximizing warm-cache locality without coupling the caller to symbol-set internals.
 
-Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Terminal `ErrorKind`s fail the current all-or-nothing rollout path.
+Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the current all-or-nothing rollout path.
 
 ### Disabling / rolling back
 
@@ -115,6 +115,7 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `CYMBAL_REMOTE_RESOLUTION_RETRY_BACKOFF_MS` | `50` | Base retry backoff before jitter. |
 | `CYMBAL_REMOTE_RESOLUTION_RETRY_MAX_BACKOFF_MS` | `1000` | Maximum retry backoff after exponential scaling and jitter. |
 | `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` | `0.0` | Deterministic event-level remote rollout rate. |
+| `CYMBAL_REMOTE_RESOLUTION_ROUTING_ACCEPTANCE_CONCURRENCY` | `10` | Maximum number of items per cymbal process that can wait concurrently for a pod to emit `Accepted`. |
 | `CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS` | `1000` | Cadence hint sent on `SubscribeRequest`; snapshots are considered fresh for two ticks. |
 | `CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_RECONNECT_BACKOFF_MS` | `500` | Backoff between subscription reconnect attempts when a stream terminates. |
 

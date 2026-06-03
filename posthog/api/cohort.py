@@ -75,7 +75,7 @@ from posthog.queries.base import determine_parsed_date_for_property_matching, pr
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
-from posthog.utils import format_query_params_absolute_url
+from posthog.utils import format_query_params_absolute_url, str_to_bool
 
 from products.feature_flags.backend.flag_matching import (
     FeatureFlagMatcher,
@@ -505,6 +505,16 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "experiment_set",
         ]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Basic list payload (opt-in via `?basic=true` on the list endpoint): drop
+        # the heavy JSON columns the cohort picker never reads. Keeps the
+        # response small for teams with thousands of cohorts. Default output is
+        # unchanged; only callers that explicitly ask get the trimmed shape.
+        if self.context.get("basic_cohort_list"):
+            for field_name in ("filters", "query", "groups"):
+                self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
         # Prefer the annotated last_error_code when available
@@ -1123,9 +1133,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["filters"] = (
-            instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
-        )
+        # Skip when the slim list dropped `filters`; computing
+        # `properties.to_dict()` is the expensive part we're avoiding there.
+        if "filters" in self.fields:
+            representation["filters"] = (
+                instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
+            )
         return representation
 
 
@@ -1138,6 +1151,16 @@ class CohortSerializer(serializers.ModelSerializer):
                 location=OpenApiParameter.QUERY,
                 description="Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
             ),
+            OpenApiParameter(
+                name="basic",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return a basic payload that omits the heavy `filters`, `query`, and "
+                    "`groups` fields. Useful for pickers that only need id/name/count."
+                ),
+            ),
         ]
     )
 )
@@ -1145,6 +1168,17 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
+
+    def _is_basic_list_request(self) -> bool:
+        # `?basic=true` on the list endpoint: trimmed payload + deferred columns.
+        # Single source of truth for both the queryset and serializer paths so they
+        # can't drift if the default changes or `basic` is wired into another action.
+        return self.action == "list" and str_to_bool(self.request.query_params.get("basic", "0"))
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["basic_cohort_list"] = self._is_basic_list_request()
+        return context
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -1175,7 +1209,14 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
-                all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
+                # Lists every column read by _find_behavioral_cohorts (is_static, filters)
+                # and Cohort.is_flag_compatible (cohort_type, last_backfill_person_properties_at);
+                # dropping one triggers a per-cohort deferred query (an N+1 that only bites a
+                # team with thousands of cohorts). Deferring the rest keeps the graph scan cheap.
+                graph_source = queryset.only(
+                    "id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at"
+                )
+                all_cohorts = {cohort.id: cohort for cohort in graph_source.all()}
                 behavioral_cohort_ids = self._find_behavioral_cohorts(
                     all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
                 )
@@ -1183,6 +1224,11 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
+
+            # `?basic=true` callers never read these columns, so skip reading them
+            # off disk (the serializer drops them too; see CohortSerializer.__init__).
+            if self._is_basic_list_request():
+                queryset = queryset.defer("filters", "query", "groups")
 
         last_error_code_subquery = Subquery(
             CohortCalculationHistory.objects.filter(
@@ -1194,46 +1240,54 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .values("error_code")[:1]
         )
 
+        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
+        # one query instead of the two extra round-trips `prefetch_related` costs.
+        # `experiment_set` is a reverse relation, so it stays prefetched.
         return (
             queryset.annotate(last_error_code=last_error_code_subquery)
-            .prefetch_related("experiment_set", "created_by", "team")
+            .select_related("created_by", "team")
+            .prefetch_related("experiment_set")
             .order_by("-created_at")
         )
 
     def _find_behavioral_cohorts(
         self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
     ) -> set[int]:
-        """
-        Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
-        using a graph-based approach.
+        """Find cohorts that are behavioral, or reference (transitively) a behavioral cohort.
 
-        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled are
-        excluded from the result because they can be evaluated via the cohort_membership table
-        during flag evaluation.
+        A cohort is affected if it's a behavioral seed, or references one through the
+        dependency graph. We walk the *reverse* graph once from the seeds (O(V+E)) —
+        every node that can reach a seed via forward edges is affected.
+
+        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled
+        are not seeds: they can be evaluated via the cohort_membership table during flag
+        evaluation. (They can still be pulled in if they reference another seed.)
         """
         graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
 
-        # When the feature is enabled, realtime+backfilled cohorts are flag-compatible
         flag_compatible: set[int] = set()
         if allow_realtime_backfilled:
             flag_compatible = {
                 cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
             }
-        affected_cohorts = behavioral_cohorts - flag_compatible
+        seeds = behavioral_cohorts - flag_compatible
 
-        def find_affected_cohorts() -> None:
-            changed = True
-            while changed:
-                changed = False
-                for source_id in list(graph.keys()):
-                    if source_id not in affected_cohorts:
-                        # NB: If this cohort points to any affected cohort, it's also affected
-                        if any(target_id in affected_cohorts for target_id in graph[source_id]):
-                            affected_cohorts.add(source_id)
-                            changed = True
+        # Reverse adjacency: target -> sources that reference it.
+        reverse: dict[int, set[int]] = defaultdict(set)
+        for source_id, targets in graph.items():
+            for target_id in targets:
+                reverse[target_id].add(source_id)
 
-        find_affected_cohorts()
-        return affected_cohorts
+        affected = set(seeds)
+        stack = list(seeds)
+        while stack:
+            node = stack.pop()
+            for source_id in reverse.get(node, ()):
+                if source_id not in affected:
+                    affected.add(source_id)
+                    stack.append(source_id)
+
+        return affected
 
     def _build_cohort_dependency_graph(self, all_cohorts: dict[int, Cohort]) -> tuple[dict[int, set[int]], set[int]]:
         """

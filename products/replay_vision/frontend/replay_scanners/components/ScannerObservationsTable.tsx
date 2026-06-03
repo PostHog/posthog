@@ -35,6 +35,7 @@ const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
     { value: 'no', label: 'No' },
+    { value: 'inconclusive', label: 'Inconclusive' },
 ]
 
 // Nulls (no model output) sort last regardless of direction.

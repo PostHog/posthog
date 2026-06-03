@@ -312,6 +312,10 @@ export interface PatchedRemovePersonRequestApi {
 
 export type CohortsListParams = {
     /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean
+    /**
      * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
      */
     hide_behavioral_cohorts?: boolean

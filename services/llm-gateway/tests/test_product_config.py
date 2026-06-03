@@ -58,12 +58,11 @@ class TestCheckProductAccess:
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
-            # signals requires OAuth with a posthog_code app ID; API keys rejected; no model allowlist
-            ("signals", "personal_api_key", None, None, False, "requires OAuth"),
-            ("signals", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-3-opus", True, None),
+            # signals allows API keys (shared gateway key) with any model; OAuth rejected (no app IDs configured)
+            ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-3-opus", True, None),
+            ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],

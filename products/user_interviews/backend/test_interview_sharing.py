@@ -472,7 +472,7 @@ class TestResolveFirstMessageTemplate(APIBaseTest):
         assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
 
     def test_returns_team_override_when_prompt_published(self):
-        from posthog.models.llm_prompt import LLMPrompt
+        from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
         LLMPrompt.objects.create(
             team=self.team,
@@ -486,7 +486,7 @@ class TestResolveFirstMessageTemplate(APIBaseTest):
         assert template == "Hey $user_name! Quick chat about $topic_text?"
 
     def test_returns_default_when_published_prompt_is_empty(self):
-        from posthog.models.llm_prompt import LLMPrompt
+        from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
         LLMPrompt.objects.create(
             team=self.team,
