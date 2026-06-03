@@ -299,78 +299,13 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not user_id:
                 return
 
-            # Commands are dispatched by PostHogCodeSlackMentionCommandWorkflow,
-            # which also owns the ``rules add`` repo picker. New mention runs
-            # never reach the rules-handling branch — the patch records that.
-            # Workflows started before the patch was introduced (history with no
-            # patch marker) still need this branch on replay to remain
-            # deterministic, so we keep the original logic gated behind the
-            # patch check.
-            if not workflow.patched("posthog-code-mention-skip-rules-command"):
-                rules_result = await _execute_posthog_code_activity(
-                    handle_posthog_code_rules_command_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
-                    slack_user_id,
-                    user_id,
-                )
-                if rules_result.status == "handled":
-                    return
-                if rules_result.status == "needs_picker":
-                    # Picker activity gained a trailing `user_id`. Gate the new call
-                    # shape so in-flight workflows that recorded the pre-`user_id`
-                    # 8-arg list keep matching their history on replay; new workflows
-                    # record the 9-arg shape from the start.
-                    if workflow.patched("posthog-code-slack-user-github-2026-06"):
-                        await _execute_posthog_code_activity(
-                            post_posthog_code_repo_picker_activity,
-                            inputs,
-                            channel,
-                            thread_ts,
-                            slack_user_id,
-                            event,
-                            workflow.info().workflow_id,
-                            POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                            False,
-                            user_id,
-                        )
-                    else:
-                        await _execute_posthog_code_activity(
-                            post_posthog_code_repo_picker_activity,
-                            inputs,
-                            channel,
-                            thread_ts,
-                            slack_user_id,
-                            event,
-                            workflow.info().workflow_id,
-                            POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                            False,
-                        )
-                    try:
-                        await workflow.wait_condition(
-                            lambda: self._repo_selection_resolved,
-                            timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
-                        )
-                    except TimeoutError:
-                        await _execute_posthog_code_activity(
-                            post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
-                        )
-                        return
-
-                    if not self._selected_repo:
-                        return
-
-                    await _execute_posthog_code_activity(
-                        create_posthog_code_routing_rule_activity,
-                        inputs,
-                        channel,
-                        thread_ts,
-                        user_id,
-                        rules_result.pending_rule_text,
-                        self._selected_repo,
-                    )
-                    return
+            # Commands (including `rules add` and its repo picker) are dispatched
+            # by PostHogCodeSlackMentionCommandWorkflow. The patch marker is
+            # preserved via `deprecate_patch` so any straggler workflow that
+            # recorded the pre-patch path on its first task can still replay
+            # deterministically. Drop the `deprecate_patch` call once the next
+            # drain completes.
+            workflow.deprecate_patch("posthog-code-mention-skip-rules-command")
 
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
