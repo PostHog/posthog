@@ -1041,6 +1041,36 @@ describe('notebook-edit anchored edits', () => {
         expect(requestMock).not.toHaveBeenCalled()
     })
 
+    it('rejects executable analysis cell text replacements when the notebook-python flag is off', async () => {
+        mockIsFeatureFlagEnabled.mockResolvedValue(false)
+        const requestMock = vi.fn().mockResolvedValueOnce({
+            short_id: 'abc123',
+            version: 2,
+            title: 'Notebook',
+            content: doc(hogqlNode('SELECT * FROM events LIMIT 40', 'events_df', 'Recent events')),
+        })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await expect(
+            tool.handler(context, {
+                short_id: 'abc123',
+                max_retries: 3,
+                edits: [
+                    {
+                        type: 'replace_text',
+                        anchor: 'Recent events',
+                        occurrence: 1,
+                        find: 'LIMIT 40',
+                        replace: 'LIMIT 100',
+                        all_occurrences: false,
+                    },
+                ],
+            })
+        ).rejects.toThrow('notebook-python feature flag')
+        expect(requestMock).toHaveBeenCalledTimes(1)
+    })
+
     it('recomputes insert_between positions after a collab conflict', async () => {
         const conflict = new PostHogApiError({
             status: 409,

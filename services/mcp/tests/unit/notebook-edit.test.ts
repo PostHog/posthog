@@ -142,6 +142,27 @@ describe('editHandler subtree replacement compatibility', () => {
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('Second paragraph EDITED.')
     })
 
+    it('matches replace_subtree old_value regardless of object key order', async () => {
+        const updatedNotebook = { short_id: 'aBcD1234', content: sampleDoc, version: 8, title: 'Original' }
+        const state: MockState = {
+            notebookContent: sampleDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [{ ok: true, body: updatedNotebook }],
+        }
+        const context = createMockContext(state)
+
+        await editHandler(context, {
+            short_id: 'aBcD1234',
+            old_value: { content: [{ text: 'Second paragraph.', type: 'text' }], type: 'paragraph' },
+            new_value: { type: 'paragraph', content: [{ type: 'text', text: 'Second paragraph EDITED.' }] },
+        })
+
+        expect(state.saveCalls).toHaveLength(1)
+        expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('Second paragraph EDITED.')
+    })
+
     it('throws when old_value matches no content', async () => {
         const state: MockState = {
             notebookContent: sampleDoc,

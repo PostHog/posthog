@@ -558,3 +558,38 @@ class TestEditNotebookTool(BaseTest):
         assert artifact is None
         notebook.refresh_from_db()
         assert notebook.version == 0
+
+    @patch("ee.hogai.tools.edit_notebook.has_notebook_python_feature_flag", return_value=False)
+    def test_rejects_executable_analysis_cell_text_replacement_without_feature_flag(self, _mock_flag):
+        notebook = Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            last_modified_by=self.user,
+            short_id="editnb2",
+            title="Original notebook",
+            content={"type": "doc", "content": [_hogql_node("SELECT * FROM events LIMIT 40")]},
+            text_content=(
+                '<hogql title="Recent events" return_variable="events_df">\nSELECT * FROM events LIMIT 40\n</hogql>'
+            ),
+        )
+        args = EditNotebookToolArgs.model_validate(
+            {
+                "short_id": notebook.short_id,
+                "edits": [
+                    {
+                        "type": "replace_text",
+                        "anchor": "Recent events",
+                        "find": "LIMIT 40",
+                        "replace": "LIMIT 100",
+                    }
+                ],
+            }
+        )
+
+        result, artifact = async_to_sync(self._tool()._arun_impl)(short_id=args.short_id, edits=args.edits)
+
+        assert "notebook-python feature flag" in result
+        assert artifact is None
+        notebook.refresh_from_db()
+        assert notebook.version == 0
+        assert notebook.content["content"][0]["attrs"]["code"] == "SELECT * FROM events LIMIT 40"

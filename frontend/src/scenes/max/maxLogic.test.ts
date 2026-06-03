@@ -52,20 +52,30 @@ describe('maxLogic', () => {
         })
     })
 
-    it('sets autoRun and question when URL has hash param #panel=max:!Foo', async () => {
-        // Set up sidePanelStateLogic with the options before mounting maxLogic
-        sidePanelStateLogic.mount()
-        await expectLogic(sidePanelStateLogic, () => {
-            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Foo')
-        }).toDispatchActions(['openSidePanel'])
-
-        // Must create the logic first to spy on its actions
+    it('sets autoRun and question when Max is explicitly opened with !Foo', async () => {
         logic = maxLogic({ tabId: 'sidepanel' })
         logic.mount()
 
-        // Only mount maxLogic after setting up the router and sidePanelStateLogic
-        await expectLogic(logic).toMatchValues({
+        sidePanelStateLogic.mount()
+        await expectLogic(logic, () => {
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Foo')
+        }).toMatchValues({
             autoRun: true,
+            question: 'Foo',
+        })
+    })
+
+    it('keeps URL-restored ! prompts as drafts', async () => {
+        sidePanelStateLogic.mount()
+        await expectLogic(sidePanelStateLogic, () => {
+            router.actions.push('', {}, { panel: 'max:!Foo' })
+        }).toDispatchActions(['openSidePanel'])
+
+        logic = maxLogic({ tabId: 'sidepanel' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            autoRun: false,
             question: 'Foo',
         })
     })
@@ -211,7 +221,7 @@ describe('maxLogic', () => {
             featureFlagLogic.unmount()
         })
 
-        it('parses mode=research:!Question correctly', async () => {
+        it('restores mode=research:!Question as a draft from side panel state', async () => {
             sidePanelStateLogic.mount()
             await expectLogic(sidePanelStateLogic, () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=research:!Question')
@@ -221,7 +231,7 @@ describe('maxLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
-                autoRun: true,
+                autoRun: false,
                 question: 'Question',
             })
 
@@ -263,7 +273,7 @@ describe('maxLogic', () => {
             })
         })
 
-        it('parses mode=sql:!Write a query correctly', async () => {
+        it('restores mode=sql:!Write a query as a draft from side panel state', async () => {
             sidePanelStateLogic.mount()
             await expectLogic(sidePanelStateLogic, () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=sql:!Write a query')
@@ -273,7 +283,7 @@ describe('maxLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
-                autoRun: true,
+                autoRun: false,
                 question: 'Write a query',
             })
 
@@ -347,7 +357,7 @@ describe('maxLogic', () => {
             })
         })
 
-        it('parses mode=invalid_mode:!Question correctly (ignores invalid mode)', async () => {
+        it('restores mode=invalid_mode:!Question as a draft and ignores invalid mode', async () => {
             sidePanelStateLogic.mount()
             await expectLogic(sidePanelStateLogic, () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=invalid_mode:!Question')
@@ -357,7 +367,7 @@ describe('maxLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
-                autoRun: true,
+                autoRun: false,
                 question: 'Question',
             })
 

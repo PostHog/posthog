@@ -26,6 +26,7 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import (
+    EXECUTABLE_ANALYSIS_NODE_TYPES,
     blocks_to_tiptap_doc,
     content_uses_executable_analysis_blocks,
     markdown_to_tiptap_nodes,
@@ -120,6 +121,10 @@ LEAF_NODE_TYPES = {"hardBreak", "horizontalRule"}
 MAX_TEXT_REPLACEMENTS = 100
 AI_PLACEHOLDER_PREFIX = "<AI"
 AI_PLACEHOLDER_SUFFIX = "</AI>"
+EXECUTABLE_ANALYSIS_BLOCK_ERROR = (
+    "Error: Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. "
+    "Use <query> nodes or <insight> artifacts instead."
+)
 
 
 def utf16_length(value: str) -> int:
@@ -928,6 +933,31 @@ def edits_use_executable_analysis_blocks(edits: list[NotebookEdit]) -> bool:
     return False
 
 
+def collect_executable_analysis_nodes(value: Any, nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    if nodes is None:
+        nodes = []
+
+    if isinstance(value, list):
+        for item in value:
+            collect_executable_analysis_nodes(item, nodes)
+        return nodes
+
+    if not isinstance(value, dict):
+        return nodes
+
+    if value.get("type") in EXECUTABLE_ANALYSIS_NODE_TYPES:
+        nodes.append(value)
+        return nodes
+
+    for item in value.values():
+        collect_executable_analysis_nodes(item, nodes)
+    return nodes
+
+
+def executable_analysis_nodes_changed(before: ProseMirrorDoc, after: ProseMirrorDoc) -> bool:
+    return collect_executable_analysis_nodes(before) != collect_executable_analysis_nodes(after)
+
+
 def build_edit_plan(
     content: Any,
     edits: list[NotebookEdit],
@@ -1137,21 +1167,22 @@ class EditNotebookTool(MaxTool):
         viz_lookup = await build_visualization_lookup(self._team.pk, referenced_visualization_ids(edits_to_apply))
         allow_executable_analysis_blocks = has_notebook_python_feature_flag(self._team, self._user)
         if not allow_executable_analysis_blocks and edits_use_executable_analysis_blocks(edits_to_apply):
-            return (
-                "Error: Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. "
-                "Use <query> nodes or <insight> artifacts instead.",
-                None,
-            )
+            return EXECUTABLE_ANALYSIS_BLOCK_ERROR, None
 
         for _attempt in range(max_retries + 1):
             notebook = await self._get_notebook(target_short_id)
             try:
+                original_content = normalize_document(notebook.content)
                 plan = build_edit_plan(
                     notebook.content,
                     edits_to_apply,
                     viz_lookup,
                     allow_executable_analysis_blocks=allow_executable_analysis_blocks,
                 )
+                if not allow_executable_analysis_blocks and executable_analysis_nodes_changed(
+                    original_content, plan.content
+                ):
+                    return EXECUTABLE_ANALYSIS_BLOCK_ERROR, None
             except MaxToolRetryableError as error:
                 if placeholder_anchor and placeholder_anchor in str(error) and _attempt < max_retries:
                     await asyncio.sleep(1)

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -232,6 +233,8 @@ type NotebookEditResult = Schemas.Notebook & { applied_edits: number }
 const MAX_TEXT_REPLACEMENTS = 100
 const LEAF_NODE_TYPES = new Set(['hardBreak', 'horizontalRule'])
 const NOTEBOOK_PYTHON_FEATURE_FLAG = 'notebook-python'
+const EXECUTABLE_ANALYSIS_BLOCK_ERROR =
+    'Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. Use <query> nodes or saved insights for SQL analysis instead.'
 const ANALYSIS_BLOCK_PATTERN = /^[ \t]*<(python|hogql|ducksql|duckdb|query)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>[ \t]*$/gim
 const EXECUTABLE_ANALYSIS_BLOCK_PATTERN =
     /^[ \t]*<(python|hogql|ducksql|duckdb)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>[ \t]*$/gim
@@ -440,6 +443,34 @@ function editUsesExecutableAnalysisBlocks(edit: NotebookEdit): boolean {
         return edit.type === 'replace_subtree' && nodesUseExecutableAnalysisBlocks(edit.new_nodes)
     }
     return contentUsesExecutableAnalysisBlocks(edit.content) || nodesUseExecutableAnalysisBlocks(edit.nodes)
+}
+
+function collectExecutableAnalysisNodes(value: unknown, nodes: unknown[] = []): unknown[] {
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            collectExecutableAnalysisNodes(item, nodes)
+        }
+        return nodes
+    }
+
+    if (!isRecord(value)) {
+        return nodes
+    }
+
+    const nodeType = value.type
+    if (typeof nodeType === 'string' && EXECUTABLE_ANALYSIS_NODE_TYPES.has(nodeType)) {
+        nodes.push(value)
+        return nodes
+    }
+
+    for (const item of Object.values(value)) {
+        collectExecutableAnalysisNodes(item, nodes)
+    }
+    return nodes
+}
+
+function executableAnalysisNodesChanged(before: ProseMirrorDoc, after: ProseMirrorDoc): boolean {
+    return !isDeepStrictEqual(collectExecutableAnalysisNodes(before), collectExecutableAnalysisNodes(after))
 }
 
 export async function hasNotebookPythonFeatureFlag(context: Context): Promise<boolean> {
@@ -1258,7 +1289,7 @@ function assertReplacementLimit(find: string, replacementCount: number): void {
 function countNodeMatches(node: ProseMirrorNode | ProseMirrorDoc | ProseMirrorNode[], target: unknown): number {
     let count = 0
     const walk = (value: unknown): void => {
-        if (JSON.stringify(value) === JSON.stringify(target)) {
+        if (isDeepStrictEqual(value, target)) {
             count++
             return
         }
@@ -1273,7 +1304,7 @@ function countNodeMatches(node: ProseMirrorNode | ProseMirrorDoc | ProseMirrorNo
 }
 
 function nodesEqual(left: ProseMirrorNode | ProseMirrorNode[], right: ProseMirrorNode | ProseMirrorNode[]): boolean {
-    return JSON.stringify(left) === JSON.stringify(right)
+    return isDeepStrictEqual(left, right)
 }
 
 function topLevelSequenceMatches(doc: ProseMirrorDoc, startIndex: number, target: ProseMirrorNode[]): boolean {
@@ -1556,15 +1587,28 @@ const tool = (): ToolBase<typeof NotebookEditSchema, WithPostHogUrl<NotebookEdit
     handler: async (context: Context, params: Params): Promise<WithPostHogUrl<NotebookEditResult>> => {
         const projectId = String(await context.stateManager.getProjectId())
         const maxRetries = Math.max(0, Math.min(params.max_retries ?? 3, 5))
-        if (params.edits.some(editUsesExecutableAnalysisBlocks) && !(await hasNotebookPythonFeatureFlag(context))) {
-            throw new Error(
-                'Python, HogQL SQL, and DuckDB SQL notebook cells require the notebook-python feature flag. Use <query> nodes or saved insights for SQL analysis instead.'
-            )
+        let allowExecutableAnalysisBlocks: boolean | undefined
+        const getAllowExecutableAnalysisBlocks = async (): Promise<boolean> => {
+            if (allowExecutableAnalysisBlocks === undefined) {
+                allowExecutableAnalysisBlocks = await hasNotebookPythonFeatureFlag(context)
+            }
+            return allowExecutableAnalysisBlocks
+        }
+
+        if (params.edits.some(editUsesExecutableAnalysisBlocks) && !(await getAllowExecutableAnalysisBlocks())) {
+            throw new Error(EXECUTABLE_ANALYSIS_BLOCK_ERROR)
         }
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             const notebook = await retrieveNotebook(context, projectId, params.short_id)
+            const originalContent = normalizeDocument(notebook.content)
             const plan = buildEditPlan(notebook.content, params.edits)
+            if (
+                executableAnalysisNodesChanged(originalContent, plan.content) &&
+                !(await getAllowExecutableAnalysisBlocks())
+            ) {
+                throw new Error(EXECUTABLE_ANALYSIS_BLOCK_ERROR)
+            }
 
             if (plan.steps.length === 0) {
                 if (params.title === undefined) {

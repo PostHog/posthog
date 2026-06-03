@@ -9,6 +9,22 @@ import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 
 // The side panel imports a lot of other components so this allows us to avoid circular dependencies
 
+function sanitizeUrlRestoredPanelOptions(panel: string, options: string): string {
+    if (panel !== SidePanelTab.Max) {
+        return options
+    }
+    if (options.startsWith('!')) {
+        return options.slice(1)
+    }
+    if (options.startsWith('mode=')) {
+        const colonIndex = options.indexOf(':', 5)
+        if (colonIndex !== -1 && options[colonIndex + 1] === '!') {
+            return `${options.slice(0, colonIndex + 1)}${options.slice(colonIndex + 2)}`
+        }
+    }
+    return options
+}
+
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStateLogic']),
     actions({
@@ -138,14 +154,13 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
 
             if (panelHash) {
                 const [panel, ...panelOptions] = panelHash.split(':')
+                const options = sanitizeUrlRestoredPanelOptions(panel, panelOptions.join(':'))
 
                 if (
                     panel &&
-                    (panel !== values.selectedTab ||
-                        !values.sidePanelOpen ||
-                        panelOptions.join(':') !== values.selectedTabOptions)
+                    (panel !== values.selectedTab || !values.sidePanelOpen || options !== values.selectedTabOptions)
                 ) {
-                    actions.openSidePanel(panel as SidePanelTab, panelOptions.join(':'))
+                    actions.openSidePanel(panel as SidePanelTab, options)
                 }
             }
         },
