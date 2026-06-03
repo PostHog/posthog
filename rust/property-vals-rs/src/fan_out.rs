@@ -376,6 +376,23 @@ mod tests {
     }
 
     #[test]
+    fn value_length_cap_is_configurable() {
+        for (value_len, cap, expected_kept) in [
+            (255usize, 255usize, true),
+            (256, 255, false),
+            (256, 300, true),
+            (301, 300, false),
+        ] {
+            let blob = format!(r#"{{"k":"{}"}}"#, "a".repeat(value_len));
+            let kept = !fan_out(&event(&blob), &none(), cap, false).is_empty();
+            assert_eq!(
+                kept, expected_kept,
+                "{value_len}-char value at cap {cap}: expected kept={expected_kept}"
+            );
+        }
+    }
+
+    #[test]
     fn person_properties_emit_person_type() {
         let ev = Event {
             team_id: 2,
