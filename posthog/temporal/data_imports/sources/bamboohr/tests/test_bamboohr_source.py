@@ -26,7 +26,7 @@ class TestBambooHRSource:
     def test_source_config_fields(self) -> None:
         config = BambooHRSource().get_source_config
         assert config.label == "BambooHR"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
 
         fields = cast(list[SourceFieldInputConfig], config.fields)
         by_name = {f.name: f for f in fields}
