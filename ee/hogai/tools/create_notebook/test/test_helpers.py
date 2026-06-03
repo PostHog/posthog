@@ -4,10 +4,10 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from products.notebooks.backend.models import Notebook
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.helpers import save_notebook_to_db
-from ee.models.assistant import AgentArtifact, Conversation
 
 
 def _find_ph_query_nodes(doc: dict) -> list[dict]:
