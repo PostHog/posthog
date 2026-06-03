@@ -175,6 +175,9 @@ class Integration(models.Model):
         REDDIT_ADS = "reddit-ads"
         SALESFORCE = "salesforce"
         SLACK = "slack"
+        # Deprecated — kept in choices to avoid a no-op migration. The runtime no longer creates
+        # or reads this kind; see `products/slack_app/backend/api.py` for the live integration.
+        SLACK_POSTHOG_CODE = "slack-posthog-code"
         SNAPCHAT = "snapchat"
         STRIPE = "stripe"
         TIKTOK_ADS = "tiktok-ads"
