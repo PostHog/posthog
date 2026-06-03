@@ -467,7 +467,31 @@
                                 "properties": {
                                     "config": {
                                         "properties": {
+                                            "catch_up": {
+                                                "default": "most_recent",
+                                                "enum": ["all", "most_recent", "skip"],
+                                                "type": "string"
+                                            },
+                                            "external_key": {
+                                                "type": "string"
+                                            },
+                                            "max_catch_up_age_seconds": {
+                                                "default": 3600,
+                                                "maximum": 604800,
+                                                "minimum": 1,
+                                                "type": "number"
+                                            },
+                                            "name": {
+                                                "minLength": 1,
+                                                "type": "string"
+                                            },
+                                            "prompt": {
+                                                "maxLength": 4096,
+                                                "minLength": 1,
+                                                "type": "string"
+                                            },
                                             "schedule": {
+                                                "minLength": 1,
                                                 "type": "string"
                                             },
                                             "timezone": {
@@ -475,7 +499,7 @@
                                                 "type": "string"
                                             }
                                         },
-                                        "required": ["schedule"],
+                                        "required": ["name", "schedule", "prompt"],
                                         "type": "object"
                                     },
                                     "type": {
