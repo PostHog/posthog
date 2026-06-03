@@ -74,11 +74,41 @@ function parseToolDefinition(filePath) {
 // ------------------------------------------------------------------
 
 /**
+ * Checks if the schema allows null in any of the following ways:
+ * - `nullable: true` (OpenAPI 3.0)
+ * - `type: 'null'` (OpenAPI 3.1 / JSON Schema)
+ * - `type: ['string', 'null']` (OpenAPI 3.1 / JSON Schema)
+ * - `anyOf: [{ type: 'string' }, { type: 'null' }]` (OpenAPI 3.1 / JSON Schema)
+ * - `oneOf: [{ type: 'string' }, { type: 'null' }]` (OpenAPI 3.1 / JSON Schema)
+ */
+function schemaAllowsNull(schema) {
+    if (!schema || typeof schema !== 'object') {
+        return false
+    }
+    if (schema.nullable === true || schema.type === 'null') {
+        return true
+    }
+    if (Array.isArray(schema.type) && schema.type.includes('null')) {
+        return true
+    }
+    for (const key of ['anyOf', 'oneOf']) {
+        const variants = schema[key]
+        if (Array.isArray(variants) && variants.some(schemaAllowsNull)) {
+            return true
+        }
+    }
+    return false
+}
+
+/**
  * Strip 'default: null' from nullable properties in OpenAPI schemas.
  *
- * Orval generates invalid Zod like `.string().default(null)` when it sees
- * `nullable: true` with `default: null`. Removing the null default causes
- * Orval to correctly generate `.nullable()` instead.
+ * Orval mirrors `default: null` into `.default(null)`, which makes Zod fill the
+ * field with `null` whenever the caller omits it (`safeParse` applies defaults).
+ * For request schemas that turns "field not sent" into "field sent as null",
+ * which the backend then rejects (`extra="forbid"`) or silently overwrites.
+ * Removing the null default lets Orval emit a plain `.nullable()` instead, so an
+ * omitted field stays omitted while an explicit `null` still parses.
  */
 function stripNullDefaults(obj) {
     if (!obj || typeof obj !== 'object') {
@@ -89,8 +119,8 @@ function stripNullDefaults(obj) {
     }
     const result = {}
     for (const [key, value] of Object.entries(obj)) {
-        // Skip 'default' key if value is null and sibling 'nullable' is true
-        if (key === 'default' && value === null && obj.nullable === true) {
+        // Skip injecting `default: null` if schema permits null
+        if (key === 'default' && value === null && schemaAllowsNull(obj)) {
             continue
         }
         result[key] = stripNullDefaults(value)
