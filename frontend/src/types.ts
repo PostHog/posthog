@@ -799,7 +799,7 @@ export interface TeamType extends TeamBasicType {
 }
 
 export interface WorkflowsConfig {
-    capture_messaging_engagement_events: boolean
+    capture_workflows_engagement_events: boolean
 }
 
 export interface ProductIntentType {

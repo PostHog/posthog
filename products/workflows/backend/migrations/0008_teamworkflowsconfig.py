@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
-                ("capture_messaging_engagement_events", models.BooleanField(default=False)),
+                ("capture_workflows_engagement_events", models.BooleanField(default=False)),
             ],
         ),
     ]

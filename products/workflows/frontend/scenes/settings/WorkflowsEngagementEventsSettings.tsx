@@ -8,7 +8,7 @@ export function WorkflowsEngagementEventsSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    const enabled = !!currentTeam?.workflows_config?.capture_messaging_engagement_events
+    const enabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
 
     return (
         <LemonSwitch
@@ -17,7 +17,7 @@ export function WorkflowsEngagementEventsSettings(): JSX.Element {
                 updateCurrentTeam({
                     workflows_config: {
                         ...currentTeam?.workflows_config,
-                        capture_messaging_engagement_events: checked,
+                        capture_workflows_engagement_events: checked,
                     },
                 })
             }}

@@ -31839,8 +31839,8 @@ export namespace Schemas {
     }
 
     export interface TeamWorkflowsConfig {
-      /** When enabled, messaging engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($messaging_email_*) alongside the existing workflow metrics. */
-      capture_messaging_engagement_events?: boolean;
+      /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
+      capture_workflows_engagement_events?: boolean;
     }
 
     export interface PatchedTeam {

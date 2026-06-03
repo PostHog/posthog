@@ -38,7 +38,7 @@ export function HogFlowFunctionConfiguration({
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
     const engagementEventsAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ENGAGEMENT_EVENTS]
-    const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_messaging_engagement_events
+    const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         if (template && Object.keys(inputs ?? {}).length === 0) {
@@ -145,7 +145,7 @@ export function HogFlowFunctionConfiguration({
                                 updateCurrentTeam({
                                     workflows_config: {
                                         ...currentTeam?.workflows_config,
-                                        capture_messaging_engagement_events: true,
+                                        capture_workflows_engagement_events: true,
                                     },
                                 })
                             }
