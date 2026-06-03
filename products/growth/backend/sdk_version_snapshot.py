@@ -113,10 +113,6 @@ def snapshot_sdk_versions_to_groups(
     org_keys, customer_keys = _roll_up_to_groups(team_keys)
 
     pha_client = get_ph_client(sync_mode=True)
-    if pha_client is None:
-        logger.info("[SDK version snapshot] No PostHog client available; skipping")
-        return {"organizations": 0, "customers": 0}
-
     updated_at = timezone.now().isoformat()
     written = {"organizations": 0, "customers": 0}
 

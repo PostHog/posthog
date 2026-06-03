@@ -103,14 +103,6 @@ class TestSnapshotSdkVersionsToGroups(BaseTest):
 
     @patch(f"{MODULE}.get_ph_client")
     @patch(f"{MODULE}._fetch_team_sdk_keys")
-    def test_no_client_is_a_noop(self, mock_fetch: MagicMock, mock_get_client: MagicMock):
-        mock_fetch.return_value = {self.team.id: {"web@1.0.0"}}
-        mock_get_client.return_value = None
-
-        assert snapshot_sdk_versions_to_groups() == {"organizations": 0, "customers": 0}
-
-    @patch(f"{MODULE}.get_ph_client")
-    @patch(f"{MODULE}._fetch_team_sdk_keys")
     def test_group_identify_failure_does_not_abort_run(self, mock_fetch: MagicMock, mock_get_client: MagicMock):
         self.organization.customer_id = "cus_123"
         self.organization.save()
