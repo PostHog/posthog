@@ -159,6 +159,24 @@ def create_and_register_webhook(
     )
 
 
+def reconcile_webhook_events(
+    source: WebhookSource,
+    config: Config,
+    hog_fn_result: WebhookHogFunctionCreateResult,
+    team_id: int,
+    eligible_schema_names: list[str],
+) -> WebhookSetupResult:
+    """Reconcile a registered webhook's events with the selected schemas (no-op by default)."""
+    result: WebhookCreationResult = source.sync_webhook_events(
+        config, hog_fn_result.webhook_url, team_id, eligible_schema_names
+    )
+    return WebhookSetupResult(
+        success=result.success,
+        webhook_url=hog_fn_result.webhook_url,
+        error=result.error,
+    )
+
+
 @dataclasses.dataclass
 class WebhookDeletionSetupResult:
     success: bool

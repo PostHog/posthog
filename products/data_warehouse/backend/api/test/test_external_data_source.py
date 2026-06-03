@@ -444,6 +444,77 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
 
     @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_webhook_reconcile_raising_does_not_500(self, _mock_workflow_exists):
+        # Webhook reconcile runs as a deferred post-commit hook in the bulk path, AFTER the
+        # atomic block. If it raised there it would 500 the request with the rows already
+        # committed. Guard that a raising reconcile is swallowed and the response stays 200.
+        from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+        from posthog.temporal.data_imports.sources.common.schema import SourceSchema as _SourceSchema
+
+        from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
+
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            _SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.sync_webhook_events",
+                side_effect=ValueError("Missing Stripe API key"),
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                return_value=mock_webhook_schemas,
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+                return_value=WebhookCreationResult(success=True),
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {
+                            "id": str(schema.id),
+                            "sync_type": "webhook",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        }
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+
+    @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
@@ -6668,6 +6739,63 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"]["exists"] is True
         assert data["external_status"]["status"] == "enabled"
         assert data["external_status"]["enabled_events"] == ["charge.created", "charge.updated"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    def test_webhook_info_reports_missing_events(self, mock_get_info, mock_desired):
+        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+
+        mock_get_info.return_value = ExternalWebhookInfo(
+            exists=True,
+            status="enabled",
+            enabled_events=["charge.created"],
+        )
+        mock_desired.return_value = ["charge.created", "customer.created", "customer.updated"]
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["missing_events"] == ["customer.created", "customer.updated"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    def test_webhook_info_no_missing_events_when_in_sync(self, mock_get_info, mock_desired):
+        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+
+        mock_get_info.return_value = ExternalWebhookInfo(
+            exists=True,
+            status="enabled",
+            enabled_events=["charge.created", "customer.created"],
+        )
+        mock_desired.return_value = ["charge.created", "customer.created"]
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["missing_events"] == []
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    def test_webhook_info_wildcard_endpoint_has_no_missing_events(self, mock_get_info, mock_desired):
+        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+
+        mock_get_info.return_value = ExternalWebhookInfo(exists=True, status="enabled", enabled_events=["*"])
+        mock_desired.return_value = ["charge.created", "customer.created"]
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["missing_events"] == []
 
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
     def test_webhook_info_external_not_found(self, mock_get_info):
