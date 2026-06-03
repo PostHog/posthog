@@ -16,6 +16,7 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 from posthog.scopes import APIScopeObject
 from posthog.session_recordings.models.session_recording import SessionRecording
 
+from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
@@ -35,6 +36,13 @@ class TestWidgetRegistry(APIBaseTest):
         assert frozenset(WIDGET_CATALOG.keys()) == registry_types
         for widget_type, entry in WIDGET_CATALOG.items():
             assert entry["widget_type"] == widget_type
+
+    def test_openapi_widget_config_serializers_match_registry(self) -> None:
+        openapi_serializers = widget_openapi_serializers_module._DashboardWidgetConfigOpenApi.serializers
+        assert len(openapi_serializers) == len(EXPECTED_WIDGET_TYPES), (
+            "Add a *WidgetConfigSerializer for each widget type in widget_openapi_serializers.py. "
+            f"serializers={len(openapi_serializers)} expected={len(EXPECTED_WIDGET_TYPES)}"
+        )
 
     def test_validate_widget_config_unknown_type(self) -> None:
         with self.assertRaises(Exception):
