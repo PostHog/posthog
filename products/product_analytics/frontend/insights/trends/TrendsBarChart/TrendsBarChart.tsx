@@ -244,7 +244,9 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
             // On a dashboard the tile is a fixed height: fit the rows that fit instead of growing
             // the tile and scrolling. On the full insight page, keep the grow-to-fit-all behavior.
-            bars: { fitToHeight: isInDashboardContext },
+            // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
+            // instead of clamping them to 0.
+            bars: { fitToHeight: isInDashboardContext, divergingStack: true },
         }
     }, [
         yAxisScaleType,
