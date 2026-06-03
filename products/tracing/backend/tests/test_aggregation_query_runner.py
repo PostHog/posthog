@@ -3,6 +3,8 @@ import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange
 
 from posthog.clickhouse.client import sync_execute
@@ -72,23 +74,19 @@ class TestTraceSpansTreeStartOffset(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
-    def test_avg_start_offset_is_in_nanoseconds(self):
+    @parameterized.expand(
+        [
+            # Pre-fix the child returned ~0.04 (seconds), not 40_000_000 (nanos).
+            ("child_offset_in_nanoseconds", "child-op", float(EXPECTED_OFFSET_NANO)),
+            ("root_offset_is_zero", "parent-op", 0.0),
+        ]
+    )
+    def test_avg_start_offset(self, _name, edge_name, expected_offset_nano):
         response = run_tree_query(
             team=self.team,
             date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             span_name="child-op",
             service_name="web",
         )
-        child_edge = next(node for node in response.results if node.name == "child-op")
-        # Pre-fix this returned ~0.04 (seconds), not 40_000_000 (nanos).
-        self.assertEqual(child_edge.avg_start_offset_nano, float(EXPECTED_OFFSET_NANO))
-
-    def test_root_span_offset_is_zero(self):
-        response = run_tree_query(
-            team=self.team,
-            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-            span_name="child-op",
-            service_name="web",
-        )
-        root_edge = next(node for node in response.results if node.name == "parent-op")
-        self.assertEqual(root_edge.avg_start_offset_nano, 0.0)
+        edge = next(node for node in response.results if node.name == edge_name)
+        self.assertEqual(edge.avg_start_offset_nano, expected_offset_nano)
