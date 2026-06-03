@@ -79,8 +79,10 @@ Group by severity (`danger` first, then `warning`, then `none`). Skip SDKs with
 Each SDK's `releases` array has per-version rows. Each row includes UI-matching copy and
 ready-to-use links:
 
-- `status_reason` — badge tooltip text that **closely** matches the UI. Quote directly.
-  **Caveat**: the relative-age segment
+- `status_reason` — badge tooltip text that **closely** matches the UI (e.g. `"Released
+5 months ago. Upgrade recommended."`, `"You have the latest available. Click 'Releases ↗'
+above to check for any since."`, or `"Released 2 months ago. Upgrading is a good idea,
+but it's not urgent yet."`). Quote directly. **Caveat**: the relative-age segment
   ("5 months ago" etc.) is computed with Python's `humanize.naturaltime` on the backend
   and JavaScript's `dayjs().fromNow()` in the browser, and the two libraries have
   different thresholds at some boundaries (e.g. humanize says `"30 days ago"` where dayjs

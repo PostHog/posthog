@@ -4,8 +4,6 @@ from typing import Any
 
 from rest_framework import serializers
 
-from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
@@ -16,13 +14,12 @@ from products.dashboards.backend.widget_registry import get_widget_registry_entr
 
 def prepare_widget_tile_create(
     *,
-    team: Team,
+    team_id: int,
     widget_type: str,
     config: dict[str, Any],
-    user: User | None = None,
     user_access_control: UserAccessControl | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    if not dashboard_widgets_enabled(team=team, user=user):
+    if not dashboard_widgets_enabled(team_id):
         raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
 
     if get_widget_registry_entry(widget_type) is None:
@@ -35,7 +32,7 @@ def prepare_widget_tile_create(
         probe_widget = DashboardWidget(
             widget_type=widget_type,
             config=config,
-            team_id=team.id,
+            team_id=team_id,
         )
         check_widget_tile_product_access(probe_widget, user_access_control)
 

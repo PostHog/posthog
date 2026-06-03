@@ -1,6 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -206,6 +205,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     return next
                 },
                 resetColumns: () => [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+                loadSavedColumnConfigurationSuccess: (state, { savedColumnConfiguration }) =>
+                    savedColumnConfiguration ? ensureNameColumn(savedColumnConfiguration.columns) : state,
             },
         ],
         columnConfiguratorVisible: [
@@ -258,16 +259,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
-            // A shared link's columns (in the URL hash) win over the per-user
-            // saved config, which loads asynchronously after mount. Read the
-            // live URL rather than tracking state, so this stays correct
-            // regardless of later column edits.
-            const urlHasColumns = !!router.values.hashParams?.view?.columns
-            if (savedColumnConfiguration && !urlHasColumns) {
-                actions.setSelectColumns(savedColumnConfiguration.columns)
-            }
-        },
         saveColumns: async () => {
             const teamId = values.currentTeamId || undefined
             const columns = values.selectColumns

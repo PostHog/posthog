@@ -621,10 +621,9 @@ def _create_tile_for_widget(
     )
 
     normalized_widget_type, validated_config = prepare_widget_tile_create(
-        team=dashboard.team,
+        team_id=dashboard.team_id,
         widget_type=widget_type,
         config=config,
-        user=user,
         user_access_control=user_access_control,
     )
     with team_scope(dashboard.team_id):

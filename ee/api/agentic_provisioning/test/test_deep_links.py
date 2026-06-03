@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from django.core.cache import cache
 from django.test import override_settings
 
@@ -34,24 +32,6 @@ class TestDeepLinks(ProvisioningTestBase):
         )
         url = res.json()["url"]
         assert f"team_id={self.team.id}" in url
-
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
-    def test_deep_link_capture_attributes_client(self, mock_capture_event):
-        token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(
-            "/api/agentic/provisioning/deep_links",
-            data={"purpose": "dashboard"},
-            token=token,
-        )
-        assert res.status_code == 200
-
-        success_calls = [
-            call for call in mock_capture_event.call_args_list if call.args[:2] == ("deep_link_created", "success")
-        ]
-        assert len(success_calls) == 1
-        partner = success_calls[0].kwargs["partner"]
-        assert partner is not None
-        assert partner.name == "PostHog Stripe App"
 
     def test_deep_link_missing_bearer_returns_401(self):
         res = self._post_signed("/api/agentic/provisioning/deep_links", data={"purpose": "dashboard"})

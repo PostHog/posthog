@@ -51,7 +51,6 @@ import {
 } from '~/types'
 
 import {
-    byScheduledAt,
     describeCron,
     featureFlagLogic,
     PAIRED_PRESETS,
@@ -1228,7 +1227,6 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
         {
             title: 'Scheduled at',
             dataIndex: 'scheduled_at',
-            sorter: byScheduledAt,
             render: function Render(_, scheduledChange: ScheduledChangeType) {
                 const scheduledAt = dayjs(scheduledChange.scheduled_at).tz(tz)
                 const tzShort = shortTimeZone(tz, scheduledAt.toDate()) ?? tz

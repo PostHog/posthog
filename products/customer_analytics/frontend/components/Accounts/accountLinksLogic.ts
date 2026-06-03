@@ -1,16 +1,12 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
-import type {
-    AccountApi,
-    PatchedAccountApiProperties,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
+import { accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
+import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { accountLinksLogicType } from './accountLinksLogicType'
 
@@ -21,30 +17,6 @@ const SLACK_ARCHIVES_ORIGIN = 'https://posthog.slack.com/archives'
 
 export interface AccountLinksLogicProps {
     accountId: string
-}
-
-export type AccountLinkFieldKey = 'external_id' | 'billing_id' | 'slack_channel_id' | 'usage_dashboard_link'
-
-export interface AccountLinkFieldDef {
-    key: AccountLinkFieldKey
-    label: string
-    placeholder: string
-}
-
-export type AccountLinkFieldValues = Record<AccountLinkFieldKey, string>
-
-export const ACCOUNT_LINK_FIELDS: AccountLinkFieldDef[] = [
-    { key: 'external_id', label: 'External ID', placeholder: 'e.g. cust_acme_001' },
-    { key: 'billing_id', label: 'Billing ID', placeholder: 'e.g. cus_acme_123' },
-    { key: 'slack_channel_id', label: 'Slack channel ID', placeholder: 'e.g. C0123456789' },
-    { key: 'usage_dashboard_link', label: 'Usage dashboard link', placeholder: 'https://…' },
-]
-
-const EMPTY_FIELDS: AccountLinkFieldValues = {
-    external_id: '',
-    billing_id: '',
-    slack_channel_id: '',
-    usage_dashboard_link: '',
 }
 
 export interface AccountLink {
@@ -67,15 +39,6 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),
-    actions({
-        openEditor: true,
-        closeEditor: true,
-        setFieldValue: (fieldKey: AccountLinkFieldKey, value: string) => ({ fieldKey, value }),
-        setFormValues: (values: AccountLinkFieldValues) => ({ values }),
-        saveLinks: true,
-        saveStarted: true,
-        saveFinished: true,
-    }),
     loaders(({ props, values }) => ({
         account: [
             null as AccountApi | null,
@@ -91,39 +54,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
             },
         ],
     })),
-    reducers({
-        editorOpen: [
-            false,
-            {
-                openEditor: () => true,
-                closeEditor: () => false,
-            },
-        ],
-        formValues: [
-            EMPTY_FIELDS,
-            {
-                setFormValues: (_, { values }) => values,
-                setFieldValue: (state, { fieldKey, value }) => ({ ...state, [fieldKey]: value }),
-            },
-        ],
-        savingLinks: [
-            false,
-            {
-                saveStarted: () => true,
-                saveFinished: () => false,
-            },
-        ],
-    }),
     selectors({
-        currentFieldValues: [
-            (s) => [s.account],
-            (account: AccountApi | null): AccountLinkFieldValues => ({
-                external_id: account?.external_id ?? '',
-                billing_id: account?.properties?.billing_id ?? '',
-                slack_channel_id: account?.properties?.slack_channel_id ?? '',
-                usage_dashboard_link: account?.properties?.usage_dashboard_link ?? '',
-            }),
-        ],
         links: [
             (s) => [s.account],
             (account: AccountApi | null): AccountLink[] => {
@@ -171,40 +102,6 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
-        openEditor: () => {
-            actions.setFormValues(values.currentFieldValues)
-        },
-        saveLinks: async () => {
-            if (values.savingLinks) {
-                return
-            }
-            const projectId = String(values.currentTeamId)
-            const form = values.formValues
-            const orNull = (value: string): string | null => value.trim() || null
-            actions.saveStarted()
-            try {
-                const current = await accountsRetrieve(projectId, props.accountId)
-                const updated = await accountsPartialUpdate(projectId, props.accountId, {
-                    external_id: orNull(form.external_id),
-                    properties: {
-                        ...current.properties,
-                        billing_id: orNull(form.billing_id),
-                        slack_channel_id: orNull(form.slack_channel_id),
-                        usage_dashboard_link: orNull(form.usage_dashboard_link),
-                    } as PatchedAccountApiProperties,
-                })
-                actions.loadAccountSuccess(updated)
-                actions.closeEditor()
-                lemonToast.success('Links updated')
-            } catch (error) {
-                posthog.captureException(error as Error, { scope: 'accountLinksLogic.saveLinks' })
-                lemonToast.error('Failed to save links')
-            } finally {
-                actions.saveFinished()
-            }
-        },
-    })),
     afterMount(({ actions }) => {
         actions.loadAccount()
     }),

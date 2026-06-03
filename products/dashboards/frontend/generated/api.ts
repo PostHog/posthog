@@ -31,7 +31,6 @@ import type {
     DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListParams,
-    DashboardsMoveTileCreateParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
@@ -47,7 +46,6 @@ import type {
     DataColorThemeApi,
     DataColorThemesListParams,
     DeleteTileRequestApi,
-    MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
@@ -608,41 +606,6 @@ export const dashboardsDeleteTile = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(deleteTileRequestApi),
-    })
-}
-
-export const getDashboardsMoveTileCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsMoveTileCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/move_tile/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/move_tile/`
-}
-
-export const dashboardsMoveTileCreate = async (
-    projectId: string,
-    id: number,
-    moveTileRequestApi: MoveTileRequestApi,
-    params?: DashboardsMoveTileCreateParams,
-    options?: RequestInit
-): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsMoveTileCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(moveTileRequestApi),
     })
 }
 
