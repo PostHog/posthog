@@ -139,12 +139,12 @@ export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
 
 export interface MonitorScannerConfig {
     prompt: string
+    allow_inconclusive?: boolean
 }
 
 export interface SummarizerScannerConfig {
     prompt: string
     length: 'short' | 'medium' | 'long'
-    emits_embeddings: boolean
 }
 
 export interface ClassifierScannerConfig {
