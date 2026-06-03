@@ -64,6 +64,9 @@ tools:
             wrapping a SQL chart.
         exclude_params:
             - _create_in_folder
+    notebooks-debug-convert-create:
+        operation: notebooks_debug_convert_create
+        enabled: false
     notebooks-destroy:
         operation: notebooks_destroy
         enabled: true
@@ -118,6 +121,9 @@ tools:
         description: >
             List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by,
             date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.
+    notebooks-markdown-save-create:
+        operation: notebooks_markdown_save_create
+        enabled: false
     notebooks-partial-update:
         operation: notebooks_partial_update
         enabled: true
@@ -133,8 +139,8 @@ tools:
             Update an existing notebook by short_id. Can update title, deleted status, legacy JSON `content`, or
             markdown-backed `markdown_content`. IMPORTANT: when updating either content field, provide the current
             version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.
-            For markdown-backed notebooks, prefer `notebook-edit` for targeted edits or
-            `notebooks-create-from-markdown` for new notebooks.
+            For markdown-backed notebooks, prefer `notebook-edit` for targeted edits or `notebooks-create-from-markdown`
+            for new notebooks.
         exclude_params:
             - _create_in_folder
         feature_flag: notebooks-collaboration
