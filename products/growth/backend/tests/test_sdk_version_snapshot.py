@@ -1,7 +1,8 @@
+from posthog.test.base import BaseTest
+
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
-from posthog.test.base import BaseTest
 
 from products.growth.backend.sdk_version_snapshot import (
     SDK_LIBS_PROPERTY,

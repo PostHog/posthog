@@ -1,10 +1,10 @@
 from collections import defaultdict
 
-import structlog
-from structlog.stdlib import BoundLogger
-
 from django.db.models import Q
 from django.utils import timezone
+
+import structlog
+from structlog.stdlib import BoundLogger
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
