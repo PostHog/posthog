@@ -1,0 +1,125 @@
+name: Agents CI
+
+# Fast type-check / build / unit-test gate for the agent-platform node
+# services bundled into the posthog-agents image (ingress, runner, janitor,
+# migrations, shared, tools, sandbox-host) plus the esbuild bundler package.
+# Runs on a cheap runner in ~minutes, before the expensive multi-arch
+# container build in ci-agent-container.yml. The agent-console app has its
+# own workflow (ci-agent-console.yml).
+#
+# The agent-tests integration harness is intentionally excluded: it needs a
+# live stack (Postgres, gateway) and belongs in a stack-backed job.
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run agents checks
+        outputs:
+            agents: ${{ steps.filter.outputs.agents || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              if: github.event_name != 'push' # Run all checks on master push
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      agents:
+                        - 'services/agents/**'
+                        - 'services/agent-ingress/**'
+                        - 'services/agent-runner/**'
+                        - 'services/agent-janitor/**'
+                        - 'services/agent-migrations/**'
+                        - 'services/agent-shared/**'
+                        - 'services/agent-tools/**'
+                        - 'services/agent-tests/**'
+                        - 'services/agent-sandbox-host/**'
+                        - '.github/workflows/ci-agents.yml'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+
+    build-and-test:
+        name: Build & Test
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: changes
+        if: needs.changes.outputs.agents == 'true'
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: 'pnpm'
+
+            # node-rdkafka / ioredis are optional deps of agent-shared; pnpm
+            # tolerates a native-build failure here, the bundle loads them lazily.
+            - name: Install dependencies
+              run: pnpm --filter './services/agent*' --filter '!@posthog/agent-console' install --frozen-lockfile
+
+            - name: Type check
+              run: pnpm -r --filter './services/agent*' --filter '!@posthog/agent-console' run typescript:check
+
+            - name: Build agents bundle
+              run: pnpm --filter=@posthog/agents-image run build
+
+            # DB-backed suites probe and self-skip when Postgres is unreachable.
+            # Excluded: agent-tests (integration harness, needs a live stack);
+            # agent-migrations (no test files + no local vitest config, so vitest
+            # climbs to the repo-root postcss config whose deps aren't installed
+            # here — it's still covered by the type check and bundle build above).
+            - name: Run unit tests
+              run: pnpm -r --filter './services/agent*' --filter '!@posthog/agent-console' --filter '!@posthog/agent-tests' --filter '!@posthog/agent-migrations' run test
+
+    # Collation job for required status check.
+    agents_checks:
+        needs: [changes, build-and-test]
+        name: Agents checks pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - name: Check all agents jobs
+              run: |
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.agents }}" != "true" ]]; then
+                    echo "Agents checks were skipped (no relevant changes)."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build-and-test.result }}" != "success" && "${{ needs.build-and-test.result }}" != "skipped" ]]; then
+                    echo "Agents build/test failed."
+                    exit 1
+                  fi
+
+                  echo "All agents checks passed."
