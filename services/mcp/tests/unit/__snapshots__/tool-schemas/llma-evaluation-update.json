@@ -4,7 +4,7 @@
         "conditions": {
             "description": "Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.",
             "items": {
-                "description": "Validates the shape of each item inside the `conditions` JSONField.\n\nWithout this, the field was an unstructured JSON blob: callers could write any key (e.g.\n`sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET\nendpoint echoed it back — making the eval look configured while the dispatcher (which\nreads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.",
+                "description": "A trigger condition set controlling which generations an evaluation runs on.",
                 "properties": {
                     "id": {
                         "description": "Stable identifier for this condition set.",

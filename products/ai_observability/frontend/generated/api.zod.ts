@@ -179,9 +179,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             'Property filters (event or person) that scope which generations match this condition set.'
                         ),
                 })
-                .describe(
-                    'Validates the shape of each item inside the `conditions` JSONField.\n\nWithout this, the field was an unstructured JSON blob: callers could write any key (e.g.\n`sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET\nendpoint echoed it back — making the eval look configured while the dispatcher (which\nreads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.'
-                )
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
         )
         .optional()
         .describe(
@@ -292,9 +290,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                             'Property filters (event or person) that scope which generations match this condition set.'
                         ),
                 })
-                .describe(
-                    'Validates the shape of each item inside the `conditions` JSONField.\n\nWithout this, the field was an unstructured JSON blob: callers could write any key (e.g.\n`sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET\nendpoint echoed it back — making the eval look configured while the dispatcher (which\nreads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.'
-                )
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
         )
         .optional()
         .describe(
@@ -407,9 +403,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'Property filters (event or person) that scope which generations match this condition set.'
                         ),
                 })
-                .describe(
-                    'Validates the shape of each item inside the `conditions` JSONField.\n\nWithout this, the field was an unstructured JSON blob: callers could write any key (e.g.\n`sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET\nendpoint echoed it back — making the eval look configured while the dispatcher (which\nreads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.'
-                )
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
         )
         .optional()
         .describe(

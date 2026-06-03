@@ -476,6 +476,22 @@ class TestEvaluationConfigsApi(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([(0,), (100,)])
+    def test_rollout_percentage_boundaries_accepted(self, rollout_percentage):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Boundary",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Evaluate"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.data["conditions"][0]["rollout_percentage"], rollout_percentage)
+
 
 class TestTestHogEndpoint(APIBaseTest):
     def _mock_hogql_response(self, count=1):

@@ -114,13 +114,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
 
 
 class EvaluationConditionSerializer(serializers.Serializer):
-    """Validates the shape of each item inside the `conditions` JSONField.
-
-    Without this, the field was an unstructured JSON blob: callers could write any key (e.g.
-    `sampling_rate` instead of `rollout_percentage`), the value was saved as-is, and the GET
-    endpoint echoed it back — making the eval look configured while the dispatcher (which
-    reads `rollout_percentage`) treated it as 0% and never fired. Mirrors TaggerConditionSerializer.
-    """
+    """A trigger condition set controlling which generations an evaluation runs on."""
 
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")
     rollout_percentage = serializers.FloatField(
