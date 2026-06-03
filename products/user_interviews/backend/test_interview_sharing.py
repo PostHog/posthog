@@ -1139,6 +1139,7 @@ class TestInviteFieldValidation(_FeatureFlagEnabledMixin):
     UNSAFE_SUBJECTS = [
         ("url_scheme", "Visit http://evil.com"),
         ("www_prefix", "go to www.evil.com now"),
+        ("bare_domain", "thoughts on acme.com?"),
         ("angle_brackets", "Hi <b>there</b>"),
         ("newline", "line one\nline two"),
         ("null_byte", "subject\x00"),
@@ -1149,6 +1150,7 @@ class TestInviteFieldValidation(_FeatureFlagEnabledMixin):
         ("url_scheme", "click http://evil.com"),
         ("javascript_scheme", "click javascript:alert(1)"),
         ("www_prefix", "see www.evil.com"),
+        ("bare_domain", "head to acme.com to learn more"),
         ("angle_brackets", "<script>alert(1)</script>"),
         ("null_byte", "body\x00here"),
         ("bidi_override", "body‮here"),
@@ -1172,7 +1174,7 @@ class TestInviteFieldValidation(_FeatureFlagEnabledMixin):
     @parameterized.expand(
         [
             ("plain_subject_and_message", "Got a sec to chat?", "Hi there,\nThanks for being a user."),
-            ("bare_domain_in_message", "Quick question", "have you seen the foo.py file?"),
+            ("multiline_no_links", "Quick question", "have you seen the new onboarding flow?\nKeen to hear your take."),
             ("blank_values", "", ""),
         ]
     )

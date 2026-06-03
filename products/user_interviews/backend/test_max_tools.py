@@ -158,6 +158,8 @@ class TestCreateUserInterviewTopicTool(BaseTest):
             ("subject_with_brackets", {"invite_subject": "<b>hi</b>"}),
             ("subject_with_newline", {"invite_subject": "line one\nline two"}),
             ("message_with_www", {"invite_message": "go to www.evil.com"}),
+            ("message_with_bare_domain", {"invite_message": "head to acme.com to learn more"}),
+            ("subject_with_bare_domain", {"invite_subject": "thoughts on acme.com?"}),
             ("message_with_javascript", {"invite_message": "click javascript:alert(1)"}),
             ("message_with_brackets", {"invite_message": "<script>alert(1)</script>"}),
         ]

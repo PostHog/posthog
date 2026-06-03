@@ -9,12 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import validate_display_name, validate_message_body
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
 from ee.hogai.tool import MaxTool
 
+from .invite_email import validate_invite_message, validate_invite_subject
 from .models import EmailWithDisplayNameValidator, UserInterview, UserInterviewTopic
 
 
@@ -263,8 +263,8 @@ class CreateUserInterviewTopicTool(MaxTool):
             )
 
         try:
-            invite_subject = validate_display_name(invite_subject or "") or ""
-            invite_message = validate_message_body(invite_message or "") or ""
+            invite_subject = validate_invite_subject(invite_subject or "") or ""
+            invite_message = validate_invite_message(invite_message or "") or ""
         except DRFValidationError as e:
             return (
                 "The invite subject or message contains disallowed content.",

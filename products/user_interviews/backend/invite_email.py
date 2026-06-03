@@ -2,11 +2,39 @@ from typing import Any
 
 from django.conf import settings
 
-from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
+from rest_framework import serializers
+
+from posthog.helpers.email_utils import (
+    contains_bare_domain,
+    sanitize_display_name,
+    sanitize_message_body,
+    validate_display_name,
+    validate_message_body,
+)
 
 from .models import UserInterviewTopic
 
 INVITE_EMAIL_TEMPLATE = "email/interview_invite.html"
+
+# Interview invite copy is stricter than org-invite copy: we reject bare domains (on top of the
+# URL-scheme / bracket / control-char checks the shared validators already enforce) because there's
+# no legitimate reason to link out from a research invite, and mail clients auto-link bare domains —
+# a phishing vector in a PostHog-branded email.
+_INVITE_DOMAIN_ERROR = "Links and domain names aren't allowed in interview invite copy."
+
+
+def validate_invite_subject(value: str | None) -> str | None:
+    validated = validate_display_name(value)
+    if contains_bare_domain(validated):
+        raise serializers.ValidationError(_INVITE_DOMAIN_ERROR, code="invalid_domain")
+    return validated
+
+
+def validate_invite_message(value: str | None) -> str | None:
+    validated = validate_message_body(value)
+    if contains_bare_domain(validated):
+        raise serializers.ValidationError(_INVITE_DOMAIN_ERROR, code="invalid_domain")
+    return validated
 
 
 def build_invite_email_context(

@@ -37,7 +37,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import EmailMessage, is_email_available
-from posthog.helpers.email_utils import validate_display_name, validate_message_body
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -47,7 +46,7 @@ from posthog.utils import absolute_uri
 
 from ..facade.api import parse_interviewee_identifier
 from ..facade.enums import SEARCH_DOCUMENT_TYPES
-from ..invite_email import build_invite_email_context
+from ..invite_email import build_invite_email_context, validate_invite_message, validate_invite_subject
 from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
@@ -544,10 +543,10 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_by", "created_at")
 
     def validate_invite_subject(self, value: str | None) -> str | None:
-        return validate_display_name(value)
+        return validate_invite_subject(value)
 
     def validate_invite_message(self, value: str | None) -> str | None:
-        return validate_message_body(value)
+        return validate_invite_message(value)
 
     MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
 
@@ -837,7 +836,7 @@ class SendInvitesRequestSerializer(serializers.Serializer):
     )
 
     def validate_subject(self, value: str | None) -> str | None:
-        return validate_display_name(value)
+        return validate_invite_subject(value)
 
 
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
