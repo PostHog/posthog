@@ -257,6 +257,33 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         if expected_source_kind is not None:
             assert response.json()["query"]["source"]["kind"] == expected_source_kind
 
+    def test_mcp_create_preserves_viz_specific_options_aliases(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={
+                "name": "Test insight",
+                "favorited": False,
+                "saved": True,
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": []},
+                    "vizSpecificOptions": {
+                        "TRENDS": {
+                            "trendsFilter": {
+                                "yAxis": {"label": "Revenue"},
+                            }
+                        }
+                    },
+                },
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        viz_specific_options = response.json()["query"]["vizSpecificOptions"]
+        assert viz_specific_options == {"TRENDS": {"trendsFilter": {"yAxis": {"label": "Revenue"}}}}
+        assert "TRENDS_1" not in viz_specific_options
+
     def test_mcp_create_rejects_disallowed_query_kind(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",

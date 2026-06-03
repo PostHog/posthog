@@ -5316,7 +5316,7 @@ class TRENDS(BaseModel):
     )
     trendsFilter: dict[str, Any] | None = Field(
         default=None,
-        description="Frontend-only trends display settings that should not be sent to query runners.",
+        description=("Frontend-only trends display settings that should not be sent to query runners."),
     )
 
 

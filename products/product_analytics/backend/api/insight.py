@@ -1160,7 +1160,7 @@ class MCPInsightSerializer(InsightSerializer):
         # Raw HogQL → DataVisualizationNode
         try:
             return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
-                exclude_none=True, mode="json"
+                exclude_none=True, mode="json", by_alias=True
             )
         except PydanticValidationError:
             pass
@@ -1168,14 +1168,14 @@ class MCPInsightSerializer(InsightSerializer):
         # Already-wrapped node → use as-is
         for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
             try:
-                return wrapped_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
+                return wrapped_cls.model_validate(value).model_dump(exclude_none=True, mode="json", by_alias=True)
             except PydanticValidationError:
                 pass
 
         # Raw product analytics query → InsightVizNode
         try:
             return schema.InsightVizNode.model_validate({"kind": "InsightVizNode", "source": value}).model_dump(
-                exclude_none=True, mode="json"
+                exclude_none=True, mode="json", by_alias=True
             )
         except PydanticValidationError as exc:
             details = "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())

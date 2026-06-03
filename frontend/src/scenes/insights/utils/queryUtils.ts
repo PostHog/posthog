@@ -3,14 +3,7 @@ import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import {
-    DataNode,
-    HogQLVariable,
-    InsightQueryNode,
-    InsightVizNode,
-    Node,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { DataNode, HogQLVariable, InsightQueryNode, Node, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -219,7 +212,7 @@ export const moveFrontendOnlyTrendsFilterSettings = <T extends Node | null>(quer
                 },
             },
         },
-    } as InsightVizNode as T
+    } as unknown as T
 }
 
 // keep in sync with posthog/schema_helpers.py `grouped_chart_display_types` method

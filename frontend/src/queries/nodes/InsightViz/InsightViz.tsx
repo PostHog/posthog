@@ -9,6 +9,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { moveFrontendOnlyTrendsFilterSettings } from 'scenes/insights/utils/queryUtils'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
@@ -45,6 +46,42 @@ type InsightVizProps = {
     cachedResults?: AnyResponseType
 }
 
+export function buildInsightVizDataNodeLogicProps({
+    query,
+    insightProps,
+    vizKey,
+    cachedResults,
+    filtersOverride,
+    variablesOverride,
+    context,
+}: {
+    query: InsightVizNode
+    insightProps: InsightLogicProps<InsightVizNode>
+    vizKey: string
+    cachedResults?: AnyResponseType
+    filtersOverride?: DashboardFilter | null
+    variablesOverride?: Record<string, HogQLVariable> | null
+    context?: QueryContext<InsightVizNode>
+}): DataNodeLogicProps {
+    const queryForDataLoading = moveFrontendOnlyTrendsFilterSettings(query)
+
+    return {
+        query: queryForDataLoading.source,
+        key: vizKey,
+        cachedResults:
+            cachedResults ||
+            getCachedResults(insightProps.cachedInsight, query.source) ||
+            getCachedResults(insightProps.cachedInsight, queryForDataLoading.source),
+        doNotLoad: insightProps.doNotLoad,
+        onData: insightProps.onData,
+        loadPriority: insightProps.loadPriority,
+        dataNodeCollectionId: insightVizDataCollectionId(insightProps, vizKey),
+        filtersOverride,
+        variablesOverride,
+        limitContext: context?.limitContext,
+    }
+}
+
 let uniqueNode = 0
 
 export function InsightViz({
@@ -62,11 +99,12 @@ export function InsightViz({
     cachedResults,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
+    const queryForDataLoading = moveFrontendOnlyTrendsFilterSettings(query)
     const insightProps =
         context?.insightProps ||
         ({
             dashboardItemId: `new-AdHoc.${key}`,
-            query,
+            query: queryForDataLoading,
             setQuery,
             dataNodeCollectionId: key,
             filtersOverride,
@@ -78,18 +116,15 @@ export function InsightViz({
     }
 
     const vizKey = insightVizDataNodeKey(insightProps)
-    const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
-        key: vizKey,
-        cachedResults: cachedResults || getCachedResults(insightProps.cachedInsight, query.source),
-        doNotLoad: insightProps.doNotLoad,
-        onData: insightProps.onData,
-        loadPriority: insightProps.loadPriority,
-        dataNodeCollectionId: insightVizDataCollectionId(insightProps, vizKey),
+    const dataNodeLogicProps = buildInsightVizDataNodeLogicProps({
+        query,
+        insightProps,
+        vizKey,
+        cachedResults,
         filtersOverride,
         variablesOverride,
-        limitContext: context?.limitContext,
-    }
+        context,
+    })
 
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)

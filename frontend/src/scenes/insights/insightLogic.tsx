@@ -686,9 +686,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             })
         },
         saveAsConfirmation: async ({ name, redirectToViewMode, persist, folder }) => {
+            const queryForPersistence = moveFrontendOnlyTrendsFilterSettings(values.query)
             const insight = await insightsApi.create({
                 name,
-                query: values.query,
+                query: queryForPersistence,
                 saved: true,
                 _create_in_folder: folder ?? getLastNewFolder(),
             })
@@ -702,7 +703,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             if (persist) {
-                eventUsageLogic.actions.reportInsightSaved(insight, values.query, true, 'save_as')
+                eventUsageLogic.actions.reportInsightSaved(insight, queryForPersistence, true, 'save_as')
             }
             actions.reloadSavedInsights() // Load insights afresh
 

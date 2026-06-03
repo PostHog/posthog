@@ -669,6 +669,57 @@ describe('insightLogic', () => {
             })
     })
 
+    test('save as moves frontend-only trends filter settings before creating the copy', async () => {
+        const createSpy = jest.spyOn(api.insights, 'create')
+        const query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    showLegend: true,
+                    yAxis: { label: 'Revenue' },
+                },
+            },
+        } as InsightVizNode
+        const insightProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            cachedInsight: {
+                id: 42,
+                short_id: Insight42,
+                query,
+            },
+        }
+
+        logic = insightLogic(insightProps)
+        logic.mount()
+        insightDataLogic(insightProps).mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.saveAsConfirmation('New Insight (copy)')
+        }).toFinishAllListeners()
+
+        const createdInsight = createSpy.mock.calls.at(-1)?.[0] as QueryBasedInsightModel
+        expect(createdInsight.query).toEqual({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    showLegend: true,
+                },
+            },
+            vizSpecificOptions: {
+                [InsightType.TRENDS]: {
+                    trendsFilter: {
+                        yAxis: { label: 'Revenue' },
+                    },
+                },
+            },
+        })
+        createSpy.mockRestore()
+    })
+
     describe('reacts to external changes', () => {
         beforeEach(async () => {
             logic = insightLogic({
