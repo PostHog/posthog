@@ -16,7 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.integration import IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -3226,3 +3226,17 @@ class TestSlackPostHogCodeKindDeprecated:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "deprecated" in json.dumps(response.json()).lower()
         assert not Integration.objects.filter(team=self.team, kind="slack-posthog-code").exists()
+
+    def test_validate_kind_rejects_slack_posthog_code(self):
+        serializer = IntegrationSerializer(data={"kind": "slack-posthog-code", "config": {}})
+
+        assert not serializer.is_valid()
+        assert "kind" in serializer.errors
+        assert "deprecated" in str(serializer.errors["kind"]).lower()
+
+    def test_validate_kind_accepts_other_kinds(self):
+        # Sanity check — the validator must not reject unrelated kinds.
+        serializer = IntegrationSerializer(data={"kind": "slack", "config": {}})
+
+        serializer.is_valid()
+        assert "kind" not in serializer.errors
