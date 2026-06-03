@@ -13,7 +13,12 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { signalsReportsDispatchToCursorCreate } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsCursorConnectionCreate,
+    signalsReportsCursorConnectionRetrieve,
+    signalsReportsDispatchToCursorCreate,
+} from 'products/signals/frontend/generated/api'
+import { CursorConnectionStatusApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { Breadcrumb } from '~/types'
 
@@ -51,6 +56,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         dispatchToCursor: (reportId: string) => ({ reportId }),
         dispatchToCursorSuccess: (reportId: string) => ({ reportId }),
         dispatchToCursorFailure: (reportId: string) => ({ reportId }),
+        setShowConnectModal: (show: boolean) => ({ show }),
+        setCursorApiKeyDraft: (apiKey: string) => ({ apiKey }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -101,6 +108,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     const response = await api.signalReports.getReportSignals(reportId)
                     return { ...values.reportSignals, [reportId]: response.signals }
                 },
+            },
+        ],
+        cursorConnection: [
+            { connected: false } as CursorConnectionStatusApi,
+            {
+                loadCursorConnection: async () =>
+                    await signalsReportsCursorConnectionRetrieve(String(getCurrentTeamId())),
+                connectCursor: async ({ apiKey }: { apiKey: string }) =>
+                    await signalsReportsCursorConnectionCreate(String(getCurrentTeamId()), { api_key: apiKey }),
             },
         ],
     })),
@@ -154,6 +170,20 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     state.filter((id) => id !== reportId),
                 dispatchToCursorFailure: (state: string[], { reportId }: { reportId: string }) =>
                     state.filter((id) => id !== reportId),
+            },
+        ],
+        showConnectModal: [
+            false,
+            {
+                setShowConnectModal: (_: boolean, { show }: { show: boolean }) => show,
+                connectCursorSuccess: () => false,
+            },
+        ],
+        cursorApiKeyDraft: [
+            '',
+            {
+                setCursorApiKeyDraft: (_: string, { apiKey }: { apiKey: string }) => apiKey,
+                connectCursorSuccess: () => '',
             },
         ],
     }),
@@ -234,6 +264,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (dispatchingReportIds: string[], selectedReportId: string | null): boolean =>
                 selectedReportId !== null && dispatchingReportIds.includes(selectedReportId),
         ],
+        cursorConnected: [
+            (s) => [s.cursorConnection],
+            (cursorConnection: CursorConnectionStatusApi): boolean => !!cursorConnection?.connected,
+        ],
     }),
 
     listeners(({ actions, values, cache }) => ({
@@ -308,6 +342,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.dispatchToCursorFailure(reportId)
             }
         },
+        connectCursorSuccess: () => {
+            lemonToast.success('Cursor connected')
+        },
+        connectCursorFailure: () => {
+            lemonToast.error('Failed to connect Cursor — check the API key')
+        },
         loadSourceConfigsSuccess: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
             if (values.isSessionAnalysisRunning) {
@@ -336,6 +376,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadReports()
+            actions.loadCursorConnection()
         },
         beforeUnmount: () => {
             clearInterval(cache.sessionAnalysisPollInterval)

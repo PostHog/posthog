@@ -25,6 +25,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonMenuOverlay,
+    LemonModal,
     LemonSkeleton,
     LemonTabs,
     LemonTag,
@@ -531,8 +532,20 @@ function ReportDetailPane(): JSX.Element {
         selectedReportReviewers,
         canDispatchToCursor,
         isDispatchingToCursor,
+        cursorConnected,
+        showConnectModal,
+        cursorApiKeyDraft,
+        cursorConnectionLoading,
     } = useValues(inboxSceneLogic)
-    const { deleteReport, reingestReport, dispatchToCursor, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const {
+        deleteReport,
+        reingestReport,
+        dispatchToCursor,
+        setActiveDetailTab,
+        setShowConnectModal,
+        setCursorApiKeyDraft,
+        connectCursor,
+    } = useActions(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
 
@@ -627,20 +640,60 @@ function ReportDetailPane(): JSX.Element {
                             <span className="inline-flex items-center gap-1">
                                 Updated: <TZLabel time={selectedReport.updated_at} />
                             </span>
-                            {canDispatchToCursor && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconSparkles />}
-                                    loading={isDispatchingToCursor}
-                                    disabledReason={isDispatchingToCursor ? 'Sending to Cursor…' : undefined}
-                                    onClick={() => dispatchToCursor(selectedReport.id)}
-                                    data-attr="send-to-cursor-button"
-                                    className="ml-auto"
-                                >
-                                    Send to Cursor
-                                </LemonButton>
-                            )}
+                            {canDispatchToCursor &&
+                                (cursorConnected ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconSparkles />}
+                                        loading={isDispatchingToCursor}
+                                        disabledReason={isDispatchingToCursor ? 'Sending to Cursor…' : undefined}
+                                        onClick={() => dispatchToCursor(selectedReport.id)}
+                                        data-attr="send-to-cursor-button"
+                                        className="ml-auto"
+                                    >
+                                        Send to Cursor
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconSparkles />}
+                                        onClick={() => setShowConnectModal(true)}
+                                        data-attr="connect-cursor-button"
+                                        className="ml-auto"
+                                    >
+                                        Connect Cursor
+                                    </LemonButton>
+                                ))}
+                            <LemonModal
+                                title="Connect Cursor"
+                                isOpen={showConnectModal}
+                                onClose={() => setShowConnectModal(false)}
+                                footer={
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => connectCursor({ apiKey: cursorApiKeyDraft })}
+                                        loading={cursorConnectionLoading}
+                                        disabledReason={!cursorApiKeyDraft ? 'Enter your Cursor API key' : undefined}
+                                        data-attr="connect-cursor-submit"
+                                    >
+                                        Connect
+                                    </LemonButton>
+                                }
+                            >
+                                <p className="mb-2 max-w-md">
+                                    Paste your Cursor API key. It's stored encrypted for this project and used to
+                                    launch Cursor cloud agents from signal reports.
+                                </p>
+                                <LemonInput
+                                    type="password"
+                                    value={cursorApiKeyDraft}
+                                    onChange={setCursorApiKeyDraft}
+                                    placeholder="crsr_..."
+                                    data-attr="connect-cursor-input"
+                                />
+                            </LemonModal>
                             <More
                                 overlay={
                                     <LemonMenuOverlay
