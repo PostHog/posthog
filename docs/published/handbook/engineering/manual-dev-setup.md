@@ -283,7 +283,7 @@ Open [http://localhost:8010](http://localhost:8010) to see the app.
 
 > **Note:** The first time you run this command you might get an error that says "layout.html is not defined". Make sure you wait until the frontend is finished compiling and try again.
 
-To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`. For a list of useful arguments of the command, run `DEBUG=1 ./manage.py generate_demo_data --help`.
+To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`. This command checks for unapplied Postgres migrations before running and fails with a clear error if any are found – run migrations first or pass `--skip-migration-check` to bypass. For a list of useful arguments of the command, run `DEBUG=1 ./manage.py generate_demo_data --help`.
 
 > **Friendly Tip** The first time you run the app, you can log in with a test account: _user_:`test@posthog.com` _pwd_:`12345678`.
 
