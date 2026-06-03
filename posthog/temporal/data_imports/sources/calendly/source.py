@@ -36,7 +36,6 @@ class CalendlySource(ResumableSource[CalendlySourceConfig, CalendlyResumeConfig]
             name=SchemaExternalDataSourceType.CALENDLY,
             label="Calendly",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Calendly personal access token to pull your Calendly data into the PostHog Data warehouse.
 
 You can create a personal access token in Calendly under **Integrations → API & Webhooks**. A personal access token requires a paid Calendly plan.""",

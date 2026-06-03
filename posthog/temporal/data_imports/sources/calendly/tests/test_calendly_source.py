@@ -46,7 +46,7 @@ class TestCalendlySource:
         assert config.name.value == "Calendly"
         assert config.label == "Calendly"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is not True
         assert config.iconPath == "/static/services/calendly.png"
         assert len(config.fields) == 1
 
