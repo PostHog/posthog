@@ -34,14 +34,19 @@ const ALL_ENABLED: EnabledFilter[] = ENABLED_OPTIONS.map((o) => o.value)
 const ALL_SCANNER_TYPES: ScannerType[] = SCANNER_TYPE_OPTIONS.map((o) => o.value)
 
 const csv = (values: string[]): string | undefined => (values.length > 0 ? values.join(',') : undefined)
-const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] => {
-    if (typeof value !== 'string' || value.length === 0) {
-        return []
-    }
-    return value
-        .split(',')
-        .map((v) => v.trim())
-        .filter((v): v is T => (allowed as readonly string[]).includes(v))
+const splitCsv = (value: unknown): string[] =>
+    typeof value === 'string' && value.length > 0
+        ? value
+              .split(',')
+              .map((v) => v.trim())
+              .filter(Boolean)
+        : []
+const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] =>
+    splitCsv(value).filter((v): v is T => (allowed as readonly string[]).includes(v))
+
+const createdByLabel = (user: NonNullable<ReplayScanner['created_by']>): string => {
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+    return name || user.email || `User ${user.id}`
 }
 
 export const replayScannersLogic = kea<replayScannersLogicType>([
@@ -64,6 +69,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         setEnabledFilter: (values: EnabledFilter[]) => ({ values }),
         setScannerTypeFilter: (scannerTypes: ScannerType[]) => ({ scannerTypes }),
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setCreatedByFilter: (userIds: string[]) => ({ userIds }),
         clearFilters: true,
     }),
 
@@ -127,6 +133,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             null as string | null,
             {
                 setChartDateRange: (_, { dateTo }) => dateTo,
+            },
+        ],
+        createdByFilter: [
+            [] as string[],
+            {
+                setCreatedByFilter: (_, { userIds }) => userIds,
+                clearFilters: () => [],
             },
         ],
     }),
@@ -214,17 +227,35 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     selectors({
         hasActiveFilters: [
-            (s) => [s.search, s.enabledFilter, s.scannerTypeFilter],
-            (search: string, enabled: EnabledFilter[], scannerTypes: ScannerType[]) =>
-                search.trim().length > 0 || enabled.length > 0 || scannerTypes.length > 0,
+            (s) => [s.search, s.enabledFilter, s.scannerTypeFilter, s.createdByFilter],
+            (search: string, enabled: EnabledFilter[], scannerTypes: ScannerType[], createdBy: string[]) =>
+                search.trim().length > 0 || enabled.length > 0 || scannerTypes.length > 0 || createdBy.length > 0,
+        ],
+        createdByOptions: [
+            (s) => [s.scanners],
+            (scanners: ReplayScanner[]): { value: string; label: string }[] => {
+                const byId = new Map<string, string>()
+                for (const scanner of scanners) {
+                    if (scanner.created_by) {
+                        const id = String(scanner.created_by.id)
+                        if (!byId.has(id)) {
+                            byId.set(id, createdByLabel(scanner.created_by))
+                        }
+                    }
+                }
+                return Array.from(byId, ([value, label]) => ({ value, label })).sort((a, b) =>
+                    a.label.localeCompare(b.label)
+                )
+            },
         ],
         filteredScanners: [
-            (s) => [s.scanners, s.search, s.enabledFilter, s.scannerTypeFilter],
+            (s) => [s.scanners, s.search, s.enabledFilter, s.scannerTypeFilter, s.createdByFilter],
             (
                 scanners: ReplayScanner[],
                 search: string,
                 enabledValues: EnabledFilter[],
-                scannerTypes: ScannerType[]
+                scannerTypes: ScannerType[],
+                createdBy: string[]
             ): ReplayScanner[] => {
                 const q = search.trim().toLowerCase()
                 return scanners.filter((l) => {
@@ -243,6 +274,12 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     if (scannerTypes.length > 0 && !scannerTypes.includes(l.scanner_type)) {
                         return false
                     }
+                    if (createdBy.length > 0) {
+                        const id = l.created_by ? String(l.created_by.id) : null
+                        if (!id || !createdBy.includes(id)) {
+                            return false
+                        }
+                    }
                     return true
                 })
             },
@@ -257,6 +294,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 search: values.search || undefined,
                 enabled: csv(values.enabledFilter),
                 type: csv(values.scannerTypeFilter),
+                created_by: csv(values.createdByFilter),
             },
             undefined,
             { replace: true },
@@ -265,6 +303,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             setSearch: buildUrl,
             setEnabledFilter: buildUrl,
             setScannerTypeFilter: buildUrl,
+            setCreatedByFilter: buildUrl,
             clearFilters: buildUrl,
         }
     }),
@@ -282,6 +321,10 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             const types = fromCsv<ScannerType>(searchParams.type, ALL_SCANNER_TYPES)
             if (csv(types) !== csv(values.scannerTypeFilter)) {
                 actions.setScannerTypeFilter(types)
+            }
+            const createdBy = splitCsv(searchParams.created_by)
+            if (csv(createdBy) !== csv(values.createdByFilter)) {
+                actions.setCreatedByFilter(createdBy)
             }
         },
     })),
