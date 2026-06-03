@@ -610,7 +610,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("| Recordings | 50.00 | 75.00 |", table)
 
         # Should handle unknown types gracefully (formatted from label)
-        self.assertIn("| Custom Product 12345 | 100.00 | 200.00 |", table)
+        self.assertIn("| Custom product 12345 | 100.00 | 200.00 |", table)
 
     def test_create_aggregated_items_functionality(self):
         """Test the aggregation logic specifically"""

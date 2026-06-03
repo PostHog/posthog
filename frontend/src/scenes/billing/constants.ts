@@ -8,7 +8,7 @@ export const USAGE_TYPES = [
     { label: 'Feature flag requests', value: 'billable_feature_flag_requests_count_in_period' },
     { label: 'Exceptions', value: 'exceptions_captured_in_period' },
     { label: 'Survey responses', value: 'survey_responses_count_in_period' },
-    { label: 'LLM events', value: 'ai_event_count_in_period' },
+    { label: 'AI events', value: 'ai_event_count_in_period' },
     { label: 'Synced rows', value: 'rows_synced_in_period' },
     { label: 'Free synced rows', value: 'free_historical_rows_synced_in_period' },
     { label: 'Data pipelines (deprecated)', value: 'data_pipelines' },
