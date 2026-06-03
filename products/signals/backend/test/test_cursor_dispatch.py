@@ -8,7 +8,6 @@ from rest_framework import status
 
 from products.signals.backend.cursor_dispatch import (
     CURSOR_AGENTS_API_URL,
-    CURSOR_DEFAULT_MODEL,
     CursorDispatchContext,
     CursorDispatchError,
     agent_id_for_report,
@@ -40,7 +39,7 @@ class TestBuildCursorAgentRequest:
         assert body["repos"] == [{"url": "https://github.com/PostHog/posthog", "startingRef": "main"}]
         assert body["autoCreatePR"] is True
         assert body["agentId"] == "signal-report-r1"
-        assert body["model"]["id"] == CURSOR_DEFAULT_MODEL
+        assert "model" not in body
 
     def test_prompt_includes_research_context(self):
         text = build_cursor_agent_request(_context(), agent_id="x")["prompt"]["text"]
@@ -80,7 +79,7 @@ class TestBuildCursorAgentRequest:
 
 
 def test_agent_id_for_report_is_stable_idempotency_key():
-    assert agent_id_for_report("r1") == "signal-report-r1"
+    assert agent_id_for_report("r1") == "bc-r1"
 
 
 FLAG_PATH = "products.signals.backend.views.posthoganalytics.feature_enabled"
@@ -182,7 +181,7 @@ class TestDispatchToCursorEndpoint(APIBaseTest):
         body = call.kwargs["json"]
         assert body["repos"] == [{"url": "https://github.com/PostHog/posthog", "startingRef": "main"}]
         assert body["autoCreatePR"] is True
-        assert body["agentId"] == f"signal-report-{report.id}"
+        assert body["agentId"] == f"bc-{report.id}"
         prompt_text = body["prompt"]["text"]
         assert "Users hit a 500 on the checkout page" in prompt_text
         assert "P1" in prompt_text

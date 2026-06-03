@@ -20,7 +20,6 @@ logger = structlog.get_logger(__name__)
 SIGNALS_CURSOR_DISPATCH_FLAG = "signals-cursor-dispatch"
 
 CURSOR_AGENTS_API_URL = "https://api.cursor.com/v1/agents"
-CURSOR_DEFAULT_MODEL = "composer-2"
 CURSOR_REQUEST_TIMEOUT_SECONDS = 30
 
 POSTHOG_MCP_URL = "https://mcp.posthog.com/mcp"
@@ -53,7 +52,8 @@ class CursorDispatchResult:
 
 
 def agent_id_for_report(report_id: str) -> str:
-    return f"signal-report-{report_id}"
+    # Cursor requires the idempotency key in the format bc-<uuid>; the report id is a UUID.
+    return f"bc-{report_id}"
 
 
 def _github_url(repository: str) -> str:
@@ -144,7 +144,7 @@ def build_cursor_agent_request(
     context: CursorDispatchContext,
     *,
     agent_id: str,
-    model: str = CURSOR_DEFAULT_MODEL,
+    model: str | None = None,
     posthog_mcp_token: str | None = None,
 ) -> dict:
     if not context.repository:
@@ -152,11 +152,12 @@ def build_cursor_agent_request(
 
     body: dict = {
         "prompt": {"text": build_cursor_agent_prompt(context)},
-        "model": {"id": model},
         "repos": [{"url": _github_url(context.repository), "startingRef": context.default_branch}],
         "autoCreatePR": True,
         "agentId": agent_id,
     }
+    if model:
+        body["model"] = {"id": model}
     if posthog_mcp_token:
         body["mcpServers"] = [
             {
