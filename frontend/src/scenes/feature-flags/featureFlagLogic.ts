@@ -181,6 +181,9 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
 // Unparseable/missing dates sort last; ties break by `id` (creation order) for a stable order.
 export function byScheduledAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
     const epoch = (sc: ScheduledChangeType): number => {
+        if (!sc.scheduled_at) {
+            return Number.POSITIVE_INFINITY
+        }
         const ms = dayjs(sc.scheduled_at).valueOf()
         return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms
     }
