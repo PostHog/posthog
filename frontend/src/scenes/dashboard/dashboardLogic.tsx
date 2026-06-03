@@ -57,7 +57,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isInsightQueryWithBreakdown, isInsightVizNode } from '~/queries/utils'
 import {
     BreakdownFilter,
     DashboardFilter,
@@ -67,6 +66,7 @@ import {
     QuickFilterContext,
     RefreshType,
 } from '~/queries/schema/schema-general'
+import { isInsightQueryWithBreakdown, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

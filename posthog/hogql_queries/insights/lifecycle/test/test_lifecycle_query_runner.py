@@ -1,5 +1,4 @@
 from datetime import datetime
-from unittest.mock import patch
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -10,6 +9,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
