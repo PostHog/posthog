@@ -12,7 +12,7 @@ description: >
 
 Full background — the three mechanisms (lazy router, model registration, receiver wiring), the regression guard, how to add code without regressing it, and how to measure: **[docs/internal/django-startup-time.md](../../../docs/internal/django-startup-time.md)**.
 
-Read that doc first. The guard is `posthog/test/test_startup_import_budget.py`; **when it fails, defer the import — do not widen the budget list.**
+Read that doc first. The guard is `posthog/test/test_startup_import_budget.py`. **When it fails, defer the import — don't remove an entry to dodge it.** Conversely, when you deliberately defer a significant heavy lib off setup, **add it to `FORBIDDEN_AT_SETUP`** (after confirming it's absent from a bare `django.setup()`) so the win can't silently regress.
 
 ## Defaults when adding backend code
 

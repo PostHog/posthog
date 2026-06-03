@@ -45,7 +45,11 @@ Wire receivers from the owning app's `AppConfig.ready()` instead, so they connec
 
 **When a guard fails, fix the import — do not widen the list.**
 Defer the offending import, add the missing `models/__init__` import, or wire the receiver at `ready()`.
-Widening the budget re-opens the door the guard exists to keep shut.
+Removing an entry to make the test pass re-opens the door the guard exists to keep shut.
+
+The list cuts both ways: when you _deliberately_ defer a significant heavy library off the startup path, **add it to `FORBIDDEN_AT_SETUP`** so the win can't silently regress.
+Removing an entry to dodge a failure weakens the guard; adding one to lock in a deferral strengthens it.
+Confirm the module is absent from a bare `django.setup()` first, then add it.
 
 ## Doing it right, and keeping it right
 
