@@ -471,11 +471,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
 
 
-# `api.py` imports the workflow classes above, so keep this module-level import
-# after their definitions to avoid a circular import during module initialization.
-from products.slack_app.backend.api import resolve_slack_user  # noqa: E402
-
-
 async def _gate_on_personal_github(
     inputs: "PostHogCodeSlackMentionWorkflowInputs",
     channel: str,
@@ -530,6 +525,10 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
+    # Imported lazily to break a circular import: products.slack_app.backend.api
+    # imports the workflow classes defined in this module at its top level.
+    from products.slack_app.backend.api import resolve_slack_user
+
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -1174,7 +1173,7 @@ def forward_posthog_code_followup_activity(
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
     """
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
 
     if _parse_rules_command(event_text):
         return False
