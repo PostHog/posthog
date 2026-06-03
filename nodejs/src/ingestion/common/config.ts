@@ -234,16 +234,11 @@ export function getDefaultKafkaWarpstreamProducerEnvConfig(): KafkaWarpstreamPro
 }
 
 // =============================================================================
-// Consolidated producer slots: INGESTION_UPSTREAM / INGESTION_DOWNSTREAM / INGESTION_SESSIONREPLAY
-//
-// These replace the legacy DEFAULT/WARPSTREAM/INGESTION slots with cluster-accurate
-// names (see common/outputs/index.ts for the contract). Registered as OPTIONAL producers:
-// a slot with no broker list configured is skipped at build time, so a server only
-// connects the slots its deployment actually wires. UPSTREAM mirrors INGESTION's auth
-// shape (ssl + sasl); DOWNSTREAM and SESSIONREPLAY mirror WARPSTREAM (plaintext, in-cluster).
+// Cluster-accurate producer slots: INGESTION_UPSTREAM / INGESTION_DOWNSTREAM
+// (see common/outputs/index.ts for the slot contract).
 // =============================================================================
 
-/** UPSTREAM — dedicated ingestion cluster (re-consumed topics). Mirrors INGESTION's auth shape. */
+/** UPSTREAM — dedicated ingestion cluster (re-consumed topics); ssl + sasl auth. */
 export const INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP = {
     'client.id': 'KAFKA_INGESTION_UPSTREAM_PRODUCER_CLIENT_ID',
     'metadata.broker.list': 'KAFKA_INGESTION_UPSTREAM_PRODUCER_METADATA_BROKER_LIST',
@@ -267,7 +262,7 @@ export const INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP = {
     'max.in.flight.requests.per.connection': 'KAFKA_INGESTION_UPSTREAM_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION',
 } as const satisfies Partial<Record<AllowedConfigKey, string>>
 
-/** DOWNSTREAM — warpstream-ingestion cluster (ClickHouse-bound). Mirrors WARPSTREAM. */
+/** DOWNSTREAM — warpstream-ingestion cluster (ClickHouse-bound); in-cluster plaintext. */
 export const INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP = {
     'client.id': 'KAFKA_INGESTION_DOWNSTREAM_PRODUCER_CLIENT_ID',
     'metadata.broker.list': 'KAFKA_INGESTION_DOWNSTREAM_PRODUCER_METADATA_BROKER_LIST',
