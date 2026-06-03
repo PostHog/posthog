@@ -1429,38 +1429,35 @@ describe('sqlEditorLogic', () => {
             expect(model.getValue()).toEqual(ACCEPTED)
         })
 
-        it('does not edit the model when the accepted query already matches', () => {
+        // Both cases leave the model already holding the target query, so no undoable edit
+        // should be pushed (the no-op guard in applyUndoableModelEdit).
+        it.each([
+            {
+                name: 'the accepted query already matches the model',
+                payload: {
+                    suggestedValue: ORIGINAL,
+                    onAccept: (_shouldRun: boolean, actions: any) => actions.setQueryInput(ORIGINAL),
+                    onReject: () => {},
+                },
+                act: () => logic.actions.onAcceptSuggestedQueryInput(),
+            },
+            {
+                name: 'a suggestion is rejected',
+                payload: {
+                    suggestedValue: ACCEPTED,
+                    onAccept: () => {},
+                    onReject: (actions: any) => actions.setQueryInput(ORIGINAL),
+                },
+                act: () => logic.actions.onRejectSuggestedQueryInput(),
+            },
+        ])('does not push an undoable edit when $name', ({ payload, act }) => {
             const model = createUndoTrackingModel(ORIGINAL)
             mountWithModel(model)
 
             logic.actions.setQueryInput(ORIGINAL)
-            logic.actions._setSuggestionPayload({
-                suggestedValue: ORIGINAL,
-                originalValue: ORIGINAL,
-                source: 'max_ai',
-                onAccept: (_shouldRun, actions) => actions.setQueryInput(ORIGINAL),
-                onReject: () => {},
-            })
-            logic.actions.onAcceptSuggestedQueryInput()
+            logic.actions._setSuggestionPayload({ originalValue: ORIGINAL, source: 'max_ai', ...payload })
+            act()
 
-            expect(model.pushEditOperations).not.toHaveBeenCalled()
-        })
-
-        it('does not add an undo step when a suggestion is rejected', () => {
-            const model = createUndoTrackingModel(ORIGINAL)
-            mountWithModel(model)
-
-            logic.actions.setQueryInput(ORIGINAL)
-            logic.actions._setSuggestionPayload({
-                suggestedValue: ACCEPTED,
-                originalValue: ORIGINAL,
-                source: 'max_ai',
-                onAccept: () => {},
-                onReject: (actions) => actions.setQueryInput(ORIGINAL),
-            })
-            logic.actions.onRejectSuggestedQueryInput()
-
-            // Model already holds the reverted query, so no edit is pushed.
             expect(model.pushEditOperations).not.toHaveBeenCalled()
         })
     })
