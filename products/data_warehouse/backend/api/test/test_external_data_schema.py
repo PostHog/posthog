@@ -500,6 +500,86 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type_config["primary_key_columns"] == ["id"]
 
+    @parameterized.expand(
+        [
+            ("incremental", ExternalDataSchema.SyncType.INCREMENTAL, 400),
+            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, 400),
+            ("cdc", ExternalDataSchema.SyncType.CDC, 200),
+        ]
+    )
+    def test_update_schema_one_minute_frequency_only_for_cdc(self, _name, sync_type, expected_status):
+        # A 1-minute cadence is CDC-only. The backend must enforce this regardless of caller
+        # (UI, API, or MCP) so non-CDC schemas can't be pushed below the 5-minute floor.
+        is_cdc = sync_type == ExternalDataSchema.SyncType.CDC
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES if is_cdc else ExternalDataSourceType.STRIPE,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=sync_type,
+            sync_type_config={"primary_key_columns": ["id"]} if is_cdc else {},
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "1min"},
+            )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == 400:
+            assert "cdc" in str(response.json()).lower()
+            schema.refresh_from_db()
+            # Rejected before the interval is persisted.
+            assert schema.sync_frequency_interval != timedelta(minutes=1)
+
+    def test_update_schema_one_minute_cannot_survive_switch_away_from_cdc(self):
+        # Closing the gap where a CDC schema on a 1-minute schedule is switched to a non-CDC sync
+        # type without re-sending sync_frequency — the existing 1-minute interval must be rejected.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"primary_key_columns": ["id"]},
+            sync_frequency_interval=timedelta(minutes=1),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "incremental"},
+        )
+
+        assert response.status_code == 400, response.content
+        assert "cdc" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(minutes=1)
+        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.

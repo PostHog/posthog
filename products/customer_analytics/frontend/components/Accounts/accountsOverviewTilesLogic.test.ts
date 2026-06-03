@@ -1,6 +1,10 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
 
 import {
+    accountsOverviewTilesLogic,
     AccountsOverviewTile,
     isNumericColumnType,
     isTileClickable,
@@ -11,6 +15,7 @@ import {
     tileMetricExpression,
     tileToRowFilter,
 } from './accountsOverviewTilesLogic'
+import { MAX_ACCOUNTS_OVERVIEW_TILES } from './constants'
 
 describe('stripHogqlAlias', () => {
     it('strips a trailing AS alias', () => {
@@ -178,5 +183,27 @@ describe('parseTileValues', () => {
         expect(parseTileValues(null, tiles)).toEqual({ a: null, b: null })
         expect(parseTileValues(responseWith(undefined), tiles)).toEqual({ a: null, b: null })
         expect(parseTileValues(responseWith([null, null]), tiles)).toEqual({ a: null, b: null })
+    })
+})
+
+describe('addTile limit', () => {
+    let logic: ReturnType<typeof accountsOverviewTilesLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = accountsOverviewTilesLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it(`stops adding tiles once ${MAX_ACCOUNTS_OVERVIEW_TILES} exist`, async () => {
+        for (let i = 0; i < MAX_ACCOUNTS_OVERVIEW_TILES + 2; i++) {
+            logic.actions.addTile({ label: `Tile ${i}`, metric: { type: 'count' } })
+        }
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.tiles).toHaveLength(MAX_ACCOUNTS_OVERVIEW_TILES)
     })
 })

@@ -61,6 +61,8 @@ class UserInterviewTopic(UUIDTModel, CreatedMetaFields):
         default=list,
         blank=True,
     )
+    invite_subject = models.CharField(max_length=255, blank=True, default="", db_default="")
+    invite_message = models.TextField(blank=True, default="", db_default="")
 
     class Meta:
         ordering = ["-created_at"]

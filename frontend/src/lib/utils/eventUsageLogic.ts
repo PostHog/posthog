@@ -1134,7 +1134,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
-            for (const prop of Object.keys(person.properties)) {
+            for (const prop of Object.keys(person.properties ?? {})) {
                 if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
@@ -1143,9 +1143,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const properties = {
-                properties_count: Object.keys(person.properties).length,
-                has_email: !!person.properties.email,
-                has_name: !!person.properties.name,
+                properties_count: Object.keys(person.properties ?? {}).length,
+                has_email: !!person.properties?.email,
+                has_name: !!person.properties?.name,
                 custom_properties_count,
                 posthog_properties_count,
             }
