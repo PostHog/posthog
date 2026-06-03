@@ -1,9 +1,7 @@
 import { SesWebhookHandler } from './ses'
 import { generateEmailTrackingCode, generateShortEmailTrackingCode } from './tracking-code'
 
-// Hardcoded on purpose, not imported from TRACKING_CODE_HEADER_NAME: the header name is a wire
-// contract (it's baked into already-sent emails and what SES echoes back), so the test should
-// fail loudly if the constant is ever changed rather than silently moving along with it.
+// Hardcoded (not imported) so a change to the header constant fails this test.
 const TRACKING_CODE_HEADER = 'X-PostHog-Tracking-Code'
 
 describe('SesWebhookHandler', () => {
