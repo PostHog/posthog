@@ -32,6 +32,32 @@ JS_DATA_TYPE_SOURCE_AND_MAP = 2
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
 
+def _extract_failure_code(error_codes: object) -> str | None:
+    if isinstance(error_codes, str):
+        return error_codes
+
+    if isinstance(error_codes, list):
+        for error_code in error_codes:
+            failure_code = _extract_failure_code(error_code)
+            if failure_code:
+                return failure_code
+
+    if isinstance(error_codes, dict):
+        for error_code in error_codes.values():
+            failure_code = _extract_failure_code(error_code)
+            if failure_code:
+                return failure_code
+
+    return None
+
+
+def _get_failure_code(exception: Exception) -> str | None:
+    if isinstance(exception, ValidationError):
+        return _extract_failure_code(exception.get_codes())
+
+    return None
+
+
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique symbol set ID.")
     ref = serializers.CharField(read_only=True, help_text="Reference used to match stack frames to this symbol set.")
@@ -490,17 +516,17 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         file_count = len(content_hashes)
         symbol_set_ids = set(content_hashes.keys())
-        symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids))
-        found_symbol_set_ids = {str(symbol_set.id) for symbol_set in symbol_sets}
-        missing_symbol_set_ids = symbol_set_ids - found_symbol_set_ids
-        if missing_symbol_set_ids:
-            raise ValidationError(
-                code="symbol_set_not_found",
-                detail=f"Unknown symbol set IDs: {', '.join(sorted(missing_symbol_set_ids))}",
-            )
-
         total_file_size = 0
         try:
+            symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids))
+            found_symbol_set_ids = {str(symbol_set.id) for symbol_set in symbol_sets}
+            missing_symbol_set_ids = symbol_set_ids - found_symbol_set_ids
+            if missing_symbol_set_ids:
+                raise ValidationError(
+                    code="symbol_set_not_found",
+                    detail=f"Unknown symbol set IDs: {', '.join(sorted(missing_symbol_set_ids))}",
+                )
+
             for symbol_set in symbol_sets:
                 s3_upload = None
                 if symbol_set.storage_ptr:
@@ -535,6 +561,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     "success": False,
                     "file_count": file_count,
                     "failure_reason": type(e).__name__,
+                    "failure_code": _get_failure_code(e),
                 },
                 groups=groups(self.team.organization, self.team),
             )

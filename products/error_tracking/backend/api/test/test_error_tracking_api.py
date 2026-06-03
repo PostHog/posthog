@@ -942,7 +942,8 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
 
-    def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self) -> None:
+    @patch("products.error_tracking.backend.api.symbol_sets.posthoganalytics.capture")
+    def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self, patched_capture: Mock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
             data={"content_hashes": {str(uuid7()): "hash"}},
@@ -951,10 +952,19 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "symbol_set_not_found"
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_uploaded"
+        assert patched_capture.call_args.kwargs["properties"] == {
+            "file_size": 0,
+            "success": False,
+            "file_count": 1,
+            "failure_reason": "ValidationError",
+            "failure_code": "symbol_set_not_found",
+        }
 
+    @patch("products.error_tracking.backend.api.symbol_sets.posthoganalytics.capture")
     @patch("posthog.storage.object_storage.head_object")
     def test_bulk_finish_upload_preserves_pending_symbol_set_when_file_is_not_found(
-        self, patched_object_storage
+        self, patched_object_storage, patched_capture: Mock
     ) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(team=self.team, ref=str(uuid7()), storage_ptr="file/name")
         request_data = {"content_hashes": {str(symbol_set.id): "hash"}}
@@ -969,6 +979,15 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "file_not_found"
+        failure_call = patched_capture.call_args_list[0]
+        assert failure_call.args[0] == "error_tracking_symbol_set_uploaded"
+        assert failure_call.kwargs["properties"] == {
+            "file_size": 0,
+            "success": False,
+            "file_count": 1,
+            "failure_reason": "ValidationError",
+            "failure_code": "file_not_found",
+        }
 
         symbol_set.refresh_from_db()
         assert symbol_set.content_hash is None
