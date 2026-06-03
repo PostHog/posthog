@@ -6,7 +6,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    ActionFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+} from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -622,51 +628,45 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
-        it('applies URL filters on top of defaults, ignoring stale persisted filters', async () => {
+        it.each<[string, Partial<RecordingUniversalFilters>]>([
+            ['date_from', { date_from: '-30d' }],
+            ['filter_test_accounts', { filter_test_accounts: true }],
+            [
+                'duration',
+                {
+                    duration: [
+                        {
+                            type: PropertyFilterType.Recording,
+                            key: 'duration',
+                            operator: PropertyOperator.LessThan,
+                            value: 600,
+                        },
+                    ],
+                },
+            ],
+        ])('resets stale %s to default when a URL filter omits it', async (_field, staleFilters) => {
+            const filterGroup = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                    },
+                ],
+            }
+
             // stale persisted state from a prior visit
             await expectLogic(logic, () => {
-                logic.actions.setFilters({
-                    date_from: '-30d',
-                    filter_test_accounts: true,
-                    duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
-                })
+                logic.actions.setFilters(staleFilters)
             }).toDispatchActions(['setFilters'])
 
             // "View recordings" navigation carrying only filter_group
-            router.actions.push('/replay', {
-                filters: {
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                            },
-                        ],
-                    },
-                },
-            })
+            router.actions.push('/replay', { filters: { filter_group: filterGroup } })
 
             await expectLogic(logic)
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({
-                    filters: {
-                        date_from: '-3d',
-                        date_to: null,
-                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [{ id: '1', name: 'View Recording', order: 0, type: 'actions' }],
-                                },
-                            ],
-                        },
-                        filter_test_accounts: false,
-                        order: 'start_time',
-                        order_direction: 'DESC',
-                    },
+                    filters: { ...getDefaultFilters(), filter_group: filterGroup },
                 })
         })
 
