@@ -190,6 +190,7 @@ doesn't conflict with concurrent PRs.
 - onedrive
 - oracle
 - outreach
+- pagerduty
 - pardot
 - paypal
 - pendo
