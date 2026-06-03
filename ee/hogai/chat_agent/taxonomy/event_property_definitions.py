@@ -1,11 +1,11 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 type EventPropertyDefinition = PropertyDefinition | CoreFilterDefinition
-type FormatPropertyValues = Callable[[str, list[str | int | float], int | None, bool], str]
+type FormatPropertyValues = Callable[[str, Sequence[str | int | float], int | None, bool], str]
 
 
 def get_virtual_event_property_definition(property_name: str) -> CoreFilterDefinition | None:

@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from functools import cached_property
 from typing import Optional, Union, cast
 from uuid import uuid4
@@ -196,7 +196,11 @@ class TaxonomyAgentToolkit:
         return enrich_props_with_descriptions(entity, props)
 
     def _format_property_values(
-        self, property_name: str, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
+        self,
+        property_name: str,
+        sample_values: Sequence[str | int | float],
+        sample_count: Optional[int] = 0,
+        format_as_string: bool = False,
     ) -> str:
         return format_property_values(property_name, sample_values, sample_count, format_as_string)
 
@@ -365,7 +369,7 @@ class TaxonomyAgentToolkit:
         else:
             property_values_results = [property_values_response.results]
 
-        property_definitions: dict[str, PropertyDefinition] = await self._get_definitions_for_entity(
+        property_definitions: dict[str, EventPropertyDefinition] = await self._get_definitions_for_entity(
             entity, property_names, query
         )
 
@@ -602,7 +606,7 @@ class TaxonomyAgentToolkit:
     @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_entity(
         self, entity: str, property_names: list[str], query: ActorsPropertyTaxonomyQuery
-    ) -> dict[str, PropertyDefinition]:
+    ) -> dict[str, EventPropertyDefinition]:
         """Get property definitions for one entity and properties."""
         if not property_names:
             return {}
@@ -623,7 +627,10 @@ class TaxonomyAgentToolkit:
             type=prop_type,
             group_type_index=group_type_index,
         )
-        return {prop.name: prop for prop in property_definitions}
+        definitions: dict[str, PropertyDefinition] = {prop.name: prop for prop in property_definitions}
+        if entity == "event":
+            return merge_virtual_event_property_definitions(definitions, property_names)
+        return cast(dict[str, EventPropertyDefinition], definitions)
 
     def _build_query(
         self, entity: str, properties: list[str], groups: list[dict]

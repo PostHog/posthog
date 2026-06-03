@@ -1,5 +1,5 @@
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
@@ -26,6 +26,7 @@ from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.taxonomy.event_property_definitions import (
+    EventPropertyDefinition,
     event_property_is_string_like,
     format_virtual_event_property_values,
     get_event_property_definition_type,
@@ -268,7 +269,7 @@ class TaxonomyAgentToolkit:
     def _format_property_values(
         self,
         _property_name: str,
-        sample_values: list[str | int | float],
+        sample_values: Sequence[str | int | float],
         sample_count: Optional[int] = 0,
         format_as_string: bool = False,
     ) -> str:
@@ -298,14 +299,16 @@ class TaxonomyAgentToolkit:
         return prop_values
 
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
+        property_definition: EventPropertyDefinition
         try:
             property_definition = PropertyDefinition.objects.get(
                 team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
             )
         except PropertyDefinition.DoesNotExist:
-            property_definition = get_virtual_event_property_definition(property_name)
-            if property_definition is None:
+            virtual_property_definition = get_virtual_event_property_definition(property_name)
+            if virtual_property_definition is None:
                 return f"The property {property_name} does not exist in the taxonomy."
+            property_definition = virtual_property_definition
 
         response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
