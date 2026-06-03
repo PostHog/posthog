@@ -32,7 +32,13 @@ export class RecipeNormalizer {
             // `tools` is a function parameter, not a message shape, so it has no recipe.
             messages.push({ role: AVAILABLE_TOOLS_ROLE, content: '', tools })
         }
-        messages.push(...this.normalizeMessage(input, defaultRole))
+        if (carriesMessages(input)) {
+            messages.push(...this.normalizeMessage(input, defaultRole))
+        }
         return messages
     }
+}
+
+function carriesMessages(input: unknown): boolean {
+    return Array.isArray(input) || typeof input === 'string' || (typeof input === 'object' && input !== null)
 }
