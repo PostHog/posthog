@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 
 from products.conversations.backend.models import Ticket
@@ -221,6 +223,7 @@ class TestSlackMessageRouting(BaseTest):
 class TestSlackMemberAlerts(BaseTest):
     def setUp(self):
         super().setUp()
+        cache.clear()  # bot user id is cached per team — keep tests isolated
         self.team.conversations_settings = {
             "slack_enabled": True,
             "slack_notify_on_join": True,
@@ -285,5 +288,12 @@ class TestSlackMemberAlerts(BaseTest):
     @patch(f"{MODULE}.get_slack_client")
     def test_member_event_skips_malformed_ids(self, mock_get_client, _mock_bot_id):
         handle_member_joined_channel({"user": "not-a-user", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value=None)
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_skips_when_bot_id_unresolved(self, mock_get_client, _mock_bot_id):
+        handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
 
         mock_get_client.return_value.chat_postMessage.assert_not_called()

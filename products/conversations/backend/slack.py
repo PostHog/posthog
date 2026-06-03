@@ -25,7 +25,14 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from .cache import get_cached_slack_avatar, get_cached_slack_user, set_cached_slack_avatar, set_cached_slack_user
+from .cache import (
+    get_cached_bot_user_id,
+    get_cached_slack_avatar,
+    get_cached_slack_user,
+    set_cached_bot_user_id,
+    set_cached_slack_avatar,
+    set_cached_slack_user,
+)
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
@@ -184,6 +191,23 @@ def get_bot_user_id(client: WebClient) -> str | None:
         return auth.get("user_id")
     except Exception:
         return None
+
+
+def get_bot_user_id_cached(team: Team, client: WebClient) -> str | None:
+    """Resolve the bot's own user ID, cached per team.
+
+    auth.test is Tier-1 rate-limited, so we cache the (stable) result to avoid a
+    round-trip per event. Only positive results are cached, so a transient
+    auth.test failure retries on the next event rather than being pinned for an hour.
+    """
+    team_id = _get_team_id(team)
+    cached = get_cached_bot_user_id(team_id)
+    if cached:
+        return cached
+    user_id = get_bot_user_id(client)
+    if user_id:
+        set_cached_bot_user_id(team_id, user_id)
+    return user_id
 
 
 def _is_allowed_slack_file_url(url: str) -> bool:
@@ -901,9 +925,16 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
     client = get_slack_client(team)
 
+    # If we can't resolve the bot's own ID (auth.test failed), bail — without it we can't tell
+    # the bot's own join apart from a real user's, and posting a self-referential alert is worse
+    # than skipping one alert during a transient auth outage.
+    own_bot_user_id = get_bot_user_id_cached(team, client)
+    if not own_bot_user_id:
+        logger.warning("slack_member_event_bot_id_unresolved", team_id=_get_team_id(team))
+        return
+
     # Slack also fires member_joined_channel for the bot's own join — skip it to avoid noise.
-    own_bot_user_id = get_bot_user_id(client)
-    if own_bot_user_id and user == own_bot_user_id:
+    if user == own_bot_user_id:
         return
 
     verb = "joined" if joined else "left"
