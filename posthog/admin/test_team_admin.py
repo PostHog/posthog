@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -108,6 +109,7 @@ class TestTeamAdminSetApiTokenView(BaseTest):
         assert self.team.api_token == "phc_admin_test_old"
 
 
+@freeze_time("2026-01-01T00:00:00Z")
 class TestTeamAdminLLMGateway(BaseTest):
     def setUp(self) -> None:
         super().setUp()
