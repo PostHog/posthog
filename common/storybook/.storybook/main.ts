@@ -15,6 +15,8 @@ const config: StorybookConfig = {
         '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx)',
         '../../../products/**/mcp/**/*.mdx',
         '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../packages/quill/packages/charts/src/**/*.mdx',
+        '../../../packages/quill/packages/charts/src/**/*.stories.@(js|jsx|ts|tsx)',
     ],
 
     addons: [

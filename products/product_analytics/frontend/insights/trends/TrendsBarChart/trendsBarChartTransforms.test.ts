@@ -247,15 +247,16 @@ describe('buildTrendsBarAggregatedSeries', () => {
 
 describe('buildTrendsBarTimeSeriesConfig', () => {
     it.each([
-        { isPercentStackView: false, isGrouped: false, expected: 'stacked' },
-        { isPercentStackView: false, isGrouped: true, expected: 'grouped' },
-        { isPercentStackView: true, isGrouped: false, expected: 'percent' },
-        { isPercentStackView: true, isGrouped: true, expected: 'percent' },
+        { isPercentStackView: false, isGrouped: false, expected: 'stacked', expectedDiverging: true },
+        { isPercentStackView: false, isGrouped: true, expected: 'grouped', expectedDiverging: false },
+        { isPercentStackView: true, isGrouped: false, expected: 'percent', expectedDiverging: false },
+        { isPercentStackView: true, isGrouped: true, expected: 'percent', expectedDiverging: false },
     ])(
-        'maps isPercentStackView=$isPercentStackView / isGrouped=$isGrouped to barLayout=$expected',
-        ({ isPercentStackView, isGrouped, expected }) => {
+        'maps isPercentStackView=$isPercentStackView / isGrouped=$isGrouped to barLayout=$expected / divergingStack=$expectedDiverging',
+        ({ isPercentStackView, isGrouped, expected, expectedDiverging }) => {
             const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView, isGrouped })
             expect(cfg.barLayout).toBe(expected)
+            expect(cfg.divergingStack).toBe(expectedDiverging)
         }
     )
 

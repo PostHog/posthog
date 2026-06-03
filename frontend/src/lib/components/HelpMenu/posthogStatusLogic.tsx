@@ -14,7 +14,7 @@ export const posthogStatusLogic = kea<posthogStatusLogicType>([
     connect({
         values: [
             incidentStatusLogic,
-            ['status', 'statusDescription'],
+            ['status', 'statusDescription', 'statusPageUrl'],
             superpowersLogic,
             ['fakeStatusOverride', 'superpowersEnabled'],
         ],

@@ -19,10 +19,10 @@ from products.exports.backend.temporal.subscriptions.llm_change_summary import g
 from products.exports.backend.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from products.exports.backend.temporal.subscriptions.results_summarizer import build_results_summary
 from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.models import CoreMemory
 
 LOGGER = get_logger(__name__)
 
