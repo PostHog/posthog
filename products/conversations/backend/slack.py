@@ -541,9 +541,11 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     if not channel:
         return
 
-    # Skip bot messages to prevent loops
-    if event.get("bot_id") or event.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
+    # Always skip non-message subtypes
+    if event.get("subtype") in ("message_changed", "message_deleted"):
         return
+
+    is_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")
 
     slack_user_id = event.get("user")
     text = event.get("text", "")
@@ -560,6 +562,13 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     message_ts = event.get("ts")
 
     if thread_ts:
+        if is_bot:
+            # Allow other bots' thread replies but skip our own bot to prevent loops
+            client = get_slack_client(team)
+            own_bot_user_id = get_bot_user_id(client) if client else None
+            if own_bot_user_id and slack_user_id == own_bot_user_id:
+                return
+
         # Thread replies should sync even outside a configured channel when a
         # ticket already exists for that thread (e.g. ticket created via @mention).
         if not Ticket.objects.filter(team=team, slack_channel_id=channel, slack_thread_ts=thread_ts).exists():
@@ -578,6 +587,10 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
             is_thread_reply=True,
             slack_team_id=slack_team_id,
         )
+        return
+
+    # Top-level bot messages don't create tickets
+    if is_bot:
         return
 
     if channel not in configured_channels:
@@ -671,6 +684,7 @@ def _backfill_thread_replies(
         thread_reply_count=len(thread_replies),
     )
 
+    own_bot_user_id = get_bot_user_id(client)
     user_cache: dict[str, dict] = {}
     posthog_user_cache: dict[str, User | None] = {}
     comments_to_create: list[Comment] = []
@@ -678,11 +692,14 @@ def _backfill_thread_replies(
     team_message_count = 0
 
     for reply in thread_replies:
-        # Match the bot/subtype filtering from handle_support_message
-        if reply.get("bot_id") or reply.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
+        if reply.get("subtype") in ("message_changed", "message_deleted"):
             continue
 
+        # Skip our own bot's messages to prevent loops, but allow other bots
         reply_user = reply.get("user", "")
+        if own_bot_user_id and reply_user == own_bot_user_id:
+            continue
+
         reply_text = reply.get("text", "")
         reply_blocks = reply.get("blocks")
         reply_files = reply.get("files")
