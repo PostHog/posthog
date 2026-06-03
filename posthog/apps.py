@@ -26,14 +26,13 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
-        import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
-
         # Register the django-display-ids drf-spectacular field extension so any
         # DisplayIDField across the codebase generates a correct OpenAPI schema
         # (typed string + prefix example) instead of tripping the --fail-on-warn
         # check in `hogli build:openapi`. The library doesn't self-register it.
         import django_display_ids.contrib.drf_spectacular  # noqa: F401
 
+        import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
         connect_signal_handlers()
