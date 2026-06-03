@@ -178,7 +178,7 @@ jobs:
         # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-8
-        timeout-minutes: 45
+        timeout-minutes: 60
         permissions:
             contents: read
             pull-requests: write
