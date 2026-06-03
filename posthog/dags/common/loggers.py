@@ -16,11 +16,29 @@ It only replaces the *console* logger (`self._loggers` in Dagster's
 `DagsterLogHandler`). The structured run-logs view in the Dagster UI is fed by
 a separate built-in handler (`self._handlers`), so nothing is hidden from the
 UI — only the raw stdout format changes.
+
+Engine events (step/run lifecycle) are filtered out before they reach the root
+formatter — they carry a non-serializable `DagsterEvent` the JSON renderer
+can't encode, and they aren't useful in the Logs product anyway.
 """
 
 import logging
 
 import dagster
+
+
+class _DropDagsterEngineEvents(logging.Filter):
+    """Dagster routes both user `context.log` messages and engine events
+    (STEP_START, RUN_SUCCESS, …) through the run loggers. Engine-event records
+    carry a raw, non-JSON-serializable `DagsterEvent` in their `dagster_meta`,
+    which the root structlog `JSONRenderer` (prod `LOGGING_FORMATTER_NAME=json`)
+    can't encode — it would raise on every step/run event. We only want the
+    user log messages in the Logs product, so drop the engine-event records.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        meta = getattr(record, "dagster_meta", None)
+        return not (isinstance(meta, dict) and meta.get("dagster_event") is not None)
 
 
 @dagster.logger(
@@ -41,4 +59,8 @@ def structlog_console_logger(init_context: dagster.InitLoggerContext) -> logging
     # disable a logger created before Django setup ran — re-enable defensively.
     log.disabled = False
     log.propagate = True
+    # `getLogger` returns a process-wide singleton reused across runs, so guard
+    # against stacking the filter on repeated logger instantiation.
+    if not any(isinstance(f, _DropDagsterEngineEvents) for f in log.filters):
+        log.addFilter(_DropDagsterEngineEvents())
     return log
