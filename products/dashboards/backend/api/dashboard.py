@@ -82,7 +82,7 @@ from products.dashboards.backend.api.dashboard_ai import generate_refresh_analys
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
-from products.dashboards.backend.api.widget_openapi_serializers import ErrorTrackingListWidgetConfigSerializer
+from products.dashboards.backend.api.widget_openapi_serializers import DashboardWidgetConfigField
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -478,7 +478,7 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text=WIDGET_TYPE_API_HELP,
     )
-    config = serializers.JSONField(
+    config = DashboardWidgetConfigField(
         required=False,
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
@@ -501,7 +501,7 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
 
 
 class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
-    config = serializers.JSONField(
+    config = DashboardWidgetConfigField(
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
             "see dashboard-widget-catalog-list for config_schema_hints. "
@@ -665,7 +665,7 @@ class DashboardWidgetSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text="Optional markdown description shown on the dashboard tile when enabled.",
     )
-    config = ErrorTrackingListWidgetConfigSerializer(
+    config = DashboardWidgetConfigField(
         required=False,
         help_text="Widget-specific configuration JSON for this widget type.",
     )
