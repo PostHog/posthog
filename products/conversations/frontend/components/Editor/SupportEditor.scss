@@ -67,6 +67,17 @@
             p {
                 margin-bottom: 0;
             }
+
+            // Render the tiptap placeholder, which is otherwise only exposed as a
+            // data-placeholder attribute on the empty node. Themed token keeps it
+            // legible in both light and dark mode.
+            .is-empty:first-child::before {
+                float: left;
+                height: 0;
+                color: var(--color-text-tertiary);
+                pointer-events: none;
+                content: attr(data-placeholder);
+            }
         }
     }
 
