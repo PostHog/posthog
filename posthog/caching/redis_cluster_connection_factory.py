@@ -37,8 +37,7 @@ class RedisClusterConnectionFactory(ConnectionFactory):
     populates the same client the request threads read.
     """
 
-    # Process-global cache of discovered cluster clients, keyed by URL. Must not
-    # be per-instance -- see the class docstring.
+    # Class scope (process-global), not per-instance -- see the class docstring.
     _cluster_clients: dict[str, RedisCluster] = {}
     _lock = threading.Lock()
 
@@ -61,7 +60,7 @@ class RedisClusterConnectionFactory(ConnectionFactory):
         # socket_keepalive_options below the real idle timeout if drops persist.
         return RedisCluster.from_url(url, socket_keepalive=True)
 
-    def disconnect(self, connection) -> None:
+    def disconnect(self, connection: RedisCluster) -> None:
         # The client is process-global, so evict it before closing -- otherwise
         # the cache would keep handing out a closed client. A no-op in the default
         # config (CLOSE_CONNECTION is unset, so django_redis never calls this per
