@@ -160,107 +160,86 @@
                 "mcps": {
                     "default": [],
                     "items": {
-                        "anyOf": [
-                            {
+                        "properties": {
+                            "auth": {
                                 "properties": {
-                                    "kind": {
-                                        "const": "agent",
-                                        "type": "string"
-                                    },
-                                    "slug": {
+                                    "integration": {
                                         "type": "string"
                                     }
                                 },
-                                "required": ["kind", "slug"],
                                 "type": "object"
                             },
-                            {
-                                "properties": {
-                                    "auth": {
-                                        "properties": {
-                                            "integration": {
-                                                "type": "string"
-                                            }
-                                        },
-                                        "type": "object"
-                                    },
-                                    "id": {
-                                        "minLength": 1,
-                                        "type": "string"
-                                    },
-                                    "kind": {
-                                        "const": "external",
-                                        "type": "string"
-                                    },
-                                    "secrets": {
-                                        "default": [],
-                                        "items": {
+                            "id": {
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "secrets": {
+                                "default": [],
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "tools": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "minLength": 1,
                                             "type": "string"
                                         },
-                                        "type": "array"
-                                    },
-                                    "tools": {
-                                        "items": {
-                                            "anyOf": [
-                                                {
+                                        {
+                                            "properties": {
+                                                "approval_policy": {
+                                                    "properties": {
+                                                        "allow_agent_approver": {
+                                                            "default": false,
+                                                            "type": "boolean"
+                                                        },
+                                                        "allow_edit": {
+                                                            "default": false,
+                                                            "type": "boolean"
+                                                        },
+                                                        "approvers": {
+                                                            "default": ["team_admins"],
+                                                            "items": {
+                                                                "enum": ["team_admins", "session_principal"],
+                                                                "type": "string"
+                                                            },
+                                                            "minItems": 1,
+                                                            "type": "array"
+                                                        },
+                                                        "ttl_ms": {
+                                                            "default": 86400000,
+                                                            "maximum": 604800000,
+                                                            "minimum": 60000,
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "name": {
                                                     "minLength": 1,
                                                     "type": "string"
                                                 },
-                                                {
-                                                    "properties": {
-                                                        "approval_policy": {
-                                                            "properties": {
-                                                                "allow_agent_approver": {
-                                                                    "default": false,
-                                                                    "type": "boolean"
-                                                                },
-                                                                "allow_edit": {
-                                                                    "default": false,
-                                                                    "type": "boolean"
-                                                                },
-                                                                "approvers": {
-                                                                    "default": ["team_admins"],
-                                                                    "items": {
-                                                                        "enum": ["team_admins", "session_principal"],
-                                                                        "type": "string"
-                                                                    },
-                                                                    "minItems": 1,
-                                                                    "type": "array"
-                                                                },
-                                                                "ttl_ms": {
-                                                                    "default": 86400000,
-                                                                    "maximum": 604800000,
-                                                                    "minimum": 60000,
-                                                                    "type": "number"
-                                                                }
-                                                            },
-                                                            "type": "object"
-                                                        },
-                                                        "name": {
-                                                            "minLength": 1,
-                                                            "type": "string"
-                                                        },
-                                                        "requires_approval": {
-                                                            "default": false,
-                                                            "type": "boolean"
-                                                        }
-                                                    },
-                                                    "required": ["name"],
-                                                    "type": "object"
+                                                "requires_approval": {
+                                                    "default": false,
+                                                    "type": "boolean"
                                                 }
-                                            ]
-                                        },
-                                        "type": "array"
-                                    },
-                                    "url": {
-                                        "format": "uri",
-                                        "type": "string"
-                                    }
+                                            },
+                                            "required": ["name"],
+                                            "type": "object"
+                                        }
+                                    ]
                                 },
-                                "required": ["kind", "id", "url"],
-                                "type": "object"
+                                "type": "array"
+                            },
+                            "url": {
+                                "format": "uri",
+                                "type": "string"
                             }
-                        ]
+                        },
+                        "required": ["id", "url"],
+                        "type": "object"
                     },
                     "type": "array"
                 },
