@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dismissal_note": {
+            "description": "Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "dismissal_reason": {
+            "description": "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "snooze_for": {
+            "description": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "number"
+        },
+        "state": {
+            "description": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential",
+            "enum": ["suppressed", "potential"],
+            "type": "string"
+        }
+    },
+    "required": ["id", "state"],
+    "type": "object"
+}

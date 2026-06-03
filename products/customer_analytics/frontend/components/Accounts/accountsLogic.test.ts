@@ -87,6 +87,18 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('acme')
     })
 
+    it('setSearchInput updates the input immediately but defers the committed searchQuery', () => {
+        logic.actions.setSearchInput('acme')
+        expect(logic.values.searchInput).toBe('acme')
+        // Debounced: the query-driving value is not committed synchronously.
+        expect(logic.values.searchQuery).toBe('')
+    })
+
+    it('carries the overview tile metrics on the same AccountsQuery', () => {
+        const source = logic.values.hogqlQuery.source as AccountsQuery
+        expect(source.metrics).toEqual(['count()'])
+    })
+
     it('setAllRolesUnassigned toggles the flag', () => {
         logic.actions.setAllRolesUnassigned(true)
         expect(logic.values.allRolesUnassigned).toBe(true)
