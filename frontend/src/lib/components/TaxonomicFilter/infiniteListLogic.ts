@@ -1066,7 +1066,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem) {
-                    const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
+                    // Mirror the click path (see InfiniteListRow): recent items are stored
+                    // stripped, so fall back to the recorded sourceValue when getValue can't.
+                    const itemValue = selectedItem
+                        ? hasRecentContext(selectedItem)
+                            ? (selectedItem._recentContext.sourceValue ?? itemGroup?.getValue?.(selectedItem))
+                            : itemGroup?.getValue?.(selectedItem)
+                        : null
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })

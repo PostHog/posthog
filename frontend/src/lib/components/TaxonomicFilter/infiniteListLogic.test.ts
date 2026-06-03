@@ -1054,5 +1054,42 @@ describe('infiniteListLogic', () => {
             expect(personItems).toHaveLength(1)
             expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
         })
+
+        it('selects a recent item by its sourceValue when chosen with the keyboard', async () => {
+            // Keyboard selection (Enter) routes through selectSelected, not the row's onClick.
+            // Without the sourceValue fallback it dispatched a null value, producing a null
+            // breakdown that crashed BreakdownTag. Mirrors the click-path test above.
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Persons,
+                groupName: 'Persons',
+                value: 'user-distinct-id',
+                item: { name: 'Jane Doe' },
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'persons-recents-keyboard-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const recentIndex = listLogic.values.results.findIndex(
+                (item) =>
+                    onlyWithRecentContext(item) &&
+                    item._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons
+            )
+            expect(recentIndex).toBeGreaterThanOrEqual(0)
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setIndex(recentIndex)
+                listLogic.actions.selectSelected()
+            }).toDispatchActions([
+                ({ type, payload }) =>
+                    type === listLogic.actionTypes.selectItem && payload.value === 'user-distinct-id',
+            ])
+        })
     })
 })
