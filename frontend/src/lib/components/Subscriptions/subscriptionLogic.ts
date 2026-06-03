@@ -2,6 +2,7 @@ import { actions, events, kea, key, listeners, path, props, reducers } from 'kea
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -14,7 +15,24 @@ import { ExportedAssetType, ExporterFormat, SubscriptionType } from '~/types'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { SubscriptionBaseProps, urlForSubscription } from './utils'
+import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+
+function validatePrompt(
+    resource_type: SubscriptionType['resource_type'],
+    prompt: string | undefined
+): string | undefined {
+    if (resource_type !== 'ai_prompt') {
+        return undefined
+    }
+    const trimmedPrompt = prompt?.trim()
+    if (!trimmedPrompt) {
+        return 'A prompt is required for AI subscriptions'
+    }
+    if (trimmedPrompt.length > AI_PROMPT_MAX_LENGTH) {
+        return `Prompt cannot exceed ${AI_PROMPT_MAX_LENGTH} characters`
+    }
+    return undefined
+}
 
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -28,6 +46,7 @@ function subscriptionSaveErrorMessage(error: unknown): string {
 }
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
+    resource_type: 'insight',
     frequency: 'weekly',
     interval: 1,
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
@@ -55,6 +74,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
+        selectAiExamplePrompt: (prompt: string, label: string) => ({ prompt, label }),
     }),
 
     reducers({
@@ -113,6 +133,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 title,
                 start_date,
                 dashboard_export_insights,
+                resource_type,
+                prompt,
             }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
@@ -121,6 +143,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 target_type: !['slack', 'email', 'webhook'].includes(target_type)
                     ? 'Unsupported target type'
                     : undefined,
+                prompt: validatePrompt(resource_type, prompt),
                 target_value: !target_value
                     ? 'This field is required.'
                     : target_type == 'email'
@@ -144,12 +167,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         : undefined,
             }),
             submit: async (subscription, breakpoint) => {
-                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                const isAi = subscription.resource_type === 'ai_prompt'
+                const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
                 const payload = {
                     ...subscription,
-                    insight: insightId,
-                    dashboard: props.dashboardId,
+                    insight: isAi ? null : insightId,
+                    dashboard: isAi ? null : props.dashboardId,
+                    prompt: isAi ? subscription.prompt?.trim() : subscription.prompt,
                 }
 
                 breakpoint()
@@ -182,6 +207,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
+        },
+        selectAiExamplePrompt: ({ prompt, label }) => {
+            posthog.capture('subscription_ai_example_prompt_selected', { label })
+            actions.setSubscriptionValue('prompt', prompt)
         },
         submitSubscriptionFailure: ({ error }) => {
             // Kea-forms emits this when client validation fails; fields already show errors.
@@ -316,6 +345,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
         },
         '/*/*/subscriptions/:id': () => {
+            actions.loadSubscription()
+        },
+        '/subscriptions/new': (_, searchParams) => {
+            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: 'ai_prompt' })
+            if (searchParams.target_type) {
+                actions.setSubscriptionValue('target_type', searchParams.target_type)
+            }
+        },
+        '/subscriptions/:id/edit': () => {
             actions.loadSubscription()
         },
     })),

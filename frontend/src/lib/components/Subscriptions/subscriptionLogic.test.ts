@@ -159,4 +159,36 @@ describe('subscriptionLogic', () => {
 
         expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)
     })
+
+    it('rejects empty prompt when resource_type is ai_prompt', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({ resource_type: 'ai_prompt', prompt: '   ', title: 'AI test' })
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toBeTruthy()
+    })
+
+    it('rejects prompts exceeding 4000 characters when resource_type is ai_prompt', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'x'.repeat(4001),
+            title: 'AI test',
+        })
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toContain('4000')
+    })
+
+    it('accepts a valid AI prompt', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Show me the biggest event gains last week',
+            title: 'AI test',
+        })
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toBeUndefined()
+    })
 })

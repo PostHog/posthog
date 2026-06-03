@@ -18,6 +18,8 @@ import { SubscriptionType } from '~/types'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionBaseProps } from '../utils'
 
+const PROMPT_PREVIEW_MAX_CHARS = 80
+
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
     onClick: () => void
@@ -91,6 +93,15 @@ export function SubscriptionListItem({
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
                     <div className={`font-medium ${enabled ? 'text-link' : 'text-muted'}`}>{subscription.title}</div>
+                    {subscription.resource_type === 'ai_prompt' && subscription.prompt ? (
+                        <div className="text-sm text-text-3000 italic">
+                            {`"${
+                                subscription.prompt.length > PROMPT_PREVIEW_MAX_CHARS
+                                    ? `${subscription.prompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…`
+                                    : subscription.prompt
+                            }"`}
+                        </div>
+                    ) : null}
                     <div className="text-sm text-text-3000">
                         {capitalizeFirstLetter(subscription.summary)}
                         {selectedInsightsCount
