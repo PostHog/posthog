@@ -139,12 +139,12 @@ export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
 
 export interface MonitorScannerConfig {
     prompt: string
+    allow_inconclusive?: boolean
 }
 
 export interface SummarizerScannerConfig {
     prompt: string
     length: 'short' | 'medium' | 'long'
-    emits_embeddings: boolean
 }
 
 export interface ClassifierScannerConfig {
@@ -204,8 +204,6 @@ export interface ScorerScanner extends BaseReplayScanner {
 }
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
-
-export type { VisionQuotaApi as VisionQuota } from '../generated/api.schemas'
 
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.

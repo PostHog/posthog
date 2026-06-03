@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
+import { BarChart } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BoxPlot } from 'lib/hog-charts'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -33,17 +33,19 @@ function OverviewPanel({
 
 function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
     const { monitorStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
-    const { yesTotal, noTotal } = monitorStats
-    const total = yesTotal + noTotal
+    const { yesTotal, noTotal, inconclusiveTotal } = monitorStats
+    const total = yesTotal + noTotal + inconclusiveTotal
     if (total === 0) {
         return null
     }
     const yesPct = Math.round((yesTotal / total) * 100)
+    const noPct = Math.round((noTotal / total) * 100)
+    const inconclusivePct = Math.max(0, 100 - yesPct - noPct)
 
     return (
         <OverviewPanel title="Verdict mix" subtitle={`${total} verdict${total === 1 ? '' : 's'}`}>
             <LemonProgress percent={yesPct} />
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-center gap-4 text-sm">
                 <span className="flex items-center gap-2">
                     <LemonTag type="success">Yes</LemonTag>
                     <span className="tabular-nums">
@@ -53,9 +55,17 @@ function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: strin
                 <span className="flex items-center gap-2">
                     <LemonTag type="default">No</LemonTag>
                     <span className="tabular-nums">
-                        {noTotal} ({100 - yesPct}%)
+                        {noTotal} ({noPct}%)
                     </span>
                 </span>
+                {inconclusiveTotal > 0 && (
+                    <span className="flex items-center gap-2">
+                        <LemonTag type="muted">Inconclusive</LemonTag>
+                        <span className="tabular-nums">
+                            {inconclusiveTotal} ({inconclusivePct}%)
+                        </span>
+                    </span>
+                )}
             </div>
         </OverviewPanel>
     )
@@ -102,17 +112,17 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
 }
 
 function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scorerScores, scorerSummary } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scorerScores, scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     const theme = useMemo(() => buildTheme(), [])
-    if (!scorerSummary) {
+    if (!scorerSummary || !scorerHistogram) {
         return null
     }
     return (
         <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored`}>
             <div className="h-40 flex flex-col">
-                <BoxPlot
-                    labels={['Scores']}
-                    series={[{ key: 'scores', label: 'Scores', color: theme.colors[0], data: [scorerSummary] }]}
+                <BarChart
+                    labels={scorerHistogram.labels}
+                    series={[{ key: 'count', label: 'Sessions', color: theme.colors[0], data: scorerHistogram.counts }]}
                     config={{ showGrid: false }}
                     theme={theme}
                 />

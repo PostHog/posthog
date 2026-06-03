@@ -1,15 +1,12 @@
 import uuid
-import queue
 import typing
 import asyncio
-import threading
 import dataclasses
 
 from django.conf import settings
 
 import pyarrow as pa
 import deltalake
-import asyncstdlib
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from structlog.contextvars import bind_contextvars
@@ -28,7 +25,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -276,9 +273,9 @@ async def get_query_row_count(
         limit_top_select=False,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async_pool(Database.create_for)(team=team, modifiers=context.modifiers)
 
-    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -290,7 +287,7 @@ async def get_query_row_count(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async(print_prepared_ast)(
+    printed = await database_sync_to_async_pool(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
@@ -334,10 +331,10 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async_pool(Database.create_for)(team=team, modifiers=context.modifiers)
 
     factory = bounded_resolver_factory_for_view(view_name)
-    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -348,7 +345,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async(print_prepared_ast)(
+    printed = await database_sync_to_async_pool(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
@@ -416,7 +413,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     context.output_format = "ArrowStream"
     settings.preferred_block_size_bytes = MB_100_IN_BYTES
 
-    arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -428,7 +425,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     if arrow_prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    arrow_printed = await database_sync_to_async(print_prepared_ast)(
+    arrow_printed = await database_sync_to_async_pool(print_prepared_ast)(
         arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
@@ -470,7 +467,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
             yield (empty_batch, ch_typings_pairs)
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_matview_input_objects(
     inputs: MaterializeViewInputs,
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
@@ -524,122 +521,53 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             rows_expected = await get_query_row_count(hogql_query, team, logger, view_name=saved_query.name)
             await logger.ainfo(f"Expected rows: {rows_expected}")
             job.rows_expected = rows_expected
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
         except Exception as e:
             await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
             job.rows_expected = None
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
 
         row_count = 0
         storage_options = _get_aws_storage_options()
         delta_table: deltalake.DeltaTable | None = None
-        # cache the schema of the first written batch so we can synthesize an empty
-        # parquet for zero-row results without going through delta-rs (whose Schema
-        # is arro3, not pyarrow).
+        # cache the schema of the first batch so we can synthesize an empty parquet for
+        # zero-row results without going through delta-rs (whose Schema is arro3, not
+        # pyarrow).
         pa_schema: pa.Schema | None = None
 
-        # we stream every batch through a single deltalake write transaction.
-        # writing per-batch with mode="append" routes through delta-rs's
-        # DataFusion-backed writer, which lowercases identifiers and breaks
-        # columns with uppercase characters (`personId`, `Event`, ...) with
-        # errors like "Generic DeltaTable error: Schema error: No field named
-        # personid. ... Did you mean 'personId'?".
-        SENTINEL: typing.Any = object()
-        batch_queue: queue.Queue[pa.RecordBatch] = queue.Queue(maxsize=2)
-        producer_error: list[BaseException] = []
-
-        # the producer's queue ops run in a thread via asyncio.to_thread, which is not
-        # cancellable: once a blocking queue.put/get is in flight, cancelling the
-        # awaiting coroutine does nothing to the thread. a plain blocking put against a
-        # full queue would therefore park its thread forever if the consumer stops
-        # draining (e.g. the write aborts, or the activity is cancelled), orphaning the
-        # thread and the producer task. so every blocking queue op below is a bounded
-        # poll on stop_event instead — when stop is requested, the in-flight op returns
-        # within QUEUE_POLL_SECONDS no matter what. safety is a property of the queue
-        # primitives, not of how carefully cleanup is sequenced.
-        stop_event = threading.Event()
-
-        def _put(item: typing.Any) -> None:
-            while not stop_event.is_set():
-                try:
-                    batch_queue.put(item, timeout=QUEUE_POLL_SECONDS)
-                    return
-                except queue.Full:
-                    continue
-
-        def _get() -> typing.Any:
-            while not stop_event.is_set():
-                try:
-                    return batch_queue.get(timeout=QUEUE_POLL_SECONDS)
-                except queue.Empty:
-                    continue
-            return SENTINEL
-
-        # a producer error is recorded in producer_error and then signalled to the
-        # consumer as a SENTINEL — i.e. the same clean end-of-stream as success. the
-        # consumer therefore commits whatever batches it received (a partial overwrite)
-        # before we re-raise below. that partial commit is harmless: the activity raises,
-        # Temporal retries, and the retry's delete-first wipes table_uri before rewriting.
-        async def _produce_batches() -> None:
-            nonlocal row_count
-            try:
-                async for _, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
-                    if stop_event.is_set():
-                        break
-                    batch, ch_types = res
-                    batch = _transform_unsupported_decimals(batch)
-                    batch = _transform_date_and_datetimes(batch, ch_types)
-                    num_rows = batch.num_rows
-                    await asyncio.to_thread(_put, batch)
-                    # local reference dropped immediately; the queue (and later
-                    # the consumer) holds the only remaining reference.
-                    del batch, ch_types
-                    row_count = row_count + num_rows
-                    job.rows_materialized = row_count
-                    await database_sync_to_async(job.save)()
-            except BaseException as e:
-                producer_error.append(e)
-            finally:
-                await asyncio.to_thread(_put, SENTINEL)
-
-        producer_task = asyncio.create_task(_produce_batches())
-        try:
-            first_batch = await asyncio.to_thread(_get)
-            if first_batch is not SENTINEL:
-                pa_schema = first_batch.schema
-
-                def _batch_iter() -> typing.Iterator[pa.RecordBatch]:
-                    yield first_batch
-                    while True:
-                        item = _get()
-                        if item is SENTINEL:
-                            return
-                        yield item
-
-                reader = pa.RecordBatchReader.from_batches(pa_schema, _batch_iter())
-                await logger.adebug(
-                    f"Writing batches to delta table in a single transaction: mode=overwrite schema_mode=overwrite first_batch_rows={first_batch.num_rows}"
-                )
+        # write each batch as its own delta commit, imitating the data_imports pipeline
+        # (DeltaTableHelper.write_to_deltalake): the first batch overwrites — creating the
+        # table from the exact arrow schema, which pins column case like `personId` — and
+        # later batches append with schema_mode="merge". this keeps peak memory at ~one
+        # batch (hogql_table yields ~100MB combined batches) and, because each write is a
+        # brief to_thread released between batches, never pins a worker thread for the whole
+        # read — which is what starved the shared executor that heartbeats/db/logging use.
+        async for batch, ch_types in hogql_table(hogql_query, team, logger):
+            batch = _transform_unsupported_decimals(batch)
+            batch = _transform_date_and_datetimes(batch, ch_types)
+            if delta_table is None:
+                pa_schema = batch.schema
                 await asyncio.to_thread(
                     deltalake.write_deltalake,
                     table_or_uri=table_uri,
-                    data=reader,
+                    data=batch,
                     mode="overwrite",
                     schema_mode="overwrite",
                     storage_options=storage_options,
                 )
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-        finally:
-            # request the producer stop and reap it. stop_event is set synchronously,
-            # before any await, so even a cancellation delivered at the await below
-            # cannot leave the producer parked on a queue op — its bounded _put/_get
-            # observe the flag and return promptly, the producer breaks its loop, and
-            # the task completes on its own. awaiting it here simply joins that exit.
-            stop_event.set()
-            await producer_task
-
-        if producer_error:
-            raise producer_error[0]
+            else:
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=delta_table,
+                    data=batch,
+                    mode="append",
+                    schema_mode="merge",
+                    storage_options=storage_options,
+                )
+            row_count = row_count + batch.num_rows
+            job.rows_materialized = row_count
+            await database_sync_to_async_pool(job.save)()
 
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
         # row count validation warning

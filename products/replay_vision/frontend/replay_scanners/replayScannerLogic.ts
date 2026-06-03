@@ -40,7 +40,7 @@ export interface ReplayScannerLogicProps {
 
 export type ObservationStatusValue = ReplayObservationApi['status']
 export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
-export type ObservationVerdictValue = 'yes' | 'no'
+export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
 function quantile(sorted: number[], q: number): number {
     if (sorted.length === 1) {
@@ -59,7 +59,7 @@ function currentTemplateKey(): string | null {
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
     if (scannerType === 'summarizer') {
-        return { prompt: '', length: 'medium', emits_embeddings: false }
+        return { prompt: '', length: 'medium' }
     }
     if (scannerType === 'classifier') {
         return { prompt: '', tags: [], multi_label: true }
@@ -280,7 +280,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (verdictFilter.length > 0) {
                         const verdict = readVerdict(o)
-                        if (verdict === null || !verdictFilter.includes(verdict ? 'yes' : 'no')) {
+                        if (verdict === null || !verdictFilter.includes(verdict)) {
                             return false
                         }
                     }
@@ -370,18 +370,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         ],
         monitorStats: [
             (s) => [s.succeededObservations],
-            (observations: ReplayObservationApi[]): { yesTotal: number; noTotal: number } => {
+            (
+                observations: ReplayObservationApi[]
+            ): { yesTotal: number; noTotal: number; inconclusiveTotal: number } => {
                 let yesTotal = 0
                 let noTotal = 0
+                let inconclusiveTotal = 0
                 for (const obs of observations) {
                     const v = readVerdict(obs)
-                    if (v === true) {
+                    if (v === 'yes') {
                         yesTotal += 1
-                    } else if (v === false) {
+                    } else if (v === 'no') {
                         noTotal += 1
+                    } else if (v === 'inconclusive') {
+                        inconclusiveTotal += 1
                     }
                 }
-                return { yesTotal, noTotal }
+                return { yesTotal, noTotal, inconclusiveTotal }
             },
         ],
         classifierTagStats: [
@@ -447,6 +452,36 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     p75: quantile(scores, 0.75),
                     max: scores[scores.length - 1],
                 }
+            },
+        ],
+        // Score histogram: count of observations per score bucket across the configured scale.
+        scorerHistogram: [
+            (s) => [s.scorerScores, s.scanner],
+            (scores: number[], scanner: ReplayScanner | null): { labels: string[]; counts: number[] } | null => {
+                if (scores.length === 0) {
+                    return null
+                }
+                // Span the configured scale (falling back to the observed range) so the axis shows the full
+                // possible range even when scores cluster. Widen the bucket for large scales to cap the bar count.
+                const scale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
+                const lo = Math.floor(scale?.min ?? scores[0])
+                const hi = Math.ceil(scale?.max ?? scores[scores.length - 1])
+                const span = Math.max(0, hi - lo)
+                const bucketWidth = Math.max(1, Math.ceil((span + 1) / 21))
+                const bucketCount = Math.floor(span / bucketWidth) + 1
+                const counts = new Array(bucketCount).fill(0)
+                for (const score of scores) {
+                    const idx = Math.min(
+                        bucketCount - 1,
+                        Math.max(0, Math.floor((Math.round(score) - lo) / bucketWidth))
+                    )
+                    counts[idx] += 1
+                }
+                const labels = counts.map((_, i) => {
+                    const start = lo + i * bucketWidth
+                    return bucketWidth === 1 ? String(start) : `${start}–${Math.min(start + bucketWidth - 1, hi)}`
+                })
+                return { labels, counts }
             },
         ],
         // Distinct sessions scanned: last 14 days and total. Surfaces sweep-job coverage.

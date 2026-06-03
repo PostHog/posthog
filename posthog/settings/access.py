@@ -79,6 +79,9 @@ For the safety of your instance, you must generate and set a unique key.
 # Used to sign tokens; public key is derived from this and injected into sandboxes for verification
 SANDBOX_JWT_PRIVATE_KEY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY")
 
+# Additional RS256 private key accepted during key rotation of SANDBOX_JWT_PRIVATE_KEY
+SANDBOX_JWT_PRIVATE_KEY_SECONDARY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY_SECONDARY")
+
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 # We provide a default as it is needed for hobby deployments

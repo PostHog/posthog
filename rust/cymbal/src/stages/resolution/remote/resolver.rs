@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use cymbal_proto::cymbal::resolution::v1::ResolveItem;
 use futures::future::join_all;
+use tokio::sync::Semaphore;
 
 use crate::{
     error::UnhandledError,
@@ -32,6 +33,18 @@ use retry::resolve_work_item;
 pub struct RemoteResolutionContext {
     pub pool: Arc<EndpointPool>,
     pub config: RemoteResolutionConfig,
+    pub routing_semaphore: Arc<Semaphore>,
+}
+
+impl RemoteResolutionContext {
+    pub fn new(pool: Arc<EndpointPool>, config: RemoteResolutionConfig) -> Self {
+        let routing_acceptance_concurrency = config.routing_acceptance_concurrency;
+        Self {
+            pool,
+            config,
+            routing_semaphore: Arc::new(Semaphore::new(routing_acceptance_concurrency)),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
