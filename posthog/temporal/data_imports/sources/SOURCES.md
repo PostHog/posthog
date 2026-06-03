@@ -69,6 +69,7 @@ the row lists both.
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql         | DB protocol                 | pymysql                                                         | ➖                          |
+| notion        | HTTP                        | requests                                                        | ✅                          |
 | paddle        | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads | HTTP                        | requests                                                        | ✅                          |
 | plain         | HTTP                        | requests                                                        | ✅                          |
@@ -183,7 +184,6 @@ doesn't conflict with concurrent PRs.
 - mixpanel
 - monday
 - netsuite
-- notion
 - okta
 - omnisend
 - onedrive
