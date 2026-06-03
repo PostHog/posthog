@@ -3948,9 +3948,20 @@ export namespace Schemas {
       useSmallLayout?: boolean | null;
     }
 
+    /**
+     * Frontend-only trends display settings that should not be sent to query runners.
+     */
+    export type TrendsTrendsFilter = { [key: string]: unknown } | null;
+
+    export interface Trends {
+      /** Frontend-only trends display settings that should not be sent to query runners. */
+      trendsFilter?: TrendsTrendsFilter;
+    }
+
     export interface VizSpecificOptions {
       ActionsPie?: ActionsPie | null;
       RETENTION?: Retention | null;
+      TRENDS?: Trends | null;
     }
 
     export interface InsightVizNode {

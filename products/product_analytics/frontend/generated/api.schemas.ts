@@ -2928,9 +2928,20 @@ export interface RetentionApi {
     useSmallLayout?: boolean | null
 }
 
+/**
+ * Frontend-only trends display settings that should not be sent to query runners.
+ */
+export type TrendsApiTrendsFilter = { [key: string]: unknown } | null
+
+export interface TrendsApi {
+    /** Frontend-only trends display settings that should not be sent to query runners. */
+    trendsFilter?: TrendsApiTrendsFilter
+}
+
 export interface VizSpecificOptionsApi {
     ActionsPie?: ActionsPieApi | null
     RETENTION?: RetentionApi | null
+    TRENDS?: TrendsApi | null
 }
 
 export interface InsightVizNodeApi {
