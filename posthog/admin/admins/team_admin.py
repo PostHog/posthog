@@ -18,6 +18,7 @@ from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
 
@@ -358,17 +359,26 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
-    def enable_ai_gateway_view(self, request, object_id):
-        from django.utils import timezone
-
+    def _resolve_ai_gateway_team(self, request, object_id):
         if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
+            return None, HttpResponseNotAllowed(["POST"])
         team = Team.objects.get(pk=object_id)
         if not self.has_change_permission(request, team):
             raise PermissionDenied
+        return team, None
+
+    def enable_ai_gateway_view(self, request, object_id):
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
         if team.llm_gateway_enabled_at is None:
             team.llm_gateway_enabled_at = timezone.now()
             team.save()
+            logger.info(
+                "admin_enable_ai_gateway",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
             self.message_user(
                 request,
                 f"Enabled AI gateway access for team '{team.name}'.",
@@ -383,16 +393,17 @@ class TeamAdmin(admin.ModelAdmin):
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def revoke_ai_gateway_view(self, request, object_id):
-        from django.utils import timezone
-
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-        team = Team.objects.get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
         if team.llm_gateway_revoked_at is None:
             team.llm_gateway_revoked_at = timezone.now()
             team.save()
+            logger.info(
+                "admin_revoke_ai_gateway",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
             self.message_user(
                 request,
                 f"Revoked AI gateway access for team '{team.name}'.",
@@ -407,14 +418,17 @@ class TeamAdmin(admin.ModelAdmin):
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def clear_ai_gateway_revoke_view(self, request, object_id):
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-        team = Team.objects.get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
         if team.llm_gateway_revoked_at is not None:
             team.llm_gateway_revoked_at = None
             team.save()
+            logger.info(
+                "admin_clear_ai_gateway_revoke",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
             self.message_user(
                 request,
                 f"Cleared AI gateway revoke for team '{team.name}'.",

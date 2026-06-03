@@ -117,6 +117,14 @@ class TestTeamAdminLLMGateway(BaseTest):
         self.user.save()
         self.factory = RequestFactory()
         self.admin = TeamAdmin(Team, AdminSite())
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
+
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: self.team_change_url,
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
 
     def _post(self):
         request = self.factory.post("/")
@@ -152,6 +160,7 @@ class TestTeamAdminLLMGateway(BaseTest):
         assert self.team.llm_gateway_enabled_at is None
         response = self.admin.enable_ai_gateway_view(self._post(), str(self.team.pk))
         assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_enabled_at is not None
 
@@ -161,7 +170,9 @@ class TestTeamAdminLLMGateway(BaseTest):
         original = timezone.now() - timedelta(days=1)
         self.team.llm_gateway_enabled_at = original
         self.team.save()
-        self.admin.enable_ai_gateway_view(self._post(), str(self.team.pk))
+        response = self.admin.enable_ai_gateway_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_enabled_at == original
 
@@ -169,6 +180,7 @@ class TestTeamAdminLLMGateway(BaseTest):
         assert self.team.llm_gateway_revoked_at is None
         response = self.admin.revoke_ai_gateway_view(self._post(), str(self.team.pk))
         assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is not None
 
@@ -178,7 +190,9 @@ class TestTeamAdminLLMGateway(BaseTest):
         original = timezone.now() - timedelta(days=1)
         self.team.llm_gateway_revoked_at = original
         self.team.save()
-        self.admin.revoke_ai_gateway_view(self._post(), str(self.team.pk))
+        response = self.admin.revoke_ai_gateway_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at == original
 
@@ -189,12 +203,15 @@ class TestTeamAdminLLMGateway(BaseTest):
         self.team.save()
         response = self.admin.clear_ai_gateway_revoke_view(self._post(), str(self.team.pk))
         assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is None
 
     def test_clear_revoke_view_no_op_when_already_null(self) -> None:
         assert self.team.llm_gateway_revoked_at is None
-        self.admin.clear_ai_gateway_revoke_view(self._post(), str(self.team.pk))
+        response = self.admin.clear_ai_gateway_revoke_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is None
 
@@ -208,6 +225,9 @@ class TestTeamAdminLLMGateway(BaseTest):
     def test_views_reject_non_post(self, _name: str, view_name: str) -> None:
         response = getattr(self.admin, view_name)(self._get(), str(self.team.pk))
         assert response.status_code == 405
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_enabled_at is None
+        assert self.team.llm_gateway_revoked_at is None
 
     @parameterized.expand(
         [
