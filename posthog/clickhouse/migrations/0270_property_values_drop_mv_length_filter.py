@@ -6,18 +6,11 @@ from posthog.clickhouse.property_values import DROP_PROPERTY_VALUES_MV_SQL, PROP
 # Length and empty-value filtering now lives in the property-vals service, so
 # the MV passes everything from the Kafka table straight through.
 
-if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
-    _ROLES = [NodeRole.AUX]
-elif settings.CLOUD_DEPLOYMENT == "DEV":
-    _ROLES = [NodeRole.DATA]
-else:
-    _ROLES = []
+# AUX in US/EU; DATA everywhere else (DEV, plus local/hobby where the runner
+# overrides node roles to ALL on the single-node CH).
+_ROLES = [NodeRole.AUX] if settings.CLOUD_DEPLOYMENT in ("US", "EU") else [NodeRole.DATA]
 
-operations = (
-    [
-        run_sql_with_exceptions(DROP_PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
-        run_sql_with_exceptions(PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
-    ]
-    if _ROLES
-    else []
-)
+operations = [
+    run_sql_with_exceptions(DROP_PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
+    run_sql_with_exceptions(PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
+]
