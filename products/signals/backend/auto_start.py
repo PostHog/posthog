@@ -2,12 +2,20 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from django.conf import settings
+
 import structlog
+import posthoganalytics
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReportTask, SignalTeamConfig, SignalUserAutonomyConfig
+from products.signals.backend.cursor_dispatch import (
+    SIGNALS_CURSOR_DISPATCH_FLAG,
+    CursorDispatchError,
+    dispatch_report_to_cursor,
+)
+from products.signals.backend.models import SignalReport, SignalReportTask, SignalTeamConfig, SignalUserAutonomyConfig
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -38,6 +46,19 @@ _PRIORITY_RANK: dict[Priority, int] = {
 
 def _priority_rank(priority: Priority) -> int:
     return _PRIORITY_RANK[priority]
+
+
+def _should_route_to_cursor(distinct_id: str | None, organization_id: str) -> bool:
+    if not settings.CURSOR_API_KEY:
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            SIGNALS_CURSOR_DISPATCH_FLAG,
+            str(distinct_id),
+            groups={"organization": organization_id},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def _build_autostart_task_description(
@@ -158,6 +179,25 @@ async def maybe_autostart_implementation_task(
         team_id, priority.priority, reviewers_content, team_default_priority
     )
     if task_user is None:
+        return
+
+    if _should_route_to_cursor(task_user.distinct_id, str(team.organization_id)):
+        report = await SignalReport.objects.aget(id=report_id)
+        try:
+            # No SignalReportTask is created for the Cursor path: its `task` FK requires an
+            # internal Task. Dedup is handled by Cursor returning 409 on a duplicate agentId,
+            # which dispatch_report_to_cursor treats as already_dispatched.
+            await database_sync_to_async(dispatch_report_to_cursor, thread_sensitive=False)(
+                report, api_key=settings.CURSOR_API_KEY, site_url=settings.SITE_URL
+            )
+        except CursorDispatchError as error:
+            logger.warning(
+                "signals auto-start cursor dispatch failed",
+                report_id=report_id,
+                team_id=team_id,
+                repository=repository,
+                error=str(error),
+            )
         return
 
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
