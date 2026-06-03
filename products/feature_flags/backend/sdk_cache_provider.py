@@ -61,7 +61,8 @@ class HyperCacheFlagProvider:
             logger.debug("hypercache_flag_provider_import_pending", team_id=self._team_id)
             return None
         except ObjectDoesNotExist:
-            # Fall back to the SDK's API
+            # Self-hosted/local instances often lack the configured self team
+            # (POSTHOG_SELF_TEAM_ID, default 2). Returning None lets the SDK fall back to its API fetch.
             logger.debug("hypercache_flag_provider_team_missing", team_id=self._team_id)
             return None
         except Exception:
