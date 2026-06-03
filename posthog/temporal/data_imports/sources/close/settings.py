@@ -28,6 +28,10 @@ class CloseEndpointConfig:
     # Whether the list endpoint accepts the `_order_by` query param (needed to force
     # ascending order for incremental cursor advancement).
     supports_order_by: bool = False
+    # Whether the endpoint uses `_skip`/`_limit` offset pagination. A few small dimension
+    # endpoints (lead/opportunity statuses, pipelines) return every row in one response and
+    # take no pagination params, so they use a single-page paginator instead (see api_inventory.md).
+    paginated: bool = True
 
 
 # Canonical CRM endpoint set. Incremental support is only enabled where the OpenAPI spec
@@ -78,16 +82,19 @@ CLOSE_ENDPOINTS: dict[str, CloseEndpointConfig] = {
         name="LeadStatuses",
         path="/status/lead/",
         table_name="lead_statuses",
+        paginated=False,
     ),
     "OpportunityStatuses": CloseEndpointConfig(
         name="OpportunityStatuses",
         path="/status/opportunity/",
         table_name="opportunity_statuses",
+        paginated=False,
     ),
     "Pipelines": CloseEndpointConfig(
         name="Pipelines",
         path="/pipeline/",
         table_name="pipelines",
+        paginated=False,
     ),
     "EmailTemplates": CloseEndpointConfig(
         name="EmailTemplates",

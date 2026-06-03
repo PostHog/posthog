@@ -10,7 +10,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.close.settings import CLOSE_ENDPOINTS, CloseEndpointConfig
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
-from posthog.temporal.data_imports.sources.common.rest_source.paginators import OffsetPaginator
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import OffsetPaginator, SinglePagePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -116,16 +116,22 @@ def get_resource(
             # (matches SourceResponse.sort_mode="asc").
             params["_order_by"] = cursor
 
+    endpoint: dict[str, Any] = {
+        "data_selector": config.data_selector,
+        "path": config.path,
+        "params": params,
+    }
+    # Dimension endpoints that take no `_skip`/`_limit` get a single-page paginator so we don't
+    # inject pagination params the API doesn't accept; everything else uses the client default.
+    if not config.paginated:
+        endpoint["paginator"] = SinglePagePaginator()
+
     return {
         "name": config.name,
         "table_name": config.table_name,
         "primary_key": config.primary_keys,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace",
-        "endpoint": {
-            "data_selector": config.data_selector,
-            "path": config.path,
-            "params": params,
-        },
+        "endpoint": endpoint,
         "table_format": "delta",
     }
 

@@ -148,7 +148,6 @@ doesn't conflict with concurrent PRs.
 - chartmogul
 - circleci
 - clickup
-- close
 - cockroachdb
 - confluence
 - convertkit

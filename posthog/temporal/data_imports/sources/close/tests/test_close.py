@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.close.close import (
     get_resource,
     validate_credentials,
 )
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import SinglePagePaginator
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -173,6 +174,20 @@ class TestGetResource:
         resource = get_resource("Activities", should_use_incremental_field=False, incremental_field="date_created")
         assert resource["write_disposition"] == "replace"
         assert not any(key.endswith("__gte") for key in _params(resource))
+
+    @pytest.mark.parametrize("endpoint", ["LeadStatuses", "OpportunityStatuses", "Pipelines"])
+    def test_non_paginated_endpoints_use_single_page_paginator(self, endpoint: str) -> None:
+        # Dimension endpoints that take no `_skip`/`_limit` override the client offset paginator
+        # so we never inject pagination params the API doesn't accept.
+        resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
+        assert isinstance(_endpoint(resource)["paginator"], SinglePagePaginator)
+
+    @pytest.mark.parametrize("endpoint", ["Leads", "Contacts", "Opportunities", "Activities", "Tasks", "Users"])
+    def test_paginated_endpoints_inherit_client_paginator(self, endpoint: str) -> None:
+        # Offset-paginated endpoints don't set an endpoint-level paginator, so they fall back to
+        # the client-level CloseOffsetPaginator.
+        resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
+        assert "paginator" not in _endpoint(resource)
 
 
 class TestCloseSourcePartitioning:
