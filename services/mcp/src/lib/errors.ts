@@ -254,20 +254,18 @@ export function buildInsufficientScopeChallenge(error: PostHogPermissionError): 
 // `findPostHogPermissionError` for the full reasoning.
 const MISSING_SCOPE_MESSAGE_PATTERN = /Missing PostHog API scope: ['"]([^'"]+)['"]/
 const BACKEND_SCOPE_MESSAGE_PATTERN = /API key missing required scope ['"]([^'"]+)['"]/
+const MISSING_SCOPE_PATTERNS = [MISSING_SCOPE_MESSAGE_PATTERN, BACKEND_SCOPE_MESSAGE_PATTERN]
 
 /**
  * Walk `Error.cause` chains to find a wrapped PostHogPermissionError.
  * Tool-level wrappers (e.g. `throw new Error("Failed to X: ...", { cause })`)
  * hide the underlying permission error, so callers must unwrap before acting.
  *
- * Fallback for the Cloudflare Durable Object RPC boundary: errors thrown
- * inside the DO arrive in the worker as plain Errors — `cause`, the
- * PostHogPermissionError prototype, and any custom own-properties have all
- * been stripped by the cross-isolate serializer, leaving just `name`,
- * `message`, and `stack`. Without this fallback, a permission error from
- * `_fetchUser` (or any other init-time API call) gets mapped to an opaque
- * 500 in `onCatchErrorHandler` and OAuth-aware MCP clients never see the
- * 403 + `WWW-Authenticate: insufficient_scope` they need to re-consent.
+ * Fallback for runtime boundaries and wrapper code that leave us with a plain
+ * Error message instead of the original `cause` chain. Without this fallback,
+ * permission errors from init-time API calls can become opaque 500s and
+ * OAuth-aware MCP clients never see the 403 + `WWW-Authenticate:
+ * insufficient_scope` they need to re-consent.
  *
  * The literal `Missing PostHog API scope: 'X'` shape produced by the
  * `PostHogPermissionError` constructor is the one piece of information that
@@ -287,7 +285,7 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
     }
 
     if (error instanceof Error && typeof error.message === 'string') {
-        for (const pattern of [MISSING_SCOPE_MESSAGE_PATTERN, BACKEND_SCOPE_MESSAGE_PATTERN]) {
+        for (const pattern of MISSING_SCOPE_PATTERNS) {
             const match = pattern.exec(error.message)
             if (match) {
                 const missingScope = match[1]!

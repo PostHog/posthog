@@ -140,6 +140,22 @@ describe('StateManager', () => {
             expect(await cache.get('projectId')).toBe('456')
         })
 
+        it('returns empty context when the user has no active org or team', async () => {
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue({
+                ...mockUser,
+                organization: null,
+                team: null,
+            } as unknown as ApiUser)
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.organizationId).toBeUndefined()
+            expect(result.projectId).toBeUndefined()
+            expect(await cache.get('orgId')).toBeUndefined()
+            expect(await cache.get('projectId')).toBeUndefined()
+        })
+
         it("should use user's active org and team when org is in scoped list", async () => {
             const scopedOrgApiKey = {
                 ...mockApiKey,

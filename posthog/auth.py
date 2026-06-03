@@ -32,7 +32,12 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_public_key
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthApplicationAuthBrand,
+    find_oauth_access_token,
+)
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
@@ -812,7 +817,10 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
     def _validate_token(self, token: str):
         try:
-            access_token = OAuthAccessToken.objects.select_related("user").get(token=token)
+            access_token = find_oauth_access_token(token)
+
+            if access_token is None:
+                return None
 
             if access_token.is_expired():
                 raise AuthenticationFailed(detail="Access token has expired.")
@@ -828,8 +836,6 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
             return access_token
 
-        except OAuthAccessToken.DoesNotExist:
-            return None
         except AuthenticationFailed:
             raise
         except Exception:

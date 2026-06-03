@@ -248,6 +248,9 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    # Minimum resource scope dynamic MCP/API clients need to bootstrap via /api/users/@me/.
+    _DYNAMIC_CLIENT_BOOTSTRAP_SCOPES: frozenset[str] = frozenset({"user:read"})
+
     def _is_dynamic_client(self, request) -> bool:
         """Check if the client was registered dynamically (DCR or CIMD)."""
         if hasattr(request, "client") and request.client:
@@ -396,10 +399,12 @@ class OAuthValidator(OAuth2Validator):
             # for `/api/users/@me/`), the MCP server introspects the token as
             # active but init fails — surfacing as HTTP 500 before #57906 and as
             # an opaque failure for clients that don't handle insufficient_scope.
-            # Dynamic clients are API/MCP integrations, not login-only OIDC apps,
-            # so expand OIDC-only requests to the app's effective ceiling.
+            # Grant only bootstrap scopes here; tool-specific scopes should be
+            # obtained via insufficient_scope step-up instead of broad pre-grants.
             if self._is_dynamic_client(request):
-                request.scopes = sorted(requested | effective | self._ALWAYS_ALLOWED_SCOPES)
+                request.scopes = sorted(
+                    requested | (effective & self._DYNAMIC_CLIENT_BOOTSTRAP_SCOPES) | self._ALWAYS_ALLOWED_SCOPES
+                )
             return True
 
         if has_ceiling:

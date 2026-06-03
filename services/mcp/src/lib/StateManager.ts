@@ -111,16 +111,21 @@ export class StateManager {
         projectId?: number
     }> {
         const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
-        const { organization: activeOrganization, team: activeTeam } = user
+        const activeOrganization = user.organization ?? undefined
+        const activeTeam = user.team ?? undefined
 
         // Team-scoped key: prefer the active team if the scope allows it,
         // otherwise pick the first scoped team deterministically. The org is
         // omitted here — `getAnalyticsContext` recovers it from the project.
         if (scoped_teams.length > 0) {
-            if (scoped_teams.includes(activeTeam.id)) {
+            if (activeTeam && scoped_teams.includes(activeTeam.id)) {
                 return { projectId: activeTeam.id }
             }
             return { projectId: scoped_teams[0]! }
+        }
+
+        if (!activeOrganization || !activeTeam) {
+            return {}
         }
 
         // No team scoping: prefer the user's active org/team when the scope

@@ -2314,6 +2314,91 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
 
+    @parameterized.expand(
+        [
+            ("dcr", "is_dcr_client"),
+            ("cimd", "is_cimd_client"),
+        ]
+    )
+    def test_dynamic_client_oidc_only_scope_expands_only_to_bootstrap_scopes(self, _name, dynamic_flag):
+        setattr(self.public_application, dynamic_flag, True)
+        self.public_application.save()
+
+        auth_data = {
+            "client_id": self.public_application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+
+        access_token = OAuthAccessToken.objects.get(token=token_response.json()["access_token"])
+        granted_scopes = set((access_token.scope or "").split())
+        self.assertEqual(granted_scopes, {"openid", "profile", "email", "introspection", "user:read"})
+        self.assertNotIn("insight:write", granted_scopes)
+        self.assertNotIn("feature_flag:write", granted_scopes)
+
+    def test_dynamic_client_oidc_only_scope_respects_app_ceiling(self):
+        self.public_application.is_dcr_client = True
+        self.public_application.scopes = ["experiment:read"]
+        self.public_application.save()
+
+        auth_data = {
+            "client_id": self.public_application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+
+        access_token = OAuthAccessToken.objects.get(token=token_response.json()["access_token"])
+        granted_scopes = set((access_token.scope or "").split())
+        self.assertEqual(granted_scopes, {"openid", "profile", "email", "introspection"})
+        self.assertNotIn("user:read", granted_scopes)
+        self.assertNotIn("experiment:read", granted_scopes)
+
     def test_authorize_wildcard_rejected_when_app_ceiling_set(self):
         self._set_ceiling("experiment:read")
         response = self.client.get(f"{self.base_authorization_url}&scope=*")
@@ -2754,6 +2839,8 @@ class TestOAuthAPI(APIBaseTest):
         granted_scopes = set((access_token.scope or "").split())
         self.assertIn("openid", granted_scopes)
         self.assertIn("user:read", granted_scopes)
+        self.assertNotIn("insight:write", granted_scopes)
+        self.assertNotIn("feature_flag:write", granted_scopes)
 
     def test_non_dcr_client_gets_default_token_expiry(self):
         self.public_application.is_dcr_client = False
