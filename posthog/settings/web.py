@@ -462,6 +462,7 @@ SPECTACULAR_SETTINGS = {
         "ExternalDataSourceTypeEnum": "products.data_warehouse.backend.types.ExternalDataSourceType",
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",

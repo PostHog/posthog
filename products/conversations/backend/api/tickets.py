@@ -117,6 +117,30 @@ class ComposeTicketResponseSerializer(serializers.Serializer):
     ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
 
 
+BULK_UPDATE_STATUS_MAX_IDS = 500
+
+
+class BulkUpdateStatusRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to update.",
+    )
+    status = serializers.ChoiceField(
+        choices=Status.choices,
+        help_text="New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.",
+    )
+
+
+class BulkUpdateStatusResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tickets whose status actually changed.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets whose status changed.",
+    )
+
+
 class TicketPagination(pagination.LimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
@@ -741,6 +765,91 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def _emit_status_change_side_effects(self, request, ticket: Ticket, old_status: str, new_status: str) -> None:
+        """Emit analytics + activity log for a single ticket status change.
+
+        Called from both ``update()`` and ``bulk_update_status()`` to keep
+        event-tracking logic in one place.
+        """
+        try:
+            capture_ticket_status_changed(ticket, old_status, new_status)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="status",
+                            before=old_status,
+                            after=new_status,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+    @extend_schema(
+        request=BulkUpdateStatusRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkUpdateStatusResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_update_status(self, request, *args, **kwargs):
+        """Update the status of multiple tickets in a single request.
+
+        Only tickets belonging to the current team are affected; other-team UUIDs
+        are silently ignored.  Tickets already in the requested status are skipped.
+        """
+        serializer = BulkUpdateStatusRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+        new_status: str = serializer.validated_data["status"]
+
+        tickets = list(self.get_queryset().filter(id__in=ticket_ids))
+
+        changed: list[tuple[Ticket, str]] = []
+        with transaction.atomic():
+            for ticket in tickets:
+                old_status = ticket.status
+                if old_status == new_status:
+                    continue
+                ticket.status = new_status
+                ticket.save(update_fields=["status", "updated_at"])
+                changed.append((ticket, old_status))
+
+        # Side effects after commit
+        if any(old == "resolved" or new_status == "resolved" for _, old in changed):
+            invalidate_unread_count_cache(self.team_id)
+
+        for ticket, old_status in changed:
+            self._emit_status_change_side_effects(request, ticket, old_status, new_status)
+
+        if changed:
+            try:
+                report_user_action(
+                    request.user,
+                    "support tickets bulk status updated",
+                    {"count": len(changed), "ticket_status": new_status},
+                    team=self.team,
+                    request=request,
+                )
+            except Exception as e:
+                capture_exception(e, {"team_id": self.team_id})
+
+        return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
     @extend_schema(
         request=None,

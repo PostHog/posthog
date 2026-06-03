@@ -6755,6 +6755,13 @@ const api = {
         }): Promise<{ id: string; ticket_number: number }> {
             return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
         },
+
+        async bulkUpdateStatus(ids: string[], ticketStatus: string): Promise<{ updated: number; ids: string[] }> {
+            return await new ApiRequest()
+                .conversationsTickets()
+                .withAction('bulk_update_status')
+                .create({ data: { ids, status: ticketStatus } })
+        },
     },
 
     llmPrompts: {

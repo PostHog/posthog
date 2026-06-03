@@ -9880,6 +9880,47 @@ export namespace Schemas {
       notification_ids: string[];
     }
 
+    /**
+     * * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved
+     */
+    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
+
+
+    export const TicketStatusEnum = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface BulkUpdateStatusRequest {
+      /**
+         * List of ticket UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
+      status: TicketStatusEnum;
+    }
+
+    export interface BulkUpdateStatusResponse {
+      /** Number of tickets whose status actually changed. */
+      updated: number;
+      /** UUIDs of the tickets whose status changed. */
+      ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -25832,24 +25873,6 @@ export namespace Schemas {
       previous?: string | null;
       results: ThresholdWithAlert[];
     }
-
-    /**
-     * * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved
-     */
-    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
-
-
-    export const TicketStatusEnum = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-    } as const;
 
     /**
      * * `low` - Low
