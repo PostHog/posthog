@@ -38,6 +38,18 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub max_values_per_key: usize,
 
+    #[envconfig(default = "255")]
+    pub max_property_value_len: usize,
+
+    #[envconfig(default = "false")]
+    pub aggregate_by_event_name: bool,
+
+    #[envconfig(default = "false")]
+    pub emit_event_name: bool,
+
+    #[envconfig(default = "0")]
+    pub merger_seen_cache_capacity: usize,
+
     #[envconfig(default = "60")]
     pub kafka_produce_timeout_secs: u64,
 

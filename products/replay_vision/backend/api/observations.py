@@ -151,6 +151,15 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         ]
 
 
+# Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
+OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
+
+
+def _ordering_enum(fields: tuple[str, ...]) -> list[str]:
+    """Ascending + descending (`-`-prefixed) variants of each field, matching OrderingFilter's accepted values."""
+    return [value for field in fields for value in (field, f"-{field}")]
+
+
 class ReplayObservationFilter(django_filters.FilterSet):
     status = django_filters.ChoiceFilter(
         field_name="status",
@@ -167,12 +176,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
         help_text="Filter to observations of a specific session recording.",
     )
     order_by = django_filters.OrderingFilter(
-        fields=(
-            ("created_at", "created_at"),
-            ("started_at", "started_at"),
-            ("completed_at", "completed_at"),
-            ("status", "status"),
-        ),
+        fields=tuple((field, field) for field in OBSERVATION_ORDER_FIELDS),
         help_text="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
     )
 
@@ -181,6 +185,22 @@ class ReplayObservationFilter(django_filters.FilterSet):
         fields = ["status", "triggered_by", "session_id"]
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+            OpenApiParameter(
+                "order_by",
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=_ordering_enum(OBSERVATION_ORDER_FIELDS),
+                description="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
+            )
+        ]
+    )
+)
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

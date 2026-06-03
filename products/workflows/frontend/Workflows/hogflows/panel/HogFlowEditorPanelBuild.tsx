@@ -62,8 +62,8 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'wait_until_time_window',
-        name: 'Wait until window',
-        description: 'Wait until a specified time window.',
+        name: 'Time window',
+        description: 'Wait for the next allowed time window before continuing.',
         config: {
             timezone: null,
             day: 'any',
@@ -72,8 +72,8 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'wait_until_condition',
-        name: 'Wait until condition',
-        description: 'Wait until a condition is met or a duration has passed.',
+        name: 'Wait until',
+        description: 'Wait until a matching event fires or a condition is met, up to a maximum duration.',
         branchEdges: 1,
         config: {
             condition: { filters: null },

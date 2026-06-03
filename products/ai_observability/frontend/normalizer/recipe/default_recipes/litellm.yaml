@@ -1,0 +1,12 @@
+# A LiteLLM choice (`{finish_reason, index, message}`) wraps a provider message;
+# delegate `.message` so its own provider recipe handles it.
+
+id: litellm
+priority: 10
+
+rules:
+    - on:
+          finish_reason: { exists: true }
+          index: { exists: true }
+          message: { is: object }
+      delegate: $.message
