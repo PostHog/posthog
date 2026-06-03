@@ -65,6 +65,26 @@ describe('monitor-github-rate-limit', () => {
         expect(core.setOutput).toHaveBeenCalledWith('emitted', '2')
     })
 
+    test('tags emissions with the offload bucket source when overridden', async () => {
+        process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
+        const captured = []
+        const fetchMock = jest.fn((_url, opts) => {
+            captured.push(JSON.parse(opts.body))
+            return fetchOk()
+        })
+        const github = createGithubMock({ core: snapshot({ remaining: 14500, limit: 15000 }) })
+        const core = createCore()
+
+        await monitor({ github, context, core }, { now: () => T_BASE, fetch: fetchMock, source: 'posthog-devex-general' })
+
+        expect(captured[0].properties).toMatchObject({
+            resource: 'core',
+            remaining: 14500,
+            limit: 15000,
+            source: 'posthog-devex-general',
+        })
+    })
+
     test('counts capture failures without aborting later emissions', async () => {
         process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
         let calls = 0
