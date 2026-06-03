@@ -10,10 +10,13 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 )
 
 
-def format_matrix(matrix: list[list[str]]) -> str:
+def format_matrix(matrix: list[list[Any]]) -> str:
+    # Coerce cells defensively: formatters occasionally pass None (e.g. a missing label or
+    # value), and a bare "|".join(row) then raises "sequence item N: expected str instance,
+    # NoneType found", which fails the whole insight/dashboard context build.
     lines: list[str] = []
     for row in matrix:
-        lines.append("|".join(row))
+        lines.append("|".join("" if cell is None else str(cell) for cell in row))
 
     return "\n".join(lines).strip()
 
