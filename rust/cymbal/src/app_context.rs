@@ -47,6 +47,7 @@ pub struct AppContext {
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
     pub process_request_limiter: Arc<Semaphore>,
+    pub process_grpc_item_limiter: Arc<Semaphore>,
     /// When set, cymbal's resolution stage routes exception resolution to the
     /// remote `cymbal-resolution` service pool instead of running the local
     /// resolver. Built once at startup; the endpoint pool refreshes itself in
@@ -265,6 +266,9 @@ impl AppContext {
             Arc::new(Semaphore::new(config.symbol_resolution_concurrency.max(1)));
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
+        let process_grpc_item_limiter = Arc::new(Semaphore::new(
+            config.process_grpc_max_in_flight_items.max(1),
+        ));
 
         let issue_cache = CacheBuilder::new(1000)
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
@@ -282,6 +286,7 @@ impl AppContext {
             config: config.clone(),
             symbol_resolution_limiter,
             process_request_limiter,
+            process_grpc_item_limiter,
             team_manager,
             issue_buckets_redis_client,
             signal_client,

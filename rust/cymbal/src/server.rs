@@ -1,7 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use common_metrics::{serve, setup_metrics_routes_with_overrides, Matcher};
-use tracing::info;
+use cymbal_proto::cymbal::process::v1::cymbal_process_server::CymbalProcessServer;
+use tonic::transport::Server;
+use tracing::{error, info};
 
 use crate::{
     app_context::AppContext,
@@ -11,9 +13,12 @@ use crate::{
         SYMBOL_SET_DECOMPRESSED_BYTES,
     },
     router::get_router,
+    service::process::{CymbalProcessService, ProcessServiceConfig},
 };
 
 pub async fn start_server(config: Config, context: Arc<AppContext>) -> () {
+    let grpc_handle = tokio::spawn(start_process_grpc_server(config.clone(), context.clone()));
+
     let router = get_router(context);
     let bucket_overrides: &[(Matcher, &[f64])] = &[
         (
@@ -36,4 +41,48 @@ pub async fn start_server(config: Config, context: Arc<AppContext>) -> () {
     serve(router, &bind)
         .await
         .expect("failed to start serving metrics");
+
+    grpc_handle.abort();
+}
+
+async fn start_process_grpc_server(config: Config, context: Arc<AppContext>) {
+    let service_config = ProcessServiceConfig::new(
+        config.process_grpc_stream_output_buffer,
+        config.process_grpc_per_stream_max_in_flight_items,
+        config.process_grpc_item_deadline_ms,
+    );
+    let service =
+        CymbalProcessService::new(service_config, context.process_grpc_item_limiter.clone());
+
+    let addr = match config.process_grpc_bind_addr.parse() {
+        Ok(addr) => addr,
+        Err(err) => {
+            error!(
+                bind = %config.process_grpc_bind_addr,
+                error = %err,
+                "failed to parse Cymbal process gRPC bind address"
+            );
+            return;
+        }
+    };
+
+    info!(
+        bind = %config.process_grpc_bind_addr,
+        max_concurrent_streams = config.process_grpc_max_concurrent_streams,
+        per_stream_max_in_flight_items = config.process_grpc_per_stream_max_in_flight_items,
+        max_in_flight_items = config.process_grpc_max_in_flight_items,
+        item_deadline_ms = config.process_grpc_item_deadline_ms,
+        "Cymbal process gRPC server listening"
+    );
+
+    if let Err(err) = Server::builder()
+        .http2_keepalive_interval(Some(Duration::from_secs(30)))
+        .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+        .concurrency_limit_per_connection(config.process_grpc_max_concurrent_streams.max(1))
+        .add_service(CymbalProcessServer::new(service))
+        .serve(addr)
+        .await
+    {
+        error!(error = %err, "Cymbal process gRPC server stopped with error");
+    }
 }
