@@ -1082,6 +1082,36 @@ describe('createAnswerFilterHogQLExpression', () => {
         expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} IN ('option1', 'option2'))`)
     })
 
+    // Survey responses are read as strings (getSurveyResponse uses JSONExtractString), so numeric-looking
+    // values must stay quoted. An unquoted literal makes ClickHouse infer Float64 and fail with
+    // "There is no supertype for types String, Float64" (CHQueryErrorNoCommonType).
+    it('quotes a numeric-looking exact value so it compares as a string', () => {
+        const filters = [
+            { key: '$survey_response_q1', value: '2', operator: 'exact', type: PropertyFilterType.Event },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} = '2')`)
+    })
+
+    it('quotes numeric-looking array values so they compare as strings', () => {
+        const filters = [
+            { key: '$survey_response_q1', value: ['2', '3'], operator: 'exact', type: PropertyFilterType.Event },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} IN ('2', '3'))`)
+    })
+
+    it('quotes a numeric-looking is_not value so it compares as a string', () => {
+        const filters = [
+            { key: '$survey_response_q1', value: '2', operator: 'is_not', type: PropertyFilterType.Event },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} != '2')`)
+    })
+
     it('handles is_not operator with single value', () => {
         const filters = [
             { key: '$survey_response_q1', value: 'test', operator: 'is_not', type: PropertyFilterType.Event },

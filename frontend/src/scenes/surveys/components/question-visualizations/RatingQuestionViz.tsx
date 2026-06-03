@@ -12,7 +12,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
+import {
+    CHART_INSIGHTS_COLORS,
+    createNPSTrendSeries,
+    createSingleRatingTrendSeries,
+} from 'scenes/surveys/components/question-visualizations/util'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 import {
     NPS_DETRACTOR_LABEL,
@@ -44,67 +48,11 @@ import {
     PropertyOperator,
     RatingSurveyQuestion,
     Survey,
-    SurveyEventName,
     SurveyEventProperties,
 } from '~/types'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
-}
-
-function createNPSTrendSeries(
-    values: string[],
-    label: string,
-    questionIndex: number,
-    questionId?: string
-): {
-    event: string
-    kind: NodeKind.EventsNode
-    custom_name: string
-    properties: Array<{
-        type: PropertyFilterType.HogQL
-        key: string
-    }>
-} {
-    return {
-        event: SurveyEventName.SENT,
-        kind: NodeKind.EventsNode,
-        custom_name: label,
-        properties: [
-            {
-                type: PropertyFilterType.HogQL,
-                key: `getSurveyResponse(${questionIndex}, ${questionId ? `'${questionId}'` : ''}) in (${values.join(
-                    ','
-                )})`,
-            },
-        ],
-    }
-}
-
-function createSingleRatingTrendSeries(
-    ratingValue: string,
-    questionIndex: number,
-    questionId: string
-): {
-    event: string
-    kind: NodeKind.EventsNode
-    custom_name: string
-    properties: Array<{
-        type: PropertyFilterType.HogQL
-        key: string
-    }>
-} {
-    return {
-        event: SurveyEventName.SENT,
-        kind: NodeKind.EventsNode,
-        custom_name: `Rating ${ratingValue}`,
-        properties: [
-            {
-                type: PropertyFilterType.HogQL,
-                key: `getSurveyResponse(${questionIndex}, '${questionId}') = '${ratingValue}'`,
-            },
-        ],
-    }
 }
 
 const CHART_LABELS: Record<number, string[]> = {
