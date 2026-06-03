@@ -42,6 +42,12 @@ const HEATMAP_PROPERTY_KEYS: &[&str] = &[
     "$current_url",
 ];
 
+/// Inputs to the cookieless daily-identity hash, recomputed by the heatmaps
+/// consumer before extraction. A cookieless redirect must carry them or the
+/// event is dropped as `cookieless_missing_user_agent`. `$ip` is excluded: it's
+/// reinjected downstream from the request IP, not carried on SDK properties.
+const COOKIELESS_HASH_PROPERTY_KEYS: &[&str] = &["$raw_user_agent", "$host", "$cookieless_extra"];
+
 /// True when this event carries data that the heatmap extraction pipeline
 /// would process — either an explicit `$heatmap_data` payload or the scroll
 /// depth properties that the pipeline derives from a previous pageview.
@@ -75,6 +81,11 @@ fn create_heatmap_redirect(
     // extract_is_cookieless_mode reads it from properties.
     if let Some(value) = event.properties.get("$cookieless_mode") {
         properties.insert("$cookieless_mode".to_string(), value.clone());
+        for key in COOKIELESS_HASH_PROPERTY_KEYS {
+            if let Some(value) = event.properties.get(*key) {
+                properties.insert((*key).to_string(), value.clone());
+            }
+        }
     }
 
     let heatmap_event = RawEvent {
@@ -1987,6 +1998,49 @@ mod tests {
         assert!(
             !data.properties.contains_key("other_prop"),
             "redirect should only contain heatmap properties"
+        );
+        // Without $cookieless_mode, identity-hash props are not carried.
+        assert!(!data.properties.contains_key("$raw_user_agent"));
+        assert!(!data.properties.contains_key("$host"));
+        assert!(!data.properties.contains_key("$cookieless_mode"));
+    }
+
+    #[test]
+    fn test_create_heatmap_redirect_carries_cookieless_hash_properties() {
+        let now = Utc::now();
+        let context = create_test_context(now, None);
+        let mut event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
+        event
+            .properties
+            .insert("$cookieless_mode".to_string(), json!(true));
+        event
+            .properties
+            .insert("$raw_user_agent".to_string(), json!("Mozilla/5.0"));
+        event
+            .properties
+            .insert("$host".to_string(), json!("example.com"));
+        event
+            .properties
+            .insert("$cookieless_extra".to_string(), json!("extra-salt"));
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
+            .unwrap()
+            .expect("redirect should be created when distinct_id is resolvable");
+
+        let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
+        // The cookieless daily-identity hash is recomputed downstream from these,
+        // so they must survive the redirect or the event is dropped as
+        // cookieless_missing_user_agent.
+        assert_eq!(data.properties.get("$cookieless_mode"), Some(&json!(true)));
+        assert_eq!(
+            data.properties.get("$raw_user_agent"),
+            Some(&json!("Mozilla/5.0"))
+        );
+        assert_eq!(data.properties.get("$host"), Some(&json!("example.com")));
+        assert_eq!(
+            data.properties.get("$cookieless_extra"),
+            Some(&json!("extra-salt"))
         );
     }
 
