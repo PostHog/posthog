@@ -1171,18 +1171,27 @@ class SlackIntegration:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
-            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
-            isMember = authed_user in members_response["members"]
+            is_private = channel["is_private"]
 
-            if not isMember:
-                return None
+            # Only private channels are gated on the installer's membership: surfacing a private
+            # channel they aren't in would leak its name. Public channels are postable by the bot
+            # whether or not the installer happens to be a member, so don't hide them — `is_member`
+            # already reflects *bot* membership, which is what the "app is not in this channel"
+            # warning keys off. Gating public channels here made that warning fire for any channel
+            # the installer wasn't personally in, even though the bot was.
+            if is_private and authed_user is not None:
+                members_response = self.client.conversations_members(
+                    channel=channel_id, limit=channel["num_members"] + 1
+                )
+                if authed_user not in members_response["members"]:
+                    return None
 
-            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+            isPrivateWithoutAccess = is_private and not should_include_private_channels
 
             return {
                 "id": channel["id"],
                 "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if isPrivateWithoutAccess else channel["name"],
-                "is_private": channel["is_private"],
+                "is_private": is_private,
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
                 "is_private_without_access": isPrivateWithoutAccess,

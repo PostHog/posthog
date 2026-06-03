@@ -192,21 +192,28 @@ class TestSlackIntegration:
         mock_webclient_class.return_value = mock_client
 
         mock_client.conversations_info.return_value = {
-            "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
+            "channel": {
+                "id": "C123",
+                "name": "general",
+                "is_private": False,
+                "is_ext_shared": False,
+                "is_member": True,
+                "num_members": 10,
+            }
         }
-
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        # Public channels must not be gated on the installer's membership.
+        mock_client.conversations_members.assert_not_called()
 
         assert channel is not None
         assert channel["id"] == "C123"
         assert channel["name"] == "general"
         assert not channel["is_private"]
+        assert channel["is_member"]
         assert not channel["is_private_without_access"]
 
     @patch("posthog.models.integration.WebClient")
@@ -215,22 +222,77 @@ class TestSlackIntegration:
         mock_webclient_class.return_value = mock_client
 
         mock_client.conversations_info.return_value = {
-            "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
+            "channel": {
+                "id": "C123",
+                "name": "general",
+                "is_private": False,
+                "is_ext_shared": False,
+                "is_member": True,
+                "num_members": 10,
+            }
         }
-
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", False, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_not_called()
 
         assert channel is not None
         assert channel["id"] == "C123"
         assert channel["name"] == "general"
         assert not channel["is_private"]
+        assert channel["is_member"]
         assert not channel["is_private_without_access"]
+
+    @patch("posthog.models.integration.WebClient")
+    def test_get_channel_by_id_public_when_installer_not_a_member(self, mock_webclient_class):
+        # Regression: a public channel the bot is in but the installer isn't must still resolve,
+        # otherwise the picker shows "PostHog Slack App is not in this channel" for channels the
+        # bot can post to. Reported for the Slack channel picker in messaging workflows.
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "C123",
+                "name": "general",
+                "is_private": False,
+                "is_ext_shared": False,
+                "is_member": True,
+                "num_members": 10,
+            }
+        }
+        # The installer is NOT in the channel's member list.
+        mock_client.conversations_members.return_value = {"members": ["U2", "U3"]}
+
+        slack = SlackIntegration(self.integration)
+        channel = slack.get_channel_by_id("C123", False, "test_user_id")
+
+        mock_client.conversations_members.assert_not_called()
+
+        assert channel is not None
+        assert channel["id"] == "C123"
+        assert channel["name"] == "general"
+        assert channel["is_member"]
+        assert not channel["is_private_without_access"]
+
+    @patch("posthog.models.integration.WebClient")
+    def test_get_channel_by_id_private_when_installer_not_a_member(self, mock_webclient_class):
+        # Private channels stay gated on the installer's membership so we don't leak their name.
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.conversations_info.return_value = {
+            "channel": {"id": "C123", "name": "secret", "is_private": True, "is_ext_shared": False, "num_members": 10}
+        }
+        mock_client.conversations_members.return_value = {"members": ["U2", "U3"]}
+
+        slack = SlackIntegration(self.integration)
+        channel = slack.get_channel_by_id("C123", True, "test_user_id")
+
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        assert channel is None
 
     def test_granted_scopes_parses_comma_separated_string(self):
         self.integration.config["scope"] = "chat:write,users:read,users:read.email"
