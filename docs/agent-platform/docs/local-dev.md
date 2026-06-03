@@ -12,7 +12,7 @@ in prod). This doc is dev-mode only.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Django (products/agent_stack)                                       │
+│ Django (products/agent_platform)                                       │
 │   models.py · serializers.py · api.py · janitor_client.py           │
 │   owns: agent_application, agent_revision (POSTHOG_DB)              │
 │   exposes: /api/projects/<team>/agent_applications/...              │
@@ -164,9 +164,9 @@ services.
 
 ### 2. Local MCP — end-to-end via an MCP client
 
-The `agent_stack` Django endpoints (`/api/projects/<team>/agent_applications/...`)
+The `agent_platform` Django endpoints (`/api/projects/<team>/agent_applications/...`)
 are exposed as MCP tools, generated from the OpenAPI schema into
-[services/mcp/src/tools/generated/agent_stack.ts](../../../services/mcp/src/tools/generated/agent_stack.ts).
+[services/mcp/src/tools/generated/agent_platform.ts](../../../services/mcp/src/tools/generated/agent_platform.ts).
 That means once the local MCP server is running, an MCP client (Claude
 Desktop, MCP Inspector, claude.ai) can:
 
@@ -208,15 +208,15 @@ Then in the MCP client you can issue real authoring tool
 calls against your local Django + janitor. This is the path
 to use when reproducing what an authoring AI would see, or when
 validating that a Django serializer change flowed through to the MCP
-tool surface (`hogli build:openapi` regenerates [services/mcp/src/generated/agent_stack/api.ts](../../../services/mcp/src/generated/agent_stack/api.ts)).
+tool surface (`hogli build:openapi` regenerates [services/mcp/src/generated/agent_platform/api.ts](../../../services/mcp/src/generated/agent_platform/api.ts)).
 
-When you change a serializer or viewset under `products/agent_stack/backend/`,
+When you change a serializer or viewset under `products/agent_platform/backend/`,
 **always rerun `hogli build:openapi`** before testing via MCP — the MCP
 tool schemas come from the generated OpenAPI and silently drift otherwise.
 
 ### Gap: no MCP tools for invoking a created agent
 
-The `agent_stack` MCP surface today is **authoring-only** — `agent-applications-*`
+The `agent_platform` MCP surface today is **authoring-only** — `agent-applications-*`
 and `agent-applications-revisions-*` cover create / edit bundle / freeze /
 promote, but there is no MCP tool that wraps the ingress runtime endpoints
 (`/agents/<slug>/run`, `/send`, `/listen`). After an authoring harness like
@@ -323,5 +323,5 @@ auth predicates). Anything that crosses two services belongs in
 - This file — local dev + testing.
 - [deploy-runbook.md](deploy-runbook.md) — env vars per service in prod.
 - [../plans/\_ROADMAP.md](../plans/_ROADMAP.md) — what we're building next.
-- [products/agent_stack/CLAUDE.md](../../../products/agent_stack/CLAUDE.md) — Django-side rules.
+- [products/agent_platform/CLAUDE.md](../../../products/agent_platform/CLAUDE.md) — Django-side rules.
 - [services/agent-tests/CLAUDE.md](../../../services/agent-tests/CLAUDE.md) — test conventions.

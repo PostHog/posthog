@@ -8,6 +8,7 @@
     "type": "commonjs",
     "main": "./src/host.js",
     "scripts": {
+        "lint": "oxlint --quiet .",
         "test": "node --test src/dispatch.test.js"
     },
     "engines": {

@@ -53,10 +53,13 @@ if grep -qE 'Cannot find (module|package)|SyntaxError|ReferenceError|TypeError: 
 fi
 
 # Bundle loaded fine if we see ANY of:
-#   - a network dial-out failure (the service got past config + tried to talk to PG/S3/Kafka)
+#   - the service announced it bound an HTTP port (`"msg":"listening"`) — ingress
+#     and janitor get here without dialling out because they're lazy-connect
+#   - a network dial-out failure (the service got past config + tried to talk to PG/S3/Kafka) —
+#     runner / migrate hit this because they open pools / S3 at boot
 #   - a config-validation throw from zod (config schema rejected our fake values — fine, bundle loaded)
 #   - a clean shutdown after `timeout 5` (rare — most services keep retrying connections)
-if grep -qE 'ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ENETUNREACH|getaddrinfo|timed out|invalid_string|invalid_type|ZodError|connection|fetch failed' "$LOG"; then
+if grep -qE '"msg":"listening"|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ENETUNREACH|getaddrinfo|timed out|invalid_string|invalid_type|ZodError|connection|fetch failed' "$LOG"; then
     echo "✓ ${ENTRYPOINT} bundle loads and reaches the network/I-O stage"
     exit 0
 fi

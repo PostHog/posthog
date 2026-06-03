@@ -267,7 +267,7 @@ Shipped pieces:
 - `kind: "client"` in `ToolRefSchema`
   ([`services/agent-shared/src/spec/spec.ts`](../../../services/agent-shared/src/spec/spec.ts))
   and Django mirror
-  ([`products/agent_stack/backend/spec_schema.py`](../../../products/agent_stack/backend/spec_schema.py)).
+  ([`products/agent_platform/backend/spec_schema.py`](../../../products/agent_platform/backend/spec_schema.py)).
 - `client_tool_call` + `client_tool_result` event kinds on the bus
   ([`services/agent-shared/src/runtime/bus.ts`](../../../services/agent-shared/src/runtime/bus.ts)).
 - Runner dispatcher: `makeClientTool` in `build-agent-tools.ts`
@@ -337,7 +337,7 @@ custody risk we explicitly want to avoid.
 covers `no_triggers`, `missing_entrypoint`, `unknown_native_tool`,
 `missing_custom_tool_compiled`, `missing_custom_tool_schema`,
 `missing_skill`. Django layers a `missing_secret` check on top
-([`products/agent_stack/backend/api.py`](../../../products/agent_stack/backend/api.py)
+([`products/agent_platform/backend/api.py`](../../../products/agent_platform/backend/api.py)
 `validate` action). Spec-shape validation is guaranteed by
 `PgRevisionStore` running `AgentSpecSchema.parse` on every read.
 

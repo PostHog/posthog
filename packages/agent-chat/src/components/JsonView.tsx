@@ -239,7 +239,7 @@ function ArrayValue({
                 aria-label="Collapse"
             >
                 <ChevronDownIcon className="h-3 w-3" />
-                <span>{'['}</span>
+                <span>[</span>
             </button>
             <div className="ml-3 border-l border-border/40 pl-2">
                 {arr.map((item, i) => (
@@ -251,7 +251,7 @@ function ArrayValue({
                     </div>
                 ))}
             </div>
-            <span className="text-muted-foreground">{']'}</span>
+            <span className="text-muted-foreground">]</span>
         </span>
     )
 }

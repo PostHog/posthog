@@ -109,7 +109,7 @@ Django queries ClickHouse directly. **The janitor logs endpoint goes away** — 
 
 ### Django endpoint
 
-Rewrite the existing [`AgentApplicationSessionProxyViewSet.logs`](../../products/agent_stack/backend/api.py) action body to query ClickHouse instead of proxying to janitor. Same URL, same response shape:
+Rewrite the existing [`AgentApplicationSessionProxyViewSet.logs`](../../products/agent_platform/backend/api.py) action body to query ClickHouse instead of proxying to janitor. Same URL, same response shape:
 
 ```text
 GET /api/projects/:project_id/agent_applications/:slug/sessions/:session_id/logs/?after=<ts>&limit=<n>
@@ -144,7 +144,7 @@ return Response({"entries": entries, "next_after": next_after})
 
 ### Frontend + CLI polling change
 
-In [`products/agent_stack/frontend/sessionLogsLogic.ts`](../../products/agent_stack/frontend/sessionLogsLogic.ts):
+In [`products/agent_platform/frontend/sessionLogsLogic.ts`](../../products/agent_platform/frontend/sessionLogsLogic.ts):
 
 - Bump poll interval `2s` → `5s`.
 - Track the last `next_after` cursor; pass it as `?after=` on subsequent polls.
@@ -162,7 +162,7 @@ In Phase 2 (cutover):
 
 - [`services/agent-core/src/session-logs/store.ts`](../../services/agent-core/src/session-logs/store.ts) — the Redis log store. Keep `SessionLogEntry` type (move into `log-entries/types.ts` or a shared `types.ts`); delete the `RedisSessionLogStore` class + `NullSessionLogStore` stub.
 - [`services/agent-janitor/src/routes/logs.ts`](../../services/agent-janitor/src/routes/logs.ts) — the entire route.
-- [`AgentApplicationSessionProxyViewSet.logs`](../../products/agent_stack/backend/api.py) action — replaced by the new direct-CH action (probably on the same viewset; the existing path stays, only the implementation changes).
+- [`AgentApplicationSessionProxyViewSet.logs`](../../products/agent_platform/backend/api.py) action — replaced by the new direct-CH action (probably on the same viewset; the existing path stays, only the implementation changes).
 - Redis log-related env wiring in `agent-runner` and `agent-janitor` bootstraps.
 - The `session_logs:<id>:stream` pub/sub channel and the `RedisSessionLogStore.subscribe` API — nothing reads from it today (it was designed for SSE; SSE never landed).
 
@@ -229,12 +229,12 @@ Demo: end-to-end run, frontend shows incoming log lines at 5s cadence, no Redis 
 - `src/routes/logs.ts` — delete (Phase 5)
 - `src/index.ts` — drop the `SessionLogStore` construction (Phase 5)
 
-**Changed in `products/agent_stack/backend/`:**
+**Changed in `products/agent_platform/backend/`:**
 
 - `api.py` — `AgentApplicationSessionProxyViewSet.logs` action rewritten to call `fetch_log_entries` instead of HTTP-proxying to janitor
 - Tests: cover the new query path + `?after=` cursor semantics
 
-**Changed in `products/agent_stack/frontend/`:**
+**Changed in `products/agent_platform/frontend/`:**
 
 - `sessionLogsLogic.ts` — 5s poll interval, `?after=` cursor handling, append-only render
 

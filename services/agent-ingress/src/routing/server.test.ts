@@ -229,7 +229,7 @@ describe('ingress HTTP server (path mode)', () => {
                     path: string
                     bodySchema?: { properties?: Record<string, unknown>; required?: string[] }
                     querySchema?: unknown
-                    auth: { mode: string }
+                    auth: { modes?: Array<{ type: string }>; mode?: string }
                 }>
             ).map((r) => [`${r.method} ${r.path}`, r])
         )
@@ -238,9 +238,9 @@ describe('ingress HTTP server (path mode)', () => {
             minLength: 1,
         })
         expect(routesByPath['POST /run'].bodySchema!.required).toContain('message')
-        // seedApp's agent has no custom auth → spec.auth.mode defaults to public
-        // → every chat route advertises that to the caller.
-        expect(routesByPath['POST /run'].auth).toEqual({ mode: 'public' })
+        // seedApp's agent has no custom auth → spec.auth.modes defaults to
+        // [{ type: 'public' }] → every chat route advertises that verbatim.
+        expect(routesByPath['POST /run'].auth).toEqual({ modes: [{ type: 'public' }] })
         expect(routesByPath['GET /listen'].querySchema).not.toBeUndefined()
     })
 
@@ -435,7 +435,7 @@ describe('ingress HTTP server (path mode)', () => {
             spec: AgentSpecSchema.parse({
                 model: 'x',
                 triggers: [{ type: 'mcp', config: {} }],
-                auth: { mode: 'pat' },
+                auth: { modes: [{ type: 'pat' }] },
             }),
         })
         await store.setRevisionState(rev.id, 'live')
@@ -482,7 +482,7 @@ describe('ingress HTTP server (path mode)', () => {
             spec: AgentSpecSchema.parse({
                 model: 'x',
                 triggers: [{ type: 'mcp', config: {} }],
-                auth: { mode: 'pat' },
+                auth: { modes: [{ type: 'pat' }] },
             }),
         })
         await store.setRevisionState(rev.id, 'live')

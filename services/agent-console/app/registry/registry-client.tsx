@@ -10,7 +10,7 @@ import { useSessionTeamId } from '@/components/session-context'
 import type {
     CustomToolTemplateSummaryApi as CustomToolTemplateSummary,
     SkillTemplateSummaryApi as SkillTemplateSummary,
-} from '@/generated/agent-stack.api.schemas'
+} from '@/generated/agent-platform.api.schemas'
 import { listNativeTools, type NativeToolCatalogEntry } from '@/lib/apiClient'
 import { listCustomToolTemplates, listSkillTemplates } from '@/lib/registryClient'
 import { useResource } from '@/lib/useResource'

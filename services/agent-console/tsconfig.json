@@ -25,7 +25,6 @@
         "src/**/*.tsx",
         "app/**/*.ts",
         "app/**/*.tsx",
-        "middleware.ts",
         ".next/types/**/*.ts"
     ],
     "exclude": ["node_modules"]

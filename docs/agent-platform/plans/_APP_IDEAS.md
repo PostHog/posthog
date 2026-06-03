@@ -232,7 +232,7 @@ lands as a first-class field.
 
 ---
 
-## Wizard for ASS — agent-stack authoring concierge
+## Wizard for ASS — agent-platform authoring concierge
 
 **Description.** An agent _on_ ASS that builds other ASS agents.
 Drives a user through the optimal authoring flow described in

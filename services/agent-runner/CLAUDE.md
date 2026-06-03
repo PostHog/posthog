@@ -71,4 +71,4 @@ replace the e2e case.
   [services/agent-shared/](../agent-shared/) (queue, bundle, spec,
   sandbox, storage).
 - **Django authoring side** —
-  [products/agent_stack/CLAUDE.md](../../products/agent_stack/CLAUDE.md).
+  [products/agent_platform/CLAUDE.md](../../products/agent_platform/CLAUDE.md).

@@ -23,7 +23,7 @@
  *
  * The Django proxy is NOT exercised here. The harness only runs ingress +
  * runner + janitor. Django-side auth + janitor_client proxy gets unit
- * tests in `products/agent_stack/backend/`.
+ * tests in `products/agent_platform/backend/`.
  */
 
 import { fauxToolCall } from '@earendil-works/pi-ai'

@@ -42,7 +42,7 @@ node-pg-migrate orders by; pick `Date.now()` at authoring time.
 
 ## What goes here vs Django
 
-The Django `agent_stack` app owns the _authoring_ tables
+The Django `agent_platform` app owns the _authoring_ tables
 (`agent_application`, `agent_revision`) in production via its own
 migrations. The migrations in this package recreate those tables in the
 test harness only — production never runs them against the main posthog

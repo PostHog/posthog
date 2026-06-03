@@ -249,10 +249,10 @@
     "agent-applications-create": {
         "description": "Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze + promote.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Create an agent application",
         "title": "Create an agent application",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -263,10 +263,10 @@
     "agent-applications-destroy": {
         "description": "Soft-delete: `archived=true`, `archived_at` stamped. Existing revisions stay queryable for audit; further CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped to `archived=false`).",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Archive an agent application",
         "title": "Archive an agent application",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -277,10 +277,10 @@
     "agent-applications-env-keys-clear": {
         "description": "Remove one key from the encrypted env. No-op when the key wasn't set. Use this when a secret is no longer required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts — in-flight sessions keep the value they resolved at start.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Clear one secret",
         "title": "Clear one secret",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -291,10 +291,10 @@
     "agent-applications-env-keys-get": {
         "description": "Returns `{ key, is_set }` for one name. The value is never returned. Use as a pre-check before asking the user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write landed.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Check whether one secret is set",
         "title": "Check whether one secret is set",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -305,10 +305,10 @@
     "agent-applications-env-keys-list": {
         "description": "Returns `{ keys: [name, ...] }` — names only, never values. Use to know which declared secrets are already populated so you don't ask the user to set something that's already set. Pair with `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List the names of secrets currently set",
         "title": "List the names of secrets currently set",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -319,10 +319,10 @@
     "agent-applications-list": {
         "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List agent applications",
         "title": "List agent applications",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -333,10 +333,10 @@
     "agent-applications-partial-update": {
         "description": "Edit `name` / `description`. The env block is managed separately via `agent-applications-set-env-create` (never round-tripped through this endpoint), and `live_revision` is set by promoting a revision.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Update an agent application",
         "title": "Update an agent application",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -347,10 +347,10 @@
     "agent-applications-preview-proxy": {
         "description": "Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it), `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this application. See docs/agent-platform/plans/draft-preview-auth.md.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Invoke a draft revision via the Django preview-proxy",
         "title": "Invoke a draft revision via the Django preview-proxy",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -361,10 +361,10 @@
     "agent-applications-retrieve": {
         "description": "Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Get an agent application",
         "title": "Get an agent application",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -375,10 +375,10 @@
     "agent-applications-revisions-archive-create": {
         "description": "Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the app has no deployable version until another revision is promoted). Idempotent.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Archive a revision",
         "title": "Archive a revision",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -389,10 +389,10 @@
     "agent-applications-revisions-bundle-retrieve": {
         "description": "Bulk download — returns `{ files: { path: utf-8 content, … } }` for every file in the bundle. Use when you want to edit the whole agent locally; mutate files, then push back via the bundle PUT (replace mode).",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Pull every file in a revision's bundle",
         "title": "Pull every file in a revision's bundle",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -403,10 +403,10 @@
     "agent-applications-revisions-bundle-update": {
         "description": "Body `{ files: { path: content, … }, mode: \"replace\" | \"merge\" }`. `replace` wipes the existing bundle before writing the new set (use after a full edit); `merge` upserts (use for incremental adds). Only `state=draft` revisions accept this.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Push a full bundle to a draft revision",
         "title": "Push a full bundle to a draft revision",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -417,10 +417,10 @@
     "agent-applications-revisions-clone-from-create": {
         "description": "Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions must belong to the same team.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Clone bundle from another revision",
         "title": "Clone bundle from another revision",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -431,10 +431,10 @@
     "agent-applications-revisions-create": {
         "description": "Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or `agent-applications-revisions-new-draft-create` to seed it from an existing revision.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Create a draft revision",
         "title": "Create a draft revision",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -445,10 +445,10 @@
     "agent-applications-revisions-cron-fire-create": {
         "description": "Fire a single cron job out-of-band, bypassing the scheduler's window logic. Use this to iterate on a cron agent's `prompt` (or to debug `external_key` placeholder expansion) without waiting for the next real firing. Required: `cron_name` (matches `spec.triggers[].config.name` on a `type: cron` trigger). Optional: `request_id` — pass a stable id per logical click so repeat fires resolve to the same session instead of stacking duplicates. Returns `{ ok, session_id, fired_at, idempotency_key }`; track the session via `agent-applications-sessions-retrieve` to read the conversation. Authoring-loop completion piece — without this, \"did my prompt do the right thing?\" is unanswerable until the cron actually fires.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Manually fire one cron job",
         "title": "Manually fire one cron job",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -459,10 +459,10 @@
     "agent-applications-revisions-file-destroy": {
         "description": "Remove the file at `?path=…` from a draft revision. Idempotent — deleting an already-absent file is a no-op.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Delete one file",
         "title": "Delete one file",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -473,10 +473,10 @@
     "agent-applications-revisions-file-retrieve": {
         "description": "Returns `{ path, content }` for one file in the bundle. Pass `?path=…` (e.g. `?path=skills/research.md`). Works on any revision state.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Read one file",
         "title": "Read one file",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -487,10 +487,10 @@
     "agent-applications-revisions-file-update": {
         "description": "Body `{ content: \"…\" }`. Creates or overwrites the file at `?path=…` in a draft revision. Use for targeted edits (one skill, one tool source); for bulk changes use the bundle PUT.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Write one file",
         "title": "Write one file",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -501,10 +501,10 @@
     "agent-applications-revisions-freeze-create": {
         "description": "Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing sha256.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Freeze a draft revision",
         "title": "Freeze a draft revision",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -515,10 +515,10 @@
     "agent-applications-revisions-list": {
         "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List revisions of an application",
         "title": "List revisions of an application",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -529,10 +529,10 @@
     "agent-applications-revisions-manifest-retrieve": {
         "description": "Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last looked.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List files in a revision's bundle",
         "title": "List files in a revision's bundle",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -543,10 +543,10 @@
     "agent-applications-revisions-new-draft-create": {
         "description": "One-shot helper: creates a draft revision under `application_id` and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use this for the common \"edit live\" workflow — branch from the current live revision, mutate files, freeze, promote.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Branch a new draft from an existing revision",
         "title": "Branch a new draft from an existing revision",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -557,10 +557,10 @@
     "agent-applications-revisions-partial-update": {
         "description": "Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner side; an invalid spec will surface when the next session starts, not here.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Update a revision's spec",
         "title": "Update a revision's spec",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -571,10 +571,10 @@
     "agent-applications-revisions-promote-create": {
         "description": "Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent: promoting an already-live revision is a no-op.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Promote a revision to live",
         "title": "Promote a revision to live",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -585,10 +585,10 @@
     "agent-applications-revisions-retrieve": {
         "description": "Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` / `agent-applications-revisions-bundle-retrieve`.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Get a revision",
         "title": "Get a revision",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -599,10 +599,10 @@
     "agent-applications-revisions-system-prompt": {
         "description": "Returns the fully-assembled system prompt the runner would pass to the model at session start — framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Preview the assembled system prompt for a revision",
         "title": "Preview the assembled system prompt for a revision",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -613,10 +613,10 @@
     "agent-applications-revisions-validate-create": {
         "description": "Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a draft before calling `agent-applications-revisions-freeze-create`.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Validate a revision's bundle + spec",
         "title": "Validate a revision's bundle + spec",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -627,10 +627,10 @@
     "agent-applications-sessions-list": {
         "description": "Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued / running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) + `offset`. Filters AND together.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List sessions for an agent",
         "title": "List sessions for an agent",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -641,10 +641,10 @@
     "agent-applications-sessions-retrieve": {
         "description": "Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages), pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages — useful for long sessions where you only care about the tail; `conversation_trimmed: true` plus `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full untrimmed conversation so cost reporting stays accurate.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Get one session",
         "title": "Get one session",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -655,10 +655,10 @@
     "agent-applications-set-env-create": {
         "description": "Body `{ env: { KEY: \"value\", … } }`. The whole env is replaced (not patched); pass the full set you want available to the runner. Encrypted at rest with the team's Fernet keys; the worker decrypts at session start and feeds the values to tool sandboxes as opaque nonces (raw secrets never leave Django).",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Replace the application's env block",
         "title": "Replace the application's env block",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -669,10 +669,10 @@
     "agent-custom-tool-templates-create": {
         "description": "Create a new shared custom-tool template. Requires `source` (TypeScript), `compiled_js` (the bundler output), and `args_schema` (TypeBox / JSON Schema for the tool's args). The bundler runs client-side during authoring; the registry just stores the artifact pair.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Create a custom tool template (v1)",
         "title": "Create a custom tool template (v1)",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -683,10 +683,10 @@
     "agent-custom-tool-templates-list": {
         "description": "List the current (latest) version of every custom TypeScript tool template visible to the team. Use to discover existing tools before authoring a new one or wiring one into an agent's `spec.tools[]` via `from_template`.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List custom tool templates",
         "title": "List custom tool templates",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -697,10 +697,10 @@
     "agent-custom-tool-templates-name-archive-create": {
         "description": "Soft-delete every version of this template. Frozen revisions that pin it keep working; new agents can no longer reference it.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Archive a custom tool template",
         "title": "Archive a custom tool template",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -711,10 +711,10 @@
     "agent-custom-tool-templates-name-duplicate-create": {
         "description": "Copy a template's current source + compiled output under a new name. Produces v1 of the duplicate.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Duplicate a custom tool template",
         "title": "Duplicate a custom tool template",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -725,10 +725,10 @@
     "agent-custom-tool-templates-name-publish-create": {
         "description": "Append a new version. Provide EITHER `source` (full overwrite) OR `edits[]` (structured find/replace); `compiled_js` must accompany either form because the bundler runs client-side. `args_schema` / `returns_schema` / `requires_secrets` are optional overrides — omit to keep the prior values.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Publish a new custom tool template version",
         "title": "Publish a new custom tool template version",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -739,10 +739,10 @@
     "agent-custom-tool-templates-name-retrieve": {
         "description": "Fetch the latest version (default) or a specific version with `?version=N`. Returns the full `source` + `compiled_js` + schemas so the concierge can read before edit.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Retrieve a custom tool template",
         "title": "Retrieve a custom tool template",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -753,10 +753,10 @@
     "agent-custom-tool-templates-name-usages-list": {
         "description": "Every frozen agent revision that pins this custom tool template (any version, or filter by `?pinned_version=N`). Use before archiving to see who'd be affected.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Frozen agents pinning this custom tool template",
         "title": "Frozen agents pinning this custom tool template",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -767,10 +767,10 @@
     "agent-custom-tool-templates-name-versions-list": {
         "description": "Every version row for this template name, newest first, with publisher + timestamp.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Custom tool template version history",
         "title": "Custom tool template version history",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -797,10 +797,10 @@
     "agent-native-tools-list": {
         "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List native tools the runner knows",
         "title": "List native tools the runner knows",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -811,10 +811,10 @@
     "agent-skill-templates-create": {
         "description": "Create a new shared skill template under the active team. `name` is a slug (`research-flow`); the body is markdown (the SKILL.md), `files[]` are optional companion files (examples, schemas). Produces v1; later edits go through `agent-skill-templates-name-publish-create`.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Create a skill template (v1)",
         "title": "Create a skill template (v1)",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -825,10 +825,10 @@
     "agent-skill-templates-list": {
         "description": "List the current (latest) version of every skill template visible to the team — both team-owned and canonical (`@posthog/*`) rows. Use to discover what's already on the shelf before authoring a new skill. `?search=<substring>` matches against name + description.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "List skill templates",
         "title": "List skill templates",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -839,10 +839,10 @@
     "agent-skill-templates-name-archive-create": {
         "description": "Soft-delete every version of this template. Frozen revisions that still pin it keep working (the freeze copy is independent); new agents can no longer reference it.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Archive a skill template",
         "title": "Archive a skill template",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -853,10 +853,10 @@
     "agent-skill-templates-name-duplicate-create": {
         "description": "Copy a template's current body + companion files under a new name. Produces v1 of the duplicate; the source's version history is not carried over. Useful when a canonical `@posthog/*` template is the starting point for a team-specific skill.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Duplicate a skill template",
         "title": "Duplicate a skill template",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -867,10 +867,10 @@
     "agent-skill-templates-name-files-create": {
         "description": "Attach a new file (path + content) to the latest version of this template. Path is relative; will land at `bundle/skills/<alias>/<path>` when an agent pins this skill at freeze time.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Add a companion file to a skill template",
         "title": "Add a companion file to a skill template",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -881,10 +881,10 @@
     "agent-skill-templates-name-files-destroy": {
         "description": "Drop a file by path from the latest version of this template. Affects future freezes; already-frozen revisions keep their copy.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Remove a companion file from a skill template",
         "title": "Remove a companion file from a skill template",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -895,10 +895,10 @@
     "agent-skill-templates-name-files-rename-create": {
         "description": "Move `from_path` → `to_path` for a companion file on the latest version. Use when restructuring an example tree, e.g. `examples/case-a.md` → `examples/onboarding/case-a.md`.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Rename a companion file",
         "title": "Rename a companion file",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -909,10 +909,10 @@
     "agent-skill-templates-name-publish-create": {
         "description": "Append a new version. Provide EITHER `body` (full overwrite) OR `edits[]` (structured find/replace where each `old` must match exactly once in the current body — mirrors LLMSkill's edit shape). Companion files carry forward unchanged. Returns the freshly-stamped v(n+1) row.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Publish a new skill template version",
         "title": "Publish a new skill template version",
-        "required_scopes": ["agent_application:write"],
+        "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -923,10 +923,10 @@
     "agent-skill-templates-name-retrieve": {
         "description": "Fetch a skill template's latest version (default) or a specific version with `?version=N`. Returns the full body + companion files, so the concierge can read before edit.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Retrieve a skill template",
         "title": "Retrieve a skill template",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -937,10 +937,10 @@
     "agent-skill-templates-name-usages-list": {
         "description": "Every frozen agent revision that pins this skill template (any version, or filter by `?pinned_version=N`). Each row carries the agent slug + name + revision short id + pinned version. Use before archiving to see who'd be affected.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Frozen agents pinning this skill template",
         "title": "Frozen agents pinning this skill template",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -951,10 +951,10 @@
     "agent-skill-templates-name-versions-list": {
         "description": "Every version row for this template name, newest first, with publisher + timestamp. The single `is_latest: true` row marks the current version; older rows are read-only history.",
         "category": "Agent stack",
-        "feature": "agent_stack",
+        "feature": "agent_platform",
         "summary": "Skill template version history",
         "title": "Skill template version history",
-        "required_scopes": ["agent_application:read"],
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3362,6 +3362,20 @@
             "readOnlyHint": true
         }
     },
+    "inbox-reports-set-state": {
+        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze a signal report",
+        "title": "Dismiss or snooze a signal report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-source-configs-list": {
         "description": "List the configured signal sources for the current project. A signal source ties a product (e.g. error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and configuration. The 'status' field reflects the current state of the underlying data import or workflow (running, completed, failed) when applicable.",
         "category": "Signals",
@@ -4916,6 +4930,22 @@
             "readOnlyHint": true
         }
     },
+    "promoted-product-intent-get": {
+        "description": "Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured. Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean — for example, if their primary product is `session_replay`, treat a vague reference to \"watch a session\" as referring to a session recording rather than a survey response.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get the team's promoted product.",
+        "title": "Get the team's promoted product.",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "promoted-product",
+        "feature_flag_variant": "intent_plus"
+    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",
@@ -5164,6 +5194,21 @@
             "readOnlyHint": true
         },
         "system_prompt_hint": "User navigation flows and sequences"
+    },
+    "query-paths-actors": {
+        "description": "List the persons behind a paths insight — either everyone who traversed the path, or those at one specific node/edge.\n\nPair this with `query-paths`: first run the paths query to see the flows (each result row is an edge `source → target` with a user count), then call this tool with the **same** paths query as `source`.\n\nTwo modes:\n\n**1. Everyone on the path (A → B).** Set `startPoint` / `endPoint` on the source `pathsFilter` and leave the path keys unset. Returns every actor whose journey matches that start/end constraint. Use this for \"who went from a.com to b.com?\".\n\n**2. Actors at a specific point.** Each node in the path graph has a key of the form `<stepIndex>_<value>` (e.g. `\"3_https://example.com/checkout\"`). The `source` and `target` fields of a `query-paths` result row **are** these keys — copy them verbatim. Set on the source `pathsFilter`:\n\n- `pathEndKey` — persons who **arrived at** that node (use a row's `target`).\n- `pathStartKey` — persons who **departed from** that node (use a row's `source`).\n- Set **both** `pathStartKey` + `pathEndKey` to pin a single edge (the actors behind one `source → target` count).\n- `pathDropoffKey` — persons who **dropped off** at that node. Mutually exclusive with the other two.\n\nSelectors:\n\n- `includeRecordings`: defaults to `true`. Set to `false` to skip fetching matched session recordings (faster if recordings are not needed).\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `event_count` (number of matching events for that actor). When `includeRecordings` is `true` (the default), a `recordings` column is also returned with PostHog replay URLs. Results are limited to the top 100 actors ordered by event count.\n\nGuidance:\n\n- Keep the `source` paths query minimal — only include the filters needed to define the same population the user is asking about.\n- The path keys come straight from a `query-paths` result row's `source` / `target`; do not hand-construct them.\n- `pathReplacements` and `showFullUrls` are not exposed — they don't change which actors are returned (`showFullUrls` is display-only; `pathReplacements` is covered by `localPathCleaningFilters`).\n- For large result sets, narrow the source (start/end point, date range, filters) rather than expecting more rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List persons on a paths insight",
+        "title": "List persons on a paths insight",
+        "required_scopes": ["query:read", "person:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "List persons who traversed the paths defined by a paths insight"
     },
     "query-retention": {
         "description": "Run a retention query to analyze how many users return over time after performing an initial action. Retention insights show you how many users return during subsequent periods. They're useful for understanding user engagement and stickiness.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- Are new sign ups coming back to use your product after trying it?\n- Have recent changes improved retention?\n- How many users come back and perform an action after their first visit.\n- How many users come back to perform action X after performing action Y.\n- How often users return to use a specific feature.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Retention guidelines\n\nRetention insights always require two entities:\n\n- The activation event (targetEntity) – determines if the user is a part of a cohort (when they \"start\").\n- The retention event (returningEntity) – determines whether a user has been retained (when they \"return\").\n\nFor activation and retention events, use the `$pageview` event by default or the equivalent for mobile apps `$screen`. Avoid infrequent or inconsistent events like `signed in` unless asked explicitly, as they skew the data.\n\nThe activation and retention events can be the same (e.g., both `$pageview` to see if users who viewed pages come back to view pages again) or different (e.g., activation is `signed up` and retention is `completed purchase` to see if sign-ups convert to purchases over time).\n\n# Examples\n\n## Weekly retention of users who created an insight\n\n```json\n{\n  \"kind\": \"RetentionQuery\",\n  \"retentionFilter\": {\n    \"period\": \"Week\",\n    \"totalIntervals\": 9,\n    \"targetEntity\": { \"id\": \"insight created\", \"name\": \"insight created\", \"type\": \"events\" },\n    \"returningEntity\": { \"id\": \"insight created\", \"name\": \"insight created\", \"type\": \"events\" },\n    \"retentionType\": \"retention_first_time\",\n    \"retentionReference\": \"total\",\n    \"cumulative\": false\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Do users who sign up come back to view pages?\n\n```json\n{\n  \"kind\": \"RetentionQuery\",\n  \"retentionFilter\": {\n    \"period\": \"Week\",\n    \"totalIntervals\": 8,\n    \"targetEntity\": { \"id\": \"user signed up\", \"name\": \"user signed up\", \"type\": \"events\" },\n    \"returningEntity\": { \"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\" },\n    \"retentionType\": \"retention_first_time\",\n    \"retentionReference\": \"total\",\n    \"cumulative\": false\n  },\n  \"dateRange\": { \"date_from\": \"-60d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Daily retention of pageviews for mobile users only\n\n```json\n{\n  \"kind\": \"RetentionQuery\",\n  \"retentionFilter\": {\n    \"period\": \"Day\",\n    \"totalIntervals\": 14,\n    \"targetEntity\": { \"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\" },\n    \"returningEntity\": { \"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\" },\n    \"retentionType\": \"retention_first_time\",\n    \"retentionReference\": \"total\",\n    \"cumulative\": false\n  },\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
@@ -6454,8 +6499,53 @@
             "readOnlyHint": false
         }
     },
+    "vision-observations-list": {
+        "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List a session's replay vision observations",
+        "title": "List a session's replay vision observations",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-observations-retrieve": {
+        "description": "Get a single replay vision observation by ID, scoped to the scanners the caller can read. Returns the full `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any event citations). Use `vision-observations-list` to find observation IDs for a session first.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get a session's replay vision observation",
+        "title": "Get a session's replay vision observation",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-quota-retrieve": {
+        "description": "Get the organization's monthly Replay Vision observation budget. Returns `monthly_quota`, `usage_this_month` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over quota are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get replay vision quota",
+        "title": "Get replay vision quota",
+        "required_scopes": ["replay_scanner:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-scanners-create": {
-        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team. Before creating a broad scanner (a permissive `query` and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly observation volume and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the monthly budget on its first sweeps.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create replay vision scanner",
@@ -6482,6 +6572,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-estimate-create": {
+        "description": "Preview how many observations a proposed scanner would generate before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) and an optional `sampling_rate`. Returns `matched_sessions_in_window`, the `window_days` it was measured over, and `estimated_observations_per_month`. Enabled scanners sweep every 5 minutes, so a broad query can exhaust the monthly quota quickly — run this and compare against `vision-quota-retrieve` before `vision-scanners-create`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Estimate replay vision scanner volume",
+        "title": "Estimate replay vision scanner volume",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "replay-vision"
     },
@@ -6531,7 +6636,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-scanners-observations-list": {
-        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.",
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed/ineligible), `error_reason` (set on terminal non-success statuses, e.g. `too_short`/`no_recording` for ineligible or `provider_rejected`/`validation_failed` for failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time; to see every scanner's observations for one session, use `vision-observations-list`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List scanner observations",
@@ -6546,7 +6651,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-scanners-scan-session": {
-        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining.",
+        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining. A scanner can observe a given session only once — re-triggering it on a session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Run scanner against a session now",
@@ -6562,7 +6667,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-scanners-update": {
-        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility.",
+        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you widen the `query` or raise `sampling_rate`, re-check projected volume with `vision-scanners-estimate-create` and remaining budget with `vision-quota-retrieve` first — the scanner resumes sweeping every 5 minutes at the new, broader scope.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Update replay vision scanner",
@@ -6608,15 +6713,15 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-approve-create": {
-        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "description": "Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does NOT update the baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`.",
         "category": "Visual review",
         "feature": "visual_review",
-        "summary": "Approve visual review snapshots",
-        "title": "Approve visual review snapshots",
+        "summary": "Mark visual review snapshots reviewed",
+        "title": "Mark visual review snapshots reviewed",
         "required_scopes": ["visual_review:write"],
         "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -6634,6 +6739,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-finalize-create": {
+        "description": "Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With `approve_all: true` every still-pending changed/new snapshot is approved first. When a baseline commit is pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation first — finalizing ships the visual change and rewrites the committed baseline.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Finalize a visual review run",
+        "title": "Finalize a visual review run",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },

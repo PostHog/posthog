@@ -26,8 +26,8 @@ const SCOPES = [
     'user:read',
     'organization:read',
     'project:read',
-    'agent_application:read',
-    'agent_application:write',
+    'agents:read',
+    'agents:write',
     'ai_gateway:read',
 ].join(' ')
 

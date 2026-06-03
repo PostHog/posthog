@@ -66,6 +66,6 @@ cover HTTP shape + threshold math but not the cross-service flow.
   [docs/agent-platform/docs/deploy-runbook.md](../../docs/agent-platform/docs/deploy-runbook.md)
   (look for `agent-janitor`).
 - **Django proxy client** —
-  [products/agent_stack/backend/janitor_client.py](../../products/agent_stack/backend/janitor_client.py).
+  [products/agent_platform/backend/janitor_client.py](../../products/agent_platform/backend/janitor_client.py).
 - **Test conventions** —
   [services/agent-tests/CLAUDE.md](../agent-tests/CLAUDE.md).

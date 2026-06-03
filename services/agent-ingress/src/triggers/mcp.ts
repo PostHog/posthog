@@ -471,7 +471,7 @@ function buildConnectAuth(specAuth: { mode: string; header?: string }): ConnectA
             header: 'Authorization',
             scheme: 'Bearer',
             instructions:
-                'Set Authorization: Bearer <YOUR_POSTHOG_PAT>. Create a PAT at /me/settings#personal-api-keys; scope it `agent_application:read`.',
+                'Set Authorization: Bearer <YOUR_POSTHOG_PAT>. Create a PAT at /me/settings#personal-api-keys; scope it `agents:read`.',
         }
     }
     if (specAuth.mode === 'posthog_internal') {

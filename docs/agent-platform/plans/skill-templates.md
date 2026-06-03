@@ -428,7 +428,7 @@ Roughly executable order:
 10. **Usages panel** — backend reads `agent_revision.spec` JSONB to count refs;
     frontend renders a small table.
 11. **Canonical seed** — `seed_canonical_templates` management command,
-    repo-vendored markdown + source under `products/agent_stack/backend/canonical_templates/`.
+    repo-vendored markdown + source under `products/agent_platform/backend/canonical_templates/`.
 12. **Concierge integration** — ship the new MCP tools and update the concierge
     bundle's `agent.md` to describe how to use them. Verify e2e in the agent-tests
     harness.
@@ -466,7 +466,7 @@ Roughly executable order:
 
 - No data migration — no templates exist yet.
 - Canonical seed lives at
-  `products/agent_stack/backend/canonical_templates/skills/` and
+  `products/agent_platform/backend/canonical_templates/skills/` and
   `.../custom_tools/` as plain files. The `seed_canonical_templates`
   management command reads them on deploy.
 

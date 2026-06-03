@@ -1,6 +1,8 @@
 # Design — Tailscale-backed MCP integration
 
-**Status:** draft. **Owner:** ben.
+**Status:** **parked.** The design holds, but the Node ↔ Tailscale
+integration story is rougher than expected (see new section below). Not
+worth picking up without a stronger forcing function. **Owner:** ben.
 **Sibling to:** [`runtime-mcps.md`](runtime-mcps.md) — adds a new
 `McpClient` impl alongside the existing `kind: 'external'` one.
 
@@ -301,6 +303,106 @@ write the doc by replaying what we did, not by hypothesising.
 4. **Multi-tailnet customers.** Each tailnet → one Integration row.
    The Integration model already supports multiple rows per team;
    no schema change.
+
+## Why this is parked — Node ↔ Tailscale integration is rough
+
+The plan assumes `tsnet`. `tsnet` is Go-only and that turns out to be
+the load-bearing constraint, since the agent-runner is TypeScript/Node.
+
+What I found when I went looking for alternatives (June 2026):
+
+- **No first-party Node SDK.** Tailscale themselves acknowledge this is
+  a gap. They tried `libtailscale` (C library wrapping Go) but
+  documented that "the Go runtime needs to take over a bunch of the
+  process lifecycle to function, and that goes poorly if there's
+  already another runtime trying to do that." Their browser extension
+  picked a subprocess pattern over `libtailscale` for exactly this
+  reason.
+- **`tailscale-rs`** is the announced cross-language future. Bindings
+  shipped for Python / Elixir / C as of the April 2026 preview; Node
+  bindings not on the published list yet.
+- **`tailscale-js`** exists on GitHub but is Bun-only and the README
+  flags TLS getting stuck on first request + the shared library not
+  bundled. Not production-grade and locks us to Bun, which the runner
+  isn't on.
+- **`tailscaled` userspace networking + SOCKS5/HTTP proxy** is the
+  official cross-language mechanism — `tailscaled --tun=userspace-networking
+--socks5-server=localhost:1055`, set `ALL_PROXY=socks5://localhost:1055`
+  in Node, any standard networking library picks it up. **This works,
+  but a single `tailscaled` can only join one tailnet at a time.**
+
+That last constraint is the killer. The customer story is "PostHog
+Cloud serves N customers, each on their own tailnet" — but `tailscaled`
+is one-tailnet-per-process. The plan's per-session-ephemeral model
+relies on a single Go process holding multiple `tsnet.Server` instances,
+one per active session. There's no daemon-only equivalent that works
+the same way.
+
+So the realistic options collapse to:
+
+| Path                                                  | What we'd write                                                                                                                               | Tradeoff                                                                                                                                                                                    |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A. `tailscaled` sidecar (single tailnet)**          | Zero new code. k8s manifest + env vars. `kind: 'tailscale'` resolves to "use the proxy."                                                      | Only works for one tailnet per pod. Fine for PostHog dogfood (we have one tailnet). **Does not generalize to PostHog Cloud serving many customers' tailnets** — which is the whole feature. |
+| **B. Per-session `tailscaled` spawn**                 | Process-management glue in Node — spawn a daemon per session on a unique port, kill on exit.                                                  | Multi-tenant works, but ~50–100 MB resident + ~1–2 s cold-start per session, port allocation bookkeeping. Genuinely heavy.                                                                  |
+| **C. Small Go binary using `tsnet` for multi-tenant** | ~300 LOC Go binary. One process, one `tsnet.Server` per active session. Exposes per-session HTTP/SOCKS5 proxy on a Unix socket or local port. | Matches the plan verbatim. Right architecture. Introduces Go to the agent-runner pod, a new build/deploy/observability surface in a service that's been TS-only.                            |
+
+**C is the technically right answer for the spec we wrote.** But the
+cost is real:
+
+- ~3 PRs of work just to get a working roundtrip (the Go binary, the
+  TS-side `McpClient` impl that talks to it, the lifecycle plumbing in
+  the worker). The Go binary itself isn't huge, but it adds a second
+  language to a TS-only service.
+- Operational surface: new image, new release pipeline slot, new
+  log/metric story, new failure modes (binary crashes, socket goes
+  away mid-session, etc.).
+- We'd be the first PostHog service shipping a Go sidecar with
+  upstream open-source code we don't author. Maintenance ownership
+  needs to be obvious.
+
+**The honest cost-benefit:** the feature this unlocks is
+"customer-on-Tailscale → PostHog-Cloud agent reaches customer's
+internal MCP." That's a real but narrow audience — customers who
+both (a) already use Tailscale and (b) want a PostHog-Cloud-hosted
+agent (not a self-hosted runner). Anyone outside that intersection is
+served better by other paths:
+
+- **No Tailscale, just public MCPs** → `kind: 'external'` (already
+  shipped via `runtime-mcps.md`).
+- **No Tailscale, private MCPs** → exposed via Cloudflare Tunnel /
+  ngrok / their own ingress + a token, registered as
+  `kind: 'external'`.
+- **Has Tailscale, will run our agent in-cluster** → SherlockHog
+  pattern (operator's cluster-egress Service + `kind: 'external'`
+  hitting the in-cluster Service). No new platform code.
+
+The intersection that genuinely needs `kind: 'tailscale'` is real but
+small, and shipping it costs us an introduction of Go to agent-runner.
+Without a concrete customer ask we can name, the cost outweighs the
+unlock.
+
+**What would unstick this:**
+
+1. **Tailscale ships official Node bindings** for `tailscale-rs`. Their
+   roadmap implies it but they haven't committed to a date.
+2. **A concrete customer requests this exact integration shape.**
+   Specifically: they already run Tailscale + they want PostHog Cloud
+   to reach into their tailnet (not self-host the runner).
+3. **A second PostHog feature needs the same "PostHog Cloud reaches
+   into customer's private network" plumbing.** If a second use case
+   shows up (data warehouse ingesting from internal Postgres, error
+   tracking pulling source maps from a private S3, …), the cost of a
+   shared connectivity layer amortises across products.
+
+Until one of those lands, the plan sits.
+
+**Sources for the integration research:**
+
+- [tsnet · Tailscale Docs](https://tailscale.com/kb/1244/tsnet)
+- [An early look at tailscale-rs](https://tailscale.com/blog/tailscale-rs-rust-tsnet-library-preview)
+- [Userspace networking mode · Tailscale Docs](https://tailscale.com/docs/concepts/userspace-networking)
+- [tailscale-js (GitHub)](https://github.com/mastermakrela/tailscale-js)
+- [ts-browser-ext — Tailscale's own browser extension, child-process pattern](https://github.com/tailscale/ts-browser-ext)
 
 ## Out of scope
 

@@ -1,13 +1,12 @@
 /**
- * `/` — agents list landing page.
+ * `/` — overview landing page.
  *
- * Shell only — all data fetching happens client-side via the typed
- * `apiClient`, so the same code path runs in dev / prod / Storybook
- * (Storybook intercepts via MSW; prod hits the real backend).
+ * Leads with an embedded concierge chat so users can start talking
+ * immediately. The agents list lives under `/agents` now.
  */
 
-import { AgentsListClient } from './agents-list-client'
+import { OverviewClient } from './overview-client'
 
 export default function HomePage(): React.ReactElement {
-    return <AgentsListClient />
+    return <OverviewClient />
 }

@@ -1,7 +1,7 @@
 /**
  * MSW request handlers — mirror the read surface of PostHog Django.
  *
- * Path nesting + response shapes follow `products/agent_stack/backend/
+ * Path nesting + response shapes follow `products/agent_platform/backend/
  * api.py`. When the real backend lands, deleting `.storybook/mocks/`
  * and pointing the Next.js rewrites at the real hosts is the swap.
  *

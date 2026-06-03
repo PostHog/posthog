@@ -167,27 +167,50 @@ def _find_flag_definition(key: str) -> dict | None:
     return None
 
 
-def get_eager_team_ids() -> list[int]:
-    """Resolve the audience: teams belonging to organizations rolled out
-    on the `web-analytics-precompute-toggle` flag.
+def _resolve_eager_audience() -> tuple[list[int], str, dict]:
+    """Resolve the audience and return a structured trace of which gate
+    fired. Returns `(team_ids, gate_reason, diagnostics)`.
 
-    Returns `[]` for any of: not running on PostHog Cloud, flag absent
-    from the SDK's local-evaluation cache (e.g. inactive/deleted), no
-    organization-id conditions parsed. The empty-list result cleanly
-    turns the warming op into a no-op.
+    `gate_reason` is one of: `not_cloud`, `flag_not_found`,
+    `flag_no_org_conditions`, `no_teams_for_orgs`, `ok`. The
+    `diagnostics` dict carries the inputs each gate saw — enough to
+    explain a `teams=0` run without re-running the job.
     """
     if not is_cloud():
-        return []
+        return [], "not_cloud", {"flag_key": EAGER_FLAG_KEY}
 
     flag = _find_flag_definition(EAGER_FLAG_KEY)
     if flag is None:
-        return []
+        flag_count = len(posthoganalytics.feature_flag_definitions() or [])
+        return [], "flag_not_found", {"flag_key": EAGER_FLAG_KEY, "flags_in_cache": flag_count}
 
     org_ids = _extract_organization_ids_from_flag(flag)
     if not org_ids:
-        return []
+        group_count = len(flag.get("filters", {}).get("groups", []))
+        return (
+            [],
+            "flag_no_org_conditions",
+            {"flag_key": EAGER_FLAG_KEY, "flag_groups": group_count},
+        )
 
-    return list(Team.objects.filter(organization_id__in=org_ids).values_list("pk", flat=True).distinct().order_by("pk"))
+    team_ids = list(
+        Team.objects.filter(organization_id__in=org_ids).values_list("pk", flat=True).distinct().order_by("pk")
+    )
+    diag = {
+        "flag_key": EAGER_FLAG_KEY,
+        "org_ids_in_flag": len(org_ids),
+        "teams_resolved": len(team_ids),
+    }
+    if not team_ids:
+        return [], "no_teams_for_orgs", diag
+    return team_ids, "ok", diag
+
+
+def get_eager_team_ids() -> list[int]:
+    """Thin wrapper kept for external callers and tests; see
+    `_resolve_eager_audience` for the gate-by-gate logic."""
+    team_ids, _, _ = _resolve_eager_audience()
+    return team_ids
 
 
 def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> tuple[int, int]:
@@ -259,11 +282,27 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
     return warmed, failed
 
 
-@dagster.op
+@dagster.op(required_resource_keys={"posthoganalytics"})
 def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    """Run the baseline tile matrix against every flag-enrolled team."""
-    team_ids = get_eager_team_ids()
-    context.log.info(f"eager_baseline_warming_start teams={len(team_ids)}")
+    """Run the baseline tile matrix against every flag-enrolled team.
+
+    Declaring the `posthoganalytics` resource ensures Dagster runs
+    `PostHogAnalyticsResource.create_resource` first, which sets
+    `posthoganalytics.personal_api_key` from `EnvVar("PERSONAL_API_KEY")`.
+    The op then forces a synchronous load of flag definitions — the
+    SDK's background poller runs on a 90s interval and would not fire
+    before this short-lived op subprocess exits.
+    """
+    try:
+        posthoganalytics.load_feature_flags()
+    except Exception:
+        context.log.exception("eager_baseline_warming_load_feature_flags_failed")
+
+    team_ids, gate_reason, diagnostics = _resolve_eager_audience()
+    diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
+    context.log.info(
+        f"eager_baseline_warming_start teams={len(team_ids)} gate_reason={gate_reason} {diag_str}".rstrip()
+    )
 
     # Bulk-load teams once instead of N+1 per-team get().
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids).select_related("organization")}
@@ -282,9 +321,12 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
         warmed += team_warmed
         failed += team_failed
 
-    context.log.info(f"eager_baseline_warming_complete warmed={warmed} failed={failed} skipped={skipped}")
+    context.log.info(
+        f"eager_baseline_warming_complete teams={len(team_ids)} warmed={warmed} failed={failed} "
+        f"skipped={skipped} gate_reason={gate_reason}"
+    )
     result = {"teams": len(team_ids), "warmed": warmed, "failed": failed, "skipped": skipped}
-    context.add_output_metadata(result)
+    context.add_output_metadata({**result, "gate_reason": gate_reason, **diagnostics})
     return result
 
 

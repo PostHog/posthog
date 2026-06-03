@@ -1,0 +1,190 @@
+name: Agent console CI
+
+# Runs typecheck, lint, Next.js production build, and Storybook build for
+# the agent console (services/agent-console). The Docker image build lives
+# in ci-agent-container.yml — this workflow is the cheaper gate that runs
+# on every PR.
+
+on:
+    pull_request:
+    merge_group:
+    push:
+        branches:
+            - master
+            - ass
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Determine need to run agent console checks
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            console: ${{ steps.filter.outputs.console || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              if: github.event_name != 'push' # Run all checks on master push
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      console:
+                        - .github/workflows/ci-agent-console.yml
+                        - 'services/agent-console/**'
+                        - 'packages/agent-chat/**'
+                        - 'packages/quill/**'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+                        - '.oxlintrc.json'
+
+    typecheck-lint:
+        if: needs.changes.outputs.console == 'true'
+        name: Console typecheck + lint
+        needs: changes
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-agent-console.yml
+
+            - name: Install dependencies
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
+              run: pnpm --filter='@posthog/agent-console...' install --frozen-lockfile
+
+            - name: Typecheck (also checks packages/agent-chat via workspace dep)
+              run: pnpm --filter=@posthog/agent-console --filter=@posthog/agent-chat typescript:check
+
+            - name: Lint
+              run: pnpm --filter=@posthog/agent-console --filter=@posthog/agent-chat lint
+
+    build:
+        if: needs.changes.outputs.console == 'true'
+        name: Console Next.js build
+        needs: changes
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-agent-console.yml
+
+            - name: Install dependencies
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
+              run: pnpm --filter='@posthog/agent-console...' install --frozen-lockfile
+
+            # `@posthog/quill` ships `main: ./dist/index.cjs`. Same step as the
+            # Dockerfile's build stage — see services/agent-console/Dockerfile.
+            - name: Build quill workspace dep
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill-*' --filter '@posthog/quill' build
+
+            - name: Next.js production build
+              run: pnpm --filter=@posthog/agent-console build
+
+    storybook:
+        if: needs.changes.outputs.console == 'true'
+        name: Console Storybook build
+        needs: changes
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-agent-console.yml
+
+            - name: Install dependencies
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
+              run: pnpm --filter='@posthog/agent-console...' install --frozen-lockfile
+
+            - name: Build quill workspace dep
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill-*' --filter '@posthog/quill' build
+
+            - name: Storybook static build
+              run: pnpm --filter=@posthog/agent-console build-storybook
+
+    console_ci_pass:
+        needs: [typecheck-lint, build, storybook]
+        name: Agent console CI Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - run: exit 0
+            - name: Check outcomes
+              env:
+                  TYPECHECK_LINT: ${{ needs.typecheck-lint.result }}
+                  BUILD: ${{ needs.build.result }}
+                  STORYBOOK: ${{ needs.storybook.result }}
+              run: |
+                  failed=0
+                  for var in TYPECHECK_LINT BUILD STORYBOOK; do
+                      val="${!var}"
+                      if [[ "$val" != "success" && "$val" != "skipped" ]]; then
+                          echo "FAILED $var: $val"
+                          failed=1
+                      else
+                          echo "OK $var: $val"
+                      fi
+                  done
+                  exit $failed

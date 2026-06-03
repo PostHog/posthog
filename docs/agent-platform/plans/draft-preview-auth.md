@@ -209,7 +209,7 @@ a URL-construction exercise.
 - **agent-ingress** — `previewSecret` on `ResolverOpts`; the gate
   inside `resolveBySlug`; env wiring for `AGENT_PREVIEW_SECRET`
   (reuses `INTERNAL_SECRET` value by convention in v0).
-- **Django (`products/agent_stack/backend/api.py`)** — new
+- **Django (`products/agent_platform/backend/api.py`)** — new
   `preview_proxy` action on `AgentApplicationViewSet`; uses
   `requests` with `stream=True` so SSE works. Same allowlist of
   `<rest>` paths shipped in code.
@@ -249,7 +249,7 @@ hitting the MCP, all of which now go through Django's
 exp=now+60s, sub=user-id}` and forwards the request.
 - MCP tool surface: lands on the existing
   `agent-applications-preview-proxy` action (GET + POST) under
-  `products/agent_stack/backend/api.py` rather than a new
+  `products/agent_platform/backend/api.py` rather than a new
   `agent-applications-revisions-invoke-create` tool — same effect,
   one fewer name.
 

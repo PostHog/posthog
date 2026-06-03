@@ -16,13 +16,11 @@
  * Run via `tsx src/index.ts` (no precompile).
  */
 
-import pg from 'pg'
-const { Pool } = pg
-
 import { S3Client } from '@aws-sdk/client-s3'
 
 import { migrate } from '@posthog/agent-migrations'
 import {
+    createAgentPool,
     createLogger,
     installProcessHandlers,
     MemoryStore,
@@ -73,8 +71,8 @@ async function main(): Promise<void> {
         bucketPrefix: config.bundleS3Prefix,
     })
 
-    const posthogDb = new Pool({ connectionString: config.posthogDbUrl })
-    const agentDb = new Pool({ connectionString: config.agentDbUrl })
+    const posthogDb = createAgentPool(config.posthogDbUrl)
+    const agentDb = createAgentPool(config.agentDbUrl)
     // Belt-and-braces in dev; in prod this is also run as a one-shot
     // job before the service starts (bin/migrate --scope=agent_runtime).
     // Idempotent — no-op when everything is already applied.

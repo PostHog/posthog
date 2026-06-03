@@ -3,7 +3,9 @@
  *
  * Revokes both tokens via PostHog's `/oauth/revoke/` endpoint, then
  * clears the session cookie. Best-effort — if revocation fails the
- * cookie still goes away.
+ * cookie still goes away. Redirects to `/` so the user lands on the
+ * unauthed sign-in screen instead of bouncing straight back into the
+ * OAuth flow.
  */
 
 import { NextResponse } from 'next/server'
@@ -37,7 +39,7 @@ async function handle(): Promise<Response> {
         await Promise.all([revoke(session.accessToken, 'access_token'), revoke(session.refreshToken, 'refresh_token')])
     }
     await clearSession()
-    return NextResponse.redirect(new URL('/api/auth/login', getOrigin()), { status: 302 })
+    return NextResponse.redirect(new URL('/', getOrigin()), { status: 302 })
 }
 
 function getOrigin(): string {

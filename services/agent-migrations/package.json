@@ -15,8 +15,9 @@
         ".": "./src/lib.ts"
     },
     "scripts": {
+        "lint": "oxlint --quiet .",
         "typescript:check": "tsc --noEmit -p .",
-        "test": "vitest run",
+        "test": "vitest run --passWithNoTests",
         "migrate": "tsx src/bin.ts up",
         "migrate:down": "tsx src/bin.ts down"
     },

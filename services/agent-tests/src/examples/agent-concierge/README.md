@@ -94,7 +94,7 @@ These are platform-side, not bundle-side:
    Without it, the concierge couldn't act as the user.
 4. **The MCP verbs the concierge calls** —
    `agent-applications-*` are scaffolded in
-   [`services/mcp/definitions/agent_stack.yaml`](../../../../mcp/definitions/agent_stack.yaml).
+   [`services/mcp/definitions/agent_platform.yaml`](../../../../mcp/definitions/agent_platform.yaml).
    `validate-create` is `enabled: true` but the underlying action
    is a stub; `test-run` / `secrets-issue-write-token` / `diff`
    aren't there yet.
@@ -131,7 +131,7 @@ loads the bundle from disk and asserts:
 - `agent.md` is present
 - The MCP routes the concierge declares in `spec.mcps[].tools`
   all match the catalog in
-  [`services/mcp/definitions/agent_stack.yaml`](../../../../mcp/definitions/agent_stack.yaml)
+  [`services/mcp/definitions/agent_platform.yaml`](../../../../mcp/definitions/agent_platform.yaml)
 
 NOT a real-inference test — the model is faux. This is the wiring
 regression net, not a quality bar. (When the platform gaps in

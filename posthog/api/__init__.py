@@ -4,7 +4,6 @@ from rest_framework_extensions.routers import NestedRegistryItem
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
-from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
@@ -12,8 +11,6 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
-from posthog.batch_exports import http as batch_exports
-from posthog.batch_exports.api import file_download
 from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
@@ -22,7 +19,6 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
-import products.deployments.backend.api as deployments
 import products.alerts.backend.api.alert as alert
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
@@ -38,14 +34,14 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
-from products.agent_stack.backend.api import (
+from products.agent_platform.backend.api import (
     AgentApplicationViewSet,
     AgentFleetViewSet,
     AgentMemoryViewSet,
     AgentNativeToolsViewSet,
     AgentRevisionViewSet,
 )
-from products.agent_stack.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
+from products.agent_platform.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
@@ -74,6 +70,12 @@ from products.ai_observability.backend.api import (
     TraceReviewViewSet,
 )
 from products.ai_observability.backend.api.skills import LLMSkillViewSet
+from products.annotations.backend.api import annotation
+from products.batch_exports.backend.api import (
+    batch_export as batch_exports,
+    file_download,
+)
+from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
@@ -109,6 +111,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
+from products.exports.backend.api import exports
 from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
@@ -156,7 +159,6 @@ from ..taxonomy import property_definition_api
 from . import (
     advanced_activity_logs,
     ai_gateway,
-    annotation,
     async_migration,
     authentication,
     cimd_verification_token,
@@ -166,7 +168,6 @@ from . import (
     debug_ch_queries,
     event_definition,
     event_schema,
-    exports,
     health_issue,
     hog,
     ingestion_warnings,
@@ -368,22 +369,6 @@ projects_router.register(
     "project_wizard_sessions",
     ["project_id"],
 )
-# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
-# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
-# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
-project_deployment_projects_router = projects_router.register(
-    r"deployment_projects",
-    deployments.DeploymentProjectViewSet,
-    "project_deployment_projects",
-    ["project_id"],
-)
-project_deployment_projects_router.register(
-    r"deployments",
-    deployments.DeploymentViewSet,
-    "project_deployment_projects_deployments",
-    ["project_id", "deployment_project_id"],
-)
-
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
@@ -528,6 +513,13 @@ register_legacy_dual_route_team_nested_viewset(
     r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
 )
 
+projects_router.register(
+    r"desktop_file_system",
+    file_system.DesktopFileSystemViewSet,
+    "project_desktop_file_system",
+    ["team_id"],
+)
+
 register_legacy_dual_route_team_nested_viewset(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
@@ -535,10 +527,24 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
+projects_router.register(
+    r"desktop_file_system_shortcut",
+    file_system_shortcut.DesktopFileSystemShortcutViewSet,
+    "project_desktop_file_system_shortcut",
+    ["team_id"],
+)
+
 register_legacy_dual_route_team_nested_viewset(
     r"persisted_folder",
     persisted_folder.PersistedFolderViewSet,
     "environment_persisted_folder",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"desktop_persisted_folder",
+    persisted_folder.DesktopPersistedFolderViewSet,
+    "project_desktop_persisted_folder",
     ["team_id"],
 )
 
@@ -1570,7 +1576,7 @@ projects_router.register(
     ["project_id"],
 )
 # Session reads go to the runtime DB via the janitor (GET /sessions/:id) —
-# Django's API doesn't expose them, see products/agent_stack/README.md.
+# Django's API doesn't expose them, see products/agent_platform/README.md.
 
 register_legacy_dual_route_team_nested_viewset(
     r"tracing/spans",

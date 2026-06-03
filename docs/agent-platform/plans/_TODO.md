@@ -41,18 +41,17 @@ For the consolidated, sequenced view of how these plans relate, see
 New bullets land here as freeform reminders; move them into their own plan
 file (and out of this list) once the design lands.
 
-- [ ] **Tailscale-backed MCP integration** — see
-      [`tailscale-mcps.md`](tailscale-mcps.md). Solves the
-      not-publicly-reachable case (Grafana, k8s, internal services)
-      that `runtime-mcps.md` doesn't. Customer deploys their own MCP
-      servers in their infra, exposes them on their tailnet, mints a
-      tag-scoped Tailscale OAuth client, pastes it into PostHog as an
-      Integration. The agent-runner mints ephemeral tag-scoped tsnet
-      nodes per session to make the upstream HTTP calls. New
-      `kind: 'tailscale'` `McpRef`; transport is hidden behind the
-      `McpClient` abstraction so the dispatcher doesn't branch on it.
-      PostHog dogfoods via the same path — same code, same OAuth dance,
-      same failure modes as the customer flow.
+- [ ] **Tailscale-backed MCP integration** — **PARKED** (see
+      [`tailscale-mcps.md`](tailscale-mcps.md) §"Why this is parked").
+      The design holds, but the Node ↔ Tailscale integration story is
+      rougher than expected: `tsnet` is Go-only, no first-party Node
+      SDK exists, and the cross-language `tailscaled` daemon path only
+      supports one tailnet per process — which is the constraint that
+      makes the multi-customer story require a custom Go binary in the
+      agent-runner pod. Not worth picking up without a concrete customer
+      ask, official Tailscale Node bindings landing, or a second PostHog
+      product needing the same "PostHog Cloud reaches into customer's
+      private network" plumbing.
 
 - [ ] **Cron trigger scheduler** (Dylan — picking up after runtime-mcps
       PR 7) — see

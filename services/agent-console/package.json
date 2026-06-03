@@ -7,6 +7,7 @@
     "author": "PostHog <hey@posthog.com>",
     "type": "module",
     "scripts": {
+        "lint": "oxlint --quiet .",
         "dev": "next dev -p 3040",
         "build": "next build",
         "start": "next start -p 3040",
@@ -27,10 +28,10 @@
         "react-dom": "^19.2.0"
     },
     "devDependencies": {
-        "@storybook/addon-docs": "^7.6.4",
+        "@storybook/addon-docs": "^8.6.14",
         "@storybook/react": "catalog:",
-        "@storybook/react-vite": "^7.6.4",
-        "@storybook/theming": "^7.6.20",
+        "@storybook/react-vite": "^8.6.14",
+        "@storybook/theming": "^8.6.14",
         "@tailwindcss/postcss": "^4.1.17",
         "@tailwindcss/vite": "^4.1.17",
         "@types/node": "catalog:",
@@ -38,8 +39,8 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^4.3.4",
         "msw": "^2.12.14",
-        "storybook": "^7.6.21",
-        "storybook-dark-mode": "3.0.3",
+        "storybook": "^8.6.14",
+        "storybook-dark-mode": "^4.0.2",
         "tailwindcss": "^4.1.17",
         "typescript": "catalog:",
         "vite": "^5.4.21"
