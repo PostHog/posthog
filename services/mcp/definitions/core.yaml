@@ -68,6 +68,21 @@ tools:
     desktop-file-system-destroy:
         operation: desktop_file_system_destroy
         enabled: false
+    desktop-file-system-instructions-destroy:
+        operation: desktop_file_system_instructions_destroy
+        enabled: false
+    desktop-file-system-instructions-partial-update:
+        operation: desktop_file_system_instructions_partial_update
+        enabled: false
+    desktop-file-system-instructions-retrieve:
+        operation: desktop_file_system_instructions_retrieve
+        enabled: false
+    desktop-file-system-instructions-update:
+        operation: desktop_file_system_instructions_update
+        enabled: false
+    desktop-file-system-instructions-versions-list:
+        operation: desktop_file_system_instructions_versions_list
+        enabled: false
     desktop-file-system-link-create:
         operation: desktop_file_system_link_create
         enabled: false
