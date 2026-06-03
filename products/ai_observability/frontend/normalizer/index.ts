@@ -1,4 +1,5 @@
-// Parallel to `../utils`, which stays the only production path; this is
-// exercised by the test suite, awaiting a feature flag to dual-run in prod.
+// Recipe-based parallel to the legacy `../utils` normalizer. Production routes
+// through `../messageNormalization`, which flag-switches between the two; this
+// module is also exercised directly by the parity test suite.
 
 export { RecipeNormalizer } from './recipe/recipeNormalizer'
