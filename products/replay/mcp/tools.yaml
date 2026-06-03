@@ -18,42 +18,6 @@ tools:
     create-session-summaries-individually:
         operation: create_session_summaries_individually
         enabled: false
-    single-session-summaries-list:
-        operation: single_session_summaries_list
-        enabled: true
-        scopes:
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List session summaries
-        description: >
-            List stored AI-generated session summaries for the project, one row per session (latest summary kept).
-            Use to discover which sessions have already been summarized and to filter for sessions with specific
-            problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned
-            by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use
-            `single-session-summaries-get` for the per-segment / per-action detail. This reads persisted summaries
-            only; it does not trigger generation, so a session with no stored summary simply won't appear.
-    single-session-summaries-get:
-        operation: single_session_summaries_retrieve
-        enabled: true
-        scopes:
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{session_id}'
-        title: Get session summary
-        description: >
-            Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event).
-            Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion /
-            exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus
-            `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model,
-            whether visual confirmation was applied). 404 if no summary has been generated for the session yet — to
-            create one, use `session-recording-summarize` (slow, ~5 min) rather than this read endpoint.
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
