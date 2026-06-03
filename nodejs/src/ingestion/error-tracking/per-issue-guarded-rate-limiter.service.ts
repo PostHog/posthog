@@ -65,13 +65,20 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
         return this.prefixes.cooldown
     }
 
+    // All three keys of a single guarded call carry a `{teamId}` hash tag so Redis Cluster
+    // colocates them on one slot — the Lua script touches all three at once and would otherwise
+    // fail with CROSSSLOT. Tagging on teamId keeps different teams spread across slots.
     public cooldownKey(teamId: number): string {
-        return `${this.prefixes.cooldown}/${teamId}`
+        return `${this.prefixes.cooldown}/{${teamId}}`
     }
 
     public counterKey(teamId: number, nowSeconds: number): string {
         const window = Math.floor(nowSeconds / this.config.windowTtlSeconds)
-        return `${this.prefixes.counter}/${teamId}/${window}`
+        return `${this.prefixes.counter}/{${teamId}}/${window}`
+    }
+
+    public bucketKey(teamId: number, id: string): string {
+        return `${this.prefixes.bucket}/{${teamId}}/${id}`
     }
 
     /** Tripped/cooldown pass through as `isRateLimited: false`; the 4-state status only surfaces via the Prom counter. */
@@ -117,7 +124,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
                     pipeline.checkGuardedRateLimit(
                         this.cooldownKey(req.teamId),
                         this.counterKey(req.teamId, now),
-                        `${this.prefixes.bucket}/${req.id}`,
+                        this.bucketKey(req.teamId, req.id),
                         now,
                         req.cost,
                         req.bucketSize,

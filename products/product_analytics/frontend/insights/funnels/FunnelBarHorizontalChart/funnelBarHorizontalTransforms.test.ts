@@ -2,6 +2,7 @@ import { EntityTypes, FunnelStepReference, type FunnelStepWithConversionMetrics 
 
 import {
     buildFunnelBarHorizontalData,
+    type FunnelBarHorizontalStepData,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
 } from './funnelBarHorizontalTransforms'
@@ -45,19 +46,25 @@ const options = {
     fillerColor: '#eef0f3',
 }
 
+/** Collects one series' value across every step, for asserting against the old per-step arrays. */
+function dataAcross(steps: FunnelBarHorizontalStepData[], seriesIndex: number): number[] {
+    return steps.map((s) => s.series[seriesIndex].data[0])
+}
+
 describe('buildFunnelBarHorizontalData', () => {
-    it('returns empty series + labels when given no steps', () => {
-        expect(buildFunnelBarHorizontalData([], options)).toEqual({ series: [], labels: [] })
+    it('returns no steps when given no steps', () => {
+        expect(buildFunnelBarHorizontalData([], options)).toEqual([])
     })
 
-    it('emits one label per step', () => {
+    it('emits one entry per step, each labeled by its index', () => {
         const steps = [
             makeStep({ count: 100, fromBasisStep: 1, name: 'Viewed' }),
             makeStep({ count: 50, fromBasisStep: 0.5, name: 'Signed up' }),
             makeStep({ count: 20, fromBasisStep: 0.2, name: 'Purchased' }),
         ]
-        const { labels } = buildFunnelBarHorizontalData(steps, options)
-        expect(labels).toHaveLength(3)
+        const result = buildFunnelBarHorizontalData(steps, options)
+        expect(result).toHaveLength(3)
+        expect(result.map((s) => s.label)).toEqual(['0', '1', '2'])
     })
 
     describe('non-breakdown funnel', () => {
@@ -67,32 +74,33 @@ describe('buildFunnelBarHorizontalData', () => {
             makeStep({ count: 20, fromBasisStep: 0.2, name: 'Purchased' }),
         ]
 
-        it('emits one segment series + one filler series, each with one value per step', () => {
-            const { series } = buildFunnelBarHorizontalData(noBreakdownSteps, options)
+        it('gives each step one segment series + one filler series, each holding a single value', () => {
+            const result = buildFunnelBarHorizontalData(noBreakdownSteps, options)
 
-            expect(series).toHaveLength(2)
-            expect(series[0].data).toEqual([100, 50, 20])
-            expect(series[1].data).toEqual([0, 50, 80])
+            expect(result.every((s) => s.series.length === 2)).toBe(true)
+            expect(result.every((s) => s.series.every((entry) => entry.data.length === 1))).toBe(true)
+            expect(dataAcross(result, 0)).toEqual([100, 50, 20])
+            expect(dataAcross(result, 1)).toEqual([0, 50, 80])
         })
 
         it('tags each series with its drop-off / breakdown role for click + tooltip routing', () => {
-            const { series } = buildFunnelBarHorizontalData(noBreakdownSteps, options)
+            const [first] = buildFunnelBarHorizontalData(noBreakdownSteps, options)
 
-            expect(series[0].meta).toEqual({ isDropOff: false, breakdownIndex: null })
-            expect(series[1].meta).toEqual({ isDropOff: true, breakdownIndex: null })
+            expect(first.series[0].meta).toEqual({ isDropOff: false, breakdownIndex: null })
+            expect(first.series[1].meta).toEqual({ isDropOff: true, breakdownIndex: null })
         })
 
         it('hides the filler from the tooltip so it doesn’t double up with FunnelTooltip’s drop-off section', () => {
-            const { series } = buildFunnelBarHorizontalData(noBreakdownSteps, options)
-            expect(series[1].visibility?.tooltip).toBe(false)
+            const [first] = buildFunnelBarHorizontalData(noBreakdownSteps, options)
+            expect(first.series[1].visibility?.tooltip).toBe(false)
         })
 
-        it('colors the segment from the representative step and the filler from options.fillerColor', () => {
+        it('colors the segment from the step and the filler from options.fillerColor', () => {
             const getColor = jest.fn(() => '#abcabc')
-            const { series } = buildFunnelBarHorizontalData(noBreakdownSteps, { ...options, getColor })
+            const [first] = buildFunnelBarHorizontalData(noBreakdownSteps, { ...options, getColor })
 
-            expect(series[0].color).toBe('#abcabc')
-            expect(series[1].color).toBe(options.fillerColor)
+            expect(first.series[0].color).toBe('#abcabc')
+            expect(first.series[1].color).toBe(options.fillerColor)
             expect(getColor).toHaveBeenCalledWith(noBreakdownSteps[0])
         })
     })
@@ -117,24 +125,24 @@ describe('buildFunnelBarHorizontalData', () => {
             }),
         ]
 
-        it('emits one series per variant plus the trailing filler', () => {
-            const { series } = buildFunnelBarHorizontalData(breakdownSteps, options)
+        it('gives each step one series per variant plus the trailing filler', () => {
+            const result = buildFunnelBarHorizontalData(breakdownSteps, options)
 
-            expect(series).toHaveLength(3)
-            expect(series.map((s) => s.label)).toEqual(['mobile', 'desktop', 'Drop-off'])
+            expect(result.every((s) => s.series.length === 3)).toBe(true)
+            expect(result[0].series.map((s) => s.label)).toEqual(['mobile', 'desktop', 'Drop-off'])
         })
 
         it('builds per-step fractions per variant against the configured basis step', () => {
-            const { series } = buildFunnelBarHorizontalData(breakdownSteps, options)
-            expect(series[0].data).toEqual([60, 30])
-            expect(series[1].data).toEqual([40, 10])
-            expect(series[2].data).toEqual([0, 60])
+            const result = buildFunnelBarHorizontalData(breakdownSteps, options)
+            expect(dataAcross(result, 0)).toEqual([60, 30])
+            expect(dataAcross(result, 1)).toEqual([40, 10])
+            expect(dataAcross(result, 2)).toEqual([0, 60])
         })
 
         it('tags each segment with its source breakdownIndex', () => {
-            const { series } = buildFunnelBarHorizontalData(breakdownSteps, options)
-            expect(series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 0 })
-            expect(series[1].meta).toEqual({ isDropOff: false, breakdownIndex: 1 })
+            const [first] = buildFunnelBarHorizontalData(breakdownSteps, options)
+            expect(first.series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 0 })
+            expect(first.series[1].meta).toEqual({ isDropOff: false, breakdownIndex: 1 })
         })
 
         it('zeros a missing variant at a later step rather than rolling its count into another bar', () => {
@@ -154,11 +162,11 @@ describe('buildFunnelBarHorizontalData', () => {
                 }),
             ]
 
-            const { series } = buildFunnelBarHorizontalData(skewed, options)
-            expect(series).toHaveLength(3)
-            expect(series[0].data).toEqual([60, 50]) // mobile
-            expect(series[1].data).toEqual([40, 0]) // desktop — missing in step 1
-            expect(series[2].data).toEqual([0, 50]) // filler
+            const result = buildFunnelBarHorizontalData(skewed, options)
+            expect(result.every((s) => s.series.length === 3)).toBe(true)
+            expect(dataAcross(result, 0)).toEqual([60, 50]) // mobile
+            expect(dataAcross(result, 1)).toEqual([40, 0]) // desktop — missing in step 1
+            expect(dataAcross(result, 2)).toEqual([0, 50]) // filler
         })
     })
 
@@ -178,20 +186,20 @@ describe('buildFunnelBarHorizontalData', () => {
         const breakdownFilter = { breakdown: '$browser' }
 
         it('collapses to one segment + filler, sourced from the single visible variant', () => {
-            const { series } = buildFunnelBarHorizontalData(collapsedSteps, { ...options, breakdownFilter })
+            const result = buildFunnelBarHorizontalData(collapsedSteps, { ...options, breakdownFilter })
 
-            expect(series).toHaveLength(2)
-            expect(series[0].label).toBe('mobile')
-            expect(series[0].data).toEqual([100, 50])
-            expect(series[0].meta?.breakdownIndex).toBe(0)
-            expect(series[1].data).toEqual([0, 50])
+            expect(result.every((s) => s.series.length === 2)).toBe(true)
+            expect(result[0].series[0].label).toBe('mobile')
+            expect(dataAcross(result, 0)).toEqual([100, 50])
+            expect(result[0].series[0].meta?.breakdownIndex).toBe(0)
+            expect(dataAcross(result, 1)).toEqual([0, 50])
         })
 
         it('falls back to the parent step’s rate when no breakdownFilter is set', () => {
-            const { series } = buildFunnelBarHorizontalData(collapsedSteps, options)
+            const result = buildFunnelBarHorizontalData(collapsedSteps, options)
 
-            expect(series[0].data).toEqual([100, 50])
-            expect(series[0].meta?.breakdownIndex).toBeNull()
+            expect(dataAcross(result, 0)).toEqual([100, 50])
+            expect(result[0].series[0].meta?.breakdownIndex).toBeNull()
         })
     })
 
@@ -207,8 +215,8 @@ describe('buildFunnelBarHorizontalData', () => {
                     makeStep({ count: 50, fromBasisStep: 0.5, name: 'Signed up' }),
                     makeStep({ count: 20, fromBasisStep: 0.2, name: 'Purchased' }),
                 ]
-                const { series } = buildFunnelBarHorizontalData(steps, { ...options, stepReference })
-                expect(series[0].data).toEqual(expected)
+                const result = buildFunnelBarHorizontalData(steps, { ...options, stepReference })
+                expect(dataAcross(result, 0)).toEqual(expected)
             }
         )
 
@@ -226,12 +234,12 @@ describe('buildFunnelBarHorizontalData', () => {
                     ],
                 }),
             ]
-            const { series } = buildFunnelBarHorizontalData(steps, {
+            const result = buildFunnelBarHorizontalData(steps, {
                 ...options,
                 stepReference: FunnelStepReference.previous,
             })
-            // Step 0 has no nested_breakdown, so non-breakdown path is taken regardless of stepReference.
-            expect(series[0].data).toEqual([100, 50, 30])
+            // Step 0 has no nested_breakdown, so the non-breakdown path is taken regardless of stepReference.
+            expect(dataAcross(result, 0)).toEqual([100, 50, 30])
         })
     })
 
@@ -257,8 +265,8 @@ describe('buildFunnelBarHorizontalData', () => {
                     ],
                 }),
             ]
-            const { series } = buildFunnelBarHorizontalData(steps, options)
-            expect(series.map((s) => s.data)).toEqual([
+            const result = buildFunnelBarHorizontalData(steps, options)
+            expect([dataAcross(result, 0), dataAcross(result, 1), dataAcross(result, 2)]).toEqual([
                 [0, 0],
                 [0, 0],
                 [100, 100],
@@ -286,8 +294,8 @@ describe('buildFunnelBarHorizontalData', () => {
                     ],
                 }),
             ]
-            const { series } = buildFunnelBarHorizontalData(steps, options)
-            expect(series.map((s) => s.key)).toEqual([
+            const [first] = buildFunnelBarHorizontalData(steps, options)
+            expect(first.series.map((s) => s.key)).toEqual([
                 `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}0`,
                 `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}1`,
                 FUNNEL_BAR_HORIZONTAL_FILLER_KEY,

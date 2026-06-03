@@ -14,6 +14,7 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.test.client import Client
 from django.utils import timezone
 
@@ -582,6 +583,124 @@ email@example.org
 
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 0)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
+        side_effect=insert_cohort_from_filters,
+    )
+    def test_static_cohort_create_with_behavioral_criteria(self, _insert_cohort_from_filters: MagicMock):
+        performed = _create_person(distinct_ids=["did-pageview"], team_id=self.team.pk)
+        _create_person(distinct_ids=["no-pageview"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="did-pageview",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "behavioral snapshot",
+                "is_static": True,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertTrue(cohort.is_static)
+        self.assertEqual(cohort.count, 1)
+
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
+        self.assertEqual(people_in_cohort.count(), 1)
+        first_person = people_in_cohort.first()
+        assert first_person is not None
+        self.assertEqual(first_person.uuid, performed.uuid)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
+        side_effect=insert_cohort_from_filters,
+    )
+    def test_static_cohort_create_with_or_nested_criteria(self, _insert_cohort_from_filters: MagicMock):
+        first_match = _create_person(
+            distinct_ids=["or-match-1"],
+            team_id=self.team.pk,
+            properties={"email": "first@example.com"},
+        )
+        second_match = _create_person(
+            distinct_ids=["or-match-2"],
+            team_id=self.team.pk,
+            properties={"email": "second@example.com"},
+        )
+        _create_person(
+            distinct_ids=["or-miss"],
+            team_id=self.team.pk,
+            properties={"email": "other@example.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "or criteria snapshot",
+                "is_static": True,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "first@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    },
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "second@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertTrue(cohort.is_static)
+        self.assertEqual(cohort.count, 2)
+
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
+        self.assertEqual({p.uuid for p in people_in_cohort}, {first_match.uuid, second_match.uuid})
 
     def test_static_cohort_rejects_criteria_edits_after_creation(self):
         cohort = Cohort.objects.create(
@@ -5408,11 +5527,18 @@ jane@example.com
             content_type="application/csv",
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test_email_only", "csv": csv, "is_static": True},
-            format="multipart",
-        )
+        # pmat_email materialized column doesn't exist in the test CH schema,
+        # so we mock the CH lookup to return the expected UUIDs.
+        with patch.object(
+            Cohort,
+            "_get_uuids_for_emails_batch_ch",
+            return_value=[str(person1.uuid), str(person2.uuid)],
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "test_email_only", "csv": csv, "is_static": True},
+                format="multipart",
+            )
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(pk=response.json()["id"])
@@ -5535,166 +5661,70 @@ Jane Smith,user456,jane@example.com
         self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
-    def test_static_cohort_csv_upload_respects_email_property_key_casing(self, patch_calculate_cohort_from_list):
+    def test_static_cohort_csv_upload_email_lookup_uses_clickhouse(self, patch_calculate_cohort_from_list):
         """
-        CSV upload with an email column matches against the exact property key from the CSV header.
-
-        Before the fix: only the lowercase 'email' property key was queried.
-        After the fix: the property key matches the CSV header casing.
-
-        Note: this exercises the Postgres path because the `cohort-email-lookup-clickhouse`
-        feature flag defaults off in tests. CH path coverage is handled separately below.
+        CSV upload with an email column always uses the ClickHouse pmat_email
+        materialized column for lookup, regardless of CSV header casing.
         """
-        # Create persons with different email property key casings
-        person_lowercase = Person.objects.create(
-            team=self.team, distinct_ids=["user_lowercase"], properties={"email": "lowercase@example.com"}
-        )
-        person_titlecase = Person.objects.create(
-            team=self.team, distinct_ids=["user_titlecase"], properties={"Email": "titlecase@example.com"}
-        )
-        person_uppercase = Person.objects.create(
-            team=self.team, distinct_ids=["user_uppercase"], properties={"EMAIL": "uppercase@example.com"}
+        person = Person.objects.create(
+            team=self.team, distinct_ids=["user_email"], properties={"email": "test@example.com"}
         )
 
-        # Test 1: CSV with lowercase 'email' header should match lowercase property
-        csv_lowercase = SimpleUploadedFile(
-            "email_lowercase.csv",
-            str.encode(
-                """email
-lowercase@example.com
-"""
-            ),
+        csv_file = SimpleUploadedFile(
+            "emails.csv",
+            str.encode("email\ntest@example.com\n"),
             content_type="application/csv",
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test_email_lowercase", "csv": csv_lowercase, "is_static": True},
-            format="multipart",
-        )
+        # pmat_email materialized column doesn't exist in the test CH schema,
+        # so we mock the CH lookup to return the expected UUID.
+        with patch.object(
+            Cohort,
+            "_get_uuids_for_emails_batch_ch",
+            return_value=[str(person.uuid)],
+        ) as ch_mock:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "test_email_ch", "csv": csv_file, "is_static": True},
+                format="multipart",
+            )
+            ch_mock.assert_called_once()
 
         self.assertEqual(response.status_code, 201)
-        cohort_lowercase = Cohort.objects.get(pk=response.json()["id"])
-        people_in_cohort = Person.objects.filter(cohort__id=cohort_lowercase.pk, team_id=cohort_lowercase.team_id)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 1)
-        self.assertIn(str(person_lowercase.uuid), {str(p.uuid) for p in people_in_cohort})
+        self.assertIn(str(person.uuid), {str(p.uuid) for p in people_in_cohort})
 
-        # Test 2: CSV with title case 'Email' header should match title case property
-        csv_titlecase = SimpleUploadedFile(
-            "email_titlecase.csv",
-            str.encode(
-                """Email
-titlecase@example.com
-"""
-            ),
-            content_type="application/csv",
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test_email_titlecase", "csv": csv_titlecase, "is_static": True},
-            format="multipart",
-        )
-
-        self.assertEqual(response.status_code, 201)
-        cohort_titlecase = Cohort.objects.get(pk=response.json()["id"])
-        people_in_cohort = Person.objects.filter(cohort__id=cohort_titlecase.pk, team_id=cohort_titlecase.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        self.assertIn(str(person_titlecase.uuid), {str(p.uuid) for p in people_in_cohort})
-
-        # Test 3: CSV with uppercase 'EMAIL' header should match uppercase property
-        csv_uppercase = SimpleUploadedFile(
-            "email_uppercase.csv",
-            str.encode(
-                """EMAIL
-uppercase@example.com
-"""
-            ),
-            content_type="application/csv",
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test_email_uppercase", "csv": csv_uppercase, "is_static": True},
-            format="multipart",
-        )
-
-        self.assertEqual(response.status_code, 201)
-        cohort_uppercase = Cohort.objects.get(pk=response.json()["id"])
-        people_in_cohort = Person.objects.filter(cohort__id=cohort_uppercase.pk, team_id=cohort_uppercase.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        self.assertIn(str(person_uppercase.uuid), {str(p.uuid) for p in people_in_cohort})
-
-        # Test 4: CSV with mixed case emails should match their respective casings in a multi-column format
-        csv_mixed = SimpleUploadedFile(
-            "email_mixed.csv",
-            str.encode(
-                """name,Email
-User 1,titlecase@example.com
-User 2,uppercase@example.com
-"""
-            ),
-            content_type="application/csv",
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test_email_mixed", "csv": csv_mixed, "is_static": True},
-            format="multipart",
-        )
-
-        self.assertEqual(response.status_code, 201)
-        cohort_mixed = Cohort.objects.get(pk=response.json()["id"])
-        people_in_cohort = Person.objects.filter(cohort__id=cohort_mixed.pk, team_id=cohort_mixed.team_id)
-
-        # Should only find person_titlecase because CSV header is "Email" (title case)
-        # Before the fix, this would fail because it only looked at lowercase "email"
-        self.assertEqual(people_in_cohort.count(), 1)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-        self.assertIn(str(person_titlecase.uuid), person_uuids_in_cohort)
-        self.assertNotIn(str(person_uppercase.uuid), person_uuids_in_cohort)
-        self.assertNotIn(str(person_lowercase.uuid), person_uuids_in_cohort)
+    def test_insert_users_by_email_always_uses_clickhouse(self):
+        cohort = Cohort.objects.create(team=self.team, name="ch-only", is_static=True)
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
+            cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
+        ch_mock.assert_called_once()
 
     @parameterized.expand(
         [
-            ("default lowercase key uses CH", "email", True),
-            ("explicit lowercase key uses CH", "email", True),
-            ("titlecase key forces PG", "Email", False),
-            ("uppercase key forces PG", "EMAIL", False),
+            ("lowercase", "email"),
+            ("titlecase", "Email"),
+            ("uppercase", "EMAIL"),
+            ("none", None),
         ]
     )
-    @patch("posthog.models.cohort.cohort.posthoganalytics.feature_enabled", return_value=True)
-    def test_insert_users_by_email_routes_to_clickhouse_only_for_default_key(
-        self, _name, email_property_key, expects_ch, _patch_feature_flag
-    ):
-        cohort = Cohort.objects.create(team=self.team, name=f"ch-routing-{email_property_key}", is_static=True)
-        with (
-            patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock,
-            patch.object(Cohort, "_get_uuids_for_emails_batch_pg", return_value=[]) as pg_mock,
-        ):
+    def test_email_property_key_is_accepted_and_always_routes_to_clickhouse(self, _name, email_property_key):
+        cohort = Cohort.objects.create(team=self.team, name="key-compat", is_static=True)
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id, email_property_key=email_property_key)
+        ch_mock.assert_called_once()
 
-        if expects_ch:
-            ch_mock.assert_called_once()
-            pg_mock.assert_not_called()
-        else:
-            ch_mock.assert_not_called()
-            pg_mock.assert_called_once()
-            # Non-default keys must reach the PG helper with the exact casing from the caller.
-            # The model passes email_property_key positionally, so check args[2] with a kwarg fallback.
-            call_args = pg_mock.call_args
-            actual_key = call_args.kwargs.get(
-                "email_property_key", call_args.args[2] if len(call_args.args) > 2 else None
-            )
-            self.assertEqual(actual_key, email_property_key)
+    @override_settings(DEBUG=False)
+    def test_clickhouse_email_lookup_failure_records_error_on_cohort(self):
+        cohort = Cohort.objects.create(team=self.team, name="ch-error", is_static=True)
 
-    @patch("posthog.models.cohort.cohort.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.models.cohort.cohort.sync_execute", side_effect=RuntimeError("CH down"))
-    def test_clickhouse_email_lookup_falls_back_to_postgres_on_failure(self, _patch_sync_execute, _patch_feature_flag):
-        # When the CH primitive raises, _get_uuids_for_emails_batch_ch swallows the exception
-        # and re-runs the lookup against Postgres with the default 'email' key.
-        cohort = Cohort.objects.create(team=self.team, name="ch-fallback", is_static=True)
-        with patch.object(Cohort, "_get_uuids_for_emails_batch_pg", return_value=[]) as pg_mock:
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", side_effect=RuntimeError("CH down")):
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
 
-        pg_mock.assert_called()
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertIsNotNone(cohort.last_error_at)
+        self.assertIsNone(cohort.last_calculation)

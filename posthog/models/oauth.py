@@ -96,6 +96,19 @@ class OAuthApplication(AbstractApplication):
         help_text="Branding to use on authentication pages",
     )
 
+    # Server-stored scope ceiling for tokens issued for this app.
+    # CharField max_length matches PersonalAPIKey.scopes (`max_length=100`)
+    # so the same `obj:action` strings fit identically across both
+    # PAT and OAuth surfaces.
+    scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+    )
+
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
     is_cimd_client: models.BooleanField = models.BooleanField(
         default=False,
@@ -305,6 +318,16 @@ class OAuthAccessToken(AbstractAccessToken):
         blank=True,
         related_name="+",
         db_index=True,
+    )
+
+    # Optional user-facing label set at mint time. Carried across refreshes so
+    # it persists for the life of the connection, not just one rotated token.
+    label: models.CharField = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Optional user-facing label so a user can identify a token (per-device, per-IP, or by purpose).",
     )
 
 

@@ -43,7 +43,11 @@ from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 
-from products.feature_flags.backend.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
+from products.feature_flags.backend.flags_cache import (
+    _compare_flag_fields,
+    get_team_ids_with_recently_updated_flags,
+    get_teams_with_flags_queryset,
+)
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.types import FlagFilters, FlagProperty, PropertyFilterType
@@ -701,6 +705,7 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     update_fn=_update_flag_definitions_with_cohorts,
     cache_name="flag_definitions",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
+    get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
 )
 
 FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
@@ -708,6 +713,7 @@ FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementC
     update_fn=_update_flag_definitions_without_cohorts,
     cache_name="flag_definitions_no_cohorts",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
+    get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
 )
 
 

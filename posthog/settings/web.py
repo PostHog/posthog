@@ -72,11 +72,9 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
-    "products.query_performance_ai.orchestrator.apps.QueryPerformanceAiConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
-    "products.deployments.backend.apps.DeploymentsConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -237,7 +235,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/id-jag/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -509,11 +507,13 @@ SPECTACULAR_SETTINGS = {
         "AssigneeTypeEnum": ["user", "role"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
         "TaskExecutionModeEnum": ["interactive", "background"],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
+        "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
         "NotificationDestinationTypeEnum": ["slack", "webhook"],
         "TaskRunArtifactTypeEnum": [
@@ -632,20 +632,6 @@ CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
 CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
-
-# Single-tenant Cloudflare Pages settings for the Deployments product.
-# Separate from the SaaS proxy block above: different account scope (Pages,
-# not Workers + DNS for posthog.com) and a different zone (hog.dev).
-DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID = get_from_env("DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID", "")
-DEPLOYMENTS_CLOUDFLARE_API_TOKEN = get_from_env("DEPLOYMENTS_CLOUDFLARE_API_TOKEN", "")
-DEPLOYMENTS_HOG_DEV_ZONE_ID = get_from_env("DEPLOYMENTS_HOG_DEV_ZONE_ID", "")
-DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX = get_from_env("DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX", "hogdev-")
-
-# Base URL the deployments Temporal worker uses when calling back into
-# the internal API. Worker pods in the same cluster set this to the
-# cluster-internal Service URL (e.g. http://posthog-web-django.posthog
-# .svc.cluster.local:8000). Empty value falls back to SITE_URL.
-DEPLOYMENTS_INTERNAL_API_BASE_URL = get_from_env("DEPLOYMENTS_INTERNAL_API_BASE_URL", "")
 
 # Domain Connect (automated DNS configuration)
 DOMAIN_CONNECT_PRIVATE_KEY: str | None = os.getenv("DOMAIN_CONNECT_PRIVATE_KEY", "").replace("\\n", "\n") or None
@@ -799,6 +785,10 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
+ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
+ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS", 60 * 60, type_cast=int)
 
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10

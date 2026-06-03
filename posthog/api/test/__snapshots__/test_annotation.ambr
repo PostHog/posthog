@@ -134,6 +134,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -220,7 +221,8 @@
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.11
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
@@ -625,6 +627,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -758,6 +761,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -844,7 +848,8 @@
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.20
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
@@ -1116,7 +1121,8 @@
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.3
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",

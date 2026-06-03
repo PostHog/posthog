@@ -187,12 +187,12 @@ describe('assign-reviewers', () => {
             expect(buildReviewerComment([...requested, requested[0]], [])).toBeNull()
         })
 
-        test('names each skipped owner with its matched rule, not raw counts', () => {
+        test('lists each skipped owner as a bullet with its matched rule, not raw counts', () => {
             const body = buildReviewerComment(requested, demoted)
             expect(body).toContain(CONFIG.commentMarker)
-            expect(body).toContain('Skipped a review request for `@PostHog/team-data-tools` (`posthog/hogql/**`)')
+            expect(body).toContain('- `@PostHog/team-data-tools` (`posthog/hogql/**`)')
             expect(body).toContain('they only have minor changes here')
-            // No count theater: file/line numbers are internal-only.
+            // No count theater: file/line numbers are internal-only, and no table.
             expect(body).not.toMatch(/\d+ files/)
             expect(body).not.toContain('| Lines |')
         })

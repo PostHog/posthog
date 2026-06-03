@@ -34,12 +34,12 @@ from products.feature_flags.backend.flags_cache import (
     _get_feature_flags_for_service,
     _get_feature_flags_for_teams_batch,
     _get_referenced_cohorts,
-    _get_team_ids_with_recently_updated_flags,
     _serialize_cohort,
     _strip_null_values,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
+    get_team_ids_with_recently_updated_flags,
     get_teams_with_flags_queryset,
     update_flags_cache,
 )
@@ -2559,11 +2559,11 @@ class TestServiceFlagsGuards(BaseTest):
 
 @override_settings(FLAGS_REDIS_URL="redis://test", FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5)
 class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
-    """Test _get_team_ids_with_recently_updated_flags batch helper for grace period logic."""
+    """Test get_team_ids_with_recently_updated_flags batch helper for grace period logic."""
 
     def test_returns_empty_set_for_team_with_no_flags(self):
         """Test returns empty set for team with no flags."""
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     def test_returns_team_id_for_recently_updated_flag(self):
@@ -2575,7 +2575,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == {self.team.id}
 
     def test_returns_empty_set_for_old_flag(self):
@@ -2593,7 +2593,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         # Manually set updated_at to outside grace period
         FeatureFlag.objects.filter(id=flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
@@ -2606,12 +2606,12 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     def test_returns_empty_set_for_empty_team_ids_list(self):
         """Test returns empty set when given empty list of team IDs."""
-        result = _get_team_ids_with_recently_updated_flags([])
+        result = get_team_ids_with_recently_updated_flags([])
         assert result == set()
 
     def test_returns_team_id_if_any_flag_is_recent(self):
@@ -2638,7 +2638,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         )
 
         # Should return team ID because at least one flag is recent
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == {self.team.id}
 
     def test_batch_returns_only_teams_with_recent_flags(self):
@@ -2668,7 +2668,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
 
         # Query both teams - should only return team 1
-        result = _get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
         assert result == {self.team.id}
 
     def test_ignores_recently_deleted_flags(self):
@@ -2687,7 +2687,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         # Ensure updated_at is recent (within grace period)
         assert flag.updated_at is not None
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
     def test_ignores_recently_deactivated_flags(self):
@@ -2708,7 +2708,7 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         # Ensure updated_at is recent (within grace period)
         assert flag.updated_at is not None
 
-        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        result = get_team_ids_with_recently_updated_flags([self.team.id])
         assert result == set()
 
 
