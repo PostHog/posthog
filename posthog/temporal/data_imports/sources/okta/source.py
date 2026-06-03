@@ -41,7 +41,6 @@ class OktaSource(ResumableSource[OktaSourceConfig, OktaResumeConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.OKTA,
             label="Okta",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Okta org domain and an API token to pull your Okta data into the PostHog Data warehouse.
 
