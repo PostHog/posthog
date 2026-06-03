@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight, IconExternal, IconGraph, IconPause, IconPlay, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCollapse,
     LemonModal,
     LemonSelect,
     LemonSkeleton,
@@ -462,77 +463,88 @@ function PredictionsTab(): JSX.Element {
                 <ScoreNowButton />
             </div>
 
-            <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Probability distribution (latest scoring run)</h4>
-                <Query
-                    readOnly
-                    query={{
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: `
-                                WITH latest AS (
-                                    SELECT max(toDate(timestamp)) AS d
-                                    FROM events
-                                    WHERE event = 'autoresearch_prediction'
-                                      AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                                )
-                                SELECT
-                                    concat(
-                                        toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10),
-                                        '–',
-                                        toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10 + 0.1)
-                                    ) AS probability_bucket,
-                                    count() AS users,
-                                    repeat('▇', toInt(round(40 * count() / max(count()) OVER ()))) AS distribution
-                                FROM events
-                                WHERE event = 'autoresearch_prediction'
-                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                                  AND toDate(timestamp) = (SELECT d FROM latest)
-                                GROUP BY probability_bucket
-                                ORDER BY probability_bucket
-                            `,
-                            values,
-                        },
-                    }}
-                />
-            </div>
-
-            <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Highest-probability users</h4>
-                <ProbabilityUsersTable pipelineId={pipeline.id} direction="DESC" />
-            </div>
-
-            <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Lowest-probability users</h4>
-                <ProbabilityUsersTable pipelineId={pipeline.id} direction="ASC" />
-            </div>
-
-            <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Daily scoring volume</h4>
-                <Query
-                    readOnly
-                    query={{
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: `
-                                SELECT
-                                    toDate(timestamp) AS day,
-                                    count() AS users_scored,
-                                    round(avg(toFloat(properties.$autoresearch_p_y)), 4) AS avg_probability
-                                FROM events
-                                WHERE event = 'autoresearch_prediction'
-                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                                GROUP BY day
-                                ORDER BY day DESC
-                                LIMIT 60
-                            `,
-                            values,
-                        },
-                    }}
-                />
-            </div>
+            <LemonCollapse
+                multiple
+                defaultActiveKeys={['distribution', 'highest', 'lowest', 'volume']}
+                panels={[
+                    {
+                        key: 'distribution',
+                        header: 'Probability distribution (latest scoring run)',
+                        content: (
+                            <Query
+                                readOnly
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.HogQLQuery,
+                                        query: `
+                                            WITH latest AS (
+                                                SELECT max(toDate(timestamp)) AS d
+                                                FROM events
+                                                WHERE event = 'autoresearch_prediction'
+                                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                                            )
+                                            SELECT
+                                                concat(
+                                                    toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10),
+                                                    '–',
+                                                    toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10 + 0.1)
+                                                ) AS probability_bucket,
+                                                count() AS users,
+                                                repeat('▇', toInt(round(40 * count() / max(count()) OVER ()))) AS distribution
+                                            FROM events
+                                            WHERE event = 'autoresearch_prediction'
+                                              AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                                              AND toDate(timestamp) = (SELECT d FROM latest)
+                                            GROUP BY probability_bucket
+                                            ORDER BY probability_bucket
+                                        `,
+                                        values,
+                                    },
+                                }}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'highest',
+                        header: 'Highest-probability users',
+                        content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="DESC" />,
+                    },
+                    {
+                        key: 'lowest',
+                        header: 'Lowest-probability users',
+                        content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="ASC" />,
+                    },
+                    {
+                        key: 'volume',
+                        header: 'Daily scoring volume',
+                        content: (
+                            <Query
+                                readOnly
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.HogQLQuery,
+                                        query: `
+                                            SELECT
+                                                toDate(timestamp) AS day,
+                                                count() AS users_scored,
+                                                round(avg(toFloat(properties.$autoresearch_p_y)), 4) AS avg_probability
+                                            FROM events
+                                            WHERE event = 'autoresearch_prediction'
+                                              AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                                            GROUP BY day
+                                            ORDER BY day DESC
+                                            LIMIT 60
+                                        `,
+                                        values,
+                                    },
+                                }}
+                            />
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }
@@ -541,31 +553,75 @@ function fmt(value: number | null, decimals = 3): string {
     return value != null ? value.toFixed(decimals) : '—'
 }
 
-/** Tiny inline sparkline of champion realized AUC over prediction dates. No chart deps. */
-function AucSparkline({ points }: { points: { date: string; auc: number }[] }): JSX.Element | null {
+/** Tiny inline sparkline of a metric over prediction dates. No chart deps. */
+function MetricSparkline({
+    points,
+    color = 'var(--success)',
+    floor,
+    ceil,
+}: {
+    points: { date: string; value: number }[]
+    color?: string
+    floor?: number
+    ceil?: number
+}): JSX.Element | null {
     if (points.length < 2) {
         return null
     }
     const width = 280
     const height = 56
     const pad = 4
-    const aucs = points.map((p) => p.auc)
-    const min = Math.min(...aucs, 0.5)
-    const max = Math.max(...aucs, 1)
+    const values = points.map((p) => p.value)
+    const min = Math.min(...values, ...(floor != null ? [floor] : []))
+    const max = Math.max(...values, ...(ceil != null ? [ceil] : []))
     const span = max - min || 1
     const stepX = (width - pad * 2) / (points.length - 1)
     const coords = points.map((p, i) => {
         const x = pad + i * stepX
-        const y = pad + (1 - (p.auc - min) / span) * (height - pad * 2)
+        const y = pad + (1 - (p.value - min) / span) * (height - pad * 2)
         return [x, y] as const
     })
     const line = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
     const last = coords[coords.length - 1]
     return (
         <svg width={width} height={height} className="overflow-visible">
-            <polyline points={line} fill="none" stroke="var(--success)" strokeWidth={2} />
-            <circle cx={last[0]} cy={last[1]} r={3} fill="var(--success)" />
+            <polyline points={line} fill="none" stroke={color} strokeWidth={2} />
+            <circle cx={last[0]} cy={last[1]} r={3} fill={color} />
         </svg>
+    )
+}
+
+/** A labelled sparkline card showing one realized metric's trend over prediction dates. */
+function MetricTrendCard({
+    title,
+    points,
+    color,
+    floor,
+    ceil,
+    decimals = 3,
+    suffix = '',
+}: {
+    title: string
+    points: { date: string; value: number }[]
+    color?: string
+    floor?: number
+    ceil?: number
+    decimals?: number
+    suffix?: string
+}): JSX.Element | null {
+    if (points.length < 2) {
+        return null
+    }
+    const latest = points[points.length - 1]
+    return (
+        <div className="border rounded p-3 space-y-1 inline-block">
+            <div className="text-xs font-semibold text-muted uppercase tracking-wide">{title}</div>
+            <MetricSparkline points={points} color={color} floor={floor} ceil={ceil} />
+            <div className="text-xs text-muted">
+                {points[0].date} → {latest.date} · latest {latest.value.toFixed(decimals)}
+                {suffix}
+            </div>
+        </div>
     )
 }
 
@@ -587,11 +643,15 @@ function OnlinePerformanceTab(): JSX.Element {
         )
     }
 
-    // Champion AUC over time, oldest → newest, for the sparkline.
-    const championTrend = onlinePerformanceRows
-        .filter((r) => r.model_role === 'champion' && r.realized_auc != null)
-        .map((r) => ({ date: r.prediction_date, auc: r.realized_auc as number }))
-        .sort((a, b) => a.date.localeCompare(b.date))
+    // Champion metric trends over time, oldest → newest, for the sparklines.
+    const championRows = onlinePerformanceRows
+        .filter((r) => r.model_role === 'champion')
+        .sort((a, b) => a.prediction_date.localeCompare(b.prediction_date))
+    const trend = (pick: (r: OnlinePerformanceRow) => number | null): { date: string; value: number }[] =>
+        championRows.filter((r) => pick(r) != null).map((r) => ({ date: r.prediction_date, value: pick(r) as number }))
+    const aucTrend = trend((r) => r.realized_auc)
+    const brierTrend = trend((r) => r.brier_score)
+    const eceTrend = trend((r) => r.calibration_error)
 
     return (
         <div className="space-y-4">
@@ -599,18 +659,22 @@ function OnlinePerformanceTab(): JSX.Element {
                 Realized performance measured after each prediction horizon elapses. AUC and lift here reflect actual
                 user outcomes, not just holdout estimates.
             </p>
-            {championTrend.length >= 2 && (
-                <div className="border rounded p-3 space-y-1 inline-block">
-                    <div className="text-xs font-semibold text-muted uppercase tracking-wide">
-                        Champion realized AUC
-                    </div>
-                    <AucSparkline points={championTrend} />
-                    <div className="text-xs text-muted">
-                        {championTrend[0].date} → {championTrend[championTrend.length - 1].date} · latest{' '}
-                        {fmt(championTrend[championTrend.length - 1].auc)}
-                    </div>
-                </div>
-            )}
+            <div className="flex flex-wrap gap-3">
+                <MetricTrendCard
+                    title="Champion realized AUC"
+                    points={aucTrend}
+                    color="var(--success)"
+                    floor={0.5}
+                    ceil={1}
+                />
+                <MetricTrendCard title="Champion Brier score" points={brierTrend} color="var(--warning)" floor={0} />
+                <MetricTrendCard
+                    title="Champion calibration error (ECE)"
+                    points={eceTrend}
+                    color="var(--warning)"
+                    floor={0}
+                />
+            </div>
             <table className="w-full text-sm border-collapse">
                 <thead>
                     <tr className="border-b text-left">
@@ -626,6 +690,9 @@ function OnlinePerformanceTab(): JSX.Element {
                         </th>
                         <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
                             Brier score
+                        </th>
+                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
+                            Calibration error
                         </th>
                         <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
                             Lift at 10%
@@ -655,6 +722,7 @@ function OnlinePerformanceTab(): JSX.Element {
                             <td className="py-2 pr-4">{row.n_scored.toLocaleString()}</td>
                             <td className="py-2 pr-4 font-semibold">{fmt(row.realized_auc)}</td>
                             <td className="py-2 pr-4">{fmt(row.brier_score)}</td>
+                            <td className="py-2 pr-4">{fmt(row.calibration_error)}</td>
                             <td className="py-2 pr-4">{fmt(row.lift_at_10, 2)}×</td>
                             <td className="py-2 pr-4">{fmt(row.lift_at_20, 2)}×</td>
                         </tr>
@@ -662,8 +730,9 @@ function OnlinePerformanceTab(): JSX.Element {
                 </tbody>
             </table>
             <p className="text-xs text-muted">
-                Realized AUC: higher is better. Brier score: lower is better. Lift at k%: ratio of positives in the top
-                k% vs a random sample — 2× means twice as many conversions as random.
+                Realized AUC: higher is better. Brier score and calibration error (ECE): lower is better — ECE measures
+                how far predicted probabilities drift from observed rates. Lift at k%: ratio of positives in the top k%
+                vs a random sample — 2× means twice as many conversions as random.
             </p>
         </div>
     )
