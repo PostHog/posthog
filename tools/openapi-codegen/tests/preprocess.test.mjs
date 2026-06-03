@@ -121,6 +121,7 @@ describe('schemaAllowsNull', () => {
         ['const', { const: 42 }],
         ['object with properties', { properties: { id: { type: 'integer' } } }],
         ['anyOf without null', { anyOf: [{ type: 'string' }, { type: 'integer' }] }],
+        ['allOf with $ref', { allOf: [{ $ref: '#/components/schemas/Foo' }] }],
     ])('returns false for %s', (_label, schema) => {
         expect(schemaAllowsNull(schema)).toBe(false)
     })

@@ -141,6 +141,10 @@ export function clampIntegerBounds(obj) {
  * - `anyOf` / `oneOf` with a null variant (OpenAPI 3.1 union form)
  * - Untyped `typing.Any` — Pydantic emits a bare `{}` (no type, no $ref, no
  *   variants, no enum, no properties) which accepts every value including null.
+ *
+ * A schema with `allOf` is treated as constrained (intersection of refs), so
+ * `{ allOf: [{ $ref: '...' }], default: null }` does NOT match — fall back to
+ * the explicit nullable keys above when the constituent permits null.
  */
 export function schemaAllowsNull(schema) {
     if (!schema || typeof schema !== 'object') {
@@ -158,7 +162,7 @@ export function schemaAllowsNull(schema) {
             return true
         }
     }
-    const constrained = ['type', 'anyOf', 'oneOf', '$ref', 'enum', 'const', 'properties']
+    const constrained = ['type', 'allOf', 'anyOf', 'oneOf', '$ref', 'enum', 'const', 'properties']
     if (constrained.every((key) => !(key in schema))) {
         return true
     }
