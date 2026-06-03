@@ -15,12 +15,14 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+import posthoganalytics
 import requests
 import structlog
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.event_usage import groups
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -1624,7 +1626,80 @@ def _start_command_workflow(
     return ROUTE_HANDLED_LOCALLY
 
 
+def _count_session_thread_messages(integration: Integration, channel: str | None, thread_ts: str | None) -> int | None:
+    """Best-effort count of messages in a Slack thread (the session). None if unavailable."""
+    if not channel or not thread_ts:
+        return None
+    try:
+        response = SlackIntegration(integration).client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
+        return len(response.get("messages", []))
+    except Exception:
+        logger.warning("posthog_code_mention_count_failed", exc_info=True)
+        return None
+
+
+def _report_slack_mention_received(event: dict, integration: Integration, slack_team_id: str) -> None:
+    """Capture a product-analytics event each time the @PostHog bot is mentioned.
+
+    A Slack thread is treated as the session: ``thread_ts`` identifies it, and a mention whose
+    ``thread_ts`` is absent or equal to its own ``ts`` is the session's first message. The acting
+    Slack user is resolved to a PostHog ``User`` so the event is attributed to a real person where
+    one exists; otherwise it falls back to a stable Slack-derived distinct id.
+    """
+    try:
+        channel = event.get("channel") if isinstance(event.get("channel"), str) else None
+        message_ts = event.get("ts") if isinstance(event.get("ts"), str) else None
+        raw_thread_ts = event.get("thread_ts") if isinstance(event.get("thread_ts"), str) else None
+        thread_ts = raw_thread_ts or message_ts
+        is_first_message_in_session = raw_thread_ts is None or raw_thread_ts == message_ts
+
+        slack_user_id = str(event.get("user") or "") or None
+        posthog_user = (
+            _resolve_posthog_user_from_event(
+                slack_user_id=slack_user_id,
+                probe_integration=integration,
+                candidate_integrations=[integration],
+            )
+            if slack_user_id
+            else None
+        )
+        identified = bool(posthog_user and posthog_user.distinct_id)
+        distinct_id = (
+            posthog_user.distinct_id
+            if (identified and posthog_user is not None)
+            else f"slack:{slack_team_id}:{slack_user_id or 'unknown'}"
+        )
+
+        if is_first_message_in_session:
+            session_message_count: int | None = 1
+        else:
+            session_message_count = _count_session_thread_messages(integration, channel, thread_ts)
+
+        properties: dict[str, Any] = {
+            "is_first_message_in_session": is_first_message_in_session,
+            "session_message_count": session_message_count,
+            "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
+            "slack_team_id": slack_team_id,
+            "slack_channel": channel,
+            "slack_thread_ts": thread_ts,
+            "slack_user_id": slack_user_id,
+            "posthog_user_identified": identified,
+        }
+        if identified and posthog_user is not None:
+            properties["$set"] = posthog_user.get_analytics_metadata()
+
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="posthog code slack mention received",
+            properties=properties,
+            groups=groups(team=integration.team),
+        )
+    except Exception:
+        logger.warning("posthog_code_mention_analytics_failed", exc_info=True)
+
+
 def _start_mention_workflow(event: dict, integration: Integration, slack_team_id: str, event_id: str | None) -> str:
+    _report_slack_mention_received(event, integration, slack_team_id)
     if _resolve_pending_repo_picker_from_followup(event, integration):
         return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
