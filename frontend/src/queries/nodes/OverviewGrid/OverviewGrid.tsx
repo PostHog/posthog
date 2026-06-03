@@ -40,6 +40,8 @@ export interface OverviewItem {
     onClick?: () => void
     /** Render with the highlighted/active appearance — e.g. when this tile drives an active filter. */
     selected?: boolean
+    /** Per-day sparkline values (oldest → newest), when the backend served a precomputed series. */
+    series?: number[]
 }
 
 export interface SamplingRate {

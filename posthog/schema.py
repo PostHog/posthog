@@ -5384,6 +5384,14 @@ class WebOverviewItem(BaseModel):
     key: str
     kind: WebAnalyticsItemKind
     previous: float | None = None
+    series: list[float] | None = Field(
+        default=None,
+        description=(
+            "Per-day values for the metric over the queried range (oldest → newest)."
+            " Only present when the query requested `includeSparkline` and was served"
+            " from the pre-aggregated tables."
+        ),
+    )
     usedPreAggregatedTables: bool | None = None
     value: float | None = None
 
@@ -21646,6 +21654,14 @@ class WebOverviewQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    includeSparkline: bool | None = Field(
+        default=None,
+        description=(
+            "Also return a per-day sparkline series for each metric. Only populated"
+            " when the query is served from the pre-aggregated tables; raw-events"
+            " queries leave it empty."
+        ),
+    )
     interval: IntervalType | None = Field(
         default=None,
         description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),

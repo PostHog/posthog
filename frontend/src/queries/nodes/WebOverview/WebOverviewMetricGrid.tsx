@@ -164,36 +164,62 @@ function MetricTile({
     )
 }
 
-interface WebOverviewMetricGridProps {
-    query: WebOverviewQuery
+const GRID_STYLE = { gridTemplateColumns: `repeat(auto-fit, minmax(12rem, 1fr))` }
+
+function MetricTilesGrid({
+    items,
+    sparklineByKey,
+    labelFromKey,
+    theme,
+    baseCurrency,
+}: {
     items: OverviewItem[]
-    loading: boolean
-    numSkeletons: number
+    sparklineByKey: Record<string, number[]>
     labelFromKey: (key: string) => string
-    useScreen: boolean
-    attachTo?: LogicWrapper | BuiltLogic
-    uniqueKey?: string | number
-    dataNodeCollectionId?: string
+    theme: ChartTheme
+    baseCurrency: string
+}): JSX.Element {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className="grid gap-2" style={GRID_STYLE}>
+            {items.map((item) => (
+                <MetricTile
+                    key={item.key}
+                    item={item}
+                    labelFromKey={labelFromKey}
+                    sparkline={sparklineByKey[item.key]}
+                    theme={theme}
+                    baseCurrency={baseCurrency}
+                />
+            ))}
+        </div>
+    )
 }
 
 let uniqueNode = 0
 
-export function WebOverviewMetricGrid({
+/** Fallback for teams without precompute: fetch the per-day series with a raw trends query. */
+function TrendsSparklineFallback({
     query,
     items,
-    loading,
-    numSkeletons,
     labelFromKey,
     useScreen,
+    theme,
+    baseCurrency,
     attachTo,
     uniqueKey,
     dataNodeCollectionId,
-}: WebOverviewMetricGridProps): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const { baseCurrency } = useValues(teamLogic)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- theme reads CSS vars that flip with dark mode
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
-
+}: {
+    query: WebOverviewQuery
+    items: OverviewItem[]
+    labelFromKey: (key: string) => string
+    useScreen: boolean
+    theme: ChartTheme
+    baseCurrency: string
+    attachTo?: LogicWrapper | BuiltLogic
+    uniqueKey?: string | number
+    dataNodeCollectionId?: string
+}): JSX.Element {
     const seriesDefs = useMemo(
         () => buildWebOverviewSparklineSeries(useScreen, query.conversionGoal),
         [useScreen, query.conversionGoal]
@@ -235,7 +261,44 @@ export function WebOverviewMetricGrid({
         [seriesDefs, response]
     )
 
-    const minWidthRems = 12
+    return (
+        <MetricTilesGrid
+            items={items}
+            sparklineByKey={sparklineByKey}
+            labelFromKey={labelFromKey}
+            theme={theme}
+            baseCurrency={baseCurrency}
+        />
+    )
+}
+
+interface WebOverviewMetricGridProps {
+    query: WebOverviewQuery
+    items: OverviewItem[]
+    loading: boolean
+    numSkeletons: number
+    labelFromKey: (key: string) => string
+    useScreen: boolean
+    attachTo?: LogicWrapper | BuiltLogic
+    uniqueKey?: string | number
+    dataNodeCollectionId?: string
+}
+
+export function WebOverviewMetricGrid({
+    query,
+    items,
+    loading,
+    numSkeletons,
+    labelFromKey,
+    useScreen,
+    attachTo,
+    uniqueKey,
+    dataNodeCollectionId,
+}: WebOverviewMetricGridProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { baseCurrency } = useValues(teamLogic)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- theme reads CSS vars that flip with dark mode
+    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     if (loading) {
         return (
@@ -254,22 +317,36 @@ export function WebOverviewMetricGrid({
         )
     }
 
+    // Prefer the precomputed series the backend returns from the pre-aggregated tables; only fire a
+    // raw trends query when none are present (non-precompute teams, conversion goals).
+    const precomputed = items.filter((item) => Array.isArray(item.series) && item.series.length > 0)
+    if (precomputed.length > 0) {
+        const sparklineByKey: Record<string, number[]> = {}
+        for (const item of precomputed) {
+            sparklineByKey[item.key] = item.series as number[]
+        }
+        return (
+            <MetricTilesGrid
+                items={items}
+                sparklineByKey={sparklineByKey}
+                labelFromKey={labelFromKey}
+                theme={theme}
+                baseCurrency={baseCurrency}
+            />
+        )
+    }
+
     return (
-        <div
-            className="grid gap-2"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${minWidthRems}rem, 1fr))` }}
-        >
-            {items.map((item) => (
-                <MetricTile
-                    key={item.key}
-                    item={item}
-                    labelFromKey={labelFromKey}
-                    sparkline={sparklineByKey[item.key]}
-                    theme={theme}
-                    baseCurrency={baseCurrency}
-                />
-            ))}
-        </div>
+        <TrendsSparklineFallback
+            query={query}
+            items={items}
+            labelFromKey={labelFromKey}
+            useScreen={useScreen}
+            theme={theme}
+            baseCurrency={baseCurrency}
+            attachTo={attachTo}
+            uniqueKey={uniqueKey}
+            dataNodeCollectionId={dataNodeCollectionId}
+        />
     )
 }

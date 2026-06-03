@@ -1362,6 +1362,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             filterTestAccounts,
                             conversionGoal,
                             useWebAnalyticsPrecompute,
+                            includeSparkline: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_METRIC_TILES],
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: true,

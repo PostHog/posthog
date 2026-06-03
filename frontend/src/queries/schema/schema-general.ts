@@ -2390,6 +2390,8 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     kind: NodeKind.WebOverviewQuery
     /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
     useWebAnalyticsPrecompute?: boolean
+    /** Also return a per-day sparkline series for each metric. Only populated when the query is served from the pre-aggregated tables; raw-events queries leave it empty. */
+    includeSparkline?: boolean
 }
 
 export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
@@ -2403,6 +2405,9 @@ export interface WebAnalyticsItemBase<T> {
 }
 export interface WebOverviewItem extends WebAnalyticsItemBase<number> {
     usedPreAggregatedTables?: boolean
+    /** Per-day values for the metric over the queried range (oldest → newest). Only present when the
+     *  query requested `includeSparkline` and was served from the pre-aggregated tables. */
+    series?: number[]
 }
 
 export interface SamplingRate {

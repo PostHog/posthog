@@ -88,6 +88,59 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             return None
         return execute_lazy_precomputed_read(self)
 
+    def get_pre_aggregated_sparkline(self) -> Optional[dict[str, list[float]]]:
+        """Per-day series for each metric, read from the pre-aggregated tables. Returns None (so the
+        frontend falls back to a raw trends query) unless sparklines were requested and the pre-agg
+        path is eligible. Conversion goals are unsupported (the scalar path is a raw-events hybrid)."""
+        should_use_preaggregated = (
+            self.query.includeSparkline
+            and self.modifiers
+            and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and self.preaggregated_query_builder.can_use_preaggregated_tables()
+            and not self.query.conversionGoal
+        )
+
+        if not should_use_preaggregated:
+            return None
+
+        try:
+            pre_agg_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            pre_agg_modifiers.convertToProjectTimezone = False
+
+            response = execute_hogql_query(
+                query_type="web_overview_sparkline_preaggregated_query",
+                query=self.preaggregated_query_builder.get_sparkline_query(),
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=pre_agg_modifiers,
+                limit_context=self.limit_context,
+            )
+
+            # Rows: [bucket, visitors, views, sessions, session_duration, bounce_rate], oldest → newest.
+            # Match the scalar path's transforms: unsample counts; bounce rate is a 0..1 fraction stored
+            # pre-aggregated, surfaced as a percentage to align with the headline value.
+            return {
+                "visitors": [self._unsample(r[1]) for r in response.results],
+                "views": [self._unsample(r[2]) for r in response.results],
+                "sessions": [self._unsample(r[3]) for r in response.results],
+                "session duration": [r[4] for r in response.results],
+                "bounce rate": [(r[5] or 0) * 100 for r in response.results],
+            }
+        except Exception as e:
+            logger.exception("Error getting pre-aggregated web_overview sparkline", error=e)
+            return None
+
+    def _attach_sparkline(self, results: list[dict]) -> list[dict]:
+        sparkline = self.get_pre_aggregated_sparkline()
+        if not sparkline:
+            return results
+        for item in results:
+            series = sparkline.get(item["key"])
+            if series is not None:
+                item["series"] = series
+        return results
+
     def _build_response_from_row(
         self,
         row: list,
@@ -115,7 +168,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         ]
 
         return WebOverviewQueryResponse(
-            results=results,
+            results=self._attach_sparkline(results),
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
@@ -172,7 +225,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             ]
 
         return WebOverviewQueryResponse(
-            results=results,
+            results=self._attach_sparkline(results),
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,

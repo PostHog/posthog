@@ -2855,6 +2855,8 @@ export interface WebOverviewItemApi {
     key: string
     kind: WebAnalyticsItemKindApi
     previous?: number | null
+    /** Per-day values for the metric over the queried range (oldest → newest). Only present when the query requested `includeSparkline` and was served from the pre-aggregated tables. */
+    series?: number[] | null
     usedPreAggregatedTables?: boolean | null
     value?: number | null
 }
@@ -2893,6 +2895,8 @@ export interface WebOverviewQueryApi {
     doPathCleaning?: boolean | null
     filterTestAccounts?: boolean | null
     includeRevenue?: boolean | null
+    /** Also return a per-day sparkline series for each metric. Only populated when the query is served from the pre-aggregated tables; raw-events queries leave it empty. */
+    includeSparkline?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: 'WebOverviewQuery'

@@ -64,6 +64,7 @@ export function WebOverview(props: {
             changeFromPreviousPct: item.changeFromPreviousPct,
             kind: item.kind,
             isIncreaseBad: item.isIncreaseBad,
+            series: item.series,
             warning: showWarning
                 ? `${capitalizeFirstLetter(item.key)} counts may be underreported. Set up a reverse proxy so that events are less likely to be intercepted by tracking blockers.`
                 : undefined,

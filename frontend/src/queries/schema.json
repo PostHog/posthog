@@ -42636,6 +42636,13 @@
                 "previous": {
                     "type": "number"
                 },
+                "series": {
+                    "description": "Per-day values for the metric over the queried range (oldest → newest). Only present when the query requested `includeSparkline` and was served from the pre-aggregated tables.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "usedPreAggregatedTables": {
                     "type": "boolean"
                 },
@@ -42688,6 +42695,10 @@
                 },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeSparkline": {
+                    "description": "Also return a per-day sparkline series for each metric. Only populated when the query is served from the pre-aggregated tables; raw-events queries leave it empty.",
                     "type": "boolean"
                 },
                 "interval": {

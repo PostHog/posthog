@@ -78,6 +78,44 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
         return query
 
+    def get_sparkline_query(self) -> ast.SelectQuery:
+        """Per-day series for each overview metric over the current period, read from the
+        pre-aggregated bounces table. Reuses the same state-merge semantics as the scalar query,
+        grouped by day so each row is one sparkline point (oldest → newest)."""
+        _, current_period_filter = self.get_date_ranges(table_name=self.bounces_table)
+        table_name = self.bounces_table
+
+        query = parse_select(
+            """
+            SELECT
+                toStartOfDay(period_bucket) AS bucket,
+                {visitors} AS visitors,
+                {views} AS views,
+                {sessions} AS sessions,
+                {session_duration} AS session_duration,
+                {bounce_rate} AS bounce_rate
+            FROM {table_name}
+            GROUP BY bucket
+            ORDER BY bucket ASC
+            """,
+            placeholders={
+                "table_name": ast.Field(chain=[table_name]),
+                "visitors": self._uniq_merge("persons_uniq_state"),
+                "views": self._sum_merge("pageviews_count_state"),
+                "sessions": self._uniq_merge("sessions_uniq_state"),
+                "session_duration": self._safe_avg("total_session_duration_state", "total_session_count_state"),
+                "bounce_rate": self._safe_avg("bounces_count_state", "sessions_uniq_state"),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # _get_filters restricts to [compare_from .. current_to]; AND the current-period filter so
+        # comparison queries don't leak previous-period buckets into the sparkline.
+        query.where = ast.And(exprs=[self._get_filters(table_name=table_name), current_period_filter])
+
+        return query
+
     def _get_conversion_query(
         self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
     ) -> ast.SelectQuery:
@@ -224,6 +262,28 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
         )
 
         return outer_query
+
+    def _uniq_merge(self, state_field: str) -> ast.Call:
+        return ast.Call(name="uniqMerge", args=[ast.Field(chain=[state_field])])
+
+    def _sum_merge(self, state_field: str) -> ast.Call:
+        return ast.Call(name="sumMerge", args=[ast.Field(chain=[state_field])])
+
+    def _safe_avg(self, metric_state: str, denominator_state: str) -> ast.Call:
+        metric_sum = self._sum_merge(metric_state)
+        denominator = (
+            self._uniq_merge(denominator_state)
+            if denominator_state == "sessions_uniq_state"
+            else self._sum_merge(denominator_state)
+        )
+        return ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=denominator, right=ast.Constant(value=0)),
+                ast.Call(name="divide", args=[metric_sum, denominator]),
+                ast.Constant(value=0),
+            ],
+        )
 
     def _uniq_merge_if(self, state_field: str, period_filter: ast.Expr) -> ast.Call:
         return ast.Call(
