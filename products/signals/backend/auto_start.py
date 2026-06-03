@@ -90,10 +90,8 @@ def _resolve_autostart_assignee(
     if not candidate_user_ids:
         return None
 
-    # Single query: fetch users who have an autonomy config, joined eagerly.
-    # Scope to the team's org via reverse relations — both hops use the explicit
-    # singular related_query_name (organization/team), not the related_name accessors
-    # (organizations/teams), which Django's filter resolver does not accept.
+    # organization__team uses the singular related_query_name for each hop, not the
+    # related_name accessor (organizations/teams), which filter() won't resolve.
     users_with_config = {
         u.id: u
         for u in User.objects.filter(
