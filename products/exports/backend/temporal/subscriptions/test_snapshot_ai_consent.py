@@ -11,9 +11,8 @@ from temporalio.testing import ActivityEnvironment
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs
+from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
-
-from ee.models import CoreMemory
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
