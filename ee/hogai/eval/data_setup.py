@@ -23,9 +23,8 @@ from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
 from products.dashboards.backend.models import Dashboard, DashboardTile
+from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
-
-from ee.models.assistant import CoreMemory
 
 logger = logging.getLogger(__name__)
 

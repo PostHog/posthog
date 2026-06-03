@@ -6,7 +6,7 @@ import {
     type ChartTheme,
     type PointClickData,
     type TooltipContext,
-} from 'lib/hog-charts'
+} from '@posthog/quill-charts'
 
 import {
     FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,

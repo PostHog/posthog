@@ -41,7 +41,6 @@ from .health_issue import HealthIssue
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .integration_repository_cache import IntegrationRepositoryCacheEntry
-from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
@@ -127,7 +126,6 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HealthIssue",
-    "LLMPrompt",
     "HostDefinition",
     "InstanceSetting",
     "Integration",

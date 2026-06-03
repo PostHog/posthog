@@ -1,5 +1,5 @@
-import { buildGoalLineReferenceLines } from 'lib/hog-charts'
-import type { GoalLineConfig, ReferenceLineProps, Series } from 'lib/hog-charts'
+import { buildGoalLineReferenceLines } from '@posthog/quill-charts'
+import type { GoalLineConfig, ReferenceLineProps, Series } from '@posthog/quill-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 

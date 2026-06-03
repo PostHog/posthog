@@ -39,7 +39,57 @@ __all__ = [
     "RepoSelectionResult",
     "resolve_team_github_integration",
     "select_repository_for_report",
+    "select_repository_for_team",
 ]
+
+
+async def select_repository_for_team(
+    team_id: int,
+    user_id: int,
+    request_section: str,
+    *,
+    step_name: str = "repo_selection",
+    sandbox_environment_id: str | None = None,
+    verbose: bool = False,
+    output_fn: OutputFn = None,
+) -> RepoSelectionResult:
+    """Select the most relevant repository for a free-form request against the team's repos.
+
+    ``request_section`` is the caller-rendered string describing the request (e.g. rendered
+    signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
+    unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
+    — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
+    "no match / requires human input".
+    """
+    try:
+        return await select_repository(
+            team_id=team_id,
+            user_id=user_id,
+            context=request_section,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            step_name=step_name,
+            sandbox_environment_id=sandbox_environment_id,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+    except RepoSelectionRejectedError as exc:
+        # Preserve legacy behavior: surface validation reject as null with reason so callers'
+        # existing `repository is None` branch handles it.
+        logger.warning(
+            "repo selection: agent returned unknown repository %s, treating as no match",
+            exc.returned_repository,
+        )
+        return RepoSelectionResult(
+            repository=None,
+            reason=(
+                f"Agent selected '{exc.returned_repository}' which is not in the candidate list. "
+                f"Original reason: '{exc.reason}'"
+            ),
+        )
+    except RepoSelectionUnavailableError as exc:
+        # No picker fallback — collapse operational failure into a null result.
+        logger.warning("repo selection unavailable: %s", exc.reason)
+        return RepoSelectionResult(repository=None, reason=exc.reason)
 
 
 async def select_repository_for_report(
@@ -54,32 +104,13 @@ async def select_repository_for_report(
     """Select the most relevant repository for a set of signals."""
     from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
 
-    context = render_signals_to_text(signals)
-    try:
-        return await select_repository(
-            team_id=team_id,
-            user_id=user_id,
-            context=context,
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            sandbox_environment_id=sandbox_environment_id,
-            verbose=verbose,
-            output_fn=output_fn,
-        )
-    except RepoSelectionRejectedError as exc:
-        # Preserve legacy behavior: surface validation reject as null with reason so the
-        # workflow's existing `repository is None` branch handles it (REQUIRES_HUMAN_INPUT).
-        logger.warning(
-            "signals repo selection: agent returned unknown repository %s, treating as no match",
-            exc.returned_repository,
-        )
-        return RepoSelectionResult(
-            repository=None,
-            reason=(
-                f"Agent selected '{exc.returned_repository}' which is not in the candidate list. "
-                f"Original reason: '{exc.reason}'"
-            ),
-        )
-    except RepoSelectionUnavailableError as exc:
-        # No picker in Signals — collapse operational failure into REQUIRES_HUMAN_INPUT.
-        logger.warning("signals repo selection unavailable: %s", exc.reason)
-        return RepoSelectionResult(repository=None, reason=exc.reason)
+    request_section = render_signals_to_text(signals)
+    return await select_repository_for_team(
+        team_id,
+        user_id,
+        request_section,
+        step_name="repo_selection",
+        sandbox_environment_id=sandbox_environment_id,
+        verbose=verbose,
+        output_fn=output_fn,
+    )
