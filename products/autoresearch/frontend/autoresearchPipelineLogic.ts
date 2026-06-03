@@ -262,6 +262,28 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 },
             },
         ],
+        reportByRun: [
+            {} as Record<string, string | null>,
+            {
+                // A run's report.md, decoded to text. null = loaded but the agent uploaded no report.
+                loadRunReport: async ({ runId }: { runId: string }) => {
+                    if (!values.currentTeamId) {
+                        return values.reportByRun
+                    }
+                    try {
+                        const response = await autoresearchTrainingRunsArtifactsGetCreate(
+                            String(values.currentTeamId),
+                            props.id,
+                            runId,
+                            { path: 'report.md' }
+                        )
+                        return { ...values.reportByRun, [runId]: base64ToUtf8(response.content_base64) }
+                    } catch {
+                        return { ...values.reportByRun, [runId]: null }
+                    }
+                },
+            },
+        ],
         viewedArtifact: [
             null as ViewedArtifact | null,
             {
@@ -391,9 +413,14 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         submitSuggestionFailure: () => lemonToast.error('Could not submit the suggestion'),
         toggleRunArtifacts: ({ runId }) => {
-            // Lazy-load a run's bundle the first time it's expanded.
-            if (values.expandedRunId === runId && !values.artifactsByRun[runId]) {
-                actions.loadRunArtifacts({ runId })
+            // Lazy-load a run's bundle and report the first time it's expanded.
+            if (values.expandedRunId === runId) {
+                if (!values.artifactsByRun[runId]) {
+                    actions.loadRunArtifacts({ runId })
+                }
+                if (values.reportByRun[runId] === undefined) {
+                    actions.loadRunReport({ runId })
+                }
             }
         },
     })),

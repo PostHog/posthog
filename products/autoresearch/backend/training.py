@@ -342,11 +342,35 @@ def build_agent_description(
 
         ## Finalize
 
-        When all three files are uploaded for the winning iteration:
+        When all three bundle files are uploaded for the winning iteration:
 
         1. (Optional) confirm with `autoresearch-training-runs-artifacts-retrieve` that
            features.sql, train.py, and predict.py are all present.
-        2. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
+        2. **Write `report.md`** — a portable one-page model report for a human reader (think:
+           the write-up an ML engineer hands their manager). Upload it with
+           `autoresearch-training-runs-artifacts-upload-create` at path `report.md`, exactly like
+           the bundle files. It travels with the run and is shared across surfaces, so keep it
+           self-contained Markdown — no external links or images. Cover, in this order:
+           - **TL;DR** — 1–2 sentences: what this predicts and whether it can be trusted yet.
+           - **What it predicts** — target event, horizon, and population in plain words.
+           - **How well it works** — holdout AUC, calibration (ECE), and lift@10/@20 explained in
+             plain English ("the top 10% of scored users are 3× likelier to convert"). Be honest
+             about limits — holdout is checked against realized outcomes later, so do not oversell.
+           - **What drives it** — the top features, their direction, and the *intuition* behind
+             each, not just a number. Ground this in the importances `train.py` computed (write them
+             to its `output.json`), not from memory.
+           - **How it was built** — the winning approach and the notable dead-ends, briefly.
+           - **Caveats & recommended use** — when to rely on it and when not to.
+
+           Prefer charts as ```mermaid``` code fences — they render as text and stay portable.
+           Include at least a `xychart-beta` **bar** chart of the top feature importances and a
+           `xychart-beta` **line** chart of holdout AUC across your iterations; add a calibration
+           line (predicted vs realized rate) or an iteration-ladder `flowchart` if they aid the
+           story. Where a full chart would be overkill (or mermaid can't express it), fall back to
+           compact ASCII/unicode bar charts inline — they render in any Markdown surface. Use plain
+           GFM tables for the metrics block. If a user suggestion asks for a particular audience or
+           emphasis, honor it in the report.
+        3. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
            and `id = "{training_run_id}"`. The backend picks the best iteration, decides
            champion vs challenger, and attaches your uploaded bundle as the model's artifact.
            Also pass two short fields that become this run's learning memory for the NEXT run:

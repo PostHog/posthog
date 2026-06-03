@@ -18,6 +18,7 @@ import {
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
+import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { humanizeBytes } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -283,6 +284,31 @@ function IterationTrail({ iterations }: { iterations: readonly IterationTrailApi
     )
 }
 
+/** The agent-authored report.md for a run, rendered as markdown (with mermaid charts). */
+function RunReport({ runId }: { runId: string }): JSX.Element | null {
+    const { reportByRun, reportByRunLoading } = useValues(autoresearchPipelineLogic)
+    const report = reportByRun[runId]
+    if (report === undefined) {
+        return reportByRunLoading ? <Spinner /> : null
+    }
+    if (!report) {
+        // Loaded, but the agent uploaded no report.md — show nothing; iterations/bundle still render.
+        return null
+    }
+    return (
+        <LemonCollapse
+            defaultActiveKey="report"
+            panels={[
+                {
+                    key: 'report',
+                    header: 'Report',
+                    content: <LemonMarkdownWithMermaid>{report}</LemonMarkdownWithMermaid>,
+                },
+            ]}
+        />
+    )
+}
+
 function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Element {
     const { expandedRunId, artifactsByRun, artifactsByRunLoading } = useValues(autoresearchPipelineLogic)
     const { toggleRunArtifacts, viewArtifact } = useActions(autoresearchPipelineLogic)
@@ -338,6 +364,7 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
             </div>
             {isExpanded && (
                 <div className="border-t p-3 space-y-3">
+                    <RunReport runId={run.id} />
                     <div className="space-y-2">
                         <div className="text-xs font-semibold text-muted uppercase tracking-wide">Iterations</div>
                         <IterationTrail iterations={run.iterations} />

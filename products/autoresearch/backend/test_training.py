@@ -70,3 +70,11 @@ class TestBuildAgentDescription(BaseTest):
         # The legacy curl-to-set_output submission and recipe.json must be gone.
         assert "set_output/" not in prompt
         assert "recipe.json" not in prompt
+
+    def test_prompt_instructs_report_md(self) -> None:
+        pipeline = self._make_pipeline()
+        prompt = build_agent_description(pipeline=pipeline, iteration_budget=5, training_run_id="run-123")
+        # The agent must author a portable report.md, uploaded like the bundle files, with charts.
+        assert "report.md" in prompt
+        assert "mermaid" in prompt
+        assert "autoresearch-training-runs-artifacts-upload-create" in prompt
