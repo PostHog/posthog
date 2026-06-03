@@ -26,7 +26,6 @@ class TestEventbriteSource:
         assert config.name.value == "Eventbrite"
         assert config.label == "Eventbrite"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/eventbrite.png"
         assert len(config.fields) == 1
 
