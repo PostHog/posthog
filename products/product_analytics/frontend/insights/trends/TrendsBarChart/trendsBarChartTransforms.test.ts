@@ -161,13 +161,13 @@ describe('buildTrendsBarAggregatedSeries', () => {
         }
     )
 
-    it('exposes per-result colors and labels as per-bar arrays on the single series', () => {
+    it('exposes per-result colors and labels as per-bar entries on the single series', () => {
         const colors = ['#aaa', '#bbb', '#ccc']
         const results = colors.map((_, i) => mkResult({ id: `r${i}`, label: `L${i}` }))
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: (_r, i) => colors[i] })
         expect(series).toHaveLength(1)
-        expect(series[0].barColors).toEqual(colors)
-        expect(series[0].barLabels).toEqual(['L0', 'L1', 'L2'])
+        expect(series[0].bars?.map((b) => b.color)).toEqual(colors)
+        expect(series[0].bars?.map((b) => b.label)).toEqual(['L0', 'L1', 'L2'])
         // Series-level color falls back to the first bar so a tooltip/legend has something sane.
         expect(series[0].color).toBe(colors[0])
     })
@@ -178,7 +178,7 @@ describe('buildTrendsBarAggregatedSeries', () => {
             mkResult({ id: 'b', label: 'B', compare_label: 'previous' }),
         ]
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(series[0].barColors).toEqual([RED, hexToRGBA(RED, 0.5)])
+        expect(series[0].bars?.map((b) => b.color)).toEqual([RED, hexToRGBA(RED, 0.5)])
     })
 
     it('builds per-bar meta by index when buildMeta is provided', () => {
@@ -187,7 +187,7 @@ describe('buildTrendsBarAggregatedSeries', () => {
             getColor: () => RED,
             buildMeta: (_r, i) => ({ idx: i }),
         })
-        expect(series[0].barMeta).toEqual([{ idx: 0 }, { idx: 1 }])
+        expect(series[0].bars?.map((b) => b.meta)).toEqual([{ idx: 0 }, { idx: 1 }])
     })
 
     it('keeps the sparse multi-series stack when stackBreakdowns is set', () => {

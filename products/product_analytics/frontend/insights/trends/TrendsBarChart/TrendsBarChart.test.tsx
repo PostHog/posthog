@@ -282,7 +282,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
 
     it('colors each value-label pill by its own bar, not the first bar', async () => {
         // Regression: the single collapsed series carries per-bar colors, so value labels must
-        // resolve `barColors[dataIndex]` — not the series-level color (which is just barColors[0]).
+        // resolve `bars[dataIndex].color` — not the series-level color (which is just bars[0].color).
         renderInsight({
             query: aggregatedBar({
                 series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],

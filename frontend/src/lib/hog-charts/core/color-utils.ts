@@ -8,11 +8,11 @@ export function dimColor(color: string, alpha: number): string {
     return d3.color(color)?.copy({ opacity: alpha }).toString() ?? color
 }
 
-/** Fill color for the bar at `index`: `barColors[index]` when set, else the series color. The one
- *  resolver every bar color-read site (fill, hover highlight, tooltip swatch, value labels) should
- *  use, so a per-bar series can't accidentally render bars in the series-level color. */
+/** Fill color for the bar at `index`: the per-bar override (`bars[index].color`) when set, else the
+ *  series color. The one resolver every bar color-read site (fill, hover highlight, tooltip swatch,
+ *  value labels) should use, so a per-bar series can't accidentally render bars in the series color. */
 export function barColorAt(series: ResolvedSeries, index: number): string
-export function barColorAt(series: Pick<Series, 'color' | 'barColors'>, index: number): string | undefined
-export function barColorAt(series: Pick<Series, 'color' | 'barColors'>, index: number): string | undefined {
-    return series.barColors?.[index] ?? series.color
+export function barColorAt(series: Pick<Series, 'color' | 'bars'>, index: number): string | undefined
+export function barColorAt(series: Pick<Series, 'color' | 'bars'>, index: number): string | undefined {
+    return series.bars?.[index]?.color ?? series.color
 }

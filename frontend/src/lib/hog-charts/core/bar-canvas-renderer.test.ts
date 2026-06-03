@@ -142,14 +142,14 @@ describe('hog-charts canvas-renderer (bars)', () => {
             expect(ctx.fillStyle).toBe('#abcdef')
         })
 
-        it('uses per-bar barColors by data index, falling back to series.color where absent', () => {
+        it('uses per-bar colors from bars[i].color, falling back to series.color where absent', () => {
             const ctx = mockCanvasContext()
             const drawCtx = makeDrawContext(ctx, ['a', 'b', 'c'])
             const series = makeSeries({
                 key: 's',
                 data: [1, 2, 3],
                 color: '#000000',
-                barColors: ['#ff0000', undefined, '#0000ff'],
+                bars: [{ color: '#ff0000' }, {}, { color: '#0000ff' }],
             })
             const seen: (string | CanvasPattern)[] = []
             const original = Object.getOwnPropertyDescriptor(ctx, 'fillStyle')
