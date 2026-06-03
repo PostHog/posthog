@@ -186,9 +186,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
-            await self._apply_scanner_side_effects(
-                inputs, observation_id, call_output.model_output, create_result.emits_embeddings
-            )
+            await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
             await wf.execute_activity(
                 emit_observation_event_activity,
                 EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
@@ -299,10 +297,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         inputs: ApplyScannerInputs,
         observation_id: UUID,
         model_output: object,
-        emits_embeddings: bool,
     ) -> None:
         """Dispatch scanner-type-specific side-effects after the LLM call; failure aborts the workflow."""
-        if isinstance(model_output, SummarizerOutput) and emits_embeddings and model_output.has_any_facet():
+        if isinstance(model_output, SummarizerOutput) and model_output.has_any_facet():
             await wf.execute_activity(
                 embed_summarizer_observation_activity,
                 EmbedSummarizerObservationInputs(

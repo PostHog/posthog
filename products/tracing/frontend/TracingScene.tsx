@@ -14,6 +14,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
@@ -151,56 +152,58 @@ function TracingSceneContents(): JSX.Element {
             >
                 Tracing is in alpha. Expect bugs, missing features, and breaking changes.
             </LemonBanner>
-            <TracingSparkline
-                sparklineData={sparklineData}
-                sparklineLoading={sparklineLoading}
-                onDateRangeChange={setDateRange}
-                displayTimezone="UTC"
-                compare={compareConfig}
-                visibleRowDateRange={visibleRowDateRange}
-            />
-            <SceneDivider />
-            <TracingFilterBar />
-            {!sparklineLoading && totalSpansMatchingFilters > 0 && (
-                <div className="text-xs text-muted px-1">
-                    {totalSpansMatchingFilters.toLocaleString()} spans matching filters
-                </div>
-            )}
-            {compareMode ? (
-                <div className="flex flex-col flex-1 min-h-0 overflow-auto">
-                    <TraceCompareTable
-                        current={aggregation.current}
-                        previous={aggregation.previous}
-                        loading={aggregationLoading}
-                        onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
-                    />
-                </div>
-            ) : (
-                <VirtualizedSpanList
-                    dataSource={rootSpans}
-                    loading={spansLoading}
-                    hasMoreToLoad={hasMoreToLoad}
-                    onLoadMore={fetchNextPage}
-                    onVisibleRowRangeChange={setVisibleRowRange}
-                    expandedSpanIds={expandedSpanIds}
-                    onToggleExpand={toggleExpandSpan}
-                    emptyState={
-                        <div className="flex flex-col items-center gap-1">
-                            <span>No spans found</span>
-                            <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
-                                Learn how to send traces
-                            </Link>
-                        </div>
-                    }
-                    onRowClick={(span: Span) => {
-                        // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                        // element; react-modal then scrolls it back into view when restoring focus
-                        // on close. Blur so the restore target is <body>, which doesn't scroll.
-                        ;(document.activeElement as HTMLElement | null)?.blur?.()
-                        openTraceModal(span.trace_id)
-                    }}
+            <TracingSetupPrompt>
+                <TracingSparkline
+                    sparklineData={sparklineData}
+                    sparklineLoading={sparklineLoading}
+                    onDateRangeChange={setDateRange}
+                    displayTimezone="UTC"
+                    compare={compareConfig}
+                    visibleRowDateRange={visibleRowDateRange}
                 />
-            )}
+                <SceneDivider />
+                <TracingFilterBar />
+                {!sparklineLoading && totalSpansMatchingFilters > 0 && (
+                    <div className="text-xs text-muted px-1">
+                        {totalSpansMatchingFilters.toLocaleString()} spans matching filters
+                    </div>
+                )}
+                {compareMode ? (
+                    <div className="flex flex-col flex-1 min-h-0 overflow-auto">
+                        <TraceCompareTable
+                            current={aggregation.current}
+                            previous={aggregation.previous}
+                            loading={aggregationLoading}
+                            onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                        />
+                    </div>
+                ) : (
+                    <VirtualizedSpanList
+                        dataSource={rootSpans}
+                        loading={spansLoading}
+                        hasMoreToLoad={hasMoreToLoad}
+                        onLoadMore={fetchNextPage}
+                        onVisibleRowRangeChange={setVisibleRowRange}
+                        expandedSpanIds={expandedSpanIds}
+                        onToggleExpand={toggleExpandSpan}
+                        emptyState={
+                            <div className="flex flex-col items-center gap-1">
+                                <span>No spans found</span>
+                                <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
+                                    Learn how to send traces
+                                </Link>
+                            </div>
+                        }
+                        onRowClick={(span: Span) => {
+                            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
+                            // element; react-modal then scrolls it back into view when restoring focus
+                            // on close. Blur so the restore target is <body>, which doesn't scroll.
+                            ;(document.activeElement as HTMLElement | null)?.blur?.()
+                            openTraceModal(span.trace_id)
+                        }}
+                    />
+                )}
+            </TracingSetupPrompt>
             <LemonModal
                 title={`Trace ${selectedTraceId}`}
                 isOpen={isTraceModalOpen}

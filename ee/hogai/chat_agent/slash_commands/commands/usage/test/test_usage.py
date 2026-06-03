@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     CLOUD_REGION_TO_TEAM_ID,
     CLOUD_REGION_TO_URL,
@@ -19,7 +21,6 @@ from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     get_ga_launch_date,
     get_past_month_start,
 )
-from ee.models.assistant import Conversation
 
 
 class TestUsage(BaseTest):

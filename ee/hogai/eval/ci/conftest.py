@@ -10,6 +10,8 @@ from posthog.schema import FailureMessage, HumanMessage
 
 from posthog.models import Organization, Team, User
 
+from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
+
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent import AssistantGraph
@@ -27,7 +29,6 @@ from ee.hogai.eval.data_setup import (
 from ee.hogai.eval.scorers import PlanAndQueryOutput
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import Conversation, CoreMemory
 
 handler = BraintrustCallbackHandler()
 if os.environ.get("BRAINTRUST_API_KEY") and os.environ.get("EVAL_MODE") != "offline":

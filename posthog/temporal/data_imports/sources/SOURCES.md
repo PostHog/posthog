@@ -54,6 +54,7 @@ the row lists both.
 | convex        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
+| drip          | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -78,6 +79,7 @@ the row lists both.
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shopify       | HTTP                        | requests                                                        | ✅                          |
+| shortcut      | HTTP                        | requests                                                        | ✅                          |
 | slack         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snapchat_ads  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake     | DB protocol                 | snowflake-connector-python                                      | ➖                          |
@@ -121,12 +123,12 @@ sync logic yet — picking up any of them means following the [implementing-ware
 active_campaign, adjust, aircall, airtable, amazon_ads, amplitude, apple_search_ads, appsflyer, asana,
 ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, calendly, campaign_monitor,
 chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, copper, datadog,
-drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
+dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
 instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
-recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
+recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, smartsheet,
 square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
 youtube_analytics, zoho_crm, zoom, zuora.
 

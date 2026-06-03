@@ -306,7 +306,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DripSourceConfig(config.Config):
-    pass
+    api_token: str
+    account_id: str
 
 
 @config.config
@@ -753,7 +754,7 @@ class ShopifySourceConfig(config.Config):
 
 @config.config
 class ShortcutSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
