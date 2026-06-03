@@ -1,5 +1,3 @@
-import { PreflightStatus } from '~/types'
-
 import { LoginPage } from '../page-models/loginPage'
 import { LOGIN_PASSWORD, LOGIN_USERNAME, expect, test } from '../utils/playwright-test-base'
 
@@ -32,13 +30,28 @@ test.describe('Auth', () => {
     })
 
     test('Logout and verify Google login button has correct link', async ({ page }) => {
-        await page.locator('[data-attr=new-account-menu-logout-button]').click()
+        // available_social_auth_providers comes from POSTHOG_APP_CONTEXT, which is server-rendered into the
+        // login page HTML and read directly by preflightLogic on mount — so API mocks don't apply. Patch the
+        // context before the page scripts run; mutating it after the page has loaded is racy and only
+        // renders the button on lucky timing.
+        await page.addInitScript(() => {
+            let _context: any = undefined
+            Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
+                get() {
+                    if (_context?.preflight) {
+                        _context.preflight.available_social_auth_providers ??= {}
+                        _context.preflight.available_social_auth_providers['google-oauth2'] = true
+                    }
+                    return _context
+                },
+                set(value) {
+                    _context = value
+                },
+                configurable: true,
+            })
+        })
 
-        await page.setAppContext('preflight', {
-            available_social_auth_providers: {
-                'google-oauth2': true,
-            },
-        } as Partial<PreflightStatus> as PreflightStatus)
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
         await expect(page.locator('a[href="/login/google-oauth2/"]')).toBeVisible()
     })
