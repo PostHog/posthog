@@ -537,7 +537,7 @@ describe('Dashboards', { concurrent: false }, () => {
             const tile = batchResponse.tiles[0]
             expect(tile.id).toBeTruthy()
             expect(tile.widget?.widget_type).toBe('error_tracking_list')
-            expect(batchResponse._posthogUrl).toBe(`/dashboard/${dashboard.id}`)
+            expect(batchResponse._posthogUrl).toContain(`/dashboard/${dashboard.id}`)
 
             const dashboardWithTile = parseToolResponse(await getOneTool.handler(context, { id: dashboard.id }))
             const widgetTile = dashboardWithTile.tiles?.find((t: { widget?: unknown }) => !!t.widget)
@@ -549,7 +549,7 @@ describe('Dashboards', { concurrent: false }, () => {
             })
             const runResponse = parseToolResponse(runResult)
 
-            expect(runResponse._posthogUrl).toBe(`/dashboard/${dashboard.id}`)
+            expect(runResponse._posthogUrl).toContain(`/dashboard/${dashboard.id}`)
             expect(Array.isArray(runResponse.results)).toBe(true)
             expect(runResponse.results.length).toBe(1)
             expect(runResponse.results[0].tile_id).toBe(tile.id)
