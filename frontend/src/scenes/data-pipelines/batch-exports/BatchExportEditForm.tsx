@@ -150,9 +150,7 @@ function BatchExportSSHTunnelFields({
                                     <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                                 </LemonField>
                                 <LemonField name="private_key" label="Tunnel private key">
-                                    <LemonTextArea
-                                        placeholder={isNew ? 'Paste your private key' : 'Leave unchanged'}
-                                    />
+                                    <LemonTextArea placeholder={isNew ? 'Paste your private key' : 'Leave unchanged'} />
                                 </LemonField>
                                 <LemonField name="passphrase" label="Tunnel passphrase" showOptional>
                                     <LemonInput type="password" placeholder={isNew ? '' : 'Leave unchanged'} />
