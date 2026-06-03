@@ -55,7 +55,8 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
+    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains, editRestrictionReason } =
+        useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
@@ -87,6 +88,7 @@ export function AuthorizedUrlList({
                     type="secondary"
                     icon={<IconPlus />}
                     data-attr="toolbar-add-url"
+                    disabledReason={editRestrictionReason}
                 >
                     {addText}
                 </LemonButton>
@@ -134,6 +136,7 @@ export function AuthorizedUrlList({
                                     data-attr="toolbar-apply-suggestion"
                                     type={isHighlighted ? 'primary' : undefined}
                                     active={isHighlighted}
+                                    disabledReason={editRestrictionReason}
                                 >
                                     Apply suggestion
                                 </LemonButton>
@@ -205,6 +208,7 @@ export function AuthorizedUrlList({
                                             onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
                                             tooltip="Edit"
                                             center
+                                            disabledReason={editRestrictionReason}
                                         />
                                     )}
 
@@ -213,6 +217,7 @@ export function AuthorizedUrlList({
                                             icon={<IconTrash />}
                                             tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                             center
+                                            disabledReason={editRestrictionReason}
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: <>Remove {keyedURL.url} ?</>,

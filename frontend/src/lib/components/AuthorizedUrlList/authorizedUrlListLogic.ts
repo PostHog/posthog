@@ -1,16 +1,4 @@
-import {
-    actions,
-    afterMount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    sharedListeners,
-} from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
@@ -18,6 +6,8 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -438,74 +428,92 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
     })),
-    sharedListeners(({ values, props }) => ({
-        saveUrls: async () => {
+    listeners(({ values, actions, props }) => {
+        const revertToTeamUrls = (): void => {
+            const teamUrls =
+                (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
+                    ? values.currentTeam?.recording_domains
+                    : values.currentTeam?.app_urls) || []
+            actions.setAuthorizedUrls(teamUrls.filter(Boolean))
+        }
+        // `app_urls`/`recording_domains` are admin-restricted team fields. The UI already disables the
+        // edit controls for non-admins, but guard here too so a stray save never hits the backend — a
+        // non-admin PATCH 403s, and kea-loaders' global onFailure reports it as a captured exception.
+        const saveUrls = async (): Promise<boolean> => {
+            if (!values.canEditAuthorizedUrls) {
+                revertToTeamUrls()
+                lemonToast.error('Only project admins can modify these settings')
+                return false
+            }
             if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
                 await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
             } else {
                 await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
             }
-        },
-    })),
-    listeners(({ sharedListeners, values, actions, props }) => ({
-        setEditUrlIndex: () => {
-            actions.setProposedUrlValue('url', values.urlToEdit)
-        },
-        newUrl: () => {
-            actions.setProposedUrlValue('url', NEW_URL)
-        },
-        addUrl: async ({ url, launch }) => {
-            // Await the app_urls PATCH before markTaskAsCompleted to avoid a race on the team PATCH response.
-            if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
-                await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
-            } else {
-                await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
-            }
-            if (launch) {
-                actions.launchAtUrl(url)
-            }
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
-        },
-        removeUrl: sharedListeners.saveUrls,
-        updateUrl: sharedListeners.saveUrls,
-        launchAtUrl: ({ url }) => {
-            void addProductIntent({
-                product_type: ProductKey.TOOLBAR,
-                intent_context: ProductIntentContext.TOOLBAR_LAUNCHED,
-            })
-            window.location.href = values.launchUrl(url)
-        },
-        cancelProposingUrl: () => {
-            actions.resetProposedUrl()
-        },
-        submitProposedUrlSuccess: () => {
-            actions.setEditUrlIndex(null)
-            actions.resetProposedUrl()
-        },
-        copyLaunchCode: async () => {
-            const params: Record<string, unknown> = {
-                action: 'ph_authorize',
-                token: values.currentTeam?.api_token,
-                toolbarVersion: 'toolbar',
-                instrument: true,
-                userEmail: values.user?.email,
-                distinctId: values.user?.distinct_id,
-                ...buildToolbarParams({
-                    ...(props.actionId ? { actionId: props.actionId } : {}),
-                    ...(props.experimentId ? { experimentId: props.experimentId } : {}),
-                }),
-                dataAttributes: values.currentTeam?.data_attributes,
-            }
-            const templateScript = `
+            return true
+        }
+        return {
+            setEditUrlIndex: () => {
+                actions.setProposedUrlValue('url', values.urlToEdit)
+            },
+            newUrl: () => {
+                actions.setProposedUrlValue('url', NEW_URL)
+            },
+            addUrl: async ({ url, launch }) => {
+                // Await the app_urls PATCH before markTaskAsCompleted to avoid a race on the team PATCH response.
+                if (!(await saveUrls())) {
+                    return
+                }
+                if (launch) {
+                    actions.launchAtUrl(url)
+                }
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
+            },
+            removeUrl: async () => {
+                await saveUrls()
+            },
+            updateUrl: async () => {
+                await saveUrls()
+            },
+            launchAtUrl: ({ url }) => {
+                void addProductIntent({
+                    product_type: ProductKey.TOOLBAR,
+                    intent_context: ProductIntentContext.TOOLBAR_LAUNCHED,
+                })
+                window.location.href = values.launchUrl(url)
+            },
+            cancelProposingUrl: () => {
+                actions.resetProposedUrl()
+            },
+            submitProposedUrlSuccess: () => {
+                actions.setEditUrlIndex(null)
+                actions.resetProposedUrl()
+            },
+            copyLaunchCode: async () => {
+                const params: Record<string, unknown> = {
+                    action: 'ph_authorize',
+                    token: values.currentTeam?.api_token,
+                    toolbarVersion: 'toolbar',
+                    instrument: true,
+                    userEmail: values.user?.email,
+                    distinctId: values.user?.distinct_id,
+                    ...buildToolbarParams({
+                        ...(props.actionId ? { actionId: props.actionId } : {}),
+                        ...(props.experimentId ? { experimentId: props.experimentId } : {}),
+                    }),
+                    dataAttributes: values.currentTeam?.data_attributes,
+                }
+                const templateScript = `
                 if (!window?.posthog) {
                     console.warn('PostHog must be added to the window object on this page, for this to work. This is normally done in the loaded callback of your posthog init code.')
                 } else {
                     window.posthog.loadToolbar(${JSON.stringify(params)})
                 }
                 `
-            await copyToClipboard(templateScript, 'code to paste into the console')
-        },
-    })),
+                await copyToClipboard(templateScript, 'code to paste into the console')
+            },
+        }
+    }),
     selectors({
         urlToEdit: [
             (s) => [s.authorizedUrls, s.editUrlIndex],
@@ -564,6 +572,19 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         ],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
         onlyAllowDomains: [(_, p) => [p.type], (type) => type === AuthorizedUrlListType.RECORDING_DOMAINS],
+
+        // `app_urls`/`recording_domains` are admin-restricted, mirroring the backend check in validate_team_attrs.
+        canEditAuthorizedUrls: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean =>
+                !!currentTeam?.effective_membership_level &&
+                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+        ],
+        editRestrictionReason: [
+            (s) => [s.canEditAuthorizedUrls],
+            (canEditAuthorizedUrls): string | null =>
+                canEditAuthorizedUrls ? null : 'Only project admins can modify these settings',
+        ],
 
         checkUrlIsAuthorized: [
             (s) => [s.authorizedUrls],

@@ -1,9 +1,12 @@
-import { MOCK_TEAM_ID, api } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -104,6 +107,49 @@ describe('the authorized urls list logic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(markTaskAsCompleted).toHaveBeenCalledWith(SetupTaskId.AddAuthorizedDomain)
+        })
+    })
+
+    describe('admin-restricted editing', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('allows editing for project admins', async () => {
+            await expectLogic(logic).toMatchValues({
+                canEditAuthorizedUrls: true,
+                editRestrictionReason: null,
+            })
+        })
+
+        it('blocks editing for non-admins with a friendly reason', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: OrganizationMembershipLevel.Member,
+            })
+            await expectLogic(logic).toMatchValues({
+                canEditAuthorizedUrls: false,
+                editRestrictionReason: 'Only project admins can modify these settings',
+            })
+        })
+
+        it('does not PATCH the team for non-admins, reverting the edit and surfacing an inline message', async () => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+            const update = jest.spyOn(api, 'update')
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: OrganizationMembershipLevel.Member,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://blocked.example.com')
+            }).toFinishAllListeners()
+
+            // The save is blocked client-side, so no team PATCH is attempted (no 403 / captured exception)
+            expect(update).not.toHaveBeenCalled()
+            // local state reverts to the team's stored app_urls, so the rejected URL is not shown
+            expect(logic.values.authorizedUrls).not.toContain('https://blocked.example.com')
+            expect(toastError).toHaveBeenCalledWith('Only project admins can modify these settings')
         })
     })
 
