@@ -53,8 +53,8 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             <div>
                                 <div className="text-sm font-medium">Allow inconclusive verdicts</div>
                                 <div className="text-xs text-muted">
-                                    Lets the model answer `inconclusive` when the recording doesn't contain enough
-                                    evidence to decide. Otherwise it must commit to `yes` or `no`.
+                                    Lets the model return `inconclusive` when the session genuinely doesn't provide
+                                    enough signal to decide. Otherwise the verdict must be `yes` or `no`.
                                 </div>
                             </div>
                         </div>

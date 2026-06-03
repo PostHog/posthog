@@ -5,12 +5,11 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from posthog.schema import HumanMessage
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ConversationTitleAction
+from ee.models.assistant import Conversation
 
 
 class TestTitleGenerator(BaseTest):

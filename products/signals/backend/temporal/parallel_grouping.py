@@ -165,7 +165,6 @@ async def _process_signal(
     match_result = await workflow.execute_activity(
         match_signal_to_report_activity,
         MatchSignalToReportInput(
-            team_id=team_id,
             description=signal.description,
             source_product=signal.source_product,
             source_type=signal.source_type,

@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 
 
@@ -11,7 +12,6 @@ class LLMTraceSummary(UUIDTModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "trace_id", "trace_summary_type"], name="unique_trace_summary"),
         ]
-        db_table = "ee_llmtracesummary"
 
     class LLMTraceSummaryType(models.TextChoices):
         """
@@ -20,7 +20,7 @@ class LLMTraceSummary(UUIDTModel):
 
         ISSUES_SEARCH = "issues_search"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     trace_summary_type = models.CharField(

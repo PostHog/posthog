@@ -190,8 +190,7 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
-    export BIND_PORT=3310 # default 3303 collides with property-vals-rs in local dev
+    export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;

@@ -5,14 +5,13 @@ from langgraph.config import get_stream_writer
 
 from posthog.schema import HumanMessage
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.title_generator.prompts import TITLE_GENERATION_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ConversationTitleAction
+from ee.models.assistant import Conversation
 
 
 class TitleGeneratorNode(AssistantNode):

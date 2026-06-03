@@ -2,8 +2,6 @@ import logging
 
 import pytest
 
-from django.conf import settings
-
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client as TemporalClient,
@@ -15,7 +13,6 @@ from temporalio.service import RPCError
 from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
 from posthog.api.test.batch_exports.operations import start_test_worker
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.codec import EncryptionCodec
 
 from products.batch_exports.backend.models.batch_export import BATCH_EXPORT_INTERVAL_TO_START_JITTER, BatchExport
 
@@ -109,9 +106,3 @@ def assert_is_weekly_schedule(schedule: ScheduleDescription, expected_day: int, 
     assert calendars[0].day_of_week == (ScheduleRange(start=expected_day, end=expected_day),)
     assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
     assert schedule.schedule.spec.jitter == BATCH_EXPORT_INTERVAL_TO_START_JITTER["week"]
-
-
-@pytest.fixture(scope="module")
-def encryption_codec() -> EncryptionCodec:
-    codec = EncryptionCodec.from_settings(settings)
-    return codec

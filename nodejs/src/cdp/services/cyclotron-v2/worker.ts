@@ -211,10 +211,6 @@ export class CyclotronV2Worker {
                     params.push(options.actionId ?? null)
                     setClauses.push(`action_id = $${params.length}`)
                 }
-                if (options?.queueName !== undefined) {
-                    params.push(options.queueName)
-                    setClauses.push(`queue_name = $${params.length}`)
-                }
 
                 await pool.query(
                     `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}

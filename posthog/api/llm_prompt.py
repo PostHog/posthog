@@ -53,14 +53,14 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
+from posthog.models import LLMPrompt, User
+from posthog.models.llm_prompt import get_prompt_outline
 from posthog.permissions import AccessControlPermission, get_organization_from_view
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, get_prompt_outline
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"

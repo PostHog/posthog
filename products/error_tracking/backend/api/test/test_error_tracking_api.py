@@ -359,49 +359,6 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_a"])
 
-    @parameterized.expand(
-        [
-            ("ref_substring", "chunk-abc123", ["frontend-chunk-abc123"]),
-            ("release_version", "special", ["set_b"]),
-            ("release_project", "checkout", ["set_c"]),
-            ("release_commit_sha", "feedface", ["set_d"]),
-            ("case_insensitive", "CHECKOUT", ["set_c"]),
-            ("no_match", "zzznope", []),
-        ]
-    )
-    def test_fetching_symbol_sets_search(self, _name: str, search: str, expected_refs: list[str]) -> None:
-        release_b = ErrorTrackingRelease.objects.create(
-            team=self.team, hash_id="hash_b", version="9.9.9-special", project="proj_b", metadata=None
-        )
-        release_c = ErrorTrackingRelease.objects.create(
-            team=self.team, hash_id="hash_c", version="1.0.0", project="checkout-service", metadata=None
-        )
-        release_d = ErrorTrackingRelease.objects.create(
-            team=self.team,
-            hash_id="hash_d",
-            version="2.0.0",
-            project="proj_d",
-            metadata={"git": {"commit_id": "feedface999abc"}},
-        )
-        ErrorTrackingSymbolSet.objects.create(ref="frontend-chunk-abc123", team=self.team, storage_ptr="symbolsets/a")
-        ErrorTrackingSymbolSet.objects.create(
-            ref="set_b", team=self.team, storage_ptr="symbolsets/b", release=release_b
-        )
-        ErrorTrackingSymbolSet.objects.create(
-            ref="set_c", team=self.team, storage_ptr="symbolsets/c", release=release_c
-        )
-        ErrorTrackingSymbolSet.objects.create(
-            ref="set_d", team=self.team, storage_ptr="symbolsets/d", release=release_d
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
-            data={"search": search},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sorted(symbol_set["ref"] for symbol_set in response.json()["results"]), sorted(expected_refs))
-
     def test_fetching_symbol_set_by_id(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
         symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
@@ -984,66 +941,6 @@ class TestErrorTracking(APIBaseTest):
 
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
-
-    @patch("products.error_tracking.backend.api.symbol_sets.posthoganalytics.capture")
-    def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self, patched_capture: Mock) -> None:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
-            data={"content_hashes": {str(uuid7()): "hash"}},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "symbol_set_not_found"
-        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_uploaded"
-        assert patched_capture.call_args.kwargs["properties"] == {
-            "file_size": 0,
-            "success": False,
-            "file_count": 1,
-            "failure_reason": "ValidationError",
-            "failure_code": "symbol_set_not_found",
-        }
-
-    @patch("products.error_tracking.backend.api.symbol_sets.posthoganalytics.capture")
-    @patch("posthog.storage.object_storage.head_object")
-    def test_bulk_finish_upload_preserves_pending_symbol_set_when_file_is_not_found(
-        self, patched_object_storage, patched_capture: Mock
-    ) -> None:
-        symbol_set = ErrorTrackingSymbolSet.objects.create(team=self.team, ref=str(uuid7()), storage_ptr="file/name")
-        request_data = {"content_hashes": {str(symbol_set.id): "hash"}}
-
-        patched_object_storage.side_effect = [None, {"ContentLength": 1000}]
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
-            data=request_data,
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "file_not_found"
-        failure_call = patched_capture.call_args_list[0]
-        assert failure_call.args[0] == "error_tracking_symbol_set_uploaded"
-        assert failure_call.kwargs["properties"] == {
-            "file_size": 0,
-            "success": False,
-            "file_count": 1,
-            "failure_reason": "ValidationError",
-            "failure_code": "file_not_found",
-        }
-
-        symbol_set.refresh_from_db()
-        assert symbol_set.content_hash is None
-
-        retry_response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
-            data=request_data,
-            format="json",
-        )
-
-        assert retry_response.status_code == status.HTTP_201_CREATED
-        symbol_set.refresh_from_db()
-        assert symbol_set.content_hash == "hash"
 
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)

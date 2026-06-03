@@ -1,3 +1,11 @@
+from .assistant import (
+    AgentArtifact,
+    Conversation,
+    ConversationCheckpoint,
+    ConversationCheckpointBlob,
+    ConversationCheckpointWrite,
+    CoreMemory,
+)
 from .dashboard_privilege import DashboardPrivilege
 from .event_definition import EnterpriseEventDefinition
 from .license import License
@@ -11,7 +19,13 @@ from .team_session_summaries_config import TeamSessionSummariesConfig
 
 __all__ = [
     "AccessControl",
+    "AgentArtifact",
+    "ConversationCheckpoint",
+    "ConversationCheckpointBlob",
+    "ConversationCheckpointWrite",
+    "CoreMemory",
     "DashboardPrivilege",
+    "Conversation",
     "EnterpriseEventDefinition",
     "EnterprisePropertyDefinition",
     "License",

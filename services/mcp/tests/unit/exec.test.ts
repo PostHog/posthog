@@ -514,66 +514,6 @@ describe('exec tool', () => {
         })
     })
 
-    describe('search command', () => {
-        it('returns a plain array of matching tool names', async () => {
-            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
-            const exec = createExec([flagTool])
-            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
-            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
-        })
-
-        it('rejects an overly long search pattern before compiling the regex', async () => {
-            const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(201)
-            await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
-                /pattern too long/i
-            )
-        })
-
-        it('hints scope-gated tools that match but are hidden by missing scopes', async () => {
-            const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
-                {
-                    name: 'external-data-sources-refresh-schemas',
-                    title: 'Refresh available schemas',
-                    description: 'Fetch the latest table list from the remote database',
-                    missingScopes: ['external_data_source:write'],
-                },
-                {
-                    name: 'external-data-schemas-list',
-                    title: 'List data import schemas',
-                    description: 'List all table schemas',
-                    missingScopes: ['external_data_source:read'],
-                },
-            ])
-            const result = JSON.parse(
-                (await exec.handler(mockContext, {
-                    command: 'search external-data-sources|external-data-schemas',
-                })) as string
-            )
-            expect(result.matches).toEqual([])
-            expect(result.scope_gated_matches).toEqual([
-                { name: 'external-data-sources-refresh-schemas', missing_scopes: ['external_data_source:write'] },
-                { name: 'external-data-schemas-list', missing_scopes: ['external_data_source:read'] },
-            ])
-            expect(result.hint).toContain('external_data_source:read')
-            expect(result.hint).toContain('external_data_source:write')
-        })
-
-        it('does not hint scope-gated tools that do not match the query', async () => {
-            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
-            const exec = createExecTool([flagTool], mockContext, 'desc', 'cmd', undefined, undefined, [
-                {
-                    name: 'external-data-schemas-list',
-                    title: 'List data import schemas',
-                    description: 'List all table schemas',
-                    missingScopes: ['external_data_source:read'],
-                },
-            ])
-            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
-            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
-        })
-    })
-
     describe('deprecated tool redirects', () => {
         it.each([
             ['entity-search', 'execute-sql'],

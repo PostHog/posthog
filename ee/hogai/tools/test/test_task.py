@@ -14,13 +14,12 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.stream.redis_stream import get_subagent_stream_key
 from ee.hogai.tools.task import SubagentExecutor, TaskTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+from ee.models.assistant import Conversation
 
 
 class TestSubagentExecutor(ClickhouseTestMixin, NonAtomicBaseTest):

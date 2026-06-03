@@ -36,8 +36,6 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.utils import human_list
 
-from products.posthog_ai.backend.models.assistant import CoreMemory
-
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
@@ -48,6 +46,7 @@ from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
+from ee.models.assistant import CoreMemory
 
 from .parsers import check_memory_collection_completed, compressed_memory_parser
 from .prompts import (

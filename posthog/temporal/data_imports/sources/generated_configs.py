@@ -202,7 +202,7 @@ class BuildBetterSourceConfig(config.Config):
 
 @config.config
 class CalendlySourceConfig(config.Config):
-    personal_access_token: str
+    pass
 
 
 @config.config
@@ -306,8 +306,7 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DripSourceConfig(config.Config):
-    api_token: str
-    account_id: str
+    pass
 
 
 @config.config
@@ -494,8 +493,7 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailjetSourceConfig(config.Config):
-    api_key: str
-    secret_key: str
+    pass
 
 
 @config.config
@@ -755,7 +753,7 @@ class ShopifySourceConfig(config.Config):
 
 @config.config
 class ShortcutSourceConfig(config.Config):
-    api_token: str
+    pass
 
 
 @config.config

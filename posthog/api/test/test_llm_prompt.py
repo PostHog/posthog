@@ -12,9 +12,8 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.llm_prompt import LLMPromptViewSet
 from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
+from posthog.models.llm_prompt import LLMPrompt
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
-
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
 
 @patch("posthog.api.llm_prompt.posthoganalytics.feature_enabled", return_value=True)

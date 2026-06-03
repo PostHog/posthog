@@ -47,7 +47,6 @@ class LLMPrompt(UUIDModel):
                 name="unique_llm_prompt_latest_per_team",
             ),
         ]
-        db_table = "posthog_llmprompt"
 
     name = models.CharField(max_length=255)
 

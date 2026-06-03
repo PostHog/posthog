@@ -176,29 +176,6 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
- * Update the status of multiple tickets in a single request.
-
-Only tickets belonging to the current team are affected; other-team UUIDs
-are silently ignored.  Tickets already in the requested status are skipped.
- */
-export const conversationsTicketsBulkUpdateStatusCreateBodyIdsMax = 500
-
-export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.uuid())
-        .max(conversationsTicketsBulkUpdateStatusCreateBodyIdsMax)
-        .describe('List of ticket UUIDs to update.'),
-    status: zod
-        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
-        .describe(
-            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
-        )
-        .describe(
-            'New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
-        ),
-})
-
-/**
  * Bulk update tags on multiple objects.
 
 PAT access: this action has no ``required_scopes=`` on the decorator —

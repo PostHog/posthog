@@ -14,13 +14,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+from ee.models import AgentArtifact, Conversation
 
 
 class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):

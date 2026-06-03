@@ -40,8 +40,6 @@ from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.tool import ApprovalRequest
@@ -69,6 +67,7 @@ from ee.hogai.utils.types.base import (
     LangGraphUpdateEvent,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
+from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)

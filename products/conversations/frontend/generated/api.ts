@@ -9,8 +9,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    BulkUpdateStatusRequestApi,
-    BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     ComposeTicketApi,
@@ -389,29 +387,6 @@ export const conversationsTicketsSuggestReplyCreate = async (
     return apiMutator<SuggestReplyResponseApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-    })
-}
-
-export const getConversationsTicketsBulkUpdateStatusCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/bulk_update_status/`
-}
-
-/**
- * Update the status of multiple tickets in a single request.
-
-Only tickets belonging to the current team are affected; other-team UUIDs
-are silently ignored.  Tickets already in the requested status are skipped.
- */
-export const conversationsTicketsBulkUpdateStatusCreate = async (
-    projectId: string,
-    bulkUpdateStatusRequestApi: BulkUpdateStatusRequestApi,
-    options?: RequestInit
-): Promise<BulkUpdateStatusResponseApi> => {
-    return apiMutator<BulkUpdateStatusResponseApi>(getConversationsTicketsBulkUpdateStatusCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(bulkUpdateStatusRequestApi),
     })
 }
 

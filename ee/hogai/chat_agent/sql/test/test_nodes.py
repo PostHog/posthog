@@ -5,11 +5,10 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from posthog.schema import ArtifactContentType, ArtifactSource, HumanMessage
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.chat_agent.sql.nodes import SQLGeneratorNode
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
+from ee.models.assistant import Conversation
 
 
 class TestSQLGeneratorNode(NonAtomicBaseTest):

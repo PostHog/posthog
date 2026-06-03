@@ -32,8 +32,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
-
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.utils.state import GraphValueUpdateTuple
 from ee.hogai.utils.types.base import (
@@ -50,6 +48,7 @@ from ee.hogai.utils.types.base import (
     NodeStartAction,
     UpdateAction,
 )
+from ee.models.assistant import AgentArtifact, Conversation
 
 
 class TestStreamProcessor(BaseTest):

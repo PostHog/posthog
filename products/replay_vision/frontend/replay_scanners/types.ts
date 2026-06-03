@@ -27,22 +27,20 @@ export type FailureKind =
 const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
     provider_transient: {
         label: 'AI provider unavailable',
-        description:
-            "The AI provider was temporarily unreachable. PostHog will retry on the scanner's next scheduled run.",
+        description: 'The AI provider was temporarily unreachable. PostHog will retry on the next schedule fire.',
     },
     provider_rejected: {
         label: 'AI provider rejected video',
-        description: "The AI provider couldn't process this recording. Try a different one.",
+        description: "The AI provider couldn't process this recording. Other recordings should work.",
     },
     rasterization_failed: {
-        label: 'Recording video failed',
-        description:
-            "PostHog couldn't render this recording into a video for the AI. Try again, or run the scanner on a different recording.",
+        label: 'Rasterization failed',
+        description: "PostHog couldn't render this recording into a video. Other recordings should work.",
     },
     validation_failed: {
         label: 'AI output invalid',
         description:
-            'The AI returned malformed output after several attempts. Try simplifying or rephrasing the scanner prompt.',
+            "The AI's response didn't match the scanner schema after several attempts. Try simplifying the scanner prompt.",
     },
     internal_error: {
         label: 'Internal error',

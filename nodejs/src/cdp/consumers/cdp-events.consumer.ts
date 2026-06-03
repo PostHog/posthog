@@ -149,17 +149,9 @@ export class CdpEventsConsumer<
         return events
     }
 
-    protected async startQueueProducers(): Promise<void> {
-        await Promise.all([this.hogQueue.startAsProducer(), this.hogflowQueue.startAsProducer()])
-    }
-
-    protected async stopQueueProducers(): Promise<void> {
-        await Promise.all([this.hogQueue.stopProducer(), this.hogflowQueue.stopProducer()])
-    }
-
     public override async start(): Promise<void> {
         await super.start()
-        await this.startQueueProducers()
+        await Promise.all([this.hogQueue.startAsProducer(), this.hogflowQueue.startAsProducer()])
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -179,7 +171,7 @@ export class CdpEventsConsumer<
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping job queues...')
-        await this.stopQueueProducers()
+        await Promise.all([this.hogQueue.stopProducer(), this.hogflowQueue.stopProducer()])
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')

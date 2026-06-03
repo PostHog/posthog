@@ -17,9 +17,9 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.llm_prompt import normalize_prompt_to_string
 from posthog.utils import get_instance_region
 
-from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
 from products.exports.backend.temporal.subscriptions.prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,

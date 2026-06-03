@@ -4,8 +4,6 @@ from .datasets import Dataset, DatasetItem
 from .evaluation_config import EvaluationConfig
 from .evaluation_reports import EvaluationReport, EvaluationReportRun
 from .evaluations import Evaluation
-from .llm_prompt import LLMPrompt
-from .llm_traces_summaries import LLMTraceSummary
 from .model_configuration import LLMModelConfiguration
 from .provider_keys import LLMProvider, LLMProviderKey
 from .review_queues import ReviewQueue, ReviewQueueItem
@@ -24,10 +22,8 @@ __all__ = [
     "Dataset",
     "DatasetItem",
     "LLMModelConfiguration",
-    "LLMPrompt",
     "LLMProvider",
     "LLMProviderKey",
-    "LLMTraceSummary",
     "LLMSkill",
     "LLMSkillFile",
     "ReviewQueue",
