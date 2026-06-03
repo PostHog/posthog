@@ -340,7 +340,7 @@ async def _persist_task_run_error_message(run_id: str, message: str) -> None:
     RuntimeError already carries the message for Temporal, so a failed write here
     must not mask the underlying failure."""
     try:
-        await sync_to_async(_update_task_run_error_message, thread_sensitive=False)(run_id, message)
+        await sync_to_async(_update_task_run_error_message)(run_id, message)
     except Exception:
         logger.warning(
             "custom_prompt - drain_final_log: failed to persist agent error to TaskRun run=%s",
