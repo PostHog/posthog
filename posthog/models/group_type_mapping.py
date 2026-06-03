@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import DatabaseError, models
+from django.db.models import Count
 from django.utils import timezone
 
 import structlog
@@ -426,6 +427,38 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
 
     _populate_projects_stale_cache(result)
     return result
+
+
+def count_group_type_mappings_per_team() -> list[dict[str, int]]:
+    """Count group type mappings per team via personhog, falling back to ORM."""
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.count_group_type_mappings(CountGroupTypeMappingsRequest())
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="count_group_type_mappings_per_team", source="personhog", client_name=get_client_name()
+            ).inc()
+            return [{"team_id": c.team_id, "total": c.count} for c in resp.counts]
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="count_group_type_mappings_per_team",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_count_group_type_mappings_failure", exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="count_group_type_mappings_per_team", source="django_orm", client_name=get_client_name()
+    ).inc()
+    return list(
+        GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+        .annotate(total=Count("id"))
+        .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+    )
 
 
 def project_has_group_types_authoritatively(project_id: int) -> bool:
