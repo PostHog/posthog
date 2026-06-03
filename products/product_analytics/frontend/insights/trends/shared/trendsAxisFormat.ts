@@ -1,4 +1,4 @@
-import type { YAxisConfig, YFormatterConfig } from 'lib/hog-charts'
+import type { YAxisConfig, YFormatterConfig } from '@posthog/quill-charts'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 

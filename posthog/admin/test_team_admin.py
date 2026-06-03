@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -104,3 +107,126 @@ class TestTeamAdminSetApiTokenView(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.api_token == "phc_admin_test_old"
+
+
+@freeze_time("2026-01-01T00:00:00Z")
+class TestTeamAdminLLMGateway(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+
+    def _request(self):
+        request = self.factory.post("/")
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    @parameterized.expand(
+        [
+            ("not_enrolled", False, False, "Not enrolled"),
+            ("enrolled", True, False, "Enrolled"),
+            ("revoked", False, True, "Revoked"),
+            ("revoked_wins_over_enabled", True, True, "Revoked"),
+        ]
+    )
+    def test_admit_state(self, _name: str, enabled: bool, revoked: bool, expected: str) -> None:
+        from django.utils import timezone
+
+        now = timezone.now()
+        self.team.llm_gateway_enabled_at = now if enabled else None
+        self.team.llm_gateway_revoked_at = now if revoked else None
+        self.team.save()
+        rendered = str(self.admin.admit_state(self.team))
+        assert expected in rendered
+
+    def test_enable_action_sets_timestamp_and_saves(self) -> None:
+        assert self.team.llm_gateway_enabled_at is None
+        self.admin.enable_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_enabled_at is not None
+
+    def test_enable_action_is_idempotent(self) -> None:
+        from django.utils import timezone
+
+        original = timezone.now() - timedelta(days=1)
+        self.team.llm_gateway_enabled_at = original
+        self.team.save()
+        self.admin.enable_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_enabled_at == original
+
+    def test_revoke_action_sets_timestamp(self) -> None:
+        assert self.team.llm_gateway_revoked_at is None
+        self.admin.revoke_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at is not None
+
+    def test_revoke_action_is_idempotent(self) -> None:
+        from django.utils import timezone
+
+        original = timezone.now() - timedelta(days=1)
+        self.team.llm_gateway_revoked_at = original
+        self.team.save()
+        self.admin.revoke_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at == original
+
+    def test_clear_revoke_action_clears_timestamp(self) -> None:
+        from django.utils import timezone
+
+        self.team.llm_gateway_revoked_at = timezone.now()
+        self.team.save()
+        self.admin.clear_llm_gateway_revoke(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at is None
+
+    def test_clear_revoke_action_no_op_when_already_null(self) -> None:
+        assert self.team.llm_gateway_revoked_at is None
+        self.admin.clear_llm_gateway_revoke(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at is None
+
+    def test_policy_cache_blob_absent(self) -> None:
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(None, "absent"),
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "no entry in Redis" in rendered
+
+    def test_policy_cache_blob_negative_sentinel(self) -> None:
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(None, "redis_negative"),
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "negative-cache sentinel" in rendered
+        assert "default-deny" in rendered
+
+    def test_policy_cache_blob_renders_blob(self) -> None:
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(
+                {"id": self.team.id, "llm_gateway_enabled_at": "2026-06-02T00:00:00+00:00"},
+                "redis_hit",
+            ),
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "llm_gateway_enabled_at" in rendered
+
+    def test_policy_cache_blob_escapes_html_in_values(self) -> None:
+        # api_token is settable by staff via set_api_token_view, so the
+        # cache projection can carry HTML/JS that must not render raw.
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(
+                {"id": self.team.id, "api_token": "<script>alert(1)</script>"},
+                "redis_hit",
+            ),
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "<script>" not in rendered
+        assert "&lt;script&gt;" in rendered

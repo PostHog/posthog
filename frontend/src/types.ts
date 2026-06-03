@@ -4669,6 +4669,8 @@ export interface Experiment {
         }
         frequentist?: {
             alpha?: number
+            sequential_testing_enabled?: boolean
+            sequential_tuning_parameter?: number
         }
         cuped?: {
             enabled?: boolean
@@ -6111,11 +6113,6 @@ export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
     integration?: number
     config: {
-        project_id: string
-        private_key: string
-        private_key_id: string
-        client_email: string
-        token_uri: string
         dataset_id: string
         table_id: string
         exclude_events: string[]

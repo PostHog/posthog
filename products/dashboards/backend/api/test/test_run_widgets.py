@@ -13,6 +13,7 @@ from posthog.scopes import APIScopeObject
 from products.dashboards.backend.constants import DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
+from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
 
 class TestWidgetRegistry(APIBaseTest):
@@ -125,6 +126,20 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertIsNone(body["results"][0]["error"])
         self.assertEqual(body["results"][0]["result"]["limit"], 10)
         mock_calculate.assert_called_once()
+
+    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
+    def test_run_widgets_requests_listing_volume_resolution(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        self._run(dashboard_id, [tile_id])
+
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.volumeResolution, ERROR_TRACKING_LISTING_VOLUME_RESOLUTION)
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_uses_team_filter_test_accounts_default(self, mock_runner_cls: MagicMock) -> None:

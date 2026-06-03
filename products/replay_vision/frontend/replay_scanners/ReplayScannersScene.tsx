@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { XRayHog } from 'lib/components/hedgehogs'
@@ -19,12 +19,13 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
-import { VisionQuotaMeter } from './components/VisionQuotaMeter'
+import { VisionMetrics } from './components/VisionMetrics'
 import { replayScannersLogic } from './replayScannersLogic'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
     SCANNER_TYPE_OPTIONS,
+    SCANNER_TYPE_TAG_TYPE,
     ScannerType,
     ReplayScanner,
     scannerTypeLabel,
@@ -34,13 +35,6 @@ const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIO
     value,
     label,
 }))
-
-const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
-    monitor: 'primary',
-    classifier: 'completion',
-    scorer: 'warning',
-    summarizer: 'success',
-}
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -199,21 +193,21 @@ export function ReplayScannersScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Replay vision"
-                description="Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events."
+                description="Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event."
                 resourceType={{ type: 'replay_vision' }}
             />
-
-            <VisionQuotaMeter />
 
             <ProductIntroduction
                 productName="Replay vision"
                 productKey={ProductKey.REPLAY_VISION}
                 thingName="scanner"
-                description="Replay vision runs scanners over completed sessions on a schedule or on demand, using session recordings and events to do anything you can describe — categorize sessions, monitor user behavior, surface frustration or confusion, flag bugs, score intent, or detect any custom pattern. Results land as queryable events you can build insights, alerts, and cohorts on."
-                secondaryDescription="You can get started using a template, or create a fully custom scanner yourself."
+                description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
+                secondaryDescription="Start from a template or build a fully custom scanner."
                 customHog={XRayHog}
                 action={() => push(urls.replayVisionTemplates())}
             />
+
+            {scanners.length > 0 && <VisionMetrics />}
 
             <SceneSection
                 title="Scanners"

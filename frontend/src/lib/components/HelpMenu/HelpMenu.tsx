@@ -60,7 +60,8 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { isCloudOrDev, preflight } = useValues(preflightLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
-    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent } = useValues(posthogStatusLogic)
+    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
+        useValues(posthogStatusLogic)
     const { totalIssues } = useValues(healthSummaryLogic)
 
     return (
@@ -197,7 +198,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             targetBlankIcon
                                             target="_blank"
                                             buttonProps={{ menuItem: true }}
-                                            to="https://posthogstatus.com"
+                                            to={statusPageUrl}
                                             tooltip={postHogStatusTooltip}
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}

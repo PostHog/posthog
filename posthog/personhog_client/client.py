@@ -16,6 +16,8 @@ from posthog.personhog_client.proto import (
     CohortMembershipResponse,
     CountCohortMembersRequest,
     CountCohortMembersResponse,
+    CountGroupTypeMappingsRequest,
+    CountGroupTypeMappingsResponse,
     CreateGroupRequest,
     CreateGroupResponse,
     DeleteCohortMemberRequest,
@@ -302,6 +304,9 @@ class PersonHogClient:
         self, request: GetGroupTypeMappingByDashboardIdRequest
     ) -> GetGroupTypeMappingByDashboardIdResponse:
         return self._stub.GetGroupTypeMappingByDashboardId(request, timeout=self._timeout)
+
+    def count_group_type_mappings(self, request: CountGroupTypeMappingsRequest) -> CountGroupTypeMappingsResponse:
+        return self._stub.CountGroupTypeMappings(request, timeout=self._timeout)
 
     def update_group_type_mapping(self, request: UpdateGroupTypeMappingRequest) -> UpdateGroupTypeMappingResponse:
         return self._stub.UpdateGroupTypeMapping(request, timeout=self._timeout)
