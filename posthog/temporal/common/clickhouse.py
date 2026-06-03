@@ -527,7 +527,7 @@ class ClickHouseClient:
         """
         params = {**self.params}
         # PyArrow reads response.raw directly in stream_query_as_arrow, so keep the HTTP body uncompressed.
-        params["enable_http_compression"] = 0
+        params["enable_http_compression"] = "0"
         if query_id is not None:
             params["query_id"] = query_id
 

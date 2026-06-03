@@ -204,7 +204,7 @@ def test_post_query_disables_http_compression(clickhouse_client):
             pass
 
     call_kwargs = mock_factory.return_value.post.call_args.kwargs
-    assert call_kwargs["params"]["enable_http_compression"] == 0
+    assert call_kwargs["params"]["enable_http_compression"] == "0"
 
 
 @pytest.mark.parametrize(
