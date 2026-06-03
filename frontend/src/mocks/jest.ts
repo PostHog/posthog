@@ -1,10 +1,25 @@
 import { setupServer } from 'msw/node'
 
 import { useAvailableFeatures } from '~/mocks/features'
-import { handlers } from '~/mocks/handlers'
+import { EMPTY_PAGINATED_RESPONSE, handlers } from '~/mocks/handlers'
 import { Mocks, mocksToHandlers } from '~/mocks/utils'
 
-export const mswServer = setupServer(...handlers)
+// Jest-only defaults. Under jsdom an unhandled request hits the never-resolving fetch stub
+// (see beforeAll), so any logic that awaits one of these on mount would hang
+// toFinishAllListeners. These live here rather than in the shared `handlers` so the Storybook
+// MSW worker — which serves the same `handlers` to a real browser — is left untouched. Appended
+// after `handlers` so an existing matching handler still wins, and `server.use()` (useMocks)
+// still overrides them per test.
+const jestOnlyDefaultHandlers = mocksToHandlers({
+    get: {
+        '/api/projects/:team_id/product_tours/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/integrations/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+        '/api/environments/:team_id/taggers/': EMPTY_PAGINATED_RESPONSE,
+    },
+})
+
+export const mswServer = setupServer(...handlers, ...jestOnlyDefaultHandlers)
 export const useMocks = (mocks: Mocks): void => mswServer.use(...mocksToHandlers(mocks))
 
 window.confirm = jest.fn()

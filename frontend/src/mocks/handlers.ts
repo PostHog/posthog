@@ -135,10 +135,6 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/product_tours/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/integrations/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
-        '/api/environments/:team_id/taggers/': EMPTY_PAGINATED_RESPONSE,
         '/api/user_home_settings/@me/': { tabs: [], homepage: null },
         '/api/organizations/@current/': () => [
             200,
