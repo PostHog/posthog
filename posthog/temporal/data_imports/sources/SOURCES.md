@@ -97,6 +97,7 @@ the row lists both.
 | tiktok_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| woocommerce   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
@@ -214,7 +215,6 @@ doesn't conflict with concurrent PRs.
 - twilio
 - twitter_ads
 - webflow
-- woocommerce
 - workday
 - wrike
 - xero
