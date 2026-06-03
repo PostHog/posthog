@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.models import DAG
+from products.data_modeling.backend.models import DAG, REVENUE_ANALYTICS_DAG_NAME
 from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -56,8 +56,8 @@ class DAGSerializer(serializers.ModelSerializer):
         return value
 
     def validate_name(self, value: str) -> str:
-        if self.instance is not None and self.instance.is_default and value != self.instance.name:
-            raise serializers.ValidationError("The default DAG cannot be renamed.")
+        if self.instance is not None and self.instance.is_reserved and value != self.instance.name:
+            raise serializers.ValidationError(f"The {self.instance.name} DAG cannot be renamed.")
         return value
 
     def create(self, validated_data: dict) -> DAG:
@@ -84,6 +84,10 @@ class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team_id=self.team_id).annotate(node_count=Count("node")).order_by("name")
 
     def perform_destroy(self, instance: DAG) -> None:
-        if instance.is_default:
-            raise ValidationError("The default DAG cannot be deleted.")
+        if instance.name == REVENUE_ANALYTICS_DAG_NAME:
+            raise ValidationError(
+                "The Revenue Analytics DAG cannot be deleted. You must disable revenue analytics to remove this DAG."
+            )
+        if instance.is_reserved:
+            raise ValidationError(f"The {instance.name} DAG cannot be deleted.")
         instance.delete()

@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from products.data_modeling.backend.models import DAG, Node, NodeType
+from products.data_modeling.backend.models import DAG, REVENUE_ANALYTICS_DAG_NAME, Node, NodeType
 
 
 class TestDAGViewSet(APIBaseTest):
@@ -77,6 +77,27 @@ class TestDAGViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         dag.refresh_from_db()
         self.assertEqual(dag.name, "Default")
+
+    def test_cannot_delete_revenue_analytics_dag(self):
+        dag = DAG.get_or_create_revenue_analytics(self.team)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("disable revenue analytics", response.json()["detail"].lower())
+        self.assertTrue(DAG.objects.filter(team=self.team, id=dag.id).exists())
+
+    def test_cannot_rename_revenue_analytics_dag(self):
+        dag = DAG.get_or_create_revenue_analytics(self.team)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"name": "renamed"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, REVENUE_ANALYTICS_DAG_NAME)
 
     def test_node_count_reflects_nodes(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")

@@ -20,11 +20,32 @@ from posthog.hogql.database.models import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
+from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 
 logger = structlog.get_logger(__name__)
+
+
+def _delete_dag_schedule_best_effort(schedule_id: str, team_id: int) -> None:
+    """Delete a v2 (data-modeling-execute-dag) Temporal schedule, swallowing errors.
+
+    Runs after the DB transaction commits, so a Temporal hiccup never rolls back the deletion.
+    """
+    # Local imports keep the Temporal client off the model import path.
+    import temporalio  # noqa: PLC0415
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+    from posthog.temporal.common.schedule import delete_schedule  # noqa: PLC0415
+
+    try:
+        delete_schedule(sync_connect(), schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+            logger.warning("failed_to_delete_revenue_analytics_dag_schedule", team_id=team_id, schedule_id=schedule_id)
+    except Exception:
+        logger.warning("failed_to_delete_revenue_analytics_dag_schedule", team_id=team_id, schedule_id=schedule_id)
 
 
 @dataclass
@@ -221,6 +242,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
                     capture_exception(e, {"managed_viewset_id": self.id, "view_name": view.name})
 
+            if self.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
+                self._delete_revenue_analytics_dag()
+
             logger.info(
                 "managed_viewset_deleted_with_views",
                 team_id=self.team_id,
@@ -230,6 +254,19 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
             self.delete()
         return views_deleted
+
+    def _delete_revenue_analytics_dag(self) -> None:
+        """Delete the protected Revenue Analytics DAG (and its v2 schedule) for this team, if present.
+
+        The DAG is API-protected, so disabling revenue analytics is the only way to remove it.
+        """
+        ra_dag = DAG.objects.filter(team_id=self.team_id, name=REVENUE_ANALYTICS_DAG_NAME).first()
+        if ra_dag is None:
+            return
+        schedule_id = str(ra_dag.id)
+        team_id = self.team_id
+        ra_dag.delete()  # cascades Nodes and Edges
+        transaction.on_commit(lambda: _delete_dag_schedule_best_effort(schedule_id, team_id))
 
     def to_saved_query_metadata(self, name: str):
         if self.kind != DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:

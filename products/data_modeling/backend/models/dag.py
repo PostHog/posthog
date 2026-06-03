@@ -11,6 +11,10 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 DEFAULT_DAG_NAME = "Default"
+REVENUE_ANALYTICS_DAG_NAME = "Revenue Analytics"
+# DAGs that PostHog creates and manages on the user's behalf. They cannot be renamed or
+# deleted through the API.
+RESERVED_DAG_NAMES = frozenset({DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME})
 
 
 class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -29,9 +33,18 @@ class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         dag, _ = cls.objects.get_or_create(team=team, name=DEFAULT_DAG_NAME)
         return dag
 
+    @classmethod
+    def get_or_create_revenue_analytics(cls, team: Team) -> DAG:
+        dag, _ = cls.objects.get_or_create(team=team, name=REVENUE_ANALYTICS_DAG_NAME)
+        return dag
+
     @property
     def is_default(self) -> bool:
         return self.name == DEFAULT_DAG_NAME
+
+    @property
+    def is_reserved(self) -> bool:
+        return self.name in RESERVED_DAG_NAMES
 
     class Meta:
         db_table = "posthog_datamodelingdag"
