@@ -1025,7 +1025,7 @@
         }
     },
     "dashboard-delete-tile": {
-        "description": "Soft-delete a single tile (text, insight, widget, or button) from a dashboard. Behaves the same as the delete button in the UI — the underlying Insight, Text, ButtonTile, or widget row is preserved (so an insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use dashboard-delete.",
+        "description": "Soft-delete a single tile (text, insight, or button) from a dashboard. Behaves the same as the delete button in the UI — the underlying Insight, Text, or ButtonTile object is preserved (so an insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use dashboard-delete.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Delete dashboard tile",
@@ -1039,7 +1039,7 @@
         }
     },
     "dashboard-get": {
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights, widget configurations, and layout information. Widget tiles include a `widget` object with `widget_type` and `config` but no live data — use dashboard-widgets-run with tile IDs from this response. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params; on this endpoint they affect only the merged `filters` and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same query params to dashboard-insights-run.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params; on this endpoint they affect only the merged `filters` and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same query params to dashboard-insights-run.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get dashboard",
@@ -1080,22 +1080,8 @@
             "readOnlyHint": false
         }
     },
-    "dashboard-tile-copy": {
-        "description": "Copy an insight, text card, or widget tile from one dashboard to another. The path dashboard ID is the destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles require the dashboard-widgets feature flag and are deep-cloned with a new widget row.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Copy dashboard tile",
-        "title": "Copy dashboard tile",
-        "required_scopes": ["dashboard:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -1122,50 +1108,6 @@
             "readOnlyHint": false
         }
     },
-    "dashboard-widget-catalog-list": {
-        "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "List dashboard widget catalog",
-        "title": "List dashboard widget catalog",
-        "required_scopes": ["dashboard:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Add dashboard widgets",
-        "title": "Add dashboard widgets",
-        "required_scopes": ["dashboard:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "dashboard-widgets"
-    },
-    "dashboard-widgets-run": {
-        "description": "Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag. Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a comma-separated list. Returns per-tile errors when the caller lacks product access for a widget type (see required_product_access on dashboard-widget-catalog-list).",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Run dashboard widgets",
-        "title": "Run dashboard widgets",
-        "required_scopes": ["dashboard:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "dashboard-widgets"
-    },
     "dashboards-get-all": {
         "description": "List dashboards in the project. The optional `search` parameter runs a fuzzy match against name and description using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type) and returns results ranked by relevance — use it to find a specific dashboard by name rather than paging through every dashboard. `search` is capped at 200 characters; longer queries return a 400 error. Optional filters by tag and pinned status are also supported. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
@@ -1178,20 +1120,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "dashboards-move-tile-partial-update": {
-        "description": "Move a tile from the source dashboard (path ID) to another dashboard. Provide to_dashboard (destination dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget tiles require the dashboard-widgets feature flag on the project.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Move dashboard tile",
-        "title": "Move dashboard tile",
-        "required_scopes": ["dashboard:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "data-warehouse-data-health-issues-retrieve": {

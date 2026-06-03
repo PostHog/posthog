@@ -357,15 +357,6 @@ export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
-export const DashboardsMoveTileCreateBody = /* @__PURE__ */ zod.object({
-    to_dashboard: zod.number().describe('Destination dashboard ID.'),
-    tile: zod
-        .object({
-            id: zod.number().describe('Dashboard tile ID to move.'),
-        })
-        .describe('Tile to move, identified by its dashboard tile ID.'),
-})
-
 export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
     to_dashboard: zod.number().optional().describe('Destination dashboard ID.'),
     tile: zod

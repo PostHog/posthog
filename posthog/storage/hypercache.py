@@ -23,16 +23,6 @@ DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the d
 DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
 
 
-class HyperCacheDependencyUnavailable(Exception):
-    """Raised by a ``load_fn`` when an upstream dependency is unavailable.
-
-    HyperCache treats it as a transient signal, not a value: write paths skip the
-    write so the existing entry is kept, and the read path returns a miss without
-    caching a sentinel so the next read retries. Callers subclass it so the storage
-    layer can catch this base without importing their exception types.
-    """
-
-
 def get_cache_writer_url(cache_alias: str) -> str:
     """
     Get writer Redis URL from cache alias.
@@ -59,12 +49,6 @@ CACHE_SYNC_COUNTER = Counter(
     "posthog_hypercache_sync",
     "Number of times the hypercache cache sync task has been run",
     labelnames=["result", "namespace", "value"],
-)
-
-HYPERCACHE_REBUILD_SKIPPED_COUNTER = Counter(
-    "posthog_hypercache_rebuild_skipped",
-    "Rebuilds skipped because a dependency was unavailable, keeping the existing entry",
-    labelnames=["namespace", "reason"],
 )
 
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
@@ -245,17 +229,7 @@ class HyperCache:
             pass
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
-        try:
-            data = self.load_fn(key)
-        except HyperCacheDependencyUnavailable:
-            # Return a miss without caching a sentinel, so the next read retries. The
-            # distinct "dependency_unavailable" source lets etag-aware callers fail
-            # loud (retryable 503) instead of treating it like a plain cache miss; the
-            # other callers (get_from_cache, verifiers) still see None and degrade.
-            HYPERCACHE_CACHE_COUNTER.labels(
-                result="dependency_unavailable", namespace=self.namespace, value=self.value
-            ).inc()
-            return None, "dependency_unavailable"
+        data = self.load_fn(key)
 
         if isinstance(data, HyperCacheStoreMissing):
             self._set_cache_value_redis(key, None)
@@ -347,14 +321,10 @@ class HyperCache:
         - Otherwise: (data, current_etag, True) - 200 case with full data
 
         Note: If Redis fails during ETag check, gracefully degrades to returning
-        the full data (treating as modified) rather than raising an exception. A
-        dependency-unavailable signal on a cold miss is the exception: it is re-raised
-        as HyperCacheDependencyUnavailable so the caller can fail loud and retryable.
+        the full data (treating as modified) rather than raising an exception.
         """
         if not self.enable_etag:
-            data, source = self.get_from_cache_with_source(key)
-            if source == "dependency_unavailable":
-                raise HyperCacheDependencyUnavailable(f"Dependency unavailable loading {self.namespace}/{self.value}")
+            data, _ = self.get_from_cache_with_source(key)
             return data, None, True
 
         try:
@@ -365,9 +335,6 @@ class HyperCache:
 
             data, source = self.get_from_cache_with_source(key)
 
-            if source == "dependency_unavailable":
-                raise HyperCacheDependencyUnavailable(f"Dependency unavailable loading {self.namespace}/{self.value}")
-
             # If we loaded from S3 or DB, the ETag was set during _set_cache_value_redis
             # Re-fetch it to ensure we return the correct value
             if source in ("s3", "db"):
@@ -375,10 +342,6 @@ class HyperCache:
 
             return data, current_etag, True
         except Exception as e:
-            # A dependency-unavailable signal must reach the caller as a typed,
-            # retryable error — not be swallowed like a Redis failure below.
-            if isinstance(e, HyperCacheDependencyUnavailable):
-                raise
             # Gracefully degrade: return full data when Redis fails
             logger.warning(
                 f"Redis failure during ETag check for {self.namespace}, falling back to full response", error=str(e)
@@ -390,12 +353,7 @@ class HyperCache:
                 # If everything fails, return None with modified=True
                 return None, None, True
 
-    def update_cache(
-        self,
-        key: KeyType,
-        ttl: Optional[int] = None,
-        should_skip_write: Optional[Callable[[KeyType, dict], bool]] = None,
-    ) -> bool:
+    def update_cache(self, key: KeyType, ttl: Optional[int] = None) -> bool:
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
@@ -403,24 +361,9 @@ class HyperCache:
         size: int | None = None
         try:
             data = self.load_fn(key)
-            if should_skip_write is not None and isinstance(data, dict) and should_skip_write(key, data):
-                # A caller-supplied predicate vetoed persisting this freshly loaded
-                # value (e.g. it would overwrite good data with a degraded one). Keep
-                # the existing entry; the predicate owns its own metric/logging.
-                return False
             size = self.set_cache_value(key, data, ttl=ttl)
             success = True
             return True
-        except HyperCacheDependencyUnavailable:
-            # Skip the write to keep the existing entry, and count the skip so the skip
-            # counter reflects the refresh/warm path too, not just the signal path. The
-            # source of the failure already reported it, so don't report it again here.
-            HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace=self.namespace, reason="dependency_unavailable").inc()
-            logger.warning(
-                f"Skipping {self.namespace} cache sync for team {key}: dependency unavailable",
-                namespace=self.namespace,
-            )
-            return False
         except Exception as e:
             capture_exception(e)
             logger.exception(f"Failed to sync {self.namespace} cache for team {key}", exception=str(e))

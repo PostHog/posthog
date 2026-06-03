@@ -38,17 +38,10 @@ from prometheus_client import Counter
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from posthog.models.cohort.util import get_nested_cohort_ids
-from posthog.models.group_type_mapping import (
-    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
-    GroupTypesUnavailable,
-    get_group_types_for_projects,
-    project_has_group_types_authoritatively,
-)
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
-from posthog.storage.hypercache import HYPERCACHE_REBUILD_SKIPPED_COUNTER, HyperCache, KeyType, emit_cache_sync_metrics
+from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
-from posthog.utils import capture_exception_throttled, get_safe_cache
 
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
@@ -71,16 +64,6 @@ FLAG_DEFINITIONS_NO_COHORTS_CACHE_EXPIRY_SORTED_SET = "flag_definitions_no_cohor
 FLAG_PROCESSING_ERROR_COUNTER = Counter(
     "posthog_flag_definitions_processing_error",
     "Number of flags dropped from cache due to processing errors",
-)
-
-# Rebuilds vetoed because the freshly built group_type_mapping was empty over
-# populated data. group_type_mapping is a feature-flags concept, so the counter lives
-# here rather than in the generic storage layer. The namespace label is kept for
-# wire compatibility even though this guard only ever runs for "feature_flags".
-HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER = Counter(
-    "posthog_hypercache_group_mapping_emptied",
-    "Rebuilds skipped because the freshly built group_type_mapping was empty over populated data",
-    labelnames=["namespace"],
 )
 
 
@@ -467,55 +450,6 @@ def update_flag_definitions_cache(team: Team | int, ttl: int | None = None) -> b
     return success
 
 
-# Throttle window for capturing skipped rebuilds, shared across processes via the
-# cache so many workers skipping at once report at most once per window.
-_FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL = 60  # seconds
-
-
-def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, message: str, **log_fields: Any) -> None:
-    """Log a skipped flag-cache rebuild and capture the exception, throttling the
-    capture across processes. Each log line records whether the capture ran or was
-    throttled."""
-    captured = capture_exception_throttled(throttle_key, exc, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
-    logger.error(message, exception_captured=captured, capture_throttled=not captured, **log_fields)
-
-
-def _group_mapping_would_be_emptied(team: Team, payload: dict[str, Any]) -> bool:
-    """True when writing this payload would replace a populated group_type_mapping
-    with an empty one.
-
-    An empty freshly built mapping is correct for a team with no group types but is
-    the symptom of a silent upstream failure for a team that has them. The per-project
-    stale key is the cheap last-known-good signal; when it is absent (never populated,
-    expired, or deleted by a concurrent invalidate_group_types_cache) we confirm
-    against the persons-DB primary, so the check cannot be defeated by stale-key
-    timing.
-    """
-    if payload.get("group_type_mapping"):
-        return False
-    if get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{team.project_id}"):
-        return True
-    return project_has_group_types_authoritatively(team.project_id)
-
-
-def _skip_write_if_group_mapping_emptied(key: KeyType, payload: dict[str, Any]) -> bool:
-    """Veto a flag-definitions write that would empty a populated group_type_mapping,
-    emitting the skip metric + throttled capture. Shared by every write path — the
-    signal-driven rebuild and the refresh/warm update_cache path — so the guard can't
-    be bypassed depending on which trigger fired."""
-    team = HyperCache.team_from_key(key)
-    if not _group_mapping_would_be_emptied(team, payload):
-        return False
-    HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER.labels(namespace="feature_flags").inc()
-    _capture_flag_cache_skip_throttled(
-        "flag_cache_group_mapping_emptied_capture_throttle",
-        Exception(f"group_type_mapping would be emptied for team {team.id}"),
-        "Skipped feature_flags cache rebuild: refusing to empty a populated group_type_mapping",
-        team_id=team.id,
-    )
-    return True
-
-
 def update_flag_caches(team: Team):
     """Update both flag cache variants."""
     logger.info("Syncing feature_flags cache for team", team_id=team.id)
@@ -526,30 +460,12 @@ def update_flag_caches(team: Team):
     size_without_cohorts: int | None = None
     try:
         with_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
-
-        # Both variants share the same mapping, so one check gates both writes.
-        if _skip_write_if_group_mapping_emptied(team, with_cohorts):
-            return
-
-        # Build both payloads before persisting either, so a failure on the second
-        # fetch (e.g. the persons DB drops in this window) skips both writes and the
-        # two variants can't drift out of sync.
-        without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
-
         size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
+
+        without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
         size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
 
         success = True
-    except GroupTypesUnavailable as e:
-        # Group types could not be loaded; skip the write to keep the existing entry.
-        HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace="feature_flags", reason="group_types_unavailable").inc()
-        _capture_flag_cache_skip_throttled(
-            "flag_cache_group_types_unavailable_capture_throttle",
-            e,
-            "Skipped feature_flags cache rebuild: group types unavailable",
-            team_id=team.id,
-        )
-        return
     except Exception as e:
         capture_exception(e)
         logger.exception("Failed to sync feature_flags cache for team", team_id=team.id, exception=str(e))
@@ -667,6 +583,8 @@ def _get_flags_response_for_local_evaluation_batch(
 
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
+    from posthog.models.group_type_mapping import get_group_types_for_projects
+
     for pid, mappings in get_group_types_for_projects(list(project_ids)).items():
         for m in mappings:
             gtm_by_project[pid][str(m["group_type_index"])] = m["group_type"]
@@ -765,18 +683,14 @@ def _update_flag_definitions_with_cohorts(team: Team | int, ttl: int | None = No
     resolved_team = _resolve_team(team)
     if resolved_team is None:
         return False
-    return flag_definitions_hypercache.update_cache(
-        resolved_team, ttl=ttl, should_skip_write=_skip_write_if_group_mapping_emptied
-    )
+    return flag_definitions_hypercache.update_cache(resolved_team, ttl=ttl)
 
 
 def _update_flag_definitions_without_cohorts(team: Team | int, ttl: int | None = None) -> bool:
     resolved_team = _resolve_team(team)
     if resolved_team is None:
         return False
-    return flag_definitions_without_cohorts_hypercache.update_cache(
-        resolved_team, ttl=ttl, should_skip_write=_skip_write_if_group_mapping_emptied
-    )
+    return flag_definitions_without_cohorts_hypercache.update_cache(resolved_team, ttl=ttl)
 
 
 # HyperCache management configs for warming/verification.
@@ -840,9 +754,8 @@ def verify_team_flag_definitions(
 
     db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
 
-    # Cache miss — no usable cache entry (db/miss, or dependency_unavailable when a
-    # cold load could not reach its upstream). All mean "nothing cached", not drift.
-    if source in ("db", "miss", "dependency_unavailable"):
+    # Cache miss (source="db" or "miss" means data was not found in cache)
+    if source in ("db", "miss"):
         return {
             "status": "miss",
             "issue": "CACHE_MISS",

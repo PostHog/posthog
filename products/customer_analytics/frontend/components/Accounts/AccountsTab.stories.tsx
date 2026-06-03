@@ -91,17 +91,10 @@ const ACCOUNT_WITHOUT_LINKS = {
     updated_at: '2026-05-15T10:30:00Z',
 }
 
-// Expanding a row mounts UsefulLinks (loads the account async) and the notes table
-// (loads notebooks async). Both start as skeletons and resolve later, which changes
-// the expansion's width and height. Awaiting the settled content here keeps the
-// snapshot deterministic — otherwise it races the loads and the Useful links sidebar
-// is sometimes absent, sometimes present (the flaky ~7% height/width diff).
-async function expandFirstRow(canvasElement: HTMLElement, notesLoadedText: string): Promise<void> {
+async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByTitle('Show more'))
-    await canvas.findByText('Useful links')
-    await canvas.findByText('Organization')
-    await canvas.findByText(notesLoadedText)
+    const expandBtn = await canvas.findByTitle('Show more')
+    await userEvent.click(expandBtn)
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (req: { body: unknown }) => [number, unknown] | undefined {
@@ -183,7 +176,7 @@ export const RowExpandedEmpty: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -233,7 +226,7 @@ export const RowExpandedWithNote: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'Q2 expansion call')
+        await expandFirstRow(canvasElement)
     },
 }
 
@@ -251,6 +244,6 @@ export const RowExpandedLinksDisabled: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+        await expandFirstRow(canvasElement)
     },
 }

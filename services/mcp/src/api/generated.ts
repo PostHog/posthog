@@ -21993,13 +21993,6 @@ export namespace Schemas {
       id: number;
     }
 
-    export interface MoveTileRequest {
-      /** Destination dashboard ID. */
-      to_dashboard: number;
-      /** Tile to move, identified by its dashboard tile ID. */
-      tile: MoveTileTile;
-    }
-
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -40339,18 +40332,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type EnvironmentsDashboardsMoveTileCreateParams = {
-    format?: EnvironmentsDashboardsMoveTileCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsMoveTileCreateFormat = typeof EnvironmentsDashboardsMoveTileCreateFormat[keyof typeof EnvironmentsDashboardsMoveTileCreateFormat];
-
-
-    export const EnvironmentsDashboardsMoveTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -45380,18 +45361,6 @@ export namespace Schemas {
 
 
     export const DashboardsDeleteTileFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type DashboardsMoveTileCreateParams = {
-    format?: DashboardsMoveTileCreateFormat;
-    };
-
-    export type DashboardsMoveTileCreateFormat = typeof DashboardsMoveTileCreateFormat[keyof typeof DashboardsMoveTileCreateFormat];
-
-
-    export const DashboardsMoveTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

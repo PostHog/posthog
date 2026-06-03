@@ -115,7 +115,6 @@ function buildBillingAlertNotice(
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
-        logic: [verifyEmailLogic],
         values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
         actions: [
             eventUsageLogic,
