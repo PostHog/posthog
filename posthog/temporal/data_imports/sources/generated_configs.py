@@ -324,7 +324,7 @@ class ElasticsearchSourceConfig(config.Config):
 
 @config.config
 class EventbriteSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config

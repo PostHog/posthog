@@ -61,6 +61,7 @@ the row lists both.
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
 | drip          | HTTP                        | requests                                                        | ✅                          |
+| eventbrite    | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -162,7 +163,6 @@ doesn't conflict with concurrent PRs.
 - datadog
 - dynamodb
 - elasticsearch
-- eventbrite
 - facebook_pages
 - firebase
 - freshdesk
