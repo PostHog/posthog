@@ -186,6 +186,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         saveColumns: true,
         showColumnConfigurator: true,
         hideColumnConfigurator: true,
+        markColumnsOverriddenByUrl: true,
     }),
     reducers({
         selectColumns: [
@@ -205,8 +206,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     return next
                 },
                 resetColumns: () => [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
-                loadSavedColumnConfigurationSuccess: (state, { savedColumnConfiguration }) =>
-                    savedColumnConfiguration ? ensureNameColumn(savedColumnConfiguration.columns) : state,
             },
         ],
         columnConfiguratorVisible: [
@@ -215,6 +214,14 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
                 saveColumns: () => false,
+            },
+        ],
+        // Set once a shared URL has supplied columns; the per-user saved column
+        // config loads asynchronously after mount and must not clobber them.
+        columnsOverriddenByUrl: [
+            false,
+            {
+                markColumnsOverriddenByUrl: () => true,
             },
         ],
     }),
@@ -259,6 +266,11 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
+            if (savedColumnConfiguration && !values.columnsOverriddenByUrl) {
+                actions.setSelectColumns(savedColumnConfiguration.columns)
+            }
+        },
         saveColumns: async () => {
             const teamId = values.currentTeamId || undefined
             const columns = values.selectColumns

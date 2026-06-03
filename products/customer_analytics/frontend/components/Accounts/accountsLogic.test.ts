@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -217,6 +220,64 @@ describe('accountsLogic', () => {
             const config = accountsColumnConfigLogic.findMounted()
             config?.actions.setSelectColumns(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
             expect(config?.values.selectColumns).toEqual(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
+        })
+    })
+
+    describe('url persistence', () => {
+        it('writes active filters into the view hash param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('acme')
+                logic.actions.setTagsFilter(['enterprise'])
+                logic.actions.setCsmFilter(7)
+                logic.actions.setSortOrder({ column: 'name', direction: 'desc' })
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams.view).toEqual({
+                search: 'acme',
+                tags: ['enterprise'],
+                csm: 7,
+                sort: { column: 'name', direction: 'desc' },
+            })
+        })
+
+        it('keeps the hash empty for the default view', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTagsFilter(['enterprise'])
+                logic.actions.setTagsFilter([])
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams.view).toBeUndefined()
+        })
+
+        it('restores filters and sort from the view hash param', async () => {
+            router.actions.push(
+                urls.customerAnalyticsAccounts(),
+                {},
+                {
+                    view: { search: 'beta', csm: 7, sort: { column: 'name', direction: 'desc' } },
+                }
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.searchQuery).toBe('beta')
+            expect(logic.values.searchInput).toBe('beta')
+            expect(logic.values.csmFilter).toBe(7)
+            expect(logic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
+        })
+
+        it('restores columns and shields them from the saved column config', async () => {
+            router.actions.push(
+                urls.customerAnalyticsAccounts(),
+                {},
+                {
+                    view: { columns: [ACCOUNTS_NAME_COLUMN, 'csm'] },
+                }
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            const config = accountsColumnConfigLogic.findMounted()
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+            expect(config?.values.columnsOverriddenByUrl).toBe(true)
         })
     })
 
