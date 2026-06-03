@@ -276,10 +276,6 @@ class PipelineV3(Generic[ResumableData]):
         except Exception:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")
-            try:
-                self._s3_batch_writer.cleanup()
-            except Exception:
-                self._logger.exception("V3 Pipeline: Failed to clean up S3 resources")
             raise
         finally:
             duration = time.perf_counter() - start_time
