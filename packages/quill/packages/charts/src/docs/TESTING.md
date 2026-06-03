@@ -13,7 +13,7 @@ You've rendered a tree that contains a chart somewhere — a dashboard, an insig
 
 ```tsx
 import { render } from '@testing-library/react'
-import { ensureJsdom, getHogChart, hoverAtIndex, waitForHogChartTooltip } from 'lib/hog-charts/testing'
+import { ensureJsdom, getHogChart, hoverAtIndex, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
 ensureJsdom()
 

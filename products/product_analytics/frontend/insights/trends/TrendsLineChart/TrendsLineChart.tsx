@@ -1,9 +1,16 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
+import type {
+    PointClickData,
+    Series,
+    TimeSeriesLineChartConfig,
+    TooltipConfig,
+    TooltipContext,
+} from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
-import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'

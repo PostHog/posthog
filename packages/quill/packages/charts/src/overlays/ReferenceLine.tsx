@@ -65,6 +65,11 @@ const LABEL_HEIGHT = 20
 /** Padding between the label and the plot edge. */
 const LABEL_PADDING = 4
 
+// Match the chart tooltip look (see DefaultTooltip) so the label bubble reads as part of the
+// chart's own theming rather than depending on the host app's CSS variables.
+const DEFAULT_TOOLTIP_BG = '#1d2330'
+const DEFAULT_TOOLTIP_COLOR = '#ffffff'
+
 function resolveStyle(variant: ReferenceLineVariant, style: ReferenceLineStyle | undefined): ResolvedStyle {
     const defaults = VARIANT_DEFAULTS[variant]
     return {
@@ -301,6 +306,12 @@ function ReferenceLineView({
     label: string | undefined
     labelStyle: React.CSSProperties
 }): React.ReactElement {
+    const { theme } = useChartLayout()
+    const resolvedLabelStyle: React.CSSProperties = {
+        ...labelStyle,
+        backgroundColor: theme.tooltipBackground ?? DEFAULT_TOOLTIP_BG,
+        color: theme.tooltipColor ?? DEFAULT_TOOLTIP_COLOR,
+    }
     return (
         <>
             {fillRect && (
@@ -313,8 +324,8 @@ function ReferenceLineView({
             {label && (
                 <div
                     data-attr="hog-chart-reference-line-label"
-                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5 bg-[var(--tooltip-bg)] text-white"
-                    style={labelStyle}
+                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5"
+                    style={resolvedLabelStyle}
                 >
                     {label}
                 </div>

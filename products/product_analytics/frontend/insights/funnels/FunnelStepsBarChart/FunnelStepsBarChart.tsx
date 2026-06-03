@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
+import { BarChart, DEFAULT_MARGINS } from '@posthog/quill-charts'
+import type { BarChartConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart, DEFAULT_MARGINS } from 'lib/hog-charts'
-import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
