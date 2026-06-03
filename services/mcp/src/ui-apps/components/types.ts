@@ -227,6 +227,5 @@ export interface RetentionVisualizerProps {
 }
 
 export interface PathsVisualizerProps {
-    query: PathsQuery | undefined
     results: PathsResult
 }

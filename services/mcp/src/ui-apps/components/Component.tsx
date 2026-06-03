@@ -263,7 +263,7 @@ export function Component({ data }: ComponentProps): ReactElement {
                 )
 
             case 'paths':
-                return <PathsVisualizer query={payload.query as PathsQuery} results={payload.results as PathsResult} />
+                return <PathsVisualizer results={payload.results as PathsResult} />
 
             case 'table':
                 return <TableVisualizer results={payload.results as HogQLResult} />
