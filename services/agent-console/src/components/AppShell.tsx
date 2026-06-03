@@ -55,7 +55,14 @@ import { DockShowAffordance } from './DockShowAffordance'
 import { FloatingDockPanel } from './FloatingDockPanel'
 import { FocusContextProvider } from './focus-context'
 import { PostHogMark } from './PostHogMark'
-import { SessionGate, SessionProvider, usePosthogBaseUrl, useSessionUser } from './session-context'
+import {
+    SessionGate,
+    SessionProvider,
+    UnauthedScreen,
+    usePosthogBaseUrl,
+    useSession,
+    useSessionUser,
+} from './session-context'
 import { TopLoadingBar } from './TopLoadingBar'
 
 export function AppShell({ children }: { children: React.ReactNode }): React.ReactElement {
@@ -63,20 +70,47 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
         <ThemeProvider>
             <SessionProvider>
                 <TooltipProvider delay={150}>
-                    <DockContextProvider>
-                        <FocusContextProvider>
-                            <DockLayoutProvider>
-                                <TopLoadingBar />
-                                <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-                                    <Sidebar />
-                                    <ShellBody>{children}</ShellBody>
-                                </div>
-                            </DockLayoutProvider>
-                        </FocusContextProvider>
-                    </DockContextProvider>
+                    <TopLoadingBar />
+                    <AuthRoutedShell>{children}</AuthRoutedShell>
                 </TooltipProvider>
             </SessionProvider>
         </ThemeProvider>
+    )
+}
+
+/**
+ * Forks the shell on auth state. The dock, sidebar nav, and main content
+ * only make sense for an authenticated session — when the visitor has no
+ * session we render a single centered "Sign in with PostHog" surface and
+ * skip mounting the dock entirely (it would otherwise immediately try to
+ * fetch agents and 401).
+ *
+ * Loading + error states still render the chrome so the user sees the
+ * familiar layout while `/api/auth/me` resolves.
+ */
+function AuthRoutedShell({ children }: { children: React.ReactNode }): React.ReactElement {
+    const { loading, info } = useSession()
+    const showUnauthedSurface = !loading && info != null && !info.authenticated
+
+    if (showUnauthedSurface) {
+        return (
+            <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+                <UnauthedScreen />
+            </div>
+        )
+    }
+
+    return (
+        <DockContextProvider>
+            <FocusContextProvider>
+                <DockLayoutProvider>
+                    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+                        <Sidebar />
+                        <ShellBody>{children}</ShellBody>
+                    </div>
+                </DockLayoutProvider>
+            </FocusContextProvider>
+        </DockContextProvider>
     )
 }
 

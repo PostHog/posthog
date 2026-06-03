@@ -7,14 +7,18 @@
  * (`apiClient`) read `teamId` via `useSessionTeamId()` and pass it on
  * the URL — no more hardcoded project id.
  *
- * If the fetch returns `authenticated: false` the middleware should
- * already have bounced the browser; this is a safety net for the
- * rare race where the session expired between page load and now.
+ * When `authenticated: false` is returned, the UI renders an unauthed
+ * landing surface (see `<SessionGate>`) with a "Sign in with PostHog"
+ * button rather than bouncing the browser through the OAuth flow.
  */
 
 'use client'
 
+import { Loader2Icon } from 'lucide-react'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { createContext, useContext, useEffect, useState } from 'react'
+
+import { PostHogMark } from './PostHogMark'
 
 export interface SessionInfo {
     authenticated: boolean
@@ -149,12 +153,7 @@ export function SessionGate({ children }: { children: React.ReactNode }): React.
         )
     }
     if (!info || !info.authenticated) {
-        return (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-                <p>Not signed in.</p>
-                <ServerAnchor href="/api/auth/login">Sign in</ServerAnchor>
-            </div>
-        )
+        return <UnauthedScreen />
     }
     if (info.teamId == null) {
         return (
@@ -165,6 +164,65 @@ export function SessionGate({ children }: { children: React.ReactNode }): React.
         )
     }
     return <>{children}</>
+}
+
+/**
+ * Full-shell sign-in surface. Renders when the visitor has no session
+ * — they see a centered PostHog mark + a single "Sign in with PostHog"
+ * action that kicks off the OAuth flow via `/api/auth/login`, preserving
+ * the current URL so post-login they land back where they started.
+ */
+export function UnauthedScreen(): React.ReactElement {
+    const loginHref = useLoginHref()
+    // The browser navigates away on click, but the OAuth redirect can take a
+    // few hundred ms — flip to a spinner so the click feels responsive and
+    // the user doesn't double-click thinking nothing happened.
+    const [signingIn, setSigningIn] = useState(false)
+    return (
+        <div className="flex h-full w-full items-center justify-center px-6">
+            <div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
+                <PostHogMark className="h-12 w-12 text-foreground" />
+                <div className="flex flex-col gap-1">
+                    <h1 className="text-lg font-semibold text-foreground">PostHog agent console</h1>
+                    <p className="text-sm text-muted-foreground">Sign in to view your agents, sessions, and tools.</p>
+                </div>
+                {/* eslint-disable-next-line react/forbid-elements */}
+                <a
+                    href={loginHref}
+                    onClick={() => setSigningIn(true)}
+                    aria-disabled={signingIn}
+                    aria-busy={signingIn}
+                    className={
+                        signingIn
+                            ? 'pointer-events-none inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground opacity-80'
+                            : 'inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90'
+                    }
+                >
+                    {signingIn ? (
+                        <>
+                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                            Redirecting…
+                        </>
+                    ) : (
+                        'Sign in with PostHog'
+                    )}
+                </a>
+            </div>
+        </div>
+    )
+}
+
+/**
+ * Build the `/api/auth/login` URL with a `returnTo` that reflects the
+ * current path + search. After the OAuth round-trip the user lands
+ * back on whatever they were trying to reach instead of `/`.
+ */
+function useLoginHref(): string {
+    const pathname = usePathname() ?? '/'
+    const searchParams = useSearchParams()
+    const search = searchParams?.toString()
+    const returnTo = search ? `${pathname}?${search}` : pathname
+    return `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`
 }
 
 /**
