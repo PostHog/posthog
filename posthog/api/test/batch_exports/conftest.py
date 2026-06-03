@@ -12,8 +12,9 @@ from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
 from posthog.api.test.batch_exports.operations import start_test_worker
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVAL_TO_START_JITTER, BatchExport
 from posthog.temporal.common.client import sync_connect
+
+from products.batch_exports.backend.models.batch_export import BATCH_EXPORT_INTERVAL_TO_START_JITTER, BatchExport
 
 
 @async_to_sync
