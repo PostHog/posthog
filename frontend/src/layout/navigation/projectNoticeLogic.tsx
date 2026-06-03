@@ -117,7 +117,14 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
     connect(() => ({
         logic: [verifyEmailLogic],
         values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed', 'reportProjectNoticeShown']],
+        actions: [
+            eventUsageLogic,
+            ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
+            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
+            verifyEmailLogic,
+            ['requestVerificationLink'],
+        ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),

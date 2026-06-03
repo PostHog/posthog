@@ -622,6 +622,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
@@ -721,6 +722,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.access_control",
@@ -753,6 +755,14 @@ from = [
     "products.business_knowledge",
 ]
 
+[[interfaces]]
+expose = [
+    "backend\\.routes.*",
+]
+from = [
+    "products.business_knowledge",
+]
+
 [[modules]]
 path = "products.wizard"
 depends_on = ["posthog"]
@@ -762,6 +772,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.wizard",
@@ -776,6 +787,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.engineering_analytics",

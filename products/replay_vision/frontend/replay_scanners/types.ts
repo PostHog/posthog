@@ -1,9 +1,18 @@
+import { LemonTagType } from '@posthog/lemon-ui'
+
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
 export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+
+export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
+    monitor: 'primary',
+    classifier: 'completion',
+    scorer: 'warning',
+    summarizer: 'success',
+}
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
@@ -110,6 +119,14 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
         return '—'
     }
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
+}
+
+export function createdByLabel(user: ReplayScanner['created_by']): string {
+    if (!user) {
+        return ''
+    }
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+    return name || user.email || `User ${user.id}`
 }
 
 export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; description: string }[] = [

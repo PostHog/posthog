@@ -251,7 +251,9 @@ export function TrendsBarChart({
             // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
             // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
-            bars: { fitToHeight: embedded },
+            // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
+            // instead of clamping them to 0.
+            bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
         yAxisScaleType,
