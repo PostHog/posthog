@@ -110,11 +110,14 @@ def make_tracked_adapter(
 class _NoRedirectSession(requests.Session):
     """`requests.Session` that never follows redirects.
 
-    A security boundary for SSRF-sensitive sources: even when the initial host
-    passes URL validation, a 3xx pointing at an internal/metadata host would
-    otherwise be followed transparently, defeating the check. `requests` reads
-    `allow_redirects` per call and callers like `RESTClient` invoke `send()`
-    without it (so it defaults to `True`), so we pin it off at the session level.
+    Defense-in-depth for SSRF-sensitive sources. The load-bearing SSRF control
+    is the Smokescreen egress proxy that data-warehouse outbound traffic flows
+    through — it re-resolves and blocks internal/metadata hosts on every hop, so
+    DNS-rebinding and redirect chains are handled there. Pinning `allow_redirects`
+    off is a cheap extra layer that keeps a connector's traffic pointed at the
+    host it validated. `requests` reads `allow_redirects` per call and callers
+    like `RESTClient` invoke `send()` without it (so it defaults to `True`), so we
+    pin it off at the session level.
     """
 
     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:

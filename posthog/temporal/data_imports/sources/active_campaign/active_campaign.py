@@ -82,8 +82,9 @@ def active_campaign_source(
     endpoint_config = ACTIVE_CAMPAIGN_ENDPOINTS[endpoint]
 
     # Re-validate on every sync, not just at source creation: the stored api_url is
-    # user-supplied, so the pipeline path must also block internal/metadata hosts to
-    # avoid being used as an SSRF gadget.
+    # user-supplied. The Smokescreen egress proxy is the load-bearing SSRF defense;
+    # this app-layer check is defense-in-depth that fails fast with a clear error
+    # before the request leaves the worker.
     base_url = _normalize_base_url(api_url)
     allowed, reason = is_url_allowed(base_url)
     if not allowed:
@@ -102,10 +103,10 @@ def active_campaign_source(
                 "location": "header",
             },
             "paginator": ActiveCampaignPaginator(),
-            # Disable redirects: the base host is validated above, but `requests`
-            # follows redirects by default, so a 3xx to an internal host would
-            # bypass that check. ActiveCampaign's API responds directly, so this
-            # closes the redirect-based SSRF without affecting normal syncs.
+            # Disable redirects as defense-in-depth: the Smokescreen egress proxy
+            # already blocks redirects onto internal hosts, but ActiveCampaign's API
+            # responds directly so there's no legitimate redirect to follow, and
+            # pinning it off keeps traffic on the validated host.
             "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
         },
         "resource_defaults": {
@@ -154,17 +155,17 @@ def validate_credentials(api_url: str, api_key: str) -> tuple[bool, str | None]:
     if not base_url.startswith("https://"):
         return False, "ActiveCampaign API URL must start with https://"
 
-    # SSRF guard: block localhost, cloud-metadata hosts, internal domains, and private IPs
-    # before issuing any request to the user-supplied host.
+    # Defense-in-depth SSRF check (the Smokescreen egress proxy is the load-bearing
+    # control): reject localhost, cloud-metadata hosts, internal domains, and private
+    # IPs with a clear error before issuing any request to the user-supplied host.
     allowed, reason = is_url_allowed(base_url)
     if not allowed:
         return False, f"ActiveCampaign API URL is not allowed: {reason}"
 
     try:
-        # `allow_redirects=False`: the base host is validated above, but a 3xx to
-        # an internal host would otherwise be followed transparently and defeat the
-        # SSRF guard. ActiveCampaign's API responds directly, so no redirect is
-        # expected for a valid account.
+        # `allow_redirects=False` as defense-in-depth — Smokescreen already blocks
+        # redirects onto internal hosts, and ActiveCampaign's API responds directly,
+        # so no redirect is expected for a valid account.
         response = make_tracked_session(redact_values=(api_key,)).get(
             f"{base_url}/api/3/contacts",
             params={"limit": 1},
