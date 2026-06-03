@@ -277,6 +277,26 @@ def _action_post_restore(context: RestoreContext, action: Any) -> None:
     )
 
 
+def _task_post_delete(context: DeletionContext, task: Any) -> None:
+    _log_deletion_activity(
+        context,
+        scope="Task",
+        item_id=task.id,
+        name=_first_non_blank(getattr(task, "title", None)) or "Untitled task",
+        object_type="task",
+    )
+
+
+def _task_post_restore(context: RestoreContext, task: Any) -> None:
+    _log_restore_activity(
+        context,
+        scope="Task",
+        item_id=task.id,
+        name=_first_non_blank(getattr(task, "title", None)) or "Untitled task",
+        object_type="task",
+    )
+
+
 def _hog_function_pre_delete(context: DeletionContext, hog_function: Any) -> None:
     hog_function.enabled = False
 
@@ -413,6 +433,15 @@ def register_core_file_system_types() -> None:
     )
     register_post_delete_hook("cohort", _cohort_post_delete)
     register_post_restore_hook("cohort", _cohort_post_restore)
+
+    register_file_system_type(
+        "task",
+        "tasks",
+        "Task",
+        undo_message="Send PATCH /api/projects/@current/tasks/{id} with deleted=false.",
+    )
+    register_post_delete_hook("task", _task_post_delete)
+    register_post_restore_hook("task", _task_post_restore)
 
     for hog_type in HOG_FUNCTION_TYPES:
         type_string = f"hog_function/{hog_type}"
