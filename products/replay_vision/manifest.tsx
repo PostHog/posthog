@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/replay_scanners/ReplayScannersScene'),
             projectBased: true,
             description:
-                'Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events.',
+                'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
             iconType: 'replay_vision',
             layout: 'app-container',
         },
