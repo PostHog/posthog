@@ -45,6 +45,34 @@ querying-posthog-data skill, `models-heatmaps`):
 Use `aggregation: "unique_visitors"` when you care about how many people (not how many clicks); `total_count`
 exaggerates a few heavy clickers.
 
+### Step 2b: Above the fold — clicks vs viewport height (SQL only)
+
+`heatmaps-list` returns `pointer_y` (absolute px down the page) but **not** the viewport height, so it can't
+tell you whether a click was even on-screen at load. The raw `heatmaps` table can: it stores both `y` and
+`viewport_height` in the same scaled units, so `y > viewport_height` means the interaction happened **below
+the user's initial viewport** — they had to scroll to reach it. This is one of the highest-value findings:
+content people actively click that sits below the fold is a prime candidate to move up.
+
+```sql
+-- Share of clicks that required scrolling (below the initial viewport),
+-- excluding fixed-position elements (always on screen).
+SELECT
+    countIf(y > viewport_height AND NOT pointer_target_fixed) AS below_fold,
+    count() AS total,
+    round(100 * below_fold / total, 1) AS pct_below_fold
+FROM heatmaps
+WHERE current_url = 'https://example.com/pricing'
+  AND type = 'click'
+  AND timestamp >= now() - INTERVAL 7 DAY
+```
+
+Comparing each interaction to _its own_ `viewport_height` handles mixed device sizes automatically. For the
+"where is the fold" line to recommend against, use a representative viewport —
+e.g. `quantile(0.5)(viewport_height * scale_factor)` for the median fold in CSS pixels — and report it next to
+the click distribution: "viewport is ~600px tall for most visitors, but 35% of clicks land below 600px, so
+users scroll before interacting; that content is a candidate for the first screen." Segment by device with
+`viewport_width_min`/`viewport_width_max` first — desktop and mobile have very different folds.
+
 ### Step 3: Name the hot elements (autocapture overlap)
 
 For each notable cluster, find what's actually there. Query autocapture on the same URL — either via the
@@ -88,8 +116,8 @@ session IDs to the `investigating-replay` skill to watch what people actually di
 
 Produce a short, concrete report:
 
-- **What the heatmap shows** — top engaged elements, dead zones, and scroll reach (e.g. "only ~30% scroll
-  past the fold at 900px").
+- **What the heatmap shows** — top engaged elements, dead zones, scroll reach, and the above/below-the-fold
+  click split (e.g. "viewport is ~600px for most visitors, yet 35% of clicks land below it").
 - **Problems**, ranked by signal strength — rage-click clusters first, then clicks on non-interactive
   elements, then important CTAs sitting below the scroll cliff, then ignored primary actions.
 - **Recommendations** tied to evidence — move/raise a CTA above the fold, make a clicked-but-dead element a
@@ -98,13 +126,14 @@ Produce a short, concrete report:
 
 ## Reading the signals
 
-| Signal                             | Likely meaning                             | Typical recommendation                                         |
-| ---------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| Rage clicks on an element          | Broken, slow, or looks-clickable-but-isn't | Fix the handler, add feedback, or make it actually interactive |
-| Many clicks on non-link text/image | Users expect it to be clickable            | Make it a link/button, or remove the affordance                |
-| Primary CTA gets few clicks        | Buried, low-contrast, or out-competed      | Raise it, increase contrast, reduce nearby noise               |
-| Scroll cliff before key content    | Content/CTA is below where people stop     | Move it up or add a reason to scroll                           |
-| Hot clicks on nav, cold body       | Page isn't delivering; people bail to nav  | Re-evaluate the page's core content                            |
+| Signal                             | Likely meaning                                                                    | Typical recommendation                                         |
+| ---------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Rage clicks on an element          | Broken, slow, or looks-clickable-but-isn't                                        | Fix the handler, add feedback, or make it actually interactive |
+| Many clicks on non-link text/image | Users expect it to be clickable                                                   | Make it a link/button, or remove the affordance                |
+| Primary CTA gets few clicks        | Buried, low-contrast, or out-competed                                             | Raise it, increase contrast, reduce nearby noise               |
+| Scroll cliff before key content    | Content/CTA is below where people stop                                            | Move it up or add a reason to scroll                           |
+| High % of clicks below the fold    | Engaged content sits below the initial viewport — users scroll before interacting | Move the most-clicked elements onto the first screen           |
+| Hot clicks on nav, cold body       | Page isn't delivering; people bail to nav                                         | Re-evaluate the page's core content                            |
 
 ## Gotchas
 
