@@ -172,7 +172,7 @@ export function StepConditionalBranchConfiguration({
                         LemonDialog.open({
                             title: 'Exit workflow on no match?',
                             description:
-                                'This will remove all conditions on this step and send everyone who reaches it straight to the exit.',
+                                'This will remove all steps on the "No match" path and redirect it straight to the exit node.',
                             primaryButton: {
                                 children: 'Remove and exit',
                                 status: 'danger',
