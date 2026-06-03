@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "basic": {
+            "description": "Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

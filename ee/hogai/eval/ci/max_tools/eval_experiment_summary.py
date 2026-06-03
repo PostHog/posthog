@@ -27,12 +27,12 @@ from posthog.schema import (
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.models.assistant import Conversation
 
 _SUMMARY_PROMPT = "Summarize experiment {experiment_id}. What do the results show?"
 

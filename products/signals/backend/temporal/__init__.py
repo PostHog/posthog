@@ -19,6 +19,7 @@ from products.signals.backend.temporal.buffer import (
     signal_with_start_grouping_v2_activity,
     submit_signal_to_buffer_activity,
 )
+from products.signals.backend.temporal.custom_agent import CustomSignalAgentWorkflow, run_custom_signal_agent_activity
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
@@ -74,6 +75,7 @@ WORKFLOWS = [
     TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
+    CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
 ]
@@ -109,6 +111,7 @@ ACTIVITIES = [
     reset_report_to_potential_activity,
     restore_grouping_pause_activity,
     run_agentic_report_activity,
+    run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
     report_safety_judge_activity,
