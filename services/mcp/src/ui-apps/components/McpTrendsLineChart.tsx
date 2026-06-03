@@ -1,8 +1,12 @@
 import type { ReactElement } from 'react'
 
-import type { XAxisConfig, YAxisConfig } from '@posthog/quill-charts'
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import type { Series, TimeSeriesLineChartConfig, XAxisConfig, YAxisConfig } from '@posthog/quill-charts'
 
-import { TrendsLineChartView } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChartView'
+import {
+    buildDerivedConfigs,
+    buildTrendsSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsSeriesTransforms'
 
 import { buildMcpChartTheme } from './charts/shared'
 import type { YUnit } from './ChartSettings'
@@ -10,7 +14,7 @@ import type { TrendsInterval, TrendsResultItem } from './types'
 import { formatDate, getSeriesLabel } from './utils'
 
 const MOVING_AVERAGE_WINDOW = 7
-// `TrendsLineChartView` expects the confidence level as a 0–100 percentage.
+// The shared transforms expect the confidence level as a 0–100 percentage.
 const CONFIDENCE_LEVEL = 95
 const DEFAULT_CURRENCY = 'USD'
 
@@ -45,6 +49,21 @@ export function McpTrendsLineChart({
 
     const theme = buildMcpChartTheme()
     const labels = results[0]?.days ?? results[0]?.labels ?? []
+    const mappedResults = results.map((item, index) => ({ ...item, id: index, data: item.data ?? [] }))
+
+    const series: Series[] = buildTrendsSeries(mappedResults, {
+        getColor: (_, index) => theme.colors[index % theme.colors.length] ?? theme.colors[0] ?? '#1d4aff',
+        getLabel: getSeriesLabel,
+        ...(fillArea ? { display: 'ActionsAreaGraph' } : {}),
+    })
+
+    const derived = buildDerivedConfigs(mappedResults, {
+        showTrendLines: showTrendLine,
+        showMovingAverage,
+        movingAverageIntervals: MOVING_AVERAGE_WINDOW,
+        showConfidenceIntervals,
+        confidenceLevel: CONFIDENCE_LEVEL,
+    })
 
     const xAxis: XAxisConfig =
         interval && timezone ? { interval, timezone } : { tickFormatter: (label) => formatDate(label) }
@@ -55,24 +74,14 @@ export function McpTrendsLineChart({
         showGrid: true,
     }
 
-    return (
-        <TrendsLineChartView
-            results={results.map((item, index) => ({ ...item, id: index, data: item.data ?? [] }))}
-            labels={labels}
-            theme={theme}
-            getColor={(_, index) => theme.colors[index % theme.colors.length] ?? theme.colors[0] ?? '#1d4aff'}
-            getLabel={getSeriesLabel}
-            display={fillArea ? 'ActionsAreaGraph' : undefined}
-            showTrendLines={showTrendLine}
-            showMovingAverage={showMovingAverage}
-            movingAverageIntervals={MOVING_AVERAGE_WINDOW}
-            showConfidenceIntervals={showConfidenceIntervals}
-            confidenceLevel={CONFIDENCE_LEVEL}
-            xAxis={xAxis}
-            yAxis={yAxis}
-            valueLabels={showValueLabels}
-            percentStackView={percentStack}
-            showCrosshair
-        />
-    )
+    const config: TimeSeriesLineChartConfig = {
+        ...derived,
+        xAxis,
+        yAxis,
+        valueLabels: showValueLabels,
+        ...(percentStack ? { percentStackView: true } : {}),
+        showCrosshair: true,
+    }
+
+    return <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
 }

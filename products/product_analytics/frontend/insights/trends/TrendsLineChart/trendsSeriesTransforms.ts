@@ -14,7 +14,7 @@ export interface TrendsResultLike {
     days?: string[]
     compare?: boolean
     compare_label?: string | null
-    action?: { order?: number } | null
+    action?: { order?: number; name?: string } | null
     breakdown_value?: unknown
     filter?: unknown
 }
