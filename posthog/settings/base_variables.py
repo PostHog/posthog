@@ -18,6 +18,9 @@ TEST = get_from_env(
     "test" in sys.argv or "reset_test_clickhouse_db" in sys.argv or sys.argv[0].endswith("pytest"),
     type_cast=str_to_bool,
 )
+# Interactive REPL sessions (`manage.py shell` and friends). Used to keep startup
+# noise — app-ready logs, third-party deprecation warnings — out of the prompt.
+IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "shell_plus", "dbshell")
 STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
@@ -65,7 +68,7 @@ DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)
 
-if DEBUG and not TEST:
+if DEBUG and not TEST and not IS_INTERACTIVE_SHELL:
     logger.warning(
         [
             "Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
