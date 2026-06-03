@@ -78,6 +78,21 @@ class TestLocalEvalCanary(BaseTest):
         assert self._present() == 0
         assert self._failures() == 1
 
+    def test_build_failure_marks_absent_and_fails(self):
+        # A build exception is the exact failure the canary exists to catch: it must
+        # mark the mapping absent and count a failure, not report healthy.
+        with (
+            override_settings(FEATURE_FLAGS_CANARY_TEAM_ID=self.team.id),
+            patch(
+                "products.feature_flags.backend.canary._get_flags_response_for_local_evaluation",
+                side_effect=Exception("boom"),
+            ),
+        ):
+            run_local_eval_canary(self.registry)
+
+        assert self._present() == 0
+        assert self._failures() == 1
+
 
 @override_settings(FEATURE_FLAGS_CANARY_TEAM_ID=None)
 class TestLocalEvalCanaryTask(PushGatewayTaskTestMixin, BaseTest):

@@ -15,21 +15,22 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import RootTeamMixin
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
-from posthog.utils import get_safe_cache, safe_cache_add, safe_cache_delete, safe_cache_set
+from posthog.utils import capture_exception_throttled, get_safe_cache, safe_cache_delete, safe_cache_set
 
 logger = structlog.get_logger(__name__)
 
 GROUP_TYPES_CACHE_TTL = 60 * 5  # 5 minutes
 GROUP_TYPES_STALE_CACHE_TTL = 60 * 60 * 24  # 24 hours — last-known-good fallback during outages
 GROUP_TYPES_NEGATIVE_CACHE_TTL = 30  # seconds — short so we detect DB recovery quickly
+GROUP_TYPES_CONFIRMED_EMPTY_CACHE_TTL = 60 * 5  # 5 minutes — bounds the corruption window if invalidation is missed
 GROUP_TYPES_CACHE_KEY_PREFIX = "group_types_for_project_"
 GROUP_TYPES_STALE_CACHE_KEY_PREFIX = "group_types_for_project_stale_"
+GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX = "group_types_for_project_confirmed_empty_"
 
 # Throttle window for capturing group-type fetch failures, shared across processes
 # via the cache so many workers failing at once report at most once per window.
@@ -69,11 +70,7 @@ def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: Ba
     GROUP_TYPES_FETCH_FAILURES.labels(operation=operation, source="django_orm", error_type="db_error").inc()
 
     throttle_key = f"group_types_failure_capture_throttle:{operation}"
-    # Atomic set-if-absent so a wave of workers failing at once captures at most once
-    # per window, instead of each racing past a non-atomic get-then-set.
-    captured = safe_cache_add(throttle_key, True, GROUP_TYPES_FAILURE_CAPTURE_THROTTLE_TTL)
-    if captured:
-        capture_exception(exc)
+    captured = capture_exception_throttled(throttle_key, exc, GROUP_TYPES_FAILURE_CAPTURE_THROTTLE_TTL)
 
     logger.exception(
         log_event,
@@ -164,6 +161,9 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
 def invalidate_group_types_cache(project_id: int) -> None:
     safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
     safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}")
+    # Clear the confirmed-empty marker so a team adding its first group type stops
+    # short-circuiting project_has_group_types_authoritatively to False immediately.
+    safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}")
 
 
 def _fetch_group_types_via_personhog(client: PersonHogClient, project_id: int) -> list[dict[str, Any]]:
@@ -441,9 +441,18 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
     independent check must hit the source of truth rather than route through personhog
     again. On a DB error it returns True — the caller must not treat an unconfirmable
     state as safe to empty.
+
+    A short-lived "confirmed empty" marker caches the authoritative False so a team
+    that has never had group types — the common case, where this fires on every
+    no-group rebuild — doesn't probe the writer DB each time. invalidate_group_types_cache
+    clears the marker when a group type is created, and the short TTL bounds the window
+    if that invalidation is ever missed.
     """
+    confirmed_empty_key = f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}"
+    if get_safe_cache(confirmed_empty_key):
+        return False
     try:
-        return (
+        has_group_types = (
             GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
             .filter(project_id=project_id)
             .exists()
@@ -451,6 +460,11 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
     except DatabaseError:
         logger.warning("group_types_primary_confirmation_failed", project_id=project_id, exc_info=True)
         return True
+    if not has_group_types:
+        # Only cache the negative. A True must keep hitting the DB so a later deletion
+        # is seen promptly, and the DB-error branch above must never be cached.
+        safe_cache_set(confirmed_empty_key, True, GROUP_TYPES_CONFIRMED_EMPTY_CACHE_TTL)
+    return has_group_types
 
 
 def update_group_type_mapping_fields(

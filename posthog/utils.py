@@ -1372,6 +1372,19 @@ def safe_cache_delete(cache_key: str) -> None:
         logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
 
 
+def capture_exception_throttled(throttle_key: str, exc: BaseException, ttl: int) -> bool:
+    """Capture an exception at most once per ``ttl`` window across processes (gated on
+    an atomic set-if-absent in the cache). Returns True if this caller captured, False
+    if it was throttled, so the caller can record which happened.
+
+    The atomic add means a wave of workers failing at once captures only once, instead
+    of each racing past a non-atomic get-then-set."""
+    captured = safe_cache_add(throttle_key, True, ttl)
+    if captured:
+        capture_exception(exc)
+    return captured
+
+
 def is_anonymous_id(distinct_id: str) -> bool:
     # Our anonymous ids are _not_ uuids, but a random collection of strings
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))

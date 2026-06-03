@@ -67,12 +67,6 @@ HYPERCACHE_REBUILD_SKIPPED_COUNTER = Counter(
     labelnames=["namespace", "reason"],
 )
 
-HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER = Counter(
-    "posthog_hypercache_group_mapping_emptied",
-    "Rebuilds skipped because the freshly built group_type_mapping was empty over populated data",
-    labelnames=["namespace"],
-)
-
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
     "posthog_hypercache_sync_duration_seconds",
     "Time taken to sync hypercache in seconds",
@@ -418,8 +412,10 @@ class HyperCache:
             success = True
             return True
         except HyperCacheDependencyUnavailable:
-            # Skip the write to keep the existing entry, and count a failure. The
+            # Skip the write to keep the existing entry, and count the skip so the skip
+            # counter reflects the refresh/warm path too, not just the signal path. The
             # source of the failure already reported it, so don't report it again here.
+            HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace=self.namespace, reason="dependency_unavailable").inc()
             logger.warning(
                 f"Skipping {self.namespace} cache sync for team {key}: dependency unavailable",
                 namespace=self.namespace,

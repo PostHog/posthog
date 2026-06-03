@@ -170,7 +170,10 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
         hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
-        with patch("posthog.storage.hypercache.capture_exception") as mock_capture:
+        with (
+            patch("posthog.storage.hypercache.capture_exception") as mock_capture,
+            patch("posthog.storage.hypercache.HYPERCACHE_REBUILD_SKIPPED_COUNTER") as mock_skipped,
+        ):
             result = hc.update_cache(self.team_id)
 
         assert result is False
@@ -178,6 +181,10 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
         assert cache.get(hc.get_cache_key(self.team_id)) is None
         # The source of the failure already reported it, so update_cache does not
         mock_capture.assert_not_called()
+        # The skip is counted so the refresh/warm path feeds the skip metric, not just
+        # the signal path
+        mock_skipped.labels.assert_called_once_with(namespace="dep_test", reason="dependency_unavailable")
+        mock_skipped.labels.return_value.inc.assert_called_once()
 
     def test_get_from_cache_returns_transient_miss_without_sentinel(self):
         hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)

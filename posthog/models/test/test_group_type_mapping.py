@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
     _record_group_types_fetch_failure,
@@ -14,11 +15,12 @@ from posthog.models.group_type_mapping import (
     get_group_types_for_project,
     get_group_types_for_projects,
     get_group_types_for_team,
+    invalidate_group_types_cache,
     project_has_group_types_authoritatively,
     update_group_type_mapping_fields,
 )
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-from posthog.utils import safe_cache_delete, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 
 def _clear_cache(project_id: int) -> None:
@@ -1094,7 +1096,7 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
     @patch("posthog.models.group_type_mapping.logger")
-    @patch("posthog.models.group_type_mapping.capture_exception")
+    @patch("posthog.utils.capture_exception")
     def test_captures_once_then_logs_throttled(self, mock_capture, mock_logger, mock_counter):
         from django.db import DatabaseError
 
@@ -1120,6 +1122,18 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
 
 
 class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
+    _PROJECT_IDS = (123, 777, 888)
+
+    def setUp(self):
+        self._clear_markers()
+
+    def tearDown(self):
+        self._clear_markers()
+
+    def _clear_markers(self):
+        for project_id in self._PROJECT_IDS:
+            safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}")
+
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     def test_returns_true_when_rows_exist(self, mock_objects):
         mock_objects.using.return_value.filter.return_value.exists.return_value = True
@@ -1143,3 +1157,33 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
 
         # Cannot confirm absence → assume present so the caller keeps the existing entry.
         assert project_has_group_types_authoritatively(123) is True
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_confirmed_empty_marker_short_circuits_second_call(self, mock_objects):
+        exists_mock = mock_objects.using.return_value.filter.return_value.exists
+        exists_mock.return_value = False
+
+        # First call confirms empty against the DB and caches the marker.
+        assert project_has_group_types_authoritatively(777) is False
+        # Second call reads the marker instead of probing the writer DB again.
+        assert project_has_group_types_authoritatively(777) is False
+        exists_mock.assert_called_once()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    def test_present_result_is_not_cached(self, mock_objects):
+        exists_mock = mock_objects.using.return_value.filter.return_value.exists
+        exists_mock.return_value = True
+
+        # A True is never cached, so a later deletion is seen on the next call.
+        assert project_has_group_types_authoritatively(777) is True
+        assert project_has_group_types_authoritatively(777) is True
+        assert exists_mock.call_count == 2
+
+    def test_invalidate_group_types_cache_clears_confirmed_empty_marker(self):
+        marker_key = f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}888"
+        safe_cache_set(marker_key, True, 300)
+
+        invalidate_group_types_cache(888)
+
+        # A team adding its first group type must stop short-circuiting to False at once.
+        assert get_safe_cache(marker_key) is None

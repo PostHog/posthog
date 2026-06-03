@@ -46,15 +46,9 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
-from posthog.storage.hypercache import (
-    HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER,
-    HYPERCACHE_REBUILD_SKIPPED_COUNTER,
-    HyperCache,
-    KeyType,
-    emit_cache_sync_metrics,
-)
+from posthog.storage.hypercache import HYPERCACHE_REBUILD_SKIPPED_COUNTER, HyperCache, KeyType, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
-from posthog.utils import get_safe_cache, safe_cache_add
+from posthog.utils import capture_exception_throttled, get_safe_cache
 
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
@@ -77,6 +71,16 @@ FLAG_DEFINITIONS_NO_COHORTS_CACHE_EXPIRY_SORTED_SET = "flag_definitions_no_cohor
 FLAG_PROCESSING_ERROR_COUNTER = Counter(
     "posthog_flag_definitions_processing_error",
     "Number of flags dropped from cache due to processing errors",
+)
+
+# Rebuilds vetoed because the freshly built group_type_mapping was empty over
+# populated data. group_type_mapping is a feature-flags concept, so the counter lives
+# here rather than in the generic storage layer. The namespace label is kept for
+# wire compatibility even though this guard only ever runs for "feature_flags".
+HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER = Counter(
+    "posthog_hypercache_group_mapping_emptied",
+    "Rebuilds skipped because the freshly built group_type_mapping was empty over populated data",
+    labelnames=["namespace"],
 )
 
 
@@ -472,11 +476,7 @@ def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, me
     """Log a skipped flag-cache rebuild and capture the exception, throttling the
     capture across processes. Each log line records whether the capture ran or was
     throttled."""
-    # Atomic set-if-absent so a wave of workers skipping at once captures at most once
-    # per window, instead of each racing past a non-atomic get-then-set.
-    captured = safe_cache_add(throttle_key, True, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
-    if captured:
-        capture_exception(exc)
+    captured = capture_exception_throttled(throttle_key, exc, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
     logger.error(message, exception_captured=captured, capture_throttled=not captured, **log_fields)
 
 
@@ -531,9 +531,12 @@ def update_flag_caches(team: Team):
         if _skip_write_if_group_mapping_emptied(team, with_cohorts):
             return
 
-        size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
-
+        # Build both payloads before persisting either, so a failure on the second
+        # fetch (e.g. the persons DB drops in this window) skips both writes and the
+        # two variants can't drift out of sync.
         without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
+
+        size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
         size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
 
         success = True
