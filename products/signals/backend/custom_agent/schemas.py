@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -98,17 +99,30 @@ class AgentScheduleSpec:
             raise AgentScheduleError("AgentScheduleSpec must set at least one calendar field")
         if not self.timezone.strip():
             raise AgentScheduleError("timezone must not be empty")
+        try:
+            ZoneInfo(self.timezone)
+        except Exception as exc:
+            # Fail at construction with a clear error rather than deferring to an opaque
+            # Temporal RPC error when the schedule is created or fires.
+            raise AgentScheduleError(f"timezone {self.timezone!r} is not a valid IANA time zone") from exc
         for name, (low, high) in _CALENDAR_FIELD_BOUNDS.items():
             for value in self.values_for(name):
                 if value < low or value > high:
                     raise AgentScheduleError(f"{name} value {value} out of range [{low}, {high}]")
 
     def values_for(self, name: str) -> list[int]:
-        """Return the set values for a calendar field as a list (empty when unset)."""
+        """Return the canonical (sorted, de-duplicated) values for a calendar field.
+
+        Returns an empty list when unset. Canonicalizing here means ``hour=9``,
+        ``hour=[9]``, ``hour=[9, 9]`` and ``hour=[9, 0]`` vs ``[0, 9]`` all collapse to
+        the same effective schedule — so the launcher's idempotency fingerprint and the
+        emitted ``ScheduleCalendarSpec`` don't churn on equivalent inputs.
+        """
         raw = getattr(self, name)
         if raw is None:
             return []
-        return [raw] if isinstance(raw, int) else list(raw)
+        values = [raw] if isinstance(raw, int) else list(raw)
+        return sorted(set(values))
 
 
 class CustomAgentAssignee(BaseModel):

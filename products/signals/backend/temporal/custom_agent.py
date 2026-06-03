@@ -15,7 +15,9 @@ from temporalio import activity, workflow
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
+    ScheduleDescription,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleRange,
@@ -48,6 +50,22 @@ from products.signals.backend.custom_agent.schemas import (
 # Static run_id for schedule-launched runs. Per-tick workflow-id uniqueness comes from
 # Temporal appending the scheduled time to the action workflow-id, so this stays constant.
 _SCHEDULED_RUN_ID = "scheduled"
+
+# Schedule action config, shared between the Schedule we build and the idempotency
+# fingerprint so a change to any of these propagates to existing schedules on the next
+# schedule_agent call (instead of being silently pinned to the value at creation time).
+_SCHEDULE_EXECUTION_TIMEOUT = timedelta(minutes=90)
+_SCHEDULE_OVERLAP = ScheduleOverlapPolicy.SKIP
+_SCHEDULE_MAX_ATTEMPTS = 1
+
+# Bump when the schedule's structural shape changes in a way the fingerprint can't see,
+# to force a rewrite of every existing schedule on its next schedule_agent call.
+_SCHEDULE_FINGERPRINT_VERSION = 1
+
+# Idempotency fingerprint lives in the action memo, NOT ScheduleState.note: note is also
+# written by pause/unpause and the Temporal UI, so keying idempotency off it would let a
+# manual pause masquerade as a config change.
+_FINGERPRINT_MEMO_KEY = "custom_agent_schedule_fingerprint"
 
 logger = structlog.get_logger(__name__)
 
@@ -193,11 +211,15 @@ def run_agent(
 # ----------------------------------------------------------------------
 
 
+_CALENDAR_FIELDS = ("minute", "hour", "day_of_month", "month", "day_of_week")
+
+
 def _calendar_spec(schedule: AgentScheduleSpec) -> ScheduleCalendarSpec:
     """Map an `AgentScheduleSpec` onto a Temporal `ScheduleCalendarSpec`.
 
-    Each set field becomes a list of single-value `ScheduleRange`s; unset fields are
-    left at Temporal's defaults (which match every value).
+    Each set field becomes a list of single-value `ScheduleRange`s (canonicalized —
+    sorted and de-duplicated — by `values_for`); unset fields are left at Temporal's
+    defaults (which match every value).
     """
 
     def ranges(name: str) -> list[ScheduleRange]:
@@ -205,7 +227,7 @@ def _calendar_spec(schedule: AgentScheduleSpec) -> ScheduleCalendarSpec:
         return [ScheduleRange(start=value, end=value) for value in schedule.values_for(name)]
 
     kwargs: dict[str, list[ScheduleRange]] = {}
-    for name in ("minute", "hour", "day_of_month", "month", "day_of_week"):
+    for name in _CALENDAR_FIELDS:
         values = ranges(name)
         if values:
             kwargs[name] = values
@@ -214,18 +236,36 @@ def _calendar_spec(schedule: AgentScheduleSpec) -> ScheduleCalendarSpec:
 
 
 def _schedule_fingerprint(input_data: CustomAgentWorkflowInput, schedule: AgentScheduleSpec, paused: bool) -> str:
-    """Deterministic hash of the desired schedule config, stored in `ScheduleState.note`.
+    """Deterministic hash of the *entire* desired schedule, stored in the action memo.
 
-    Idempotency compares this against the existing schedule's note, which sidesteps
-    Temporal's normalization of calendar specs on the read path.
+    Idempotency compares this against the existing schedule's stored fingerprint. We hash
+    the canonicalized calendar (via `values_for`, not the raw spec) so equivalent inputs
+    like ``hour=9`` and ``hour=[9]`` don't churn, plus the action config (task queue,
+    timeout, overlap, retries) and a version tag so any change to those propagates to
+    existing schedules instead of being pinned at creation time.
     """
     payload = {
+        "v": _SCHEDULE_FINGERPRINT_VERSION,
         "input": dataclasses.asdict(input_data),
-        "schedule": dataclasses.asdict(schedule),
+        "calendar": {name: schedule.values_for(name) for name in _CALENDAR_FIELDS},
+        "timezone": schedule.timezone,
         "paused": paused,
+        "action": {
+            "task_queue": settings.VIDEO_EXPORT_TASK_QUEUE,
+            "execution_timeout_s": _SCHEDULE_EXECUTION_TIMEOUT.total_seconds(),
+            "overlap": int(_SCHEDULE_OVERLAP),
+            "max_attempts": _SCHEDULE_MAX_ATTEMPTS,
+        },
     }
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return f"custom-agent-schedule:{hashlib.sha256(serialized.encode()).hexdigest()}"
+
+
+def _existing_fingerprint(description: ScheduleDescription) -> str | None:
+    """Read the idempotency fingerprint from a described schedule's action memo."""
+    action = description.schedule.action
+    memo = getattr(action, "memo", None) or {}
+    return memo.get(_FINGERPRINT_MEMO_KEY)
 
 
 async def aschedule_agent(
@@ -266,6 +306,7 @@ async def aschedule_agent(
         model=model,
         scheduled=True,
     )
+    log = logger.bind(team_id=team_id, product=product, type=type_, schedule_id=schedule_id)
     fingerprint = _schedule_fingerprint(input_data, schedule, paused)
     desired = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -273,27 +314,39 @@ async def aschedule_agent(
             input_data,
             id=schedule_id,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            execution_timeout=timedelta(minutes=90),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            execution_timeout=_SCHEDULE_EXECUTION_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=_SCHEDULE_MAX_ATTEMPTS),
+            memo={_FINGERPRINT_MEMO_KEY: fingerprint},
         ),
         spec=ScheduleSpec(calendars=[_calendar_spec(schedule)], time_zone_name=schedule.timezone),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-        state=ScheduleState(note=fingerprint, paused=paused),
+        policy=SchedulePolicy(overlap=_SCHEDULE_OVERLAP),
+        # `schedule_agent` is authoritative over the schedule lifecycle, including `paused`.
+        # The note is human-facing only; idempotency keys off the action memo.
+        state=ScheduleState(note=f"custom signal agent schedule for {product}:{type_}", paused=paused),
     )
 
     client = await async_connect()
     handle = client.get_schedule_handle(schedule_id)
     try:
-        description = await handle.describe()
+        description: ScheduleDescription | None = await handle.describe()
     except RPCError as exc:
         if exc.status != RPCStatusCode.NOT_FOUND:
             raise
-        await a_create_schedule(client, schedule_id, desired)
-        return ScheduleAgentResult.CREATED
+        description = None
 
-    if description.schedule.state.note == fingerprint:
+    if description is None:
+        try:
+            await a_create_schedule(client, schedule_id, desired)
+            log.info("custom agent schedule created")
+            return ScheduleAgentResult.CREATED
+        except ScheduleAlreadyRunningError:
+            # Lost a creation race with a concurrent caller; fall through to compare+update.
+            description = await handle.describe()
+
+    if _existing_fingerprint(description) == fingerprint:
         return ScheduleAgentResult.ALREADY_PRESENT
     await a_update_schedule(client, schedule_id, desired)
+    log.info("custom agent schedule updated")
     return ScheduleAgentResult.UPDATED
 
 
@@ -326,6 +379,7 @@ async def aunschedule_agent(agent_class: type[CustomSignalAgent], team: Team) ->
     if not await a_schedule_exists(client, schedule_id):
         return False
     await a_delete_schedule(client, schedule_id)
+    logger.info("custom agent schedule deleted", schedule_id=schedule_id, team_id=int(team.id))
     return True
 
 

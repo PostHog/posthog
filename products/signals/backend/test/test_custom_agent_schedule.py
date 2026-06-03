@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.client import Schedule, ScheduleRange, ScheduleUpdateInput
+from temporalio.client import Schedule, ScheduleAlreadyRunningError, ScheduleRange, ScheduleUpdateInput
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team
@@ -129,11 +129,20 @@ def test_agent_schedule_spec_rejects_blank_timezone():
         AgentScheduleSpec(hour=9, timezone="  ")
 
 
-def test_agent_schedule_spec_values_for():
-    spec = AgentScheduleSpec(hour=9, day_of_week=[1, 3, 5])
-    assert spec.values_for("hour") == [9]
-    assert spec.values_for("day_of_week") == [1, 3, 5]
-    assert spec.values_for("minute") == []
+@pytest.mark.parametrize("tz", ["PST", "Europe/Atlantis", "utc/typo", "Not A Zone"])
+def test_agent_schedule_spec_rejects_invalid_timezone(tz):
+    with pytest.raises(AgentScheduleError):
+        AgentScheduleSpec(hour=9, timezone=tz)
+
+
+def test_agent_schedule_spec_values_for_canonicalizes():
+    # int, single-element list, duplicates, and unsorted lists all collapse to the same
+    # canonical (sorted, de-duplicated) value list.
+    assert AgentScheduleSpec(hour=9).values_for("hour") == [9]
+    assert AgentScheduleSpec(hour=[9]).values_for("hour") == [9]
+    assert AgentScheduleSpec(hour=[9, 9]).values_for("hour") == [9]
+    assert AgentScheduleSpec(day_of_week=[5, 3, 1]).values_for("day_of_week") == [1, 3, 5]
+    assert AgentScheduleSpec(hour=9).values_for("minute") == []
 
 
 # ── _calendar_spec mapping ───────────────────────────────────────────────────────
@@ -215,6 +224,44 @@ async def test_unschedule_agent_returns_whether_present(ateam, fake_temporal):
     assert _schedule_id_for(_ScheduleTestAgent, ateam.id) not in fake_temporal
     # Deleting again reports absence.
     assert await aunschedule_agent(_ScheduleTestAgent, ateam) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_schedule_agent_equivalent_calendar_is_already_present(ateam, fake_temporal):
+    # int vs single-element list, and reordered/duplicate lists, are the same schedule.
+    assert (
+        await aschedule_agent(_ScheduleTestAgent, ateam, "x", AgentScheduleSpec(hour=9, day_of_week=[1, 5]))
+        is ScheduleAgentResult.CREATED
+    )
+    assert (
+        await aschedule_agent(_ScheduleTestAgent, ateam, "x", AgentScheduleSpec(hour=[9], day_of_week=[5, 1, 5]))
+        is ScheduleAgentResult.ALREADY_PRESENT
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_schedule_agent_handles_creation_race(ateam, fake_temporal):
+    # Simulate losing a creation race: describe sees nothing, but create raises
+    # ScheduleAlreadyRunningError (a concurrent caller won and stored an identical
+    # schedule). The call must fall through to compare-and-return, not blow up.
+    spec = AgentScheduleSpec(hour=9, timezone="UTC")
+    schedule_id = _schedule_id_for(_ScheduleTestAgent, ateam.id)
+
+    real_a_create = wrapper.a_create_schedule
+
+    async def racing_create(client, sid, schedule):
+        # The "winner" stored the schedule; we then raise as the loser.
+        await real_a_create(client, sid, schedule)
+        raise ScheduleAlreadyRunningError()
+
+    with patch.object(wrapper, "a_create_schedule", side_effect=racing_create):
+        result = await aschedule_agent(_ScheduleTestAgent, ateam, "x", spec)
+
+    # The winner stored an identical config, so the loser resolves to ALREADY_PRESENT.
+    assert result is ScheduleAgentResult.ALREADY_PRESENT
+    assert schedule_id in fake_temporal
 
 
 @pytest.mark.asyncio

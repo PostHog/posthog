@@ -107,14 +107,28 @@ structured-calendar `AgentScheduleSpec` (`minute` / `hour` / `day_of_month` / `m
 `ScheduleCalendarSpec`; unset fields match every value. There is no `id` argument — the
 schedule is the single recurring entity, not a one-off run.
 
-The call is **idempotent**: it hashes the desired config into the schedule's `ScheduleState.note`
-and compares on subsequent calls. Identical arguments → `ALREADY_PRESENT` (no-op); a changed
-`schedule` or run argument → `UPDATED`; a fresh agent → `CREATED`. Each tick starts the shared
-`signals-custom-agent` workflow with `CustomAgentWorkflowInput.scheduled=True` (so `run()` can read
-`self.scheduled`) and a static `run_id="scheduled"` — per-tick workflow-id uniqueness comes from
-Temporal appending the scheduled time. Overlap policy is `SKIP`: an in-flight run is left to finish
-and an overlapping tick is dropped. Like `run_agent`, both refuse to launch without org-level AI
-data-processing consent. They are **not** re-exported from `custom_agent/__init__.py` (same
+The call is **idempotent**: it hashes the entire desired config (canonicalized calendar, run
+arguments, and the action config — task queue, timeout, overlap, retries — plus a version tag)
+and stores that fingerprint in the schedule **action memo**. Idempotency keys off the memo, not
+`ScheduleState.note`, because pause/unpause and the Temporal UI write to `note`; using it would let
+a manual pause masquerade as a config change. Identical arguments → `ALREADY_PRESENT` (no-op); a
+changed `schedule` or run argument → `UPDATED`; a fresh agent → `CREATED`. Equivalent calendars
+(`hour=9` vs `hour=[9]`, reordered or duplicated lists) canonicalize to the same fingerprint and do
+not churn. Each tick starts the shared `signals-custom-agent` workflow with
+`CustomAgentWorkflowInput.scheduled=True` (so `run()` can read `self.scheduled`) and a static
+`run_id="scheduled"` — per-tick workflow-id uniqueness comes from Temporal appending the scheduled
+time.
+
+`schedule_agent` is **authoritative over the schedule lifecycle**, including `paused`: every
+create/update writes the `paused` argument. Pause/resume a schedule by calling `schedule_agent(...,
+paused=True/False)` or `unschedule_agent`, not via the Temporal UI (a manual UI pause is overwritten
+on the next `schedule_agent` call). Overlap policy is `SKIP`, which dedupes **schedule-vs-schedule**
+ticks only: a still-running scheduled run is left to finish and an overlapping tick is dropped. It
+does **not** mutually exclude a one-off `run_agent` run from a scheduled tick for the same agent —
+those have distinct workflow ids and can run concurrently (the same concurrency surface `run_agent`
+already had). Like `run_agent`, both refuse to launch without org-level AI data-processing consent
+(checked at registration only — a schedule keeps firing if consent is later revoked; revoke by
+calling `unschedule_agent`). They are **not** re-exported from `custom_agent/__init__.py` (same
 circular-import reason as `run_agent`); import them from `temporal.custom_agent`.
 
 ### `send()`
