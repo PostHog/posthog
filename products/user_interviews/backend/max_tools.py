@@ -368,7 +368,6 @@ class PreviewUserInterviewInviteTool(MaxTool):
 
         payload = await sync_to_async(resolve_invite_preview)(
             topic=topic,
-            team=self._team,
             interviewee_identifier=interviewee_identifier,
         )
         if payload is None:
