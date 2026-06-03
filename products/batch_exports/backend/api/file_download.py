@@ -358,7 +358,8 @@ class FileDownloadBatchExportOnDemandViewSet(
                 .values_list("id", flat=True)
             ]
 
-            if not ids:
+            has_data = batch_export_run.records_completed is not None and batch_export_run.records_completed > 0
+            if not ids and has_data:
                 # There is currently a small delay between the run being set to completed
                 # and the file downloads being generated, so we account for that and keep
                 # showing running status.
