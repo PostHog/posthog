@@ -52,6 +52,27 @@ export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isVa
     return { urlToUse, isValidUrl }
 }
 
+export const OPEN_IN_APP_MESSAGE_TYPE = 'posthog:open-recording'
+
+/**
+ * A shared-recording embed can opt into an "open in PostHog" affordance by setting
+ * `?open_in_app=<parent-origin>` on the iframe src. We return the normalized origin so the
+ * badge click can `postMessage` to exactly that parent (never `*`); anything that isn't a
+ * valid http(s) origin disables the feature (fail closed).
+ */
+export function openInAppTargetOrigin(search: string): string | null {
+    const raw = new URLSearchParams(search).get('open_in_app')
+    if (!raw) {
+        return null
+    }
+    try {
+        const { protocol, origin } = new URL(raw)
+        return protocol === 'https:' || protocol === 'http:' ? origin : null
+    } catch {
+        return null
+    }
+}
+
 function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
     const { urlToUse, isValidUrl } = parseUrl(url)
 
@@ -108,16 +129,35 @@ export function PlayerMeta(): JSX.Element {
         if (whitelabel) {
             return <></>
         }
+        const openInAppOrigin = typeof window !== 'undefined' ? openInAppTargetOrigin(window.location.search) : null
         return (
             <div className="PlayerMeta">
                 <div className="flex justify-between items-center m-2">
-                    {!whitelabel ? (
-                        <Tooltip title="Powered by PostHog" placement="right">
+                    <Tooltip
+                        title={openInAppOrigin ? 'Open recording in PostHog' : 'Powered by PostHog'}
+                        placement="right"
+                    >
+                        {openInAppOrigin ? (
+                            <Link
+                                className="flex items-center"
+                                onClick={() =>
+                                    window.parent?.postMessage(
+                                        {
+                                            type: OPEN_IN_APP_MESSAGE_TYPE,
+                                            recordingId: logicProps.sessionRecordingId,
+                                        },
+                                        openInAppOrigin
+                                    )
+                                }
+                            >
+                                <Logo />
+                            </Link>
+                        ) : (
                             <Link to="https://posthog.com" className="flex items-center" target="blank">
                                 <Logo />
                             </Link>
-                        </Tooltip>
-                    ) : null}
+                        )}
+                    </Tooltip>
                 </div>
             </div>
         )
