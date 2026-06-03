@@ -2,11 +2,27 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "content": {
-            "description": "Notebook content as a ProseMirror JSON document structure."
+            "description": "Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`."
+        },
+        "content_storage": {
+            "description": "Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.\n\n* `json` - json\n* `markdown` - markdown",
+            "enum": ["json", "markdown"],
+            "type": "string"
         },
         "deleted": {
             "description": "Whether the notebook has been soft-deleted.",
             "type": "boolean"
+        },
+        "markdown_content": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Canonical markdown document for markdown-backed notebooks."
         },
         "short_id": {
             "type": "string"

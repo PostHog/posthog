@@ -1,0 +1,53 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "new_value": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "items": {},
+                    "type": "array"
+                }
+            ],
+            "description": "What to put in place of `old_value`. For markdown-backed notebooks, pass replacement markdown text. For JSON-backed notebooks, pass a JSON value of the same shape — the whole matched piece is replaced, so include every key you want preserved. Must differ from `old_value`."
+        },
+        "old_value": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "items": {},
+                    "type": "array"
+                }
+            ],
+            "description": "The piece of content to find. For markdown-backed notebooks, pass the exact markdown text substring to replace. For JSON-backed notebooks, copy the JSON object or array straight out of `notebooks-retrieve` — typically a single node like a text node or a whole paragraph. Must match exactly one place unless `replace_all` is true."
+        },
+        "replace_all": {
+            "description": "Replace every place `old_value` matches. Default false — the tool errors out if `old_value` is not unique, so you can either narrow `old_value` to a single match or set `replace_all` to true.",
+            "type": "boolean"
+        },
+        "short_id": {
+            "description": "The notebook short_id (the public id in the URL, e.g. `aBcD1234`).",
+            "type": "string"
+        }
+    },
+    "required": ["short_id", "old_value", "new_value"],
+    "type": "object"
+}
