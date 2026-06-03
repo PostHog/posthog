@@ -19,6 +19,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -100,6 +101,7 @@ def get_hogql_metadata(
 
             heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
             hogql_table_names = get_table_names(hogql_ast)
+            heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
 
             if not printed_sql or not prepared_ast:

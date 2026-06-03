@@ -186,6 +186,7 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     ADVANCED_PERMISSIONS = 'advanced_permissions', // TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = 'access_control',
+    PROPERTY_ACCESS_CONTROL = 'property_access_control',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
@@ -4668,6 +4669,8 @@ export interface Experiment {
         }
         frequentist?: {
             alpha?: number
+            sequential_testing_enabled?: boolean
+            sequential_tuning_parameter?: number
         }
         cuped?: {
             enabled?: boolean
@@ -4791,6 +4794,7 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
+    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5376,7 +5380,6 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
-    | 'deployment'
     | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
@@ -5955,6 +5958,9 @@ export interface ExternalDataSourceSyncSchema {
     cdc_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
+    /** True when the resource has no API list endpoint and can only be populated via webhooks
+     *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
+    webhook_only?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
@@ -5993,6 +5999,19 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+}
+
+/** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
+export interface ExternalDataSchemaSourceSummary {
+    id: string
+    source_type: ExternalDataSourceType
+    supports_column_selection?: boolean
+    user_access_level: AccessControlLevel | null
+}
+
+export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {
+    /** Populated only on the single-schema retrieve endpoint; `null` when serialized elsewhere. */
+    source: ExternalDataSchemaSourceSummary | null
 }
 
 export enum ExternalDataSchemaStatus {
@@ -6563,6 +6582,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
+        | 'non_failure_status_codes'
     key: string
     label: string
     choices?: { value: string; label: string }[]

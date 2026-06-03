@@ -187,13 +187,32 @@ log line and OTel metric, and participates in opt-in sample capture.
   gspread `authorize(credentials, session=...)`, BigQuery via `AuthorizedSession` + `TrackedHTTPAdapter`),
   inject one. Reference patterns live in `stripe/stripe.py`, `google_sheets/google_sheets.py`, and
   `bigquery/bigquery.py`.
-- For vendor SDKs with no injection seam (today: `bingads`, `linkedin-api`'s `RestliClient`, anything
-  pure-gRPC), add a `# nosemgrep: data-imports-http-transport-...` pragma with a one-line reason and record
-  the source as `⚠️ Vendor SDK` in `SOURCES.md`.
+- For vendor SDKs with no injection seam (today: `bingads`, `linkedin-api`'s `RestliClient`), add a
+  `# nosemgrep: data-imports-http-transport-...` pragma with a one-line reason and record the source as
+  `⚠️ Vendor SDK` in `SOURCES.md`.
+- gRPC SDKs are **not** exempt — they have their own tracked transport (see below).
 
 CI enforces this via `.semgrep/rules/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
 `requests.<verb>(...)`, and `httpx.Client/AsyncClient/<verb>` inside `sources/**`. Type-only imports
 (`from requests import Response`, `from requests.exceptions import HTTPError`) remain allowed.
+
+## Outbound gRPC must go through the tracked gRPC transport
+
+gRPC calls from `sources/**` ride client interceptors from
+`posthog.temporal.data_imports.sources.common.grpc`, which attach the same `JobContext` labels to logs and
+OTel metrics (`data_import_grpc_*`) and feed opt-in sample capture (protobuf → scrubbed JSON). Two seams:
+
+- For SDKs that accept an `interceptors=` list (google-ads `GoogleAdsClient.get_service(...)`), pass
+  `interceptors=tracked_interceptors(host)` on **every** `get_service` call — google-ads rebuilds the channel
+  per call, so the interceptors must be re-supplied each time. Reference: `google_ads/google_ads.py`.
+- For SDKs that accept a `channel=` / `transport=` (BigQuery Storage Read API), build the credential-bearing
+  channel, wrap it with `make_tracked_channel(channel, host=...)`, then hand it to the transport. Reference:
+  `bigquery/bigquery.py:bigquery_storage_read_client`.
+
+CI enforces this via `.semgrep/rules/data-imports-grpc-transport.yaml`, which bans raw `grpc.*_channel(...)`
+and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction inside `sources/**` (outside the
+`common/grpc/` package and the two reference source files). Operators arm sample capture with
+`python manage.py warehouse_sources_capture_grpc_samples enable ...`.
 
 ## Updating SOURCES.md
 
@@ -210,7 +229,8 @@ whenever you:
   or move from `requests` to a vendor SDK. Update both the comm method and tracked-transport columns.
 
 Keep the entries alphabetical within each table. If you add a partially-tracked source, also append a
-short "Notes on partially-tracked sources" entry explaining what blocks tracking (no SDK seam, gRPC, etc.).
+short "Notes on partially-tracked sources" entry explaining what blocks tracking (e.g. a vendor SDK with no
+session/interceptor seam).
 
 ## Required coding conventions
 
@@ -438,7 +458,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `pnp
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
-- Webhook rows not landing: feature flag `warehouse-source-webhooks` disabled, or schema `is_webhook=False`, or `initial_sync_complete=False`.
+- Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.
 - Drift from refactors: unused function params/helpers left behind after endpoint behavior changes.
