@@ -33,7 +33,6 @@ from posthog.schema import EventsQuery
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
@@ -63,6 +62,7 @@ from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery

@@ -25,7 +25,6 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
-from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -33,7 +32,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
+from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
@@ -45,6 +44,7 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard

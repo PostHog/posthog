@@ -63,6 +63,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                     case 'TrendsQuery':
                         data = await queryClient.trendsActors({ query })
                         break
+                    case 'PathsQuery':
+                        data = await queryClient.pathsActors({ query })
+                        break
                     default:
                         throw new Error(`Unsupported source kind for actors query: ${sourceKind}`)
                 }

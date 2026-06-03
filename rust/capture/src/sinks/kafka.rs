@@ -18,7 +18,7 @@
 //! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
-use crate::config::KafkaConfig;
+use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
@@ -195,15 +195,17 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
 
 /// Generic Kafka sink that can use any producer implementation.
 ///
-/// Holds only the producer handle and the topic config. No limiter state —
-/// overflow and replay-overflow routing decisions are stamped upstream in the
-/// pipeline onto `ProcessedEventMetadata::overflow_reason` and read here.
-/// Both fields are `Arc` so `clone()` is two atomic ref-count increments,
+/// Holds only the producer handle, the topic config, and the replay envelope
+/// compression setting. No limiter state — overflow and replay-overflow routing
+/// decisions are stamped upstream in the pipeline onto
+/// `ProcessedEventMetadata::overflow_reason` and read here.
+/// Both Arc fields are cheap to clone (two atomic ref-count increments),
 /// which matters under the scatter-gather batch produce path where the sink
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
     topics: Arc<KafkaTopicConfig>,
+    replay_envelope_compression: EnvelopeCompression,
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
@@ -211,6 +213,7 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
         Self {
             producer: Arc::clone(&self.producer),
             topics: Arc::clone(&self.topics),
+            replay_envelope_compression: self.replay_envelope_compression,
         }
     }
 }
@@ -344,6 +347,7 @@ impl KafkaSink {
         Ok(KafkaSinkBase {
             producer: Arc::new(rd_producer),
             topics,
+            replay_envelope_compression: config.kafka_replay_envelope_compression,
         })
     }
 }
@@ -356,6 +360,20 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
+            replay_envelope_compression: EnvelopeCompression::None,
+        }
+    }
+
+    /// Same as `with_producer` but with envelope compression enabled. Used in tests.
+    pub fn with_producer_and_compression(
+        producer: P,
+        topics: KafkaTopicConfig,
+        replay_envelope_compression: EnvelopeCompression,
+    ) -> Self {
+        Self {
+            producer: Arc::new(producer),
+            topics: Arc::new(topics),
+            replay_envelope_compression,
         }
     }
 
@@ -376,10 +394,32 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     fn prepare_record(&self, event: ProcessedEvent) -> Result<ProduceRecord, CaptureError> {
         let (event, metadata) = (event.event, event.metadata);
 
-        let payload = serde_json::to_string(&event).map_err(|e| {
+        let json = serde_json::to_string(&event).map_err(|e| {
             error!("failed to serialize event: {e:#}");
             CaptureError::NonRetryableSinkError
         })?;
+
+        // Apply envelope-level compression for session replay when configured.
+        // Block format is used with a 4-byte LE uncompressed-size prefix so
+        // consumers can decompress without needing to inspect magic bytes —
+        // the `content-encoding` Kafka header signals that decompression is
+        // required. This allows compressed and uncompressed messages to coexist
+        // during rollout and rollback.
+        let payload = match (metadata.data_type, self.replay_envelope_compression) {
+            (DataType::SnapshotMain, EnvelopeCompression::Lz4) => {
+                let json_bytes = json.as_bytes();
+                let compressed = lz4::block::compress(json_bytes, None, false).map_err(|e| {
+                    error!("failed to LZ4-compress payload: {e:#}");
+                    CaptureError::NonRetryableSinkError
+                })?;
+                let uncompressed_len = json_bytes.len() as u32;
+                let mut payload = Vec::with_capacity(4 + compressed.len());
+                payload.extend_from_slice(&uncompressed_len.to_le_bytes());
+                payload.extend_from_slice(&compressed);
+                payload
+            }
+            _ => json.into_bytes(),
+        };
 
         let data_type = metadata.data_type;
         let event_key = event.key();
@@ -506,6 +546,12 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 }
             }
         };
+
+        if matches!(self.replay_envelope_compression, EnvelopeCompression::Lz4)
+            && matches!(data_type, DataType::SnapshotMain)
+        {
+            headers.set_content_encoding("lz4".to_string());
+        }
 
         Ok(ProduceRecord {
             topic: topic.to_string(),
@@ -745,7 +791,7 @@ pub(crate) fn test_topics() -> KafkaTopicConfig {
 #[cfg(test)]
 mod tests {
     use crate::api::CaptureError;
-    use crate::config;
+    use crate::config::{self, EnvelopeCompression};
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
@@ -834,6 +880,7 @@ mod tests {
             kafka_metrics_producer_max_retries: None,
             kafka_metrics_topic_metadata_refresh_interval_ms: None,
             kafka_metrics_metadata_max_age_ms: None,
+            kafka_replay_envelope_compression: EnvelopeCompression::None,
         };
         let sink = KafkaSink::new(config, handle)
             .await
@@ -1025,6 +1072,7 @@ mod tests {
             dlq_reason: None,
             dlq_step: None,
             dlq_timestamp: None,
+            content_encoding: None,
         };
 
         let owned_headers: OwnedHeaders = headers_historical.into();
@@ -1046,6 +1094,7 @@ mod tests {
             dlq_reason: None,
             dlq_step: None,
             dlq_timestamp: None,
+            content_encoding: None,
         };
 
         let owned_headers: OwnedHeaders = headers_main.into();
@@ -1075,6 +1124,7 @@ mod tests {
             dlq_reason: None,
             dlq_step: None,
             dlq_timestamp: None,
+            content_encoding: None,
         };
 
         // Convert to owned headers and back
@@ -1109,6 +1159,7 @@ mod tests {
             dlq_reason: Some("test reason".to_string()),
             dlq_step: Some("test step".to_string()),
             dlq_timestamp: Some(dlq_timestamp.clone()),
+            content_encoding: None,
         };
 
         // Convert to owned headers and back
@@ -2247,7 +2298,7 @@ mod tests {
                 .iter()
                 .map(|r| {
                     let v: serde_json::Value =
-                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                        serde_json::from_slice(&r.payload).expect("payload is valid json");
                     v.get("uuid")
                         .and_then(|u| u.as_str())
                         .expect("uuid field present")
@@ -2373,7 +2424,7 @@ mod tests {
                 .iter()
                 .map(|r| {
                     let v: serde_json::Value =
-                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                        serde_json::from_slice(&r.payload).expect("payload is valid json");
                     v.get("distinct_id")
                         .and_then(|u| u.as_str())
                         .expect("distinct_id field present")
@@ -2423,7 +2474,7 @@ mod tests {
                 .iter()
                 .map(|r| {
                     let v: serde_json::Value =
-                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                        serde_json::from_slice(&r.payload).expect("payload is valid json");
                     v["distinct_id"].as_str().unwrap().to_string()
                 })
                 .collect();
@@ -2454,7 +2505,7 @@ mod tests {
                 .iter()
                 .map(|r| {
                     let v: serde_json::Value =
-                        serde_json::from_str(&r.payload).expect("payload is valid json");
+                        serde_json::from_slice(&r.payload).expect("payload is valid json");
                     v["distinct_id"].as_str().unwrap().to_string()
                 })
                 .collect();
@@ -2538,6 +2589,83 @@ mod tests {
         async fn send_batch_mixed_datatypes_scatter_gather_path() {
             // 10 events >= SCATTER_GATHER_MIN_BATCH => scatter-gather path.
             mixed_datatypes_routing_for_batch(10).await;
+        }
+
+        // ==================== Envelope compression ====================
+
+        #[tokio::test]
+        async fn snapshot_payload_uncompressed_by_default() {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::SnapshotMain,
+                ..Default::default()
+            });
+            sink.kafka_send(event).unwrap().await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            // Payload must be valid UTF-8 JSON when compression is off.
+            let v: serde_json::Value = serde_json::from_slice(&records[0].payload)
+                .expect("uncompressed payload is valid json");
+            assert!(v.get("distinct_id").is_some());
+        }
+
+        #[tokio::test]
+        async fn snapshot_payload_lz4_compressed_when_enabled() {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer_and_compression(
+                producer.clone(),
+                test_topics(),
+                EnvelopeCompression::Lz4,
+            );
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::SnapshotMain,
+                ..Default::default()
+            });
+            sink.kafka_send(event).unwrap().await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            // `content-encoding: lz4` header must be present.
+            assert_eq!(
+                records[0].headers.content_encoding.as_deref(),
+                Some("lz4"),
+                "expected content-encoding: lz4 header"
+            );
+            // Payload = 4-byte LE uncompressed size + LZ4 block data. Decompress and verify.
+            let payload = &records[0].payload;
+            let uncompressed_len = u32::from_le_bytes(payload[..4].try_into().unwrap()) as usize;
+            let decompressed = lz4::block::decompress(&payload[4..], Some(uncompressed_len as i32))
+                .expect("failed to decompress");
+            let v: serde_json::Value =
+                serde_json::from_slice(&decompressed).expect("decompressed payload is valid json");
+            assert!(v.get("distinct_id").is_some());
+        }
+
+        #[tokio::test]
+        async fn non_snapshot_payload_not_compressed_when_lz4_enabled() {
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer_and_compression(
+                producer.clone(),
+                test_topics(),
+                EnvelopeCompression::Lz4,
+            );
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::AnalyticsMain,
+                ..Default::default()
+            });
+            sink.kafka_send(event).unwrap().await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            // Non-snapshot payloads must stay uncompressed regardless of the flag.
+            let v: serde_json::Value =
+                serde_json::from_slice(&records[0].payload).expect("payload must be plain json");
+            assert!(v.get("distinct_id").is_some());
         }
     }
 }

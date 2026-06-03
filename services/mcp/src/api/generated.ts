@@ -24087,7 +24087,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -30487,7 +30487,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -44913,6 +44913,10 @@ export namespace Schemas {
     };
 
     export type CohortsListParams = {
+    /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean;
     /**
      * Number of results to return per page.
      */
