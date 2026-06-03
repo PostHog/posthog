@@ -253,6 +253,7 @@ export function buildInsufficientScopeChallenge(error: PostHogPermissionError): 
 // `cause` and the custom subclass prototype — see the fallback in
 // `findPostHogPermissionError` for the full reasoning.
 const MISSING_SCOPE_MESSAGE_PATTERN = /Missing PostHog API scope: ['"]([^'"]+)['"]/
+const BACKEND_SCOPE_MESSAGE_PATTERN = /API key missing required scope ['"]([^'"]+)['"]/
 
 /**
  * Walk `Error.cause` chains to find a wrapped PostHogPermissionError.
@@ -286,15 +287,17 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
     }
 
     if (error instanceof Error && typeof error.message === 'string') {
-        const match = MISSING_SCOPE_MESSAGE_PATTERN.exec(error.message)
-        if (match) {
-            const missingScope = match[1]!
-            return new PostHogPermissionError({
-                detail: `API key missing required scope '${missingScope}'`,
-                missingScope,
-                url: '',
-                method: '',
-            })
+        for (const pattern of [MISSING_SCOPE_MESSAGE_PATTERN, BACKEND_SCOPE_MESSAGE_PATTERN]) {
+            const match = pattern.exec(error.message)
+            if (match) {
+                const missingScope = match[1]!
+                return new PostHogPermissionError({
+                    detail: `API key missing required scope '${missingScope}'`,
+                    missingScope,
+                    url: '',
+                    method: '',
+                })
+            }
         }
     }
 

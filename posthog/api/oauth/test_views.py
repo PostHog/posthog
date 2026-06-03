@@ -2749,6 +2749,12 @@ class TestOAuthAPI(APIBaseTest):
         time_diff = abs((access_token.expires - expected_expiry).total_seconds())
         self.assertLess(time_diff, 60)
 
+        # OIDC-only scope requests from DCR clients must expand to resource scopes
+        # (notably user:read) so MCP init can call /api/users/@me/.
+        granted_scopes = set((access_token.scope or "").split())
+        self.assertIn("openid", granted_scopes)
+        self.assertIn("user:read", granted_scopes)
+
     def test_non_dcr_client_gets_default_token_expiry(self):
         self.public_application.is_dcr_client = False
         self.public_application.save()

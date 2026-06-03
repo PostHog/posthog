@@ -391,6 +391,15 @@ class OAuthValidator(OAuth2Validator):
 
         to_check = requested - self._ALWAYS_ALLOWED_SCOPES
         if not to_check:
+            # MCP clients (DCR/CIMD) often request OIDC scopes only during the
+            # RFC 9728 discovery flow. Without resource scopes (notably `user:read`
+            # for `/api/users/@me/`), the MCP server introspects the token as
+            # active but init fails — surfacing as HTTP 500 before #57906 and as
+            # an opaque failure for clients that don't handle insufficient_scope.
+            # Dynamic clients are API/MCP integrations, not login-only OIDC apps,
+            # so expand OIDC-only requests to the app's effective ceiling.
+            if self._is_dynamic_client(request):
+                request.scopes = sorted(requested | effective | self._ALWAYS_ALLOWED_SCOPES)
             return True
 
         if has_ceiling:

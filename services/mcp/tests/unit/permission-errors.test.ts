@@ -194,6 +194,17 @@ describe('findPostHogPermissionError', () => {
             expect(recovered?.missingScope).toBe('insight:write')
         })
 
+        it('reconstructs from backend permission_denied detail shape', () => {
+            const stripped = new Error(
+                "Failed to get user: API key missing required scope 'user:read'"
+            )
+
+            const recovered = findPostHogPermissionError(stripped)
+
+            expect(recovered).toBeInstanceOf(PostHogPermissionError)
+            expect(recovered?.missingScope).toBe('user:read')
+        })
+
         it('returns undefined for unrelated error messages even when shape-similar', () => {
             expect(findPostHogPermissionError(new Error('Something about scope but not the literal'))).toBeUndefined()
             expect(findPostHogPermissionError(new Error('Missing PostHog API scope without quotes'))).toBeUndefined()
