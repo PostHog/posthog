@@ -184,92 +184,41 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
+    # Safe (row-preserving on the events side) and unsafe join types differ only in the join keyword;
+    # the pushdown decision is the same across each group, so they share one parameterized snapshot test.
+    _SAFE_JOINS = [
+        ("explicit_join", "JOIN sessions ON events.$session_id = sessions.session_id"),
+        ("inner_join", "INNER JOIN sessions ON events.$session_id = sessions.session_id"),
+        ("left_join", "LEFT JOIN sessions ON events.$session_id = sessions.session_id"),
+        ("left_outer_join", "LEFT OUTER JOIN sessions ON events.$session_id = sessions.session_id"),
+        ("cross_join", "CROSS JOIN sessions"),
+    ]
+    _UNSAFE_JOINS = [
+        ("right_join", "RIGHT JOIN sessions ON events.$session_id = sessions.session_id"),
+        ("right_outer_join", "RIGHT OUTER JOIN sessions ON events.$session_id = sessions.session_id"),
+        ("full_outer_join", "FULL OUTER JOIN sessions ON events.$session_id = sessions.session_id"),
+        ("full_join", "FULL JOIN sessions ON events.$session_id = sessions.session_id"),
+    ]
+
+    @parameterized.expand(_SAFE_JOINS)
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_explicit_join_sessions_pushes_timestamp_down(self):
-        """Explicit JOIN sessions pushes events.timestamp predicate into the subquery."""
+    def test_safe_join_type_pushes_timestamp_down(self, _name: str, join_clause: str):
+        """Safe join types push the events.timestamp predicate into the subquery."""
         printed = self._print_select(
             "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events JOIN sessions ON events.$session_id = sessions.session_id "
+            f"FROM events {join_clause} "
             "WHERE events.timestamp > '2021-01-01' "
             "GROUP BY sessions.session_id"
         )
         assert printed == self.snapshot
 
+    @parameterized.expand(_UNSAFE_JOINS)
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_inner_join_pushes_timestamp_down(self):
+    def test_unsafe_join_type_skips_pushdown(self, _name: str, join_clause: str):
+        """RIGHT/FULL joins can synthesize null events rows, so pushing the predicate would change results."""
         printed = self._print_select(
             "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events INNER JOIN sessions ON events.$session_id = sessions.session_id "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_left_join_pushes_timestamp_down(self):
-        printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events LEFT JOIN sessions ON events.$session_id = sessions.session_id "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_left_outer_join_pushes_timestamp_down(self):
-        printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events LEFT OUTER JOIN sessions ON events.$session_id = sessions.session_id "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_cross_join_pushes_timestamp_down(self):
-        printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events CROSS JOIN sessions "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_right_join_skips_pushdown(self):
-        printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events RIGHT JOIN sessions ON events.$session_id = sessions.session_id "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_right_outer_join_skips_pushdown(self):
-        printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events RIGHT OUTER JOIN sessions ON events.$session_id = sessions.session_id "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_full_outer_join_skips_pushdown(self):
-        printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events FULL OUTER JOIN sessions ON events.$session_id = sessions.session_id "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_full_join_skips_pushdown(self):
-        printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            "FROM events FULL JOIN sessions ON events.$session_id = sessions.session_id "
+            f"FROM events {join_clause} "
             "WHERE events.timestamp > '2021-01-01' "
             "GROUP BY sessions.session_id"
         )
@@ -794,28 +743,34 @@ class TestSavedQueryWithLazyJoins(BaseTest):
 # assert on the generated SQL string), these create events, execute the query with pushDownPredicates on
 # and off, and assert identical results: pushdown is a pure optimization, and executing the query surfaces
 # any SQL ClickHouse rejects (e.g. an outer-alias leak), which string snapshots cannot catch.
-class TestEventsPredicatePushdownExecution(ClickhouseTestMixin, APIBaseTest):
+class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
     snapshot: Any
+    _property_groups_mode: PropertyGroupsMode | None = None
+    _pass_team = False  # Dmat slot resolution needs the team on the print context
+
+    def _modifiers(self, *, push_down: bool) -> HogQLQueryModifiers:
+        extra = {"propertyGroupsMode": self._property_groups_mode} if self._property_groups_mode is not None else {}
+        return HogQLQueryModifiers(pushDownPredicates=push_down, **extra)
 
     def _print_pushdown_sql(self, select: str) -> str:
-        query, _ = prepare_and_print_ast(
-            parse_select(select),
-            HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
-            ),
-            "clickhouse",
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team if self._pass_team else None,
+            enable_select_queries=True,
+            modifiers=self._modifiers(push_down=True),
         )
+        query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
         return pretty_print_in_tests(query, self.team.pk)
 
     def _results(self, select: str, *, push_down: bool):
-        return execute_hogql_query(
-            select,
-            team=self.team,
-            modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
-        ).results
+        return execute_hogql_query(select, team=self.team, modifiers=self._modifiers(push_down=push_down)).results
 
+    def _events_subquery(self, printed: str) -> str:
+        assert ") AS events LEFT JOIN" in printed, f"expected pushdown to wrap events in a subquery:\n{printed}"
+        return printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
+
+
+class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
     def _create_session(self, when_iso: str, distinct_id: str, tier: str, *event_timestamps: str) -> None:
         # session_id is a uuid7 whose embedded time must line up with the events so the session join matches
         session_id = str(uuid7(when_iso))
@@ -1134,7 +1089,7 @@ class TestEventsPredicatePushdownExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
 
-class TestEventsPredicatePushdownMaterializedExecution(ClickhouseTestMixin, APIBaseTest):
+class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBase):
     """Pushdown must stay a pure optimization on teams that have materialized columns.
 
     The test ClickHouse has no materialized columns by default, so the rest of the suite never prints
@@ -1143,25 +1098,6 @@ class TestEventsPredicatePushdownMaterializedExecution(ClickhouseTestMixin, APIB
     predicate (SELECT / GROUP BY / ORDER BY / HAVING) prints `events.mat_tier` against a subquery alias that
     doesn't have it → `Unknown identifier`. Every assertion checks pushdown-on == pushdown-off.
     """
-
-    def _print_pushdown_sql(self, select: str) -> str:
-        query, _ = prepare_and_print_ast(
-            parse_select(select),
-            HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
-            ),
-            "clickhouse",
-        )
-        return pretty_print_in_tests(query, self.team.pk)
-
-    def _results(self, select: str, *, push_down: bool):
-        return execute_hogql_query(
-            select,
-            team=self.team,
-            modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
-        ).results
 
     def _create_data(self) -> None:
         # Same shape as the non-materialized suite; called inside a materialized() block so the physical
@@ -1187,10 +1123,6 @@ class TestEventsPredicatePushdownMaterializedExecution(ClickhouseTestMixin, APIB
         without_pushdown = self._results(select, push_down=False)
         assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
         assert len(with_pushdown or []) == expected_rows, f"expected {expected_rows} rows, got {with_pushdown}"
-
-    def _events_subquery(self, printed: str) -> str:
-        assert ") AS events LEFT JOIN" in printed, f"expected pushdown to wrap events in a subquery:\n{printed}"
-        return printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
 
     _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
 
@@ -1293,7 +1225,7 @@ class TestEventsPredicatePushdownMaterializedExecution(ClickhouseTestMixin, APIB
             )
 
 
-class TestEventsPredicatePushdownPropertyGroupsExecution(ClickhouseTestMixin, APIBaseTest):
+class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestBase):
     """Pushdown must stay a pure optimization under propertyGroupsMode=OPTIMIZED (the PostHog Cloud default).
 
     In OPTIMIZED mode the printer rewrites `JSONHas(properties, 'k')` into `has(events.properties_group_*,
@@ -1302,26 +1234,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(ClickhouseTestMixin, AP
     JSONHas resolves against a column the subquery alias doesn't carry → `Unknown identifier`.
     """
 
-    def _print_pushdown_sql(self, select: str) -> str:
-        query, _ = prepare_and_print_ast(
-            parse_select(select),
-            HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(pushDownPredicates=True, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
-            ),
-            "clickhouse",
-        )
-        return pretty_print_in_tests(query, self.team.pk)
-
-    def _results(self, select: str, *, push_down: bool):
-        return execute_hogql_query(
-            select,
-            team=self.team,
-            modifiers=HogQLQueryModifiers(
-                pushDownPredicates=push_down, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED
-            ),
-        ).results
+    _property_groups_mode = PropertyGroupsMode.OPTIMIZED
 
     def _create_data(self) -> None:
         # Two events that have the `tier` property and one that doesn't, so JSONHas(properties, 'tier')
@@ -1340,10 +1253,6 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(ClickhouseTestMixin, AP
                     properties={"$session_id": session_id, **props},
                 )
         flush_persons_and_events()
-
-    def _events_subquery(self, printed: str) -> str:
-        assert ") AS events LEFT JOIN" in printed, f"expected pushdown to wrap events in a subquery:\n{printed}"
-        return printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
 
     _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
 
@@ -1450,7 +1359,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(ClickhouseTestMixin, AP
         assert len(with_pushdown or []) == 2  # has-tier (u1) and no-tier (u2) groups
 
 
-class TestEventsPredicatePushdownDmatExecution(ClickhouseTestMixin, APIBaseTest):
+class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
     """Pushdown must expose dmat (dynamic materialized) columns in the subquery too.
 
     A property with a READY MaterializedColumnSlot is read from `dmat_string_<n>` by the printer, so an
@@ -1460,24 +1369,7 @@ class TestEventsPredicatePushdownDmatExecution(ClickhouseTestMixin, APIBaseTest)
     """
 
     _SLOT_INDEX = 0
-
-    def _print_pushdown_sql(self, select: str) -> str:
-        query, _ = prepare_and_print_ast(
-            parse_select(select),
-            HogQLContext(
-                team_id=self.team.pk,
-                team=self.team,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
-            ),
-            "clickhouse",
-        )
-        return pretty_print_in_tests(query, self.team.pk)
-
-    def _results(self, select: str, *, push_down: bool):
-        return execute_hogql_query(
-            select, team=self.team, modifiers=HogQLQueryModifiers(pushDownPredicates=push_down)
-        ).results
+    _pass_team = True  # the print context needs the team to resolve the dmat slot
 
     def _setup_dmat_events(self) -> None:
         prop_def = PropertyDefinition.objects.create(
@@ -1507,10 +1399,6 @@ class TestEventsPredicatePushdownDmatExecution(ClickhouseTestMixin, APIBaseTest)
                 },
                 flush=False,
             )
-
-    def _events_subquery(self, printed: str) -> str:
-        assert ") AS events LEFT JOIN" in printed, f"expected pushdown to wrap events in a subquery:\n{printed}"
-        return printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
 
     def test_exec_dmat_property_in_select_stays_equivalent(self):
         self._setup_dmat_events()
