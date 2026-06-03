@@ -121,6 +121,7 @@ fn pool_config(host: &str, tick_hint: Duration) -> RemoteResolutionConfig {
         retry_max_backoff: Duration::from_millis(2),
         sample_rate: 1.0,
         routing_jitter: 0.0,
+        routing_acceptance_concurrency: 10,
         overload_ejection_initial: Duration::ZERO,
         overload_ejection_max: Duration::ZERO,
         overload_ejection_decay: Duration::from_secs(30),

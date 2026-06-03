@@ -179,6 +179,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
+    // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
+    // filters/query/groups JSON the picker never reads). Gated by a flag so the
+    // smaller response shape can be rolled out and rolled back independently.
+    const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
             name: 'Events',
@@ -654,7 +658,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.Cohorts,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
             value: 'cohorts',
             // See taxonomicFilterLogic — cohort populations comfortably fit
             // in one page; cache the first 100 and fuse-filter typed
@@ -678,7 +682,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
             clientFilterFirstPage: true,
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,

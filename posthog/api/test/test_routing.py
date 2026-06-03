@@ -12,15 +12,16 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.annotation import AnnotationSerializer
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.routing import DefaultRouterPlusPlus, TeamAndOrgViewSetMixin
-from posthog.models.annotation import Annotation
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
+
+from products.annotations.backend.api.annotation import AnnotationSerializer
+from products.annotations.backend.models.annotation import Annotation
 
 
 class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
