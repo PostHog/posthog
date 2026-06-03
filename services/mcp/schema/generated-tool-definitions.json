@@ -533,7 +533,7 @@
         }
     },
     "autoresearch-create": {
-        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. Required: name and target_event. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted. After creating, call autoresearch-train-create to run stub training and generate a champion model.",
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. The prediction target is either an event (pass target_event, e.g. '$pageview') or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N} to predict a multi-step / property / autocapture matcher; target_event is then optional and used only as a display label). Provide exactly one. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted. After creating, call autoresearch-train-create to run stub training and generate a champion model.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Create a pipeline",
@@ -883,7 +883,7 @@
         }
     },
     "autoresearch-validate-create": {
-        "description": "Validate a proposed autoresearch pipeline before creating it. Returns volume estimates, base rate, positive and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples), or extreme_imbalance (base rate below 0.001). Always validate before creating.",
+        "description": "Validate a proposed autoresearch pipeline before creating it. The target is either an event (pass target_event) or a PostHog action (pass target_definition = {\"type\": \"action\", \"action_id\": N}); base-rate and volume estimates are computed against whichever you provide. Returns volume estimates, base rate, positive and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples), or extreme_imbalance (base rate below 0.001). Always validate before creating.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Validate a pipeline definition",

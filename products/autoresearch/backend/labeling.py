@@ -32,9 +32,16 @@ Integer handling notes:
   ~24 bits anyway: max window 365d * 86400s ≈ 3.2e7).
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+from posthog.hogql.property import action_to_expr
+
+from products.actions.backend.models.action import Action
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -148,9 +155,51 @@ def _build_population_conditions(
     return parts, values
 
 
+def build_target_condition(
+    *,
+    target_event: str,
+    target_definition: dict[str, Any] | None,
+    team: "Team | None",
+) -> tuple[str, dict[str, Any]]:
+    """
+    Build the HogQL boolean fragment deciding whether a single events-table row
+    matches the prediction target, plus any bound parameter values.
+
+    The target is the only place an event target and an action target differ —
+    features, scoring, and inference are all target-agnostic. Two shapes:
+      - event target  → ``event = {target}`` (one bound value).
+      - action target → the action's matcher compiled via ``action_to_expr`` and
+        printed back to a self-contained HogQL fragment. The printer inlines and
+        escapes constants, so the action path needs no extra bound values.
+
+    ``target_definition`` selects the shape: ``{"type": "action", "action_id": N}``
+    routes to the action path; anything else (empty, the default, or
+    ``{"type": "event"}``) uses ``target_event``.
+
+    The compiled fragment references events-table columns unqualified (``event``,
+    ``properties``, ``elements_chain``). Every call site embeds it where those
+    columns resolve to the events table — the labeler join (``events e`` plus a
+    person-keyed anchors table that exposes none of them) and the realized-label
+    query (``FROM events``) — so the absent table alias is intentional and safe.
+    """
+    definition = target_definition or {}
+    if definition.get("type") == "action":
+        action_id = definition.get("action_id")
+        if action_id is None:
+            raise ValueError("Action target requires 'action_id' in target_definition")
+        if team is None:
+            raise ValueError("Action target requires a team to resolve the action")
+        # Scope the lookup to the pipeline's team so a foreign action id can't leak across tenants.
+        action = Action.objects.get(id=action_id, team=team)
+        return f"({action_to_expr(action).to_hogql()})", {}
+    return "event = {target}", {"target": target_event}
+
+
 def _build_labeled_users_cte(
     *,
     target_event: str,
+    target_definition: dict[str, Any] | None,
+    team: "Team | None",
     horizon_days: int,
     lookback_days: int,
     training_population: dict[str, Any] | None,
@@ -169,6 +218,9 @@ def _build_labeled_users_cte(
     training_clause = f" AND ({' AND '.join(train_parts)})" if train_parts else ""
     identified_clause = _identified_users_and_clause()
     limit_clause = f"\n              LIMIT {int(sample_limit)}" if sample_limit is not None else ""
+    target_cond, target_values = build_target_condition(
+        target_event=target_event, target_definition=target_definition, team=team
+    )
 
     cte = f"""
         WITH user_window AS (
@@ -195,7 +247,7 @@ def _build_labeled_users_cte(
                 u.person_id AS person_id,
                 u.t0_ts AS t0_ts,
                 max(
-                    e.event = {{target}}
+                    {target_cond}
                     AND toInt(toUnixTimestamp(e.timestamp)) >= u.t0_ts
                     AND toInt(toUnixTimestamp(e.timestamp)) < u.t0_ts + ({{horizon}} * 86400)
                 ) AS positive
@@ -207,9 +259,9 @@ def _build_labeled_users_cte(
         )
     """
     values: dict[str, Any] = {
-        "target": target_event,
         "horizon": horizon_days,
         "lookback": lookback_days,
+        **target_values,
         **train_values,
     }
     return cte, values
@@ -222,6 +274,8 @@ def build_random_t0_labeler_sql(
     lookback_days: int,
     training_population: dict[str, Any] | None,
     sample_limit: int | None = None,
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query that returns one row of (eligible, positives) for a
@@ -236,6 +290,8 @@ def build_random_t0_labeler_sql(
     """
     cte, values = _build_labeled_users_cte(
         target_event=target_event,
+        target_definition=target_definition,
+        team=team,
         horizon_days=horizon_days,
         lookback_days=lookback_days,
         training_population=training_population,
@@ -297,6 +353,8 @@ def build_training_anchors_sql(
     horizon_days: int,
     lookback_days: int,
     training_population: dict[str, Any] | None,
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query producing one row per labeled user:
@@ -316,6 +374,8 @@ def build_training_anchors_sql(
     """
     cte, values = _build_labeled_users_cte(
         target_event=target_event,
+        target_definition=target_definition,
+        team=team,
         horizon_days=horizon_days,
         lookback_days=lookback_days,
         training_population=training_population,
@@ -451,6 +511,8 @@ def build_training_features_sql(
     horizon_days: int,
     lookback_days: int,
     training_population: dict[str, Any] | None,
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the composite training-time query:
@@ -464,6 +526,8 @@ def build_training_features_sql(
     """
     cte, values = _build_labeled_users_cte(
         target_event=target_event,
+        target_definition=target_definition,
+        team=team,
         horizon_days=horizon_days,
         lookback_days=lookback_days,
         training_population=training_population,

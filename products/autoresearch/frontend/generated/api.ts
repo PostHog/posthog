@@ -914,7 +914,7 @@ export const getAutoresearchValidateCreateUrl = (projectId: string) => {
  */
 export const autoresearchValidateCreate = async (
     projectId: string,
-    validatePipelineRequestApi: ValidatePipelineRequestApi,
+    validatePipelineRequestApi?: ValidatePipelineRequestApi,
     options?: RequestInit
 ): Promise<ValidatePipelineResponseApi> => {
     return apiMutator<ValidatePipelineResponseApi>(getAutoresearchValidateCreateUrl(projectId), {

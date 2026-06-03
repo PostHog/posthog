@@ -43,7 +43,10 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
     target_event: zod
         .string()
         .max(autoresearchCreateBodyTargetEventMax)
-        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
+        .optional()
+        .describe(
+            "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
+        ),
     target_definition: zod
         .looseObject({})
         .optional()
@@ -326,7 +329,10 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
     target_event: zod
         .string()
         .max(autoresearchUpdateBodyTargetEventMax)
-        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
+        .optional()
+        .describe(
+            "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
+        ),
     target_definition: zod
         .looseObject({})
         .optional()
@@ -419,7 +425,9 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(autoresearchPartialUpdateBodyTargetEventMax)
         .optional()
-        .describe("PostHog event name to predict, e.g. '$pageview' or 'signed_up'."),
+        .describe(
+            "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
+        ),
     target_definition: zod
         .looseObject({})
         .optional()
@@ -867,6 +875,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
  * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Warnings with severity='error' must be resolved before creation can proceed. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
+export const autoresearchValidateCreateBodyTargetEventDefault = ``
 export const autoresearchValidateCreateBodyHorizonDaysDefault = 7
 export const autoresearchValidateCreateBodyHorizonDaysMax = 365
 
@@ -877,7 +886,16 @@ export const autoresearchValidateCreateBodyTrainingLookbackDaysMax = 730
 export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
     target_event: zod
         .string()
-        .describe("Event name to predict, e.g. '$pageview'. Must exist in the team's event schema."),
+        .default(autoresearchValidateCreateBodyTargetEventDefault)
+        .describe(
+            "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead)."
+        ),
+    target_definition: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional target definition. Pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action (multi-step \/ property \/ autocapture matcher) instead of a single event.'
+        ),
     horizon_days: zod
         .number()
         .min(1)

@@ -7,7 +7,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonSkeleton, Spinner, Tooltip }
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -129,8 +129,8 @@ function ValidationPanel(): JSX.Element {
 }
 
 export function AutoresearchNewScene(): JSX.Element {
-    const { validation, isNewPipelineSubmitting } = useValues(autoresearchNewLogic)
-    const { submitNewPipeline } = useActions(autoresearchNewLogic)
+    const { validation, isNewPipelineSubmitting, newPipeline, newPipelineErrors } = useValues(autoresearchNewLogic)
+    const { submitNewPipeline, setNewPipelineValues } = useActions(autoresearchNewLogic)
 
     const blockingError = validation?.warnings.some((w) => w.severity === 'error') ?? false
 
@@ -143,7 +143,7 @@ export function AutoresearchNewScene(): JSX.Element {
             </div>
             <SceneTitleSection
                 name="New model"
-                description="Define a target event, horizon, and population. Autoresearch will train models to predict it."
+                description="Define a target event or action, horizon, and population. Autoresearch will train models to predict it."
                 resourceType={{ type: 'experiment' }}
             />
 
@@ -157,22 +157,44 @@ export function AutoresearchNewScene(): JSX.Element {
                         <LemonInput placeholder="e.g. File sharing prediction" autoFocus />
                     </LemonField>
 
-                    <LemonField
-                        name="target_event"
-                        label="Target event"
-                        info="PostHog event to predict, e.g. shared_file or $pageview. Everything else flows from this pick."
+                    <LemonField.Pure
+                        label="Target"
+                        info="The event or action to predict. Pick an event for a single signal, or an action to predict a multi-step / property / autocapture matcher. Everything else flows from this pick."
                     >
-                        {({ value, onChange }) => (
-                            <TaxonomicStringPopover
-                                groupType={TaxonomicFilterGroupType.Events}
-                                value={value}
-                                onChange={(picked) => onChange(picked)}
-                                placeholder="Search events..."
-                                allowClear
-                                data-attr="autoresearch-new-target-event"
-                            />
+                        <TaxonomicPopover
+                            groupType={TaxonomicFilterGroupType.Events}
+                            groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                            value={
+                                newPipeline.target_type === 'action'
+                                    ? newPipeline.target_action_id
+                                    : newPipeline.target_event
+                            }
+                            onChange={(picked, groupType, item) => {
+                                if (groupType === TaxonomicFilterGroupType.Actions) {
+                                    setNewPipelineValues({
+                                        target_type: 'action',
+                                        target_action_id: typeof picked === 'number' ? picked : Number(picked),
+                                        target_event: item?.name ?? `action ${picked}`,
+                                    })
+                                } else {
+                                    setNewPipelineValues({
+                                        target_type: 'event',
+                                        target_event: String(picked ?? ''),
+                                        target_action_id: null,
+                                    })
+                                }
+                            }}
+                            renderValue={() => <>{newPipeline.target_event || 'Search events or actions…'}</>}
+                            placeholder="Search events or actions…"
+                            allowClear
+                            data-attr="autoresearch-new-target"
+                        />
+                        {(newPipelineErrors.target_event || newPipelineErrors.target_action_id) && (
+                            <div className="text-danger text-xs mt-1">
+                                {newPipelineErrors.target_event ?? newPipelineErrors.target_action_id}
+                            </div>
                         )}
-                    </LemonField>
+                    </LemonField.Pure>
 
                     <div className="flex flex-col gap-3 border-t pt-4">
                         <div>

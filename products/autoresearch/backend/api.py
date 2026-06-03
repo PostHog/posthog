@@ -66,6 +66,7 @@ from products.autoresearch.backend.serializers import (
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
+    resolve_target,
 )
 from products.autoresearch.backend.templates import (
     TEMPLATES,
@@ -251,9 +252,15 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     @action(detail=False, methods=["post"], url_path="validate")
     def validate_definition(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data  # type: ignore[attr-defined]
+        target_event, target_definition = resolve_target(
+            team=self.team,
+            target_event=data.get("target_event", ""),
+            target_definition=data.get("target_definition"),
+        )
         result = validate_pipeline_definition(
             team=self.team,
-            target_event=data["target_event"],
+            target_event=target_event,
+            target_definition=target_definition,
             horizon_days=data.get("horizon_days", 7),
             training_lookback_days=data.get("training_lookback_days", 180),
             training_population=data.get("training_population", {}),

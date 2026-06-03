@@ -18,9 +18,15 @@ import {
     ValidatePipelineResponseApi,
 } from './generated/api.schemas'
 
+export type TargetType = 'event' | 'action'
+
 export interface NewPipelineFormValues {
     name: string
+    target_type: TargetType
+    // For event targets this is the event name; for action targets it's the action's
+    // display name (kept for the UI label and output-person-property derivation).
     target_event: string
+    target_action_id: number | null
     horizon_days: number
     training_lookback_days: number
     training_population: AnyPropertyFilter[]
@@ -29,7 +35,9 @@ export interface NewPipelineFormValues {
 
 const DEFAULTS: NewPipelineFormValues = {
     name: '',
+    target_type: 'event',
     target_event: '',
+    target_action_id: null,
     horizon_days: 30,
     training_lookback_days: 180,
     training_population: [],
@@ -37,6 +45,25 @@ const DEFAULTS: NewPipelineFormValues = {
 }
 
 const VALIDATE_DEBOUNCE_MS = 500
+
+/** True once the chosen target (event name, or action id) is complete enough to validate/create. */
+function hasTarget(values: NewPipelineFormValues): boolean {
+    return values.target_type === 'action' ? values.target_action_id != null : !!values.target_event.trim()
+}
+
+/** Build the target request fields shared by validate + create. */
+function targetRequestFields(values: NewPipelineFormValues): {
+    target_event: string
+    target_definition: Record<string, unknown>
+} {
+    if (values.target_type === 'action' && values.target_action_id != null) {
+        return {
+            target_event: values.target_event.trim(),
+            target_definition: { type: 'action', action_id: values.target_action_id },
+        }
+    }
+    return { target_event: values.target_event.trim(), target_definition: {} }
+}
 
 export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
     path(['products', 'autoresearch', 'autoresearchNewLogic']),
@@ -54,19 +81,15 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 runValidate: async (_payload, breakpoint) => {
                     await breakpoint(VALIDATE_DEBOUNCE_MS)
                     const teamId = values.currentTeamId
-                    const {
-                        target_event,
-                        horizon_days,
-                        training_lookback_days,
-                        training_population,
-                        inference_population,
-                    } = values.newPipeline
-                    const trimmed = target_event.trim()
-                    if (!teamId || !trimmed) {
+                    const { horizon_days, training_lookback_days, training_population, inference_population } =
+                        values.newPipeline
+                    if (!teamId || !hasTarget(values.newPipeline)) {
                         return null
                     }
+                    const { target_event, target_definition } = targetRequestFields(values.newPipeline)
                     const body: ValidatePipelineRequestApi = {
-                        target_event: trimmed,
+                        target_event,
+                        target_definition: target_definition as ValidatePipelineRequestApi['target_definition'],
                         horizon_days,
                         training_lookback_days,
                         training_population: training_population.length > 0 ? { properties: training_population } : {},
@@ -83,15 +106,24 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
     forms(({ actions, values }) => ({
         newPipeline: {
             defaults: DEFAULTS,
-            errors: ({ name, target_event, horizon_days, training_lookback_days }: NewPipelineFormValues) => ({
-                name: !name.trim() ? 'Give the pipeline a name' : undefined,
-                target_event: !target_event.trim() ? 'Pick a target event to predict' : undefined,
+            errors: (formValues: NewPipelineFormValues) => ({
+                name: !formValues.name.trim() ? 'Give the pipeline a name' : undefined,
+                target_event:
+                    formValues.target_type === 'event' && !formValues.target_event.trim()
+                        ? 'Pick a target event to predict'
+                        : undefined,
+                target_action_id:
+                    formValues.target_type === 'action' && formValues.target_action_id == null
+                        ? 'Pick a target action to predict'
+                        : undefined,
                 horizon_days:
-                    !horizon_days || horizon_days < 1 ? 'Prediction horizon must be at least 1 day' : undefined,
+                    !formValues.horizon_days || formValues.horizon_days < 1
+                        ? 'Prediction horizon must be at least 1 day'
+                        : undefined,
                 training_lookback_days:
-                    !training_lookback_days || training_lookback_days < 7
+                    !formValues.training_lookback_days || formValues.training_lookback_days < 7
                         ? 'Training lookback must be at least 7 days'
-                        : training_lookback_days > 730
+                        : formValues.training_lookback_days > 730
                           ? 'Training lookback must be 730 days or fewer'
                           : undefined,
             }),
@@ -104,9 +136,11 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     lemonToast.error('Validation flagged blocking errors — fix them before creating.')
                     return
                 }
+                const { target_event, target_definition } = targetRequestFields(payload)
                 const body: AutoresearchPipelineCreateApi = {
                     name: payload.name.trim(),
-                    target_event: payload.target_event.trim(),
+                    target_event,
+                    target_definition: target_definition as AutoresearchPipelineCreateApi['target_definition'],
                     horizon_days: payload.horizon_days,
                     training_lookback_days: payload.training_lookback_days,
                     training_population:
@@ -150,7 +184,9 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 next.inference_population !== prev.inference_population &&
                 JSON.stringify(next.inference_population) !== JSON.stringify(prev.inference_population)
             if (
+                next.target_type !== prev.target_type ||
                 next.target_event !== prev.target_event ||
+                next.target_action_id !== prev.target_action_id ||
                 next.horizon_days !== prev.horizon_days ||
                 next.training_lookback_days !== prev.training_lookback_days ||
                 trainingChanged ||

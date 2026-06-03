@@ -226,6 +226,8 @@ def materialize_training_data(*, team: Team, pipeline: AutoresearchPipeline, fea
     train_sql, train_values = build_training_features_sql(
         feature_sql=feature_sql_resolved,
         target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
         horizon_days=pipeline.horizon_days,
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,

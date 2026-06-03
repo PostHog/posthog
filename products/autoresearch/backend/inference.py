@@ -46,6 +46,7 @@ from products.autoresearch.backend.labeling import (
     _build_population_conditions,
     _identified_users_and_clause,
     build_inference_features_sql,
+    build_target_condition,
     build_training_features_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
@@ -413,19 +414,21 @@ def _fetch_label_distinct_ids(
     pipeline: AutoresearchPipeline,
 ) -> frozenset[str]:
     """
-    Return distinct_ids that performed pipeline.target_event in the last
-    horizon_days — used as positive labels when fitting the model.
+    Return distinct_ids that performed the pipeline's target (event or action) in
+    the last horizon_days — used as positive labels when fitting the model.
     """
     # Key on person_id to match the feature SQL (one row per person_id); feature rows
     # are str(person_id), so labels must be str(person_id) too or nothing matches.
-    label_sql = (
-        f"SELECT DISTINCT person_id FROM events"
-        f" WHERE event = '{pipeline.target_event}'"
-        f" AND timestamp >= now() - toIntervalDay({pipeline.horizon_days})"
+    target_cond, target_values = build_target_condition(
+        target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=team
     )
+    label_sql = (
+        f"SELECT DISTINCT person_id FROM events WHERE {target_cond} AND timestamp >= now() - toIntervalDay({{horizon}})"
+    )
+    values: dict[str, Any] = {"horizon": pipeline.horizon_days, **target_values}
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        runner = HogQLQueryRunner(query=HogQLQuery(query=label_sql), team=team)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=label_sql, values=values), team=team)
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not result.results:
             return frozenset()
@@ -530,6 +533,8 @@ def _fetch_training_rows(
     sql, values = build_training_features_sql(
         feature_sql=feature_sql,
         target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
         horizon_days=pipeline.horizon_days,
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,

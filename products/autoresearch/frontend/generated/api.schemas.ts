@@ -222,10 +222,10 @@ export interface AutoresearchPipelineCreateApi {
     /** Optional free-text description. */
     description?: string
     /**
-     * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+     * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
      * @maxLength 255
      */
-    target_event: string
+    target_event?: string
     /** Full target definition. Can be left empty to use target_event alone. */
     target_definition?: AutoresearchPipelineCreateApiTargetDefinition
     /**
@@ -1011,7 +1011,7 @@ export interface PatchedAutoresearchPipelineCreateApi {
     /** Optional free-text description. */
     description?: string
     /**
-     * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+     * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
      * @maxLength 255
      */
     target_event?: string
@@ -1175,8 +1175,10 @@ export interface PaginatedTemplateInfoListApi {
 }
 
 export interface ValidatePipelineRequestApi {
-    /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. */
-    target_event: string
+    /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead). */
+    target_event?: string
+    /** Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event. */
+    target_definition?: unknown
     /**
      * Predict whether the target event occurs within this many days.
      * @minimum 1

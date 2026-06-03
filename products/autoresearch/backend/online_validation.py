@@ -28,6 +28,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 
+from products.autoresearch.backend.labeling import build_target_condition
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 
 logger = structlog.get_logger(__name__)
@@ -262,8 +263,8 @@ def _fetch_realized_labels(
     prediction_date: date,
 ) -> frozenset[str]:
     """
-    Return person_ids that performed pipeline.target_event in the window
-    [prediction_date, prediction_date + horizon_days).
+    Return person_ids that performed the pipeline's target (event or action) in the
+    window [prediction_date, prediction_date + horizon_days).
 
     Keyed on person_id (not distinct_id) to match the prediction events, which
     are emitted with distinct_id = str(person_id) — the feature/score SQL keys
@@ -272,17 +273,20 @@ def _fetch_realized_labels(
     and yield all-negative labels (AUC ≈ 0.5 / single-class).
     """
     end_date = prediction_date + timedelta(days=pipeline.horizon_days)
+    target_cond, target_values = build_target_condition(
+        target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=team
+    )
     sql = (
         "SELECT DISTINCT person_id"
         " FROM events"
-        " WHERE event = {target_event}"
+        f" WHERE {target_cond}"
         " AND toDate(timestamp) >= {start_date}"
         " AND toDate(timestamp) < {end_date}"
     )
     values: dict[str, Any] = {
-        "target_event": pipeline.target_event,
         "start_date": prediction_date.isoformat(),
         "end_date": end_date.isoformat(),
+        **target_values,
     }
 
     try:

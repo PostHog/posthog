@@ -946,6 +946,9 @@ const autoresearchValidateCreate = (): ToolBase<
         if (params.target_event !== undefined) {
             body['target_event'] = params.target_event
         }
+        if (params.target_definition !== undefined) {
+            body['target_definition'] = params.target_definition
+        }
         if (params.horizon_days !== undefined) {
             body['horizon_days'] = params.horizon_days
         }

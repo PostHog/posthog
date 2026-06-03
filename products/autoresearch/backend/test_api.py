@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
+from products.actions.backend.models.action import Action
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
@@ -84,6 +85,41 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
         # pipelines don't $set the same person property.
         assert data["output_person_property"] == "predicted_p_signup_14d"
         assert AutoresearchPipeline.objects.filter(team=self.team, name="My Pipeline").exists()
+
+    def test_create_pipeline_with_action_target(self):
+        action = Action.objects.create(
+            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}]
+        )
+        resp = self.client.post(
+            f"{self.base_url}/",
+            {
+                "name": "Action Pipeline",
+                "target_definition": {"type": "action", "action_id": action.id},
+                "horizon_days": 14,
+            },
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED, resp.json()
+        data = resp.json()
+        assert data["target_definition"] == {"type": "action", "action_id": action.id}
+        # target_event is backfilled from the action name for display + property derivation.
+        assert data["target_event"] == "Interacted with file"
+        assert data["output_person_property"] == "predicted_p_interacted_with_file_14d"
+
+    def test_create_pipeline_with_foreign_action_rejected(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        action = Action.objects.create(team=other_team, name="Foreign", steps_json=[{"event": "uploaded_file"}])
+        resp = self.client.post(
+            f"{self.base_url}/",
+            {"name": "Bad", "target_definition": {"type": "action", "action_id": action.id}},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_pipeline_without_target_rejected(self):
+        resp = self.client.post(f"{self.base_url}/", {"name": "No target"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_list_pipelines_for_team(self):
         self._make_pipeline(name="Pipeline A")

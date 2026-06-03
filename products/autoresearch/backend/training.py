@@ -27,12 +27,42 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
+from posthog.hogql.property import action_to_expr
+
+from products.actions.backend.models.action import Action
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
 
 logger = structlog.get_logger(__name__)
 
 
 # ── Agent prompt ───────────────────────────────────────────────────────────────
+
+
+def _describe_target(pipeline: AutoresearchPipeline) -> tuple[str, str]:
+    """
+    Describe the prediction target for the agent prompt, returning
+    (spec_line, inline_ref).
+
+    spec_line is the verbose "## Pipeline specification" bullet; inline_ref is the
+    short phrase reused where the prompt talks about the label firing. Action
+    targets spell out the underlying HogQL matcher so the agent knows exactly which
+    rows count as positive — it can't see the label SQL otherwise.
+    """
+    definition = pipeline.target_definition or {}
+    if definition.get("type") == "action":
+        action_id = definition.get("action_id")
+        try:
+            action = Action.objects.get(id=action_id, team=pipeline.team)
+            matcher = action_to_expr(action).to_hogql()
+            spec_line = (
+                f"action `{action.name}` (action_id {action_id}). "
+                f"An events-table row counts as the target when it matches: `{matcher}`"
+            )
+            inline_ref = f"the action `{action.name}`"
+            return spec_line, inline_ref
+        except Action.DoesNotExist:
+            logger.warning("autoresearch_target_action_missing", pipeline_id=str(pipeline.pk), action_id=action_id)
+    return f"event `{pipeline.target_event}`", f"`{pipeline.target_event}`"
 
 
 def build_agent_description(
@@ -48,6 +78,7 @@ def build_agent_description(
 
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
+    target_spec_line, target_inline_ref = _describe_target(pipeline)
 
     prompt = textwrap.dedent(f"""
         # PostHog Autoresearch Agent
@@ -59,7 +90,7 @@ def build_agent_description(
 
         ## Pipeline specification
 
-        - **Target event**: `{pipeline.target_event}`
+        - **Target**: {target_spec_line}
         - **Prediction horizon**: {pipeline.horizon_days} days
         - **Output person property**: `{pipeline.output_person_property}`
         - **Iteration budget**: {iteration_budget}{pop_clause}
@@ -106,7 +137,7 @@ def build_agent_description(
         labeled example:
 
           T0_user   = a per-user deterministic random point in their history
-          label     = 1 if `{pipeline.target_event}` fires in [T0_user, T0_user + {pipeline.horizon_days}), else 0
+          label     = 1 if {target_inline_ref} fires in [T0_user, T0_user + {pipeline.horizon_days}), else 0
 
         Features for each user MUST be computed strictly as of THAT user's T0 — never
         using events on/after T0_user, or the model peeks at the label window and the

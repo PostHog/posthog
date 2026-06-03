@@ -8039,10 +8039,10 @@ export namespace Schemas {
       /** Optional free-text description. */
       description?: string;
       /**
-         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
          * @maxLength 255
          */
-      target_event: string;
+      target_event?: string;
       /** Full target definition. Can be left empty to use target_event alone. */
       target_definition?: AutoresearchPipelineCreateTargetDefinition;
       /**
@@ -8285,6 +8285,38 @@ export namespace Schemas {
       distillation: string;
     }
 
+    /**
+     * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
+     */
+    export interface IterationTrail {
+      /**
+         * Order of this attempt within its run (0-based).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+
+      * `kept` - Kept
+      * `discarded` - Discarded
+      * `crashed` - Crashed */
+      status: AutoresearchIterationStatusEnum;
+      /**
+         * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Train-fold AUC for this iteration, if recorded.
+         * @nullable
+         */
+      train_score?: number | null;
+      /** The agent's one-line rationale for what it tried and why. */
+      agent_description?: string;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: unknown;
+    }
+
     export interface AutoresearchTrainingRun {
       /** Unique UUID of this training run. */
       readonly id: string;
@@ -8327,6 +8359,8 @@ export namespace Schemas {
       readonly best_holdout_score: number | null;
       /** Distilled cross-run learning summary written on completion. Null until the run completes. */
       readonly summary: TrainingRunSummary | null;
+      /** Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number. */
+      readonly iterations: readonly IterationTrail[];
       /** Error message if the run failed. */
       readonly error: string;
       /**
@@ -21390,38 +21424,6 @@ export namespace Schemas {
     }
 
     /**
-     * Compact, read-only view of one iteration for the cross-run history feed.
-     */
-    export interface IterationTrail {
-      /**
-         * Order of this attempt within its run (0-based).
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      iteration_number: number;
-      /** Whether this recipe was kept (improved the best score), discarded, or crashed.
-
-      * `kept` - Kept
-      * `discarded` - Discarded
-      * `crashed` - Crashed */
-      status: AutoresearchIterationStatusEnum;
-      /**
-         * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
-         * @nullable
-         */
-      holdout_score?: number | null;
-      /**
-         * Train-fold AUC for this iteration, if recorded.
-         * @nullable
-         */
-      train_score?: number | null;
-      /** The agent's one-line rationale for what it tried and why. */
-      agent_description?: string;
-      /** Model class and hyperparameters tried in this iteration. */
-      model_spec: unknown;
-    }
-
-    /**
      * * `2.0` - 2.0
      */
     export type JsonrpcEnum = typeof JsonrpcEnum[keyof typeof JsonrpcEnum];
@@ -28197,7 +28199,7 @@ export namespace Schemas {
       /** Optional free-text description. */
       description?: string;
       /**
-         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
          * @maxLength 255
          */
       target_event?: string;
@@ -40673,8 +40675,10 @@ export namespace Schemas {
     }
 
     export interface ValidatePipelineRequest {
-      /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. */
-      target_event: string;
+      /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead). */
+      target_event?: string;
+      /** Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event. */
+      target_definition?: unknown;
       /**
          * Predict whether the target event occurs within this many days.
          * @minimum 1

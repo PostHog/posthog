@@ -60,6 +60,7 @@ def validate_pipeline_definition(
     training_lookback_days: int,
     training_population: dict[str, Any],
     inference_population: dict[str, Any],
+    target_definition: dict[str, Any] | None = None,
 ) -> ValidationResult:
     """
     Validate a proposed pipeline definition against real team data.
@@ -71,6 +72,7 @@ def validate_pipeline_definition(
         return _run_validation(
             team=team,
             target_event=target_event,
+            target_definition=target_definition,
             horizon_days=horizon_days,
             training_lookback_days=training_lookback_days,
             training_population=training_population,
@@ -98,6 +100,7 @@ def _run_validation(
     training_lookback_days: int,
     training_population: dict[str, Any],
     inference_population: dict[str, Any],
+    target_definition: dict[str, Any] | None = None,
 ) -> ValidationResult:
     warnings: list[ValidationWarning] = []
 
@@ -132,6 +135,8 @@ def _run_validation(
     # base_rate is an unbiased estimator of the trainer's unsampled rate.
     label_sql, label_values = build_random_t0_labeler_sql(
         target_event=target_event,
+        target_definition=target_definition,
+        team=team,
         horizon_days=horizon_days,
         lookback_days=lookback_days,
         training_population=training_population,

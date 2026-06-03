@@ -5,6 +5,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.actions.backend.models.action import Action
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -14,6 +15,46 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.recipe_validation import RecipeValidationError, validate_recipe
+
+
+def resolve_target(
+    *,
+    team: Any,
+    target_event: str,
+    target_definition: dict[str, Any] | None,
+) -> tuple[str, dict[str, Any]]:
+    """
+    Validate and normalize a prediction target, returning (target_event, target_definition).
+
+    Two shapes:
+      - event target → target_event must be non-empty; the definition is normalized to
+        ``{"type": "event"}``.
+      - action target → ``{"type": "action", "action_id": N}``. The action must belong to
+        ``team`` (IDOR guard). target_event is backfilled from the action name when not
+        supplied, so display and output-person-property derivation keep working unchanged.
+
+    Raises serializers.ValidationError on a missing/foreign action or an empty event target.
+    """
+    definition = target_definition or {}
+    if definition.get("type") == "action":
+        action_id = definition.get("action_id")
+        if action_id is None:
+            raise serializers.ValidationError({"target_definition": "Action target requires 'action_id'."})
+        try:
+            action = Action.objects.get(id=action_id, team=team)
+        except (Action.DoesNotExist, ValueError, TypeError):
+            raise serializers.ValidationError(
+                {"target_definition": f"Action {action_id} was not found in this project."}
+            )
+        resolved_event = target_event or action.name or f"action_{action_id}"
+        return resolved_event, {"type": "action", "action_id": int(action_id)}
+
+    if not target_event:
+        raise serializers.ValidationError(
+            {"target_event": "Provide a target_event, or an action target via target_definition."}
+        )
+    return target_event, ({"type": "event"} if not definition else definition)
+
 
 # ── Typed schema wrappers for JSONField -----------------------------------
 
@@ -208,7 +249,14 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "name": {"help_text": "Display name for the pipeline."},
             "description": {"help_text": "Optional free-text description."},
-            "target_event": {"help_text": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'."},
+            "target_event": {
+                "required": False,
+                "allow_blank": True,
+                "help_text": (
+                    "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. "
+                    "Omit when predicting an action target (pass target_definition instead)."
+                ),
+            },
             "horizon_days": {
                 "help_text": "Prediction horizon in days. The model predicts whether the target event occurs within this window."
             },
@@ -229,13 +277,25 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        if not data.get("output_person_property"):
+        # On a partial update that doesn't touch the target, leave it untouched —
+        # only resolve when creating or when a target field is actually supplied.
+        is_partial_update = self.instance is not None
+        target_supplied = "target_event" in data or "target_definition" in data
+        if not is_partial_update or target_supplied:
+            target_event, target_definition = resolve_target(
+                team=self.context["get_team"](),
+                target_event=data.get("target_event", ""),
+                target_definition=data.get("target_definition"),
+            )
+            data["target_event"] = target_event
+            data["target_definition"] = target_definition
+        if not is_partial_update and not data.get("output_person_property"):
             safe_name = data.get("target_event", "target").lstrip("$").replace(" ", "_").lower()
             # Include the horizon so two pipelines predicting the same target over different
             # horizons don't $set the same person property and clobber each other's scores.
             horizon = data.get("horizon_days") or 7
             data["output_person_property"] = f"predicted_p_{safe_name}_{horizon}d"
-        if not data.get("inference_population"):
+        if not is_partial_update and not data.get("inference_population"):
             data["inference_population"] = data.get("training_population", {})
         return data
 
@@ -550,7 +610,21 @@ class ValidationWarningSerializer(serializers.Serializer):
 
 class ValidatePipelineRequestSerializer(serializers.Serializer):
     target_event = serializers.CharField(
-        help_text="Event name to predict, e.g. '$pageview'. Must exist in the team's event schema.",
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. "
+            "Omit when predicting an action target (pass target_definition instead)."
+        ),
+    )
+    target_definition = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text=(
+            'Optional target definition. Pass {"type": "action", "action_id": N} to predict a '
+            "PostHog action (multi-step / property / autocapture matcher) instead of a single event."
+        ),
     )
     horizon_days = serializers.IntegerField(
         default=7,
