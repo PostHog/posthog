@@ -362,15 +362,16 @@ class TeamAdmin(admin.ModelAdmin):
     def enable_llm_gateway(self, request, queryset):
         from django.utils import timezone
 
+        teams = list(queryset)
         changed = 0
-        for team in queryset:
+        for team in teams:
             if team.llm_gateway_enabled_at is None:
                 team.llm_gateway_enabled_at = timezone.now()
                 team.save()
                 changed += 1
         self.message_user(
             request,
-            f"Enabled {changed} team(s) for LLM gateway ({queryset.count() - changed} already enabled).",
+            f"Enabled {changed} team(s) for LLM gateway ({len(teams) - changed} already enabled).",
             level=messages.SUCCESS,
         )
 
@@ -378,29 +379,31 @@ class TeamAdmin(admin.ModelAdmin):
     def revoke_llm_gateway(self, request, queryset):
         from django.utils import timezone
 
+        teams = list(queryset)
         changed = 0
-        for team in queryset:
+        for team in teams:
             if team.llm_gateway_revoked_at is None:
                 team.llm_gateway_revoked_at = timezone.now()
                 team.save()
                 changed += 1
         self.message_user(
             request,
-            f"Revoked {changed} team(s) from LLM gateway ({queryset.count() - changed} already revoked).",
+            f"Revoked {changed} team(s) from LLM gateway ({len(teams) - changed} already revoked).",
             level=messages.WARNING,
         )
 
     @admin.action(description="Clear LLM gateway revoke (set revoked_at to null)")
     def clear_llm_gateway_revoke(self, request, queryset):
+        teams = list(queryset)
         changed = 0
-        for team in queryset:
+        for team in teams:
             if team.llm_gateway_revoked_at is not None:
                 team.llm_gateway_revoked_at = None
                 team.save()
                 changed += 1
         self.message_user(
             request,
-            f"Cleared LLM gateway revoke for {changed} team(s) ({queryset.count() - changed} were not revoked).",
+            f"Cleared LLM gateway revoke for {changed} team(s) ({len(teams) - changed} were not revoked).",
             level=messages.SUCCESS,
         )
 

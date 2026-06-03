@@ -122,26 +122,23 @@ class TestTeamAdminLLMGateway(BaseTest):
         _attach_messages(request)
         return request
 
-    def test_admit_state_not_enrolled(self) -> None:
-        rendered = str(self.admin.admit_state(self.team))
-        assert "Not enrolled" in rendered
-
-    def test_admit_state_enrolled(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_enrolled", False, False, "Not enrolled"),
+            ("enrolled", True, False, "Enrolled"),
+            ("revoked", False, True, "Revoked"),
+            ("revoked_wins_over_enabled", True, True, "Revoked"),
+        ]
+    )
+    def test_admit_state(self, _name: str, enabled: bool, revoked: bool, expected: str) -> None:
         from django.utils import timezone
 
-        self.team.llm_gateway_enabled_at = timezone.now()
+        now = timezone.now()
+        self.team.llm_gateway_enabled_at = now if enabled else None
+        self.team.llm_gateway_revoked_at = now if revoked else None
         self.team.save()
         rendered = str(self.admin.admit_state(self.team))
-        assert "Enrolled" in rendered
-
-    def test_admit_state_revoked_wins_over_enabled(self) -> None:
-        from django.utils import timezone
-
-        self.team.llm_gateway_enabled_at = timezone.now()
-        self.team.llm_gateway_revoked_at = timezone.now()
-        self.team.save()
-        rendered = str(self.admin.admit_state(self.team))
-        assert "Revoked" in rendered
+        assert expected in rendered
 
     def test_enable_action_sets_timestamp_and_saves(self) -> None:
         assert self.team.llm_gateway_enabled_at is None
@@ -165,11 +162,27 @@ class TestTeamAdminLLMGateway(BaseTest):
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is not None
 
+    def test_revoke_action_is_idempotent(self) -> None:
+        from django.utils import timezone
+
+        original = timezone.now() - timedelta(days=1)
+        self.team.llm_gateway_revoked_at = original
+        self.team.save()
+        self.admin.revoke_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at == original
+
     def test_clear_revoke_action_clears_timestamp(self) -> None:
         from django.utils import timezone
 
         self.team.llm_gateway_revoked_at = timezone.now()
         self.team.save()
+        self.admin.clear_llm_gateway_revoke(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at is None
+
+    def test_clear_revoke_action_no_op_when_already_null(self) -> None:
+        assert self.team.llm_gateway_revoked_at is None
         self.admin.clear_llm_gateway_revoke(self._request(), Team.objects.filter(pk=self.team.pk))
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is None
