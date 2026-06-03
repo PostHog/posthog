@@ -18,7 +18,12 @@ class Command(DjangoShellCommand):
     """
 
     def handle(self, **options):
-        logging.getLogger().setLevel(settings.SHELL_LOG_LEVEL)
+        # Restore both loggers that LOGGING pins to the (ERROR) startup level — the
+        # root logger and the explicitly-configured `django` one. A named logger
+        # with its own level ignores changes to root, so resetting only root would
+        # leave Django's own logs (ORM queries, request lifecycle) suppressed.
+        for name in ("", "django"):
+            logging.getLogger(name).setLevel(settings.SHELL_LOG_LEVEL)
         if options.get("verbosity") == 1:
             options["verbosity"] = 0
         return super().handle(**options)
