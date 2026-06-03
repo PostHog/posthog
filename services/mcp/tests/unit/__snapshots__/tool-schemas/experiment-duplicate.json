@@ -101,8 +101,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "operator": {
                                                         "anyOf": [
@@ -187,8 +186,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     }
                                                 },
                                                 "required": ["key"],
@@ -203,8 +201,7 @@
                                 {
                                     "type": "null"
                                 }
-                            ],
-                            "default": null
+                            ]
                         },
                         "filterTestAccounts": {
                             "anyOf": [
@@ -214,8 +211,7 @@
                                 {
                                     "type": "null"
                                 }
-                            ],
-                            "default": null
+                            ]
                         }
                     },
                     "type": "object"
@@ -265,7 +261,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -277,7 +272,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -304,7 +298,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -337,7 +330,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -349,7 +341,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -361,7 +352,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -380,8 +370,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -466,8 +455,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -479,7 +467,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -490,7 +477,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For retention metrics: completion event."
                             },
                             "conversion_window": {
@@ -502,7 +488,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Conversion window duration."
                             },
                             "denominator": {
@@ -518,7 +503,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -530,7 +514,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -557,7 +540,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -590,7 +572,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -602,7 +583,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -614,7 +594,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -633,8 +612,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -719,8 +697,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -732,7 +709,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -743,7 +719,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: denominator source."
                             },
                             "denominator_outlier_handling": {
@@ -758,8 +733,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "lower_bound_percentile": {
                                                 "anyOf": [
@@ -772,7 +746,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
                                             },
                                             "upper_bound_percentile": {
@@ -786,7 +759,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
                                             }
                                         },
@@ -796,7 +768,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
                             },
                             "goal": {
@@ -809,7 +780,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Whether higher or lower values indicate success."
                             },
                             "ignore_zeros": {
@@ -821,7 +791,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds."
                             },
                             "kind": {
@@ -840,7 +809,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation."
                             },
                             "metric_type": {
@@ -856,7 +824,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Human-readable metric name."
                             },
                             "numerator": {
@@ -872,7 +839,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -884,7 +850,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -911,7 +876,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -944,7 +908,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -956,7 +919,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -968,7 +930,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -987,8 +948,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1073,8 +1033,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1086,7 +1045,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1097,7 +1055,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: numerator source."
                             },
                             "numerator_outlier_handling": {
@@ -1112,8 +1069,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "lower_bound_percentile": {
                                                 "anyOf": [
@@ -1126,7 +1082,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
                                             },
                                             "upper_bound_percentile": {
@@ -1140,7 +1095,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
                                             }
                                         },
@@ -1150,7 +1104,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds."
                             },
                             "retention_window_end": {
@@ -1161,8 +1114,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "retention_window_start": {
                                 "anyOf": [
@@ -1172,8 +1124,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "retention_window_unit": {
                                 "anyOf": [
@@ -1184,8 +1135,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "series": {
                                 "anyOf": [
@@ -1201,7 +1151,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                                 },
                                                 "id": {
@@ -1213,7 +1162,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Action ID. Required for ActionsNode."
                                                 },
                                                 "kind": {
@@ -1240,7 +1188,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 },
                                                 "math_group_type_index": {
@@ -1273,7 +1220,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 },
                                                 "math_hogql": {
@@ -1285,7 +1231,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 },
                                                 "math_property": {
@@ -1297,7 +1242,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 },
                                                 "properties": {
@@ -1316,8 +1260,7 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ],
-                                                                        "default": null
+                                                                        ]
                                                                     },
                                                                     "operator": {
                                                                         "anyOf": [
@@ -1402,8 +1345,7 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ],
-                                                                        "default": null
+                                                                        ]
                                                                     }
                                                                 },
                                                                 "required": ["key"],
@@ -1415,7 +1357,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Event property filters to narrow which events are counted."
                                                 }
                                             },
@@ -1428,7 +1369,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For funnel metrics: array of EventsNode/ActionsNode steps."
                             },
                             "source": {
@@ -1444,7 +1384,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -1456,7 +1395,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -1483,7 +1421,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -1516,7 +1453,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -1528,7 +1464,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -1540,7 +1475,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -1559,8 +1493,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1645,8 +1578,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1658,7 +1590,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1669,7 +1600,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: event source."
                             },
                             "start_event": {
@@ -1685,7 +1615,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -1697,7 +1626,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -1724,7 +1652,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -1757,7 +1684,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -1769,7 +1695,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -1781,7 +1706,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -1800,8 +1724,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -1886,8 +1809,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -1899,7 +1821,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -1910,7 +1831,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For retention metrics: start event."
                             },
                             "start_handling": {
@@ -1922,8 +1842,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "upper_bound_percentile": {
                                 "anyOf": [
@@ -1936,7 +1855,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation."
                             },
                             "uuid": {
@@ -1948,7 +1866,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Unique identifier. Auto-generated if omitted."
                             }
                         },
@@ -1982,7 +1899,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -1994,7 +1910,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -2021,7 +1936,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -2054,7 +1968,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -2066,7 +1979,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -2078,7 +1990,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -2097,8 +2008,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -2183,8 +2093,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -2196,7 +2105,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -2207,7 +2115,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For retention metrics: completion event."
                             },
                             "conversion_window": {
@@ -2219,7 +2126,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Conversion window duration."
                             },
                             "denominator": {
@@ -2235,7 +2141,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -2247,7 +2152,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -2274,7 +2178,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -2307,7 +2210,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -2319,7 +2221,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -2331,7 +2232,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -2350,8 +2250,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -2436,8 +2335,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -2449,7 +2347,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -2460,7 +2357,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: denominator source."
                             },
                             "denominator_outlier_handling": {
@@ -2475,8 +2371,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "lower_bound_percentile": {
                                                 "anyOf": [
@@ -2489,7 +2384,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
                                             },
                                             "upper_bound_percentile": {
@@ -2503,7 +2397,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
                                             }
                                         },
@@ -2513,7 +2406,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
                             },
                             "goal": {
@@ -2526,7 +2418,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Whether higher or lower values indicate success."
                             },
                             "ignore_zeros": {
@@ -2538,7 +2429,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds."
                             },
                             "kind": {
@@ -2557,7 +2447,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation."
                             },
                             "metric_type": {
@@ -2573,7 +2462,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Human-readable metric name."
                             },
                             "numerator": {
@@ -2589,7 +2477,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -2601,7 +2488,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -2628,7 +2514,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -2661,7 +2546,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -2673,7 +2557,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -2685,7 +2568,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -2704,8 +2586,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -2790,8 +2671,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -2803,7 +2683,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -2814,7 +2693,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: numerator source."
                             },
                             "numerator_outlier_handling": {
@@ -2829,8 +2707,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "lower_bound_percentile": {
                                                 "anyOf": [
@@ -2843,7 +2720,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
                                             },
                                             "upper_bound_percentile": {
@@ -2857,7 +2733,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
                                             }
                                         },
@@ -2867,7 +2742,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds."
                             },
                             "retention_window_end": {
@@ -2878,8 +2752,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "retention_window_start": {
                                 "anyOf": [
@@ -2889,8 +2762,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "retention_window_unit": {
                                 "anyOf": [
@@ -2901,8 +2773,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "series": {
                                 "anyOf": [
@@ -2918,7 +2789,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                                 },
                                                 "id": {
@@ -2930,7 +2800,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Action ID. Required for ActionsNode."
                                                 },
                                                 "kind": {
@@ -2957,7 +2826,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 },
                                                 "math_group_type_index": {
@@ -2990,7 +2858,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 },
                                                 "math_hogql": {
@@ -3002,7 +2869,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                                 },
                                                 "math_property": {
@@ -3014,7 +2880,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                                 },
                                                 "properties": {
@@ -3033,8 +2898,7 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ],
-                                                                        "default": null
+                                                                        ]
                                                                     },
                                                                     "operator": {
                                                                         "anyOf": [
@@ -3119,8 +2983,7 @@
                                                                             {
                                                                                 "type": "null"
                                                                             }
-                                                                        ],
-                                                                        "default": null
+                                                                        ]
                                                                     }
                                                                 },
                                                                 "required": ["key"],
@@ -3132,7 +2995,6 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "default": null,
                                                     "description": "Event property filters to narrow which events are counted."
                                                 }
                                             },
@@ -3145,7 +3007,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For funnel metrics: array of EventsNode/ActionsNode steps."
                             },
                             "source": {
@@ -3161,7 +3022,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -3173,7 +3033,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -3200,7 +3059,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -3233,7 +3091,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -3245,7 +3102,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -3257,7 +3113,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -3276,8 +3131,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -3362,8 +3216,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -3375,7 +3228,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -3386,7 +3238,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: event source."
                             },
                             "start_event": {
@@ -3402,7 +3253,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event name, e.g. '$pageview'. Required for EventsNode."
                                             },
                                             "id": {
@@ -3414,7 +3264,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
@@ -3441,7 +3290,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                             },
                                             "math_group_type_index": {
@@ -3474,7 +3322,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Group type index to aggregate over. Required when math is 'unique_group'."
                                             },
                                             "math_hogql": {
@@ -3486,7 +3333,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
                                             },
                                             "math_property": {
@@ -3498,7 +3344,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
                                             },
                                             "properties": {
@@ -3517,8 +3362,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 },
                                                                 "operator": {
                                                                     "anyOf": [
@@ -3603,8 +3447,7 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ],
-                                                                    "default": null
+                                                                    ]
                                                                 }
                                                             },
                                                             "required": ["key"],
@@ -3616,7 +3459,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Event property filters to narrow which events are counted."
                                             }
                                         },
@@ -3627,7 +3469,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For retention metrics: start event."
                             },
                             "start_handling": {
@@ -3639,8 +3480,7 @@
                                     {
                                         "type": "null"
                                     }
-                                ],
-                                "default": null
+                                ]
                             },
                             "upper_bound_percentile": {
                                 "anyOf": [
@@ -3653,7 +3493,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation."
                             },
                             "uuid": {
@@ -3665,7 +3504,6 @@
                                         "type": "null"
                                     }
                                 ],
-                                "default": null,
                                 "description": "Unique identifier. Auto-generated if omitted."
                             }
                         },
@@ -3704,7 +3542,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis."
                         },
                         "feature_flag_variants": {
@@ -3725,7 +3562,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Human-readable variant name."
                                             },
                                             "rollout_percentage": {
@@ -3736,8 +3572,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "split_percent": {
                                                 "anyOf": [
@@ -3748,7 +3583,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
                                             }
                                         },
@@ -3761,7 +3595,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
                         },
                         "minimum_detectable_effect": {
@@ -3773,7 +3606,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
                         },
                         "rollout_percentage": {
@@ -3785,7 +3617,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
                         }
                     },

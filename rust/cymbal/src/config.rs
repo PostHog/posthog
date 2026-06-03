@@ -269,11 +269,19 @@ pub struct Config {
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
     pub remote_resolution_sample_rate: f64,
 
-    /// Probability of routing a remote resolution item randomly instead of
-    /// using sticky rendezvous routing. `0.0` is fully sticky, `1.0` is fully
-    /// random, and intermediate values probabilistically blend both modes.
+    /// Flattens remote resolution routing across the rendezvous-ranked candidate
+    /// list. `0.0` sends all traffic to the top-ranked endpoint, `1.0` is
+    /// uniform across all candidates, and intermediate values decay by rank.
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER", default = "0.0")]
     pub remote_resolution_routing_jitter: f64,
+
+    /// Maximum number of remote resolution items that can concurrently wait
+    /// for a pod to accept routing ownership.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_ACCEPTANCE_CONCURRENCY",
+        default = "10"
+    )]
+    pub remote_resolution_routing_acceptance_concurrency: usize,
 
     /// Tick cadence hint sent on `SubscribeRequest.tick_hint_ms` to the
     /// cymbal-resolution freshness/draining stream. The server clamps to its own bounds
