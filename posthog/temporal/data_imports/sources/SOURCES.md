@@ -63,10 +63,12 @@ the row lists both.
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
 | drip          | HTTP                        | requests                                                        | ✅                          |
+| freshdesk     | HTTP                        | requests                                                        | ✅                          |
 | eventbrite    | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
+| granola       | HTTP                        | requests                                                        | ✅                          |
 | gorgias       | HTTP                        | requests                                                        | ✅                          |
 | hubspot       | HTTP                        | requests                                                        | ✅                          |
 | klaviyo       | HTTP                        | requests                                                        | ✅                          |
@@ -74,6 +76,7 @@ the row lists both.
 | lever         | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads  | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailerlite    | HTTP                        | requests                                                        | ✅                          |
 | mailjet       | HTTP                        | requests                                                        | ✅                          |
 | meta_ads      | HTTP                        | requests                                                        | ✅                          |
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
@@ -87,6 +90,7 @@ the row lists both.
 | plain         | HTTP                        | requests                                                        | ✅                          |
 | polar         | HTTP                        | requests                                                        | ✅                          |
 | postgres      | DB protocol                 | psycopg                                                         | ➖                          |
+| postmark      | HTTP                        | requests                                                        | ✅                          |
 | recurly       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recharge      | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -109,6 +113,7 @@ the row lists both.
 | tiktok_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| webflow       | HTTP                        | requests                                                        | ✅                          |
 | woocommerce   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -170,7 +175,6 @@ doesn't conflict with concurrent PRs.
 - elasticsearch
 - facebook_pages
 - firebase
-- freshdesk
 - freshsales
 - front
 - fullstory
@@ -178,7 +182,6 @@ doesn't conflict with concurrent PRs.
 - gong
 - google_analytics
 - google_drive
-- granola
 - greenhouse
 - helpscout
 - instagram
@@ -187,7 +190,7 @@ doesn't conflict with concurrent PRs.
 - jira
 - kafka
 - launchdarkly
-- mailerlite
+- lever
 - marketo
 - microsoft_teams
 - mixpanel
@@ -203,7 +206,6 @@ doesn't conflict with concurrent PRs.
 - pendo
 - pipedrive
 - plaid
-- postmark
 - productboard
 - quickbooks
 - ringcentral
@@ -216,7 +218,6 @@ doesn't conflict with concurrent PRs.
 - trello
 - twilio
 - twitter_ads
-- webflow
 - workday
 - wrike
 - xero
