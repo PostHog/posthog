@@ -19542,6 +19542,8 @@ export namespace Schemas {
       /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
+      /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+      excludeAttributes?: boolean | null;
       filterGroup: PropertyGroupFilter;
       kind?: 'LogsQuery';
       limit?: number | null;
@@ -40134,6 +40136,8 @@ export namespace Schemas {
       limit?: number;
       /** Pagination cursor from previous response. */
       after?: string;
+      /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _LogsQueryRequest {
