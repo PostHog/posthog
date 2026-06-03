@@ -96,6 +96,33 @@ describe('userLogic', () => {
         })
     })
 
+    describe('product intro dismissal', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('seenProductIntrosOptimistic records the dismissal immediately, before the PATCH resolves', async () => {
+            // Never-resolving PATCH so we assert the optimistic state, not the round-trip result
+            jest.spyOn(api, 'update').mockImplementation(async () => await new Promise(() => undefined))
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateHasSeenProductIntroFor('replay_vision' as any)
+            }).toMatchValues({
+                seenProductIntrosOptimistic: { replay_vision: true },
+            })
+        })
+
+        it('passing value=false records the negative state optimistically', async () => {
+            jest.spyOn(api, 'update').mockImplementation(async () => await new Promise(() => undefined))
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateHasSeenProductIntroFor('replay_vision' as any, false)
+            }).toMatchValues({
+                seenProductIntrosOptimistic: { replay_vision: false },
+            })
+        })
+    })
+
     describe('realtime notification preferences', () => {
         let updateUserSpy: jest.SpyInstance
 

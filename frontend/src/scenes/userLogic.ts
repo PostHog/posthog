@@ -255,6 +255,14 @@ export const userLogic = kea<userLogicType>([
                 credentialReviewDismissed: () => true,
             },
         ],
+        // Optimistic mirror of `user.has_seen_product_intro_for`, so a dismissal hides the
+        // banner immediately instead of waiting for the PATCH + loadUser round-trip.
+        seenProductIntrosOptimistic: [
+            {} as Record<string, boolean>,
+            {
+                updateHasSeenProductIntroFor: (state, { productKey, value }) => ({ ...state, [productKey]: value }),
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         logout: ({ preserveLocation }) => {

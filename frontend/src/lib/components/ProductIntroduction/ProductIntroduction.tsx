@@ -83,14 +83,17 @@ export const ProductIntroduction = ({
     mcpSurfaceKey,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
-    const { user } = useValues(userLogic)
+    const { user, seenProductIntrosOptimistic } = useValues(userLogic)
 
     if (!user) {
         return null
     }
 
-    if (!isEmpty && (!productKey || user.has_seen_product_intro_for?.[productKey])) {
-        // Hide if its not an empty list but the user has seen it before
+    if (
+        !isEmpty &&
+        (!productKey || user.has_seen_product_intro_for?.[productKey] || seenProductIntrosOptimistic[productKey])
+    ) {
+        // Hide if its not an empty list but the user has seen it before (or just dismissed it this session)
         return null
     }
 
