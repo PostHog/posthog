@@ -87,6 +87,21 @@ tools:
             include:
                 - results
                 - compare
+    apm-spans-count:
+        operation: tracing_spans_count_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Count spans
+        description_file: ./prompts/apm-spans-count.md
+        feature_flag: tracing
+        response:
+            include:
+                - count
     apm-spans-tree:
         operation: tracing_spans_tree_create
         enabled: true
