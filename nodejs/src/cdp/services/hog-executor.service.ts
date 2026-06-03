@@ -791,7 +791,12 @@ export class HogExecutorService {
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
             if (canRetry && result.invocation.state.attempts < maxRetries) {
                 await fetchResponse?.dump()
-                result.invocation.queue = 'hog'
+                // Don't overwrite `queue` — `cloneInvocation` already preserved
+                // `invocation.queue` from the source, which is what we want. The
+                // previous hardcode to 'hog' was dead inner state on the hog-kafka
+                // path (came in 'hog', stayed 'hog') and broke hogflow retries
+                // (came in 'hogflow', got reset to 'hog', reschedule landed on a
+                // Kafka queue name that the postgres-v2 worker never polls).
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
