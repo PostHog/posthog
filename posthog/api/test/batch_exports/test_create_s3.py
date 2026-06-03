@@ -8,7 +8,8 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 
 from posthog.api.test.batch_exports.operations import create_batch_export
-from posthog.batch_exports.models import S3_FAMILY_TYPES
+
+from products.batch_exports.backend.models.batch_export import S3_FAMILY_TYPES
 
 pytestmark = [
     pytest.mark.django_db,
