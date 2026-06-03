@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { ErrorEventType } from 'lib/components/Errors/types'
@@ -230,74 +230,87 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                   ) : null
             : undefined
 
-    return item.data.fullyLoaded ? (
-        <EventPropertyTabs
-            size="small"
-            data-attr="replay-event-property-tabs"
-            event={item.data}
-            tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
-                switch (tabKey) {
-                    case 'raw':
-                        return (
-                            <pre className="text-xs text-secondary whitespace-pre-wrap">
-                                {JSON.stringify(properties, null, 2)}
-                            </pre>
-                        )
-                    case 'conversation':
-                        return <AIEventExpanded event={event} />
-                    case '$set_properties':
-                        return (
-                            <>
-                                <p>
-                                    Person properties sent with this event. Will replace any property value that may
-                                    have been set on this person profile before now.{' '}
-                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                        Learn more
-                                    </Link>
-                                </p>
-                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            </>
-                        )
-                    case '$set_once_properties':
-                        return (
-                            <>
-                                <p>
-                                    "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
-                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                        Learn more
-                                    </Link>
-                                </p>
-                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            </>
-                        )
-                    case 'debug_properties':
-                        return (
-                            <>
-                                <p>PostHog uses some properties to help debug issues with the SDKs.</p>
-                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            </>
-                        )
-                    case 'error_display':
-                        return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
-                    case 'properties':
-                        return (
-                            <SimpleKeyValueList
-                                item={properties}
-                                promotedKeys={promotedKeys}
-                                rowActions={primaryPropertyActions}
-                            />
-                        )
-                    default:
-                        return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                }
-            }}
-        />
-    ) : (
-        <div className="text-secondary flex gap-1 items-center">
-            <Spinner textColored />
-            Loading...
-        </div>
+    if (!item.data.fullyLoaded) {
+        return (
+            <div className="text-secondary flex gap-1 items-center">
+                <Spinner textColored />
+                Loading...
+            </div>
+        )
+    }
+
+    return (
+        <>
+            {item.data.propertiesLoadFailed && (
+                <LemonBanner type="warning" className="mb-1 text-xs">
+                    Some event properties failed to load, so the details below may be incomplete.
+                </LemonBanner>
+            )}
+            <EventPropertyTabs
+                size="small"
+                data-attr="replay-event-property-tabs"
+                event={item.data}
+                tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
+                    switch (tabKey) {
+                        case 'raw':
+                            return (
+                                <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                    {JSON.stringify(properties, null, 2)}
+                                </pre>
+                            )
+                        case 'conversation':
+                            return <AIEventExpanded event={event} />
+                        case '$set_properties':
+                            return (
+                                <>
+                                    <p>
+                                        Person properties sent with this event. Will replace any property value that may
+                                        have been set on this person profile before now.{' '}
+                                        <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                            Learn more
+                                        </Link>
+                                    </p>
+                                    <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                                </>
+                            )
+                        case '$set_once_properties':
+                            return (
+                                <>
+                                    <p>
+                                        "Set once" person properties sent with this event. Will replace any property
+                                        value that have never been set on this person profile before now.{' '}
+                                        <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                            Learn more
+                                        </Link>
+                                    </p>
+                                    <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                                </>
+                            )
+                        case 'debug_properties':
+                            return (
+                                <>
+                                    <p>PostHog uses some properties to help debug issues with the SDKs.</p>
+                                    <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                                </>
+                            )
+                        case 'error_display':
+                            return (
+                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                            )
+                        case 'properties':
+                            return (
+                                <SimpleKeyValueList
+                                    item={properties}
+                                    promotedKeys={promotedKeys}
+                                    rowActions={primaryPropertyActions}
+                                />
+                            )
+                        default:
+                            return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                    }
+                }}
+            />
+        </>
     )
 }
 

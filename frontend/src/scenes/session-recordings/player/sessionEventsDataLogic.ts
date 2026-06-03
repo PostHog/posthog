@@ -1,5 +1,17 @@
 import equal from 'fast-deep-equal'
-import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    beforeUnmount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -7,12 +19,14 @@ import posthog from 'posthog-js'
 import { ViewportResolution } from '@posthog/replay-shared'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
+import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql } from '~/queries/utils'
 import { RecordingEventType } from '~/types'
 
@@ -21,6 +35,38 @@ import { SessionRecordingMetaLogicProps, sessionRecordingMetaLogic } from './ses
 
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
+
+// The full-event-properties fetch is best-effort enrichment, so we retry a couple of times
+// on transient failures (network blips, 5xx, timeouts) before giving up on the affected events.
+const FULL_EVENT_DATA_MAX_ATTEMPTS = 3
+const FULL_EVENT_DATA_RETRY_BASE_MS = 250
+
+// 4xx responses (bad/oversized query, auth, etc.) and HogQL errors are deterministic — retrying
+// won't help. Network failures and server errors might be transient, so those are worth retrying.
+function isRetriableFullEventDataError(e: unknown): boolean {
+    if (e instanceof ApiError) {
+        return e.status === undefined || e.status === 0 || e.status >= 500
+    }
+    return false
+}
+
+// Surface the actual failure reason (status code, DRF detail/code, or HogQL error text) instead of a
+// bare exception, so the dominant failure mode of this load can be diagnosed from captured exceptions.
+function fullEventDataErrorContext(e: unknown): Record<string, unknown> {
+    if (e instanceof ApiError) {
+        return {
+            error_kind: 'api',
+            status: e.status ?? null,
+            code: e.code,
+            detail: e.detail,
+            status_text: e.statusText,
+        }
+    }
+    if (e instanceof Error) {
+        return { error_kind: 'query', error_message: e.message }
+    }
+    return { error_kind: 'unknown' }
+}
 
 export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionEventsDataLogic', key]),
@@ -131,6 +177,7 @@ AND properties.$lib != 'web'`
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
+                                propertiesLoadFailed: false,
                                 distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
                             }
                         }
@@ -172,13 +219,30 @@ AND properties.$lib != 'web'`
                             AND event in ${eventNames}
                             AND uuid in ${eventIds}`
 
-                        const response = await api.queryHogQL(query, {
-                            scene: 'ReplaySingle',
-                            productKey: 'session_replay',
-                        })
-                        breakpoint()
-                        if (response.error) {
-                            throw new Error(response.error)
+                        let response: HogQLQueryResponse | undefined
+                        for (let attempt = 1; ; attempt++) {
+                            try {
+                                response = await api.queryHogQL(query, {
+                                    scene: 'ReplaySingle',
+                                    productKey: 'session_replay',
+                                })
+                                breakpoint()
+                                if (response.error) {
+                                    throw new Error(response.error)
+                                }
+                                break
+                            } catch (e: any) {
+                                // A breakpoint here means a newer load superseded this one — let kea cancel it
+                                // silently rather than treating the cancellation as a failed fetch.
+                                if (isBreakpoint(e)) {
+                                    throw e
+                                }
+                                if (attempt >= FULL_EVENT_DATA_MAX_ATTEMPTS || !isRetriableFullEventDataError(e)) {
+                                    throw e
+                                }
+                                // exponential backoff; breakpoint() keeps the wait cancellation-aware
+                                await breakpoint(FULL_EVENT_DATA_RETRY_BASE_MS * 2 ** (attempt - 1))
+                            }
                         }
 
                         for (const event of existingEvents) {
@@ -189,12 +253,25 @@ AND properties.$lib != 'web'`
                             if (result) {
                                 event.properties = JSON.parse(result[0])
                                 event.fullyLoaded = true
+                                event.propertiesLoadFailed = false
                             }
                         }
-                    } catch (e) {
-                        // NOTE: This is not ideal but should happen so rarely that it is tolerable.
-                        existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // The fetch genuinely failed after retries. Mark the affected events as loaded so the
+                        // inspector stops spinning, but flag that their properties are incomplete so the UI can
+                        // tell the user rather than silently presenting partial data as if it were complete.
+                        existingEvents.forEach((event) => {
+                            event.fullyLoaded = true
+                            event.propertiesLoadFailed = true
+                        })
+                        posthog.captureException(e, {
+                            feature: 'session-recording-load-full-event-data',
+                            event_count: existingEvents.length,
+                            ...fullEventDataErrorContext(e),
+                        })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
@@ -207,6 +284,7 @@ AND properties.$lib != 'web'`
                                         ...x,
                                         properties: event.properties,
                                         fullyLoaded: event.fullyLoaded,
+                                        propertiesLoadFailed: event.propertiesLoadFailed,
                                     } as RecordingEventType)
                                   : x
                           })

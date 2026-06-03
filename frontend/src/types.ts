@@ -1773,6 +1773,9 @@ export interface RecordingTimeMixinType {
 export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>, RecordingTimeMixinType {
     fullyLoaded: boolean
+    // true when fetching the full event properties failed; the event keeps the partial
+    // properties loaded with the recording, so the inspector should flag them as incomplete
+    propertiesLoadFailed?: boolean
     // allowing for absent distinct id which events don't
     distinct_id?: EventType['distinct_id']
 }
