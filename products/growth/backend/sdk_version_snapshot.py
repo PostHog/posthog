@@ -133,9 +133,7 @@ def snapshot_sdk_versions_to_groups(
                 )
                 written[counter] += 1
             except Exception as err:
-                logger.exception(
-                    f"[SDK version snapshot] Failed to update {group_type} group {group_key}: {err}"
-                )
+                logger.exception(f"[SDK version snapshot] Failed to update {group_type} group {group_key}: {err}")
                 capture_exception(err, {"group_type": group_type, "group_key": group_key})
 
     logger.info(

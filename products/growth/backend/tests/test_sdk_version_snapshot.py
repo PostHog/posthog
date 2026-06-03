@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
@@ -96,7 +95,9 @@ class TestSnapshotSdkVersionsToGroups(BaseTest):
 
         assert written == {"organizations": 1, "customers": 1}
         assert mock_client.group_identify.call_count == 2
-        org_call = next(c for c in mock_client.group_identify.call_args_list if c.kwargs["group_type"] == "organization")
+        org_call = next(
+            c for c in mock_client.group_identify.call_args_list if c.kwargs["group_type"] == "organization"
+        )
         assert org_call.kwargs["group_key"] == str(self.organization.id)
         assert org_call.kwargs["properties"][SDK_VERSION_KEYS_PROPERTY] == ["posthog-php@3.4.0", "web@1.0.0"]
 
