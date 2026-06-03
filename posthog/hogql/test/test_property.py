@@ -9,6 +9,8 @@ from parameterized import parameterized
 
 from posthog.schema import (
     EmptyPropertyFilter,
+    EventsNode,
+    FilterLogicalOperator,
     FlagPropertyFilter,
     HogQLPropertyFilter,
     HogQLQueryModifiers,
@@ -24,6 +26,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
+    entity_properties_to_expr,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -113,6 +116,31 @@ class TestProperty(BaseTest):
         # Missing group_type_index
         self.assertEqual(
             self._property_to_expr({"type": "group", "key": "a", "value": "b"}, strict=False), self._parse_expr("1")
+        )
+
+    def test_entity_properties_to_expr_operator(self):
+        p1 = {"type": "event", "key": "a", "value": "x", "operator": "exact"}
+        p2 = {"type": "event", "key": "b", "value": "y", "operator": "exact"}
+
+        # Default combines a series' own property filters with AND
+        node_and = EventsNode(event="$pageview", properties=[p1, p2])
+        self.assertEqual(
+            clear_locations(entity_properties_to_expr(node_and, self.team)),
+            ast.And(exprs=[self._property_to_expr(p1), self._property_to_expr(p2)]),
+        )
+
+        # propertiesOperator=OR combines them with OR, scoped to this series only
+        node_or = EventsNode(event="$pageview", properties=[p1, p2], propertiesOperator=FilterLogicalOperator.OR_)
+        self.assertEqual(
+            clear_locations(entity_properties_to_expr(node_or, self.team)),
+            ast.Or(exprs=[self._property_to_expr(p1), self._property_to_expr(p2)]),
+        )
+
+        # A single property is returned as-is, regardless of the operator
+        node_single = EventsNode(event="$pageview", properties=[p1], propertiesOperator=FilterLogicalOperator.OR_)
+        self.assertEqual(
+            clear_locations(entity_properties_to_expr(node_single, self.team)),
+            self._property_to_expr(p1),
         )
 
     def test_property_to_expr_group_scope(self):

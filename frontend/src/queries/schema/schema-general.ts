@@ -803,6 +803,8 @@ export interface EntityNode extends Node {
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperator
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
     optionalInFunnel?: boolean

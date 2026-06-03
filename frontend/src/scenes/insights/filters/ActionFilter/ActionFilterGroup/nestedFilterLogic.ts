@@ -1,6 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
@@ -37,7 +37,11 @@ export const nestedFilterLogic = kea<nestedFilterLogicType>([
     actions({
         updateFilter: (filter: Partial<LocalFilter> & { index: number }) => ({ filter }),
         removeLocalFilter: (filter: { index: number }) => ({ filter }),
-        updateFilterProperty: (filter: { index: number; properties: AnyPropertyFilter[] }) => ({ filter }),
+        updateFilterProperty: (filter: {
+            index: number
+            properties: AnyPropertyFilter[]
+            propertiesOperator?: FilterLogicalOperator | null
+        }) => ({ filter }),
         setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
         // Stub actions that ActionFilterRow may call but we don't need for nested filters
         selectFilter: () => ({}),
@@ -73,7 +77,7 @@ export const nestedFilterLogic = kea<nestedFilterLogicType>([
             actions.removeNestedFilter(props.nestedIndex)
         },
         updateFilterProperty: ({ filter }) => {
-            actions.updateNestedFilterProperties(props.nestedIndex, filter.properties)
+            actions.updateNestedFilterProperties(props.nestedIndex, filter.properties, filter.propertiesOperator)
         },
     })),
 ])

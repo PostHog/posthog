@@ -167,7 +167,11 @@ export const legacyEntityToNode = (
     }
 
     if (includeProperties) {
-        shared = { ...shared, properties: cleanEntityProperties(entity.properties) } as any
+        shared = {
+            ...shared,
+            properties: cleanEntityProperties(entity.properties),
+            propertiesOperator: entity.propertiesOperator || undefined,
+        } as any
     }
 
     if (mathAvailability !== MathAvailability.None) {

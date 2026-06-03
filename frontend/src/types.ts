@@ -1455,6 +1455,8 @@ export interface ActionFilter extends EntityFilter {
     math_group_type_index?: integer | null
     math_hogql?: string | null
     properties?: AnyPropertyFilter[]
+    /** Logical operator used to combine `properties` for this series. Defaults to `AND`. */
+    propertiesOperator?: FilterLogicalOperator | null
     type: EntityType
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null

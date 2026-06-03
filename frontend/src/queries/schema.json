@@ -247,6 +247,10 @@
                     },
                     "type": "array"
                 },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
+                },
                 "response": {
                     "type": "object"
                 },
@@ -4040,6 +4044,10 @@
                     },
                     "type": "array"
                 },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -4222,6 +4230,10 @@
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
+                },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -11623,6 +11635,10 @@
                             },
                             "type": "array"
                         },
+                        "propertiesOperator": {
+                            "$ref": "#/definitions/FilterLogicalOperator",
+                            "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
+                        },
                         "response": {
                             "type": "object"
                         },
@@ -11697,6 +11713,10 @@
                                 "$ref": "#/definitions/AnyPropertyFilter"
                             },
                             "type": "array"
+                        },
+                        "propertiesOperator": {
+                            "$ref": "#/definitions/FilterLogicalOperator",
+                            "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                         },
                         "response": {
                             "type": "object"
@@ -11781,6 +11801,10 @@
                                 "$ref": "#/definitions/AnyPropertyFilter"
                             },
                             "type": "array"
+                        },
+                        "propertiesOperator": {
+                            "$ref": "#/definitions/FilterLogicalOperator",
+                            "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                         },
                         "response": {
                             "type": "object"
@@ -14453,6 +14477,10 @@
                     },
                     "type": "array"
                 },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
+                },
                 "response": {
                     "type": "object"
                 },
@@ -16194,6 +16222,10 @@
                     },
                     "type": "array"
                 },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
+                },
                 "response": {
                     "type": "object"
                 },
@@ -17633,6 +17665,10 @@
                     },
                     "type": "array"
                 },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
+                },
                 "response": {
                     "type": "object"
                 },
@@ -18233,6 +18269,10 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                 },
                 "response": {
                     "type": "object"
@@ -20714,6 +20754,10 @@
                     },
                     "type": "array"
                 },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
+                },
                 "response": {
                     "type": "object"
                 },
@@ -20796,6 +20840,10 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                 },
                 "response": {
                     "type": "object"
@@ -21042,6 +21090,10 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                 },
                 "response": {
                     "type": "object"
@@ -21576,6 +21628,10 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                 },
                 "response": {
                     "type": "object"
@@ -23805,6 +23861,10 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "propertiesOperator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`."
                 },
                 "response": {
                     "type": "object"

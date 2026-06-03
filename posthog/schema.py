@@ -11225,6 +11225,10 @@ class AssistantTrendsActionsNode(BaseModel):
         ]
         | None
     ) = None
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11288,6 +11292,10 @@ class AssistantTrendsEventsNode(BaseModel):
         ]
         | None
     ) = None
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -14375,6 +14383,10 @@ class ConversionGoalFilter1(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -14461,6 +14473,10 @@ class ConversionGoalFilter2(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -14550,6 +14566,10 @@ class ConversionGoalFilter3(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
     table_name: str
@@ -15591,6 +15611,10 @@ class DataWarehouseNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     table_name: str
     timestamp_field: str
@@ -15926,6 +15950,10 @@ class EntityNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -16258,6 +16286,10 @@ class EventsNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -16447,6 +16479,10 @@ class ExperimentDataWarehouseNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     table_name: str
     timestamp_field: str
@@ -16645,6 +16681,10 @@ class FunnelExclusionActionsNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -16732,6 +16772,10 @@ class FunnelExclusionEventsNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -16818,6 +16862,10 @@ class FunnelsDataWarehouseNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     table_name: str
     timestamp_field: str
@@ -17207,6 +17255,10 @@ class LifecycleDataWarehouseNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     table_name: str
     timestamp_field: str
@@ -21992,6 +22044,10 @@ class ActionsNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -24049,6 +24105,10 @@ class GroupNode(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    propertiesOperator: FilterLogicalOperator | None = Field(
+        default=None,
+        description=("Logical operator used to combine `properties` for this series. Defaults to `AND`."),
+    )
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

@@ -169,9 +169,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             filter: Partial<EntityFilter> & {
                 index?: number
                 properties: AnyPropertyFilter[]
+                propertiesOperator?: FilterLogicalOperator | null
             }
         ) => ({
             properties: filter.properties,
+            propertiesOperator: filter.propertiesOperator,
             index: filter.index,
         }),
         setFilters: (filters: LocalFilter[]) => ({ filters }),
@@ -319,9 +321,17 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             )
             !props.singleMode && actions.selectFilter(null)
         },
-        updateFilterProperty: async ({ properties, index }) => {
+        updateFilterProperty: async ({ properties, propertiesOperator, index }) => {
             actions.setFilters(
-                values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
+                values.localFilters.map((filter, i) =>
+                    i === index
+                        ? {
+                              ...filter,
+                              properties,
+                              ...(propertiesOperator !== undefined ? { propertiesOperator } : {}),
+                          }
+                        : filter
+                )
             )
         },
         updateFilterMath: async ({ index, ...mathProperties }) => {

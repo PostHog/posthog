@@ -122,6 +122,43 @@ describe('actionsAndEventsToSeries', () => {
         ])
     })
 
+    it('carries a series propertiesOperator onto the node', () => {
+        const events: ActionFilter[] = [
+            {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+                name: 'item1',
+                properties: [
+                    { type: PropertyFilterType.Event, key: 'a', value: 'x', operator: PropertyOperator.Exact },
+                    { type: PropertyFilterType.Event, key: 'b', value: 'y', operator: PropertyOperator.Exact },
+                ],
+                propertiesOperator: FilterLogicalOperator.Or,
+            },
+        ]
+
+        const result = actionsAndEventsToSeries({ events }, true, MathAvailability.None)
+
+        expect(result[0].propertiesOperator).toEqual(FilterLogicalOperator.Or)
+        expect(result[0].properties).toHaveLength(2)
+    })
+
+    it('omits propertiesOperator when not set', () => {
+        const events: ActionFilter[] = [
+            {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+                name: 'item1',
+                properties: [{ type: PropertyFilterType.Event, key: 'a', value: 'x', operator: PropertyOperator.Exact }],
+            },
+        ]
+
+        const result = actionsAndEventsToSeries({ events }, true, MathAvailability.None)
+
+        expect(result[0].propertiesOperator).toBeUndefined()
+    })
+
     it('converts lifecycle data warehouse series to lifecycle nodes', () => {
         const data_warehouse: LifecycleDatawarehouseFilter[] = [
             {

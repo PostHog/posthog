@@ -13,6 +13,7 @@ import {
 import {
     BreakdownAttributionType,
     ChartDisplayType,
+    FilterLogicalOperator,
     FunnelConversionWindowTimeUnit,
     FunnelPathType,
     FunnelStepReference,
@@ -22,6 +23,8 @@ import {
     LifecycleFilterType,
     PathType,
     PathsFilterType,
+    PropertyFilterType,
+    PropertyOperator,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -136,6 +139,27 @@ describe('queryNodeToFilter', () => {
             show_multiple_y_axes: false,
         }
         expect(result).toEqual(filters)
+    })
+
+    test('round-trips a series propertiesOperator onto the legacy filter', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    properties: [
+                        { type: PropertyFilterType.Event, key: 'a', value: 'x', operator: PropertyOperator.Exact },
+                        { type: PropertyFilterType.Event, key: 'b', value: 'y', operator: PropertyOperator.Exact },
+                    ],
+                    propertiesOperator: FilterLogicalOperator.Or,
+                },
+            ],
+        }
+
+        const result = queryNodeToFilter(query)
+
+        expect(result.events?.[0].propertiesOperator).toEqual(FilterLogicalOperator.Or)
     })
 
     test('round-trips axis labels through legacy trends filters', () => {

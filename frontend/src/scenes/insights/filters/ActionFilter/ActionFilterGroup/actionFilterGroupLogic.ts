@@ -40,9 +40,14 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
     actions({
         addNestedFilter: (id: string, name: string, type: EntityType) => ({ id, name, type }),
         updateNestedFilter: (nestedIndex: number, updates: Partial<LocalFilter>) => ({ nestedIndex, updates }),
-        updateNestedFilterProperties: (nestedIndex: number, properties: AnyPropertyFilter[]) => ({
+        updateNestedFilterProperties: (
+            nestedIndex: number,
+            properties: AnyPropertyFilter[],
+            propertiesOperator?: FilterLogicalOperator | null
+        ) => ({
             nestedIndex,
             properties,
+            propertiesOperator,
         }),
         removeNestedFilter: (nestedIndex: number) => ({ nestedIndex }),
         setMath: (selectedMath: string | undefined, defaultMathHogQLExpression: string) => ({
@@ -124,9 +129,13 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
                 newFilters[nestedIndex] = { ...newFilters[nestedIndex], ...updates }
                 updateGroup(newFilters)
             },
-            updateNestedFilterProperties: ({ nestedIndex, properties }) => {
+            updateNestedFilterProperties: ({ nestedIndex, properties, propertiesOperator }) => {
                 const newFilters = [...values.nestedFilters]
-                newFilters[nestedIndex] = { ...newFilters[nestedIndex], properties }
+                newFilters[nestedIndex] = {
+                    ...newFilters[nestedIndex],
+                    properties,
+                    ...(propertiesOperator !== undefined ? { propertiesOperator } : {}),
+                }
                 updateGroup(newFilters)
             },
             removeNestedFilter: ({ nestedIndex }) => {

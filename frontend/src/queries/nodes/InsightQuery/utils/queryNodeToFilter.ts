@@ -83,6 +83,7 @@ export const seriesNodeToFilter = (
         math_group_type_index: node.math_group_type_index,
         optionalInFunnel: node.optionalInFunnel,
         properties: node.properties as any, // TODO,
+        propertiesOperator: node.propertiesOperator,
         ...(isDataWarehouseNode(node)
             ? {
                   table_name: node.table_name,

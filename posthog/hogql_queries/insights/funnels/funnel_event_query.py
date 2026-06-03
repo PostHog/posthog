@@ -25,7 +25,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, entity_properties_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
@@ -378,7 +378,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         filter_expr: ast.Expr | None = None
         if step_entity.properties is not None and step_entity.properties != []:
             # add property filters
-            filter_expr = property_to_expr(step_entity.properties, self.context.team)
+            filter_expr = entity_properties_to_expr(step_entity, self.context.team)
             filters.append(filter_expr)
 
         if step_entity.math == FunnelMathType.FIRST_TIME_FOR_USER:

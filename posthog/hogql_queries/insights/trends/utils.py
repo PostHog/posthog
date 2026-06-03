@@ -13,7 +13,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, entity_properties_to_expr
 
 from posthog.constants import UNIQUE_GROUPS
 
@@ -76,14 +76,14 @@ def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
                 right=ast.Constant(value=str(node.event)),
             )
             if node.properties is not None and node.properties != []:
-                node_expr = ast.And(exprs=[node_expr, property_to_expr(node.properties, team)])
+                node_expr = ast.And(exprs=[node_expr, entity_properties_to_expr(node, team)])
             group_filters.append(node_expr)
         elif isinstance(node, ActionsNode):
             try:
                 action = Action.objects.get(pk=int(node.id), team__project_id=team.project_id)
                 node_expr = action_to_expr(action)
                 if node.properties is not None and node.properties != []:
-                    node_expr = ast.And(exprs=[node_expr, property_to_expr(node.properties, team)])
+                    node_expr = ast.And(exprs=[node_expr, entity_properties_to_expr(node, team)])
                 group_filters.append(node_expr)
             except Action.DoesNotExist:
                 pass

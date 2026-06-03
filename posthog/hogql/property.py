@@ -1,6 +1,6 @@
 import re
 from collections.abc import Callable
-from typing import Literal, Optional, TypeGuard, cast
+from typing import Literal, Optional, Protocol, TypeGuard, cast, runtime_checkable
 
 from django.db import models
 from django.db.models import Q
@@ -1214,6 +1214,39 @@ def property_to_expr(
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
+
+
+@runtime_checkable
+class _SeriesLikeNode(Protocol):
+    """An insight series/entity node exposing editable property filters."""
+
+    @property
+    def properties(self) -> Optional[list]: ...
+
+
+def entity_properties_to_expr(
+    entity: _SeriesLikeNode,
+    team: Team,
+    scope: Literal[
+        "event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics", "log_resource"
+    ] = "event",
+    strict: bool = False,
+) -> ast.Expr:
+    """Combine a series' own property filters into a single expression.
+
+    `property_to_expr` ANDs a plain list of properties together. A series can instead opt into
+    combining its property filters with OR through the `propertiesOperator` field on the node, so the
+    OR scope stays local to that series rather than affecting the whole insight.
+    """
+    properties = entity.properties or []
+    exprs = [property_to_expr(prop, team, scope, strict=strict) for prop in properties]
+    if len(exprs) == 0:
+        return ast.Constant(value=1)
+    if len(exprs) == 1:
+        return exprs[0]
+    if getattr(entity, "propertiesOperator", None) == FilterLogicalOperator.OR_:
+        return ast.Or(exprs=exprs)
+    return ast.And(exprs=exprs)
 
 
 def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:

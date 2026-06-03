@@ -32,11 +32,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
     EntityTypes,
+    FilterLogicalOperator,
     InsightShortId,
     PropertyFilterType,
     PropertyFilterValue,
@@ -661,10 +663,25 @@ export function ActionFilterRow({
 
             {propertyFiltersVisible && (
                 <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
+                    {(filter.properties?.length || 0) > 1 && (
+                        <AndOrFilterSelect
+                            value={filter.propertiesOperator || FilterLogicalOperator.And}
+                            onChange={(propertiesOperator) =>
+                                updateFilterProperty({
+                                    index,
+                                    properties: filter.properties || [],
+                                    propertiesOperator,
+                                })
+                            }
+                            suffix={['filter for this series', 'filters for this series']}
+                        />
+                    )}
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
                         onChange={onPropertyChange}
+                        orFiltering={filter.propertiesOperator === FilterLogicalOperator.Or}
+                        propertyGroupType={filter.propertiesOperator || FilterLogicalOperator.And}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={

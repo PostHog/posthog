@@ -26,7 +26,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, entity_properties_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -314,7 +314,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         if self.query.series and len(self.query.series) > 0:
             series = self.query.series[0]
             if hasattr(series, "properties") and series.properties is not None and series.properties != []:
-                property_exprs.append(property_to_expr(series.properties, team=self.team))
+                property_exprs.append(entity_properties_to_expr(series, team=self.team))
 
         if len(property_exprs) == 0:
             return ast.Constant(value=True)

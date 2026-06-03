@@ -22,7 +22,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, entity_properties_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
@@ -336,7 +336,7 @@ class TrendsActorsQueryBuilder:
         conditions: list[ast.Expr] = []
 
         if self.entity.properties is not None and self.entity.properties != []:
-            conditions.append(property_to_expr(self.entity.properties, self.team))
+            conditions.append(entity_properties_to_expr(self.entity, self.team))
 
         return conditions
 

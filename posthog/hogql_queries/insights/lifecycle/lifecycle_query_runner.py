@@ -23,7 +23,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, entity_properties_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -369,7 +369,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 else:
                     raise ValueError(f"Invalid series kind: {series.kind}")
                 if series.properties is not None and series.properties != []:
-                    event_filters.append(property_to_expr(series.properties, self.team))
+                    event_filters.append(entity_properties_to_expr(series, self.team))
         with self.timings.measure("test_account_filters"):
             if (
                 self.query.filterTestAccounts
