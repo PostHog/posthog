@@ -16,6 +16,7 @@ import {
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { barColorAt } from '../../core/color-utils'
 import { DEFAULT_MARGINS, X_AXIS_TITLE_MARGIN } from '../../core/hooks/useChartMargins'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
@@ -557,8 +558,8 @@ function BarChartInner<Meta = unknown>({
             }
             for (const { series: s, bar, isTrackHighlight } of items) {
                 if (isTrackHighlight) {
-                    const parsed = d3Color(s.color)
-                    // Always translucent — `s.color` direct would paint an opaque full-height
+                    const parsed = d3Color(barColorAt(s, bar.dataIndex))
+                    // Always translucent — the bar color direct would paint an opaque full-height
                     // block if d3 can't parse the color.
                     let trackColor: string
                     if (parsed) {
@@ -574,7 +575,8 @@ function BarChartInner<Meta = unknown>({
                         highlightRadius
                     )
                 } else {
-                    const highlightColor = d3Color(s.color)?.darker(0.6).toString() ?? s.color
+                    const barColor = barColorAt(s, bar.dataIndex)
+                    const highlightColor = d3Color(barColor)?.darker(0.6).toString() ?? barColor
                     drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
                 }
             }

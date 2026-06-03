@@ -120,7 +120,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     batch_export = models.ForeignKey(
-        "posthog.BatchExport",
+        "batch_exports.BatchExport",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

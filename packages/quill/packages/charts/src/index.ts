@@ -115,6 +115,7 @@ export type { XAxisConfig, YAxisConfig } from './utils/use-axis-formatters'
 export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './utils/goal-lines'
 export type { GoalLineConfig } from './utils/goal-lines'
 export { normalizeAxisLabel } from './utils/axis-labels'
+export { MAX_CATEGORY_LABEL_WIDTH } from './utils/text-measure'
 
 // Statistics helpers (used by trend-line / moving-average / confidence-interval features)
 export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/statistics'

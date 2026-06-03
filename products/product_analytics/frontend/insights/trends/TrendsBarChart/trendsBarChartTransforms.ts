@@ -40,14 +40,24 @@ export interface BuildTrendsBarAggregatedSeriesOpts<
     getDisplayLabel?: (r: R, index: number) => string
 }
 
+/** Result color with the compare-previous dimming applied — shared by the per-series (time-series)
+ *  and per-bar (aggregated) builders so both render identical colors. */
+function resolveBarColor<R extends TrendsBarResultLike, M = unknown>(
+    r: R,
+    index: number,
+    opts: BuildTrendsBarSeriesOpts<R, M>
+): string {
+    const baseColor = opts.getColor(r, index)
+    return r.compare_label === 'previous' ? hexToRGBA(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
+}
+
 function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     r: R,
     index: number,
     opts: BuildTrendsBarSeriesOpts<R, M>,
     data: number[]
 ): Series<M> {
-    const baseColor = opts.getColor(r, index)
-    const color = r.compare_label === 'previous' ? hexToRGBA(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
+    const color = resolveBarColor(r, index, opts)
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
@@ -110,9 +120,6 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
 /** Separator between the series id and compare label in synthetic stacked-mode band keys. */
 const BAND_KEY_SEP = '\u001f'
 
-// Sparse-stacked: hog-charts BarChart allows one color per series, so we emit N series with
-// data=0 except at their own band — d3.stack reduces this to one visible segment per band.
-// Trade-off: only the last series gets rounded-corner caps.
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsBarAggregatedSeriesOpts<R, M>
@@ -124,18 +131,31 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
         const base = opts.getDisplayLabel ? opts.getDisplayLabel(r, i) : (r.label ?? '')
         return r.compare_label ? `${base} - ${r.compare_label}` : base
     })
-    // Band key strategy:
-    // - separate (default): unique per result, so every breakdown value gets its own band.
-    // - stacked: one band per series/formula (keyed by order + compare_label) so a series'
-    //   breakdown values collapse onto one band and stack into a single bar.
-    const labels = visible.map((r, i) => {
-        if (!opts.stackBreakdowns) {
-            return String(i)
-        }
+    const n = visible.length
+
+    if (!opts.stackBreakdowns) {
+        const bars = visible.map((r, i) => ({
+            color: resolveBarColor(r, i, opts),
+            label: r.label ?? '',
+            meta: opts.buildMeta ? opts.buildMeta(r, i) : undefined,
+        }))
+        const series: Series<M>[] = [
+            {
+                key: 'aggregated',
+                label: '',
+                data: visible.map((r) => (Number.isFinite(r.aggregated_value) ? r.aggregated_value! : 0)),
+                color: bars[0]?.color,
+                bars,
+            },
+        ]
+        return { series, labels: visible.map((_, i) => String(i)), displayLabels }
+    }
+
+    // Stacked breakdowns share a band and genuinely stack, so they stay as N sparse series.
+    const labels = visible.map((r) => {
         const seriesId = r.action?.order ?? r.order ?? 0
         return `${seriesId}${BAND_KEY_SEP}${r.compare_label ?? ''}`
     })
-    const n = visible.length
     const series = visible.map((r, index) => {
         const data = new Array<number>(n).fill(0)
         const value = r.aggregated_value ?? 0

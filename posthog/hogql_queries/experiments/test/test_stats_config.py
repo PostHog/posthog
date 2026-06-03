@@ -400,3 +400,66 @@ class TestStatsConfig(APIBaseTest):
         runner = ExperimentQueryRunner(query=query, team=self.team)
 
         self.assertEqual(runner.baseline_variant_key, expected_baseline)
+
+
+class TestSequentialStatsConfig(APIBaseTest):
+    """Verify sequential_testing flags propagate from stats_config (and team defaults) into the engine."""
+
+    def _metric(self) -> ExperimentMeanMetric:
+        return ExperimentMeanMetric(source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL))
+
+    def _variant(self, key: str, sum_val: float, sum_squares: float, samples: int) -> ExperimentStatsBase:
+        return ExperimentStatsBase(key=key, sum=sum_val, sum_squares=sum_squares, number_of_samples=samples)
+
+    def _frequentist_ci(
+        self,
+        *,
+        stats_config: dict | None = None,
+        team_default_sequential_testing_enabled: bool = False,
+    ) -> list[float]:
+        result = get_frequentist_experiment_result(
+            metric=self._metric(),
+            control_variant=self._variant("control", sum_val=1000.0, sum_squares=105000.0, samples=1000),
+            test_variants=[self._variant("test", sum_val=1200.0, sum_squares=145000.0, samples=1000)],
+            stats_config=stats_config,
+            team_default_sequential_testing_enabled=team_default_sequential_testing_enabled,
+        )
+        assert result.variant_results is not None
+        variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
+        assert variant.confidence_interval is not None
+        return variant.confidence_interval
+
+    @parameterized.expand(
+        [
+            # (name, stats_config, team_default_enabled, expect_sequential)
+            ("experiment_enables", {"frequentist": {"sequential_testing_enabled": True}}, False, True),
+            ("team_default_enables_when_unset", None, True, True),
+            (
+                "experiment_false_overrides_team_default",
+                {"frequentist": {"sequential_testing_enabled": False}},
+                True,
+                False,
+            ),
+        ]
+    )
+    def test_sequential_resolution(self, _name, stats_config, team_default_enabled, expect_sequential) -> None:
+        default_ci = self._frequentist_ci()
+        resolved_ci = self._frequentist_ci(
+            stats_config=stats_config,
+            team_default_sequential_testing_enabled=team_default_enabled,
+        )
+        if expect_sequential:
+            # Always-valid intervals are wider than the fixed-horizon CI.
+            self.assertGreater(resolved_ci[1] - resolved_ci[0], default_ci[1] - default_ci[0])
+        else:
+            # Sequential not applied → identical to the default fixed-horizon CI.
+            self.assertEqual(resolved_ci, default_ci)
+
+    def test_invalid_tuning_parameter_falls_back_to_default(self) -> None:
+        # Garbage input should not raise; it should fall back to the hardcoded default.
+        ci = self._frequentist_ci(
+            stats_config={
+                "frequentist": {"sequential_testing_enabled": True, "sequential_tuning_parameter": "not-a-number"}
+            }
+        )
+        self.assertEqual(len(ci), 2)

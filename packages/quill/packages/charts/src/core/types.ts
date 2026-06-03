@@ -29,6 +29,11 @@ export interface Series<Meta = unknown> {
     /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points.
      *  When omitted (or empty), the chart picks a color from `theme.colors` by series index. */
     color?: string
+    /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
+     *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
+     *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
+     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
+    bars?: { color?: string; label?: string; meta?: Meta }[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
@@ -192,6 +197,10 @@ export interface ChartConfig {
      *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
      *  Should be referentially stable — pass a module-level constant rather than an inline object. */
     margins?: Partial<ChartMargins>
+    /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
+     *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
+     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+    maxCategoryLabelWidth?: number
 }
 
 export interface TooltipConfig {
