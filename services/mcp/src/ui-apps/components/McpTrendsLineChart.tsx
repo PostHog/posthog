@@ -1,16 +1,8 @@
 import type { ReactElement } from 'react'
 
-import {
-    ciRanges,
-    type ConfidenceIntervalConfig,
-    type MovingAverageConfig,
-    type Series,
-    TimeSeriesLineChart,
-    type TimeSeriesLineChartConfig,
-    type TrendLineConfig,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '@posthog/quill-charts'
+import type { XAxisConfig, YAxisConfig } from '@posthog/quill-charts'
+
+import { TrendsLineChartView } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChartView'
 
 import { buildMcpChartTheme } from './charts/shared'
 import type { YUnit } from './ChartSettings'
@@ -18,10 +10,9 @@ import type { TrendsInterval, TrendsResultItem } from './types'
 import { formatDate, getSeriesLabel } from './utils'
 
 const MOVING_AVERAGE_WINDOW = 7
-const CONFIDENCE_LEVEL = 0.95
+// `TrendsLineChartView` expects the confidence level as a 0–100 percentage.
+const CONFIDENCE_LEVEL = 95
 const DEFAULT_CURRENCY = 'USD'
-
-const AREA_FILL_OPACITY = 0.3
 
 export interface McpTrendsLineChartProps {
     results: TrendsResultItem[]
@@ -53,15 +44,6 @@ export function McpTrendsLineChart({
     }
 
     const theme = buildMcpChartTheme()
-    const palette = theme.colors
-    const series: Series[] = results.map((item, index) => ({
-        key: String(index),
-        label: getSeriesLabel(item, index),
-        data: item.data ?? [],
-        color: palette[index % palette.length],
-        ...(fillArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
-    }))
-
     const labels = results[0]?.days ?? results[0]?.labels ?? []
 
     const xAxis: XAxisConfig =
@@ -73,29 +55,24 @@ export function McpTrendsLineChart({
         showGrid: true,
     }
 
-    const trendLines: TrendLineConfig[] | undefined = showTrendLine
-        ? series.map((s) => ({ seriesKey: s.key, kind: 'linear' }))
-        : undefined
-    const movingAverage: MovingAverageConfig[] | undefined = showMovingAverage
-        ? series.map((s) => ({ seriesKey: s.key, window: MOVING_AVERAGE_WINDOW }))
-        : undefined
-    const confidenceIntervals: ConfidenceIntervalConfig[] | undefined = showConfidenceIntervals
-        ? series.map((s) => {
-              const [lower, upper] = ciRanges(s.data, CONFIDENCE_LEVEL)
-              return { seriesKey: s.key, lower, upper }
-          })
-        : undefined
-
-    const config: TimeSeriesLineChartConfig = {
-        showCrosshair: true,
-        xAxis,
-        yAxis,
-        ...(trendLines ? { trendLines } : {}),
-        ...(movingAverage ? { movingAverage } : {}),
-        ...(confidenceIntervals ? { confidenceIntervals } : {}),
-        ...(showValueLabels ? { valueLabels: true } : {}),
-        ...(percentStack ? { percentStackView: true } : {}),
-    }
-
-    return <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
+    return (
+        <TrendsLineChartView
+            results={results.map((item, index) => ({ ...item, id: index, data: item.data ?? [] }))}
+            labels={labels}
+            theme={theme}
+            getColor={(_, index) => theme.colors[index % theme.colors.length] ?? theme.colors[0] ?? '#1d4aff'}
+            getLabel={getSeriesLabel}
+            display={fillArea ? 'ActionsAreaGraph' : undefined}
+            showTrendLines={showTrendLine}
+            showMovingAverage={showMovingAverage}
+            movingAverageIntervals={MOVING_AVERAGE_WINDOW}
+            showConfidenceIntervals={showConfidenceIntervals}
+            confidenceLevel={CONFIDENCE_LEVEL}
+            xAxis={xAxis}
+            yAxis={yAxis}
+            valueLabels={showValueLabels}
+            percentStackView={percentStack}
+            showCrosshair
+        />
+    )
 }
