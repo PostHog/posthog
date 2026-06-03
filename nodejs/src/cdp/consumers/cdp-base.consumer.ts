@@ -5,7 +5,7 @@ import type { CommonConfig } from '../../common/config'
 import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
 import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
-import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import {
     CdpCoreServicesConfig,
@@ -41,7 +41,7 @@ export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
     personRepository: PersonReadRepository
     geoipService: GeoIPService
-    groupRepository: GroupRepository
+    groupRepository: GroupReadRepository
     quotaLimiting: QuotaLimiting
 }
 
