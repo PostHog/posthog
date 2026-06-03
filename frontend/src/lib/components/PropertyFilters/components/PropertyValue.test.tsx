@@ -166,10 +166,11 @@ describe('PropertyValue', () => {
             </Provider>
         )
 
+        const user = userEvent.setup()
         const input = screen.getByRole('textbox')
-        await userEvent.click(input)
-        await userEvent.type(input, ' 9c8a6265-382a-4972-9640-b400dabdd83e ')
-        await userEvent.keyboard('{Enter}')
+        await user.click(input)
+        await user.paste(' 9c8a6265-382a-4972-9640-b400dabdd83e ')
+        await user.keyboard('{Enter}')
 
         await waitFor(() => {
             expect(onSet).toHaveBeenCalledWith(['9c8a6265-382a-4972-9640-b400dabdd83e'])
@@ -190,10 +191,11 @@ describe('PropertyValue', () => {
             </Provider>
         )
 
+        const user = userEvent.setup()
         const input = screen.getByRole('textbox')
-        await userEvent.click(input)
-        await userEvent.type(input, 'foo ')
-        await userEvent.keyboard('{Enter}')
+        await user.click(input)
+        await user.paste('foo ')
+        await user.keyboard('{Enter}')
 
         await waitFor(() => {
             expect(onSet).toHaveBeenCalledWith('foo ')
