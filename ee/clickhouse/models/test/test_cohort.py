@@ -502,7 +502,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+        self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
             final_query,
@@ -1118,7 +1118,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
-        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+        self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
             final_query,

@@ -15,12 +15,13 @@ from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ProductKey
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 
@@ -40,7 +41,6 @@ from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.dependencies import get_cohort_dependents
 from posthog.models.cohort.sql import (
-    CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
@@ -54,7 +54,6 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
-from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import format_action_filter
@@ -549,6 +548,52 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
+def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple[str, dict[str, Any]]:
+    # Distinct_ids of the cohort's members, via HogQL's person_distinct_ids table — it owns the
+    # argMax(person_id, version)/is_deleted dedup and the team scoping, so this path no longer
+    # hand-rolls them. Members come from the cohortpeople tables for static/precalculated cohorts
+    # and from evaluating the criteria (HogQLCohortQuery) otherwise.
+    from posthog.hogql.query import HogQLQueryExecutor
+
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    if cohort.is_static:
+        members: ast.SelectQuery | ast.SelectSetQuery = parse_select(
+            "SELECT person_id FROM static_cohort_people WHERE cohort_id = {id}",
+            {"id": ast.Constant(value=cohort.pk)},
+        )
+    elif is_precalculated_query(cohort):
+        members = parse_select(
+            "SELECT person_id FROM raw_cohort_people WHERE cohort_id = {id} AND version = {version}",
+            {"id": ast.Constant(value=cohort.pk), "version": ast.Constant(value=cohort.version)},
+        )
+    else:
+        members = HogQLCohortQuery(cohort=cohort, team=team).get_query()
+
+    query = parse_select(
+        "SELECT distinct_id FROM person_distinct_ids WHERE person_id IN {members}",
+        {"members": members},
+    )
+    sql, context = HogQLQueryExecutor(
+        query_type="CohortFilterDistinctIds",
+        query=query,
+        modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        team=team,
+        limit_context=LimitContext.COHORT_CALCULATION,
+        settings=HogQLGlobalSettings(),
+    ).generate_clickhouse_sql()
+    sql = sql[: sql.rfind("SETTINGS")]
+
+    # Uniquify the HogQL placeholders before this is embedded in the legacy parent query.
+    prefix = f"cohort_{cohort.pk}_{index}_"
+    params: dict[str, Any] = {}
+    for key, value in context.values.items():
+        prefixed = f"{prefix}{key}"
+        sql = sql.replace(f"%({key})s", f"%({prefixed})s")
+        params[prefixed] = value
+    return sql, params
+
+
 def format_filter_query(
     cohort: Cohort,
     index: int,
@@ -556,16 +601,8 @@ def format_filter_query(
     id_column: str = "distinct_id",
     custom_match_field="person_id",
 ) -> tuple[str, dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field=custom_match_field)
-
-    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query,
-        id_column=id_column,
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
-    )
-    # get_team_distinct_ids_query embeds a %(team_id)s placeholder, so the returned params must
-    # carry team_id (HogQLCohortQuery inlines its own team_id and doesn't surface this key).
-    return person_id_query, {**params, "team_id": cohort.team_id}
+    distinct_ids_sql, params = _cohort_distinct_ids_sql(cohort, index, team=cohort.team)
+    return f"SELECT {id_column} FROM ({distinct_ids_sql})", params
 
 
 def format_cohort_subquery(
