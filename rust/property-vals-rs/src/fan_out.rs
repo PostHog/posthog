@@ -435,7 +435,11 @@ mod tests {
                 person_properties: None,
             };
             let tuples = fan_out(&ev, &none(), caps, true);
-            assert_eq!(tuples.len(), 1, "{name_len}-char event name at cap {cap}: expected 1 tuple");
+            assert_eq!(
+                tuples.len(),
+                1,
+                "{name_len}-char event name at cap {cap}: expected 1 tuple"
+            );
             let stamped = !tuples[0].0.event_name.is_empty();
             assert_eq!(
                 stamped, expected_stamped,
