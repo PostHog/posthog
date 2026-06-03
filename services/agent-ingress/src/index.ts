@@ -12,10 +12,8 @@
  * Single-pool default (both env vars unset → same Postgres) is fine for dev.
  */
 
-import pg from 'pg'
-const { Pool } = pg
-
 import {
+    createAgentPool,
     createLogger,
     EncryptedFields,
     installProcessHandlers,
@@ -39,8 +37,8 @@ async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentIngressConfig()
 
-    const posthogDb = new Pool({ connectionString: config.posthogDbUrl })
-    const agentDb = new Pool({ connectionString: config.agentDbUrl })
+    const posthogDb = createAgentPool(config.posthogDbUrl)
+    const agentDb = createAgentPool(config.agentDbUrl)
 
     // SSE /listen is the consumer side of the same bus the runner publishes
     // to. With REDIS_URL set, multi-host fan-out works; without it /listen

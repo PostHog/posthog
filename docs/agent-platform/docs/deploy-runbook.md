@@ -39,18 +39,19 @@ shouldn't pressure the product DB.
 
 ### `agent-ingress`
 
-| Var                    | Required                   | Default                       | Notes                                                                                                                         |
-| ---------------------- | -------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `POSTHOG_DB_URL`       | yes                        | localhost posthog             | Reads applications + revisions for slug/domain resolution.                                                                    |
-| `AGENT_DB_URL`         | yes                        | localhost agent_runtime_queue | Enqueues sessions; writes `agent_user` rows.                                                                                  |
-| `PORT`                 | no                         | 8080                          | HTTP listen port.                                                                                                             |
-| `TEAM_ID`              | no                         | 1                             | Single-tenant fallback for the in-memory dev path. Prod resolves team_id per request via the auth middleware.                 |
-| `ROUTING_MODE`         | no                         | `path`                        | `path` (`/agents/<slug>/...`) or `domain` (`<slug>.agents.example.com`).                                                      |
-| `DOMAIN_SUFFIX`        | when `ROUTING_MODE=domain` | unset                         | The shared parent domain.                                                                                                     |
-| `PATH_PREFIX`          | no                         | `/agents`                     | URL prefix in `path` mode.                                                                                                    |
-| `SLACK_SIGNING_SECRET` | yes (Slack triggers)       | unset                         | Verifies inbound Slack webhooks.                                                                                              |
-| `REDIS_URL`            | yes (cross-host)           | unset                         | When set, `/listen` SSE subscribes to `RedisSessionEventBus` so events from any runner host reach this ingress's SSE clients. |
-| `LOG_LEVEL`            | no                         | `info`                        | pino level.                                                                                                                   |
+| Var                    | Required                   | Default                       | Notes                                                                                                                                                                            |
+| ---------------------- | -------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_DB_URL`       | yes                        | localhost posthog             | Reads applications + revisions for slug/domain resolution.                                                                                                                       |
+| `AGENT_DB_URL`         | yes                        | localhost agent_runtime_queue | Enqueues sessions; writes `agent_user` rows.                                                                                                                                     |
+| `PORT`                 | no                         | 8080                          | HTTP listen port.                                                                                                                                                                |
+| `TEAM_ID`              | no                         | 1                             | Single-tenant fallback for the in-memory dev path. Prod resolves team_id per request via the auth middleware.                                                                    |
+| `ROUTING_MODE`         | no                         | `path`                        | `path` (`/agents/<slug>/...`) or `domain` (`<slug>.agents.example.com`).                                                                                                         |
+| `DOMAIN_SUFFIX`        | when `ROUTING_MODE=domain` | unset                         | The shared parent domain.                                                                                                                                                        |
+| `PATH_PREFIX`          | no                         | `/agents`                     | URL prefix in `path` mode.                                                                                                                                                       |
+| `SLACK_SIGNING_SECRET` | yes (Slack triggers)       | unset                         | Verifies inbound Slack webhooks.                                                                                                                                                 |
+| `ENCRYPTION_SALT_KEYS` | yes (prod)                 | unset                         | Must match Django's value. Backs `EncryptedFields` for `PgIntegrationStore` (Slack bot tokens) + `PgCredentialBroker`. Boot fails closed when unset under `NODE_ENV=production`. |
+| `REDIS_URL`            | yes (cross-host)           | unset                         | When set, `/listen` SSE subscribes to `RedisSessionEventBus` so events from any runner host reach this ingress's SSE clients.                                                    |
+| `LOG_LEVEL`            | no                         | `info`                        | pino level.                                                                                                                                                                      |
 
 ### `agent-janitor`
 
