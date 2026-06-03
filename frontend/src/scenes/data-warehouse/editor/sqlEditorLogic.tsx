@@ -2573,7 +2573,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // to the whole SELECT when there is no nested subquery).
             if (queries.length <= 1) {
                 const singleQuery = queries.length === 1 ? queries[0] : null
-                actions.setActiveQueryText(singleQuery?.query ?? null, 0)
+                // Offset must be the statement's start in the full text, not 0 — otherwise leading
+                // whitespace/newlines desync the metadata markers (squiggles) by that many characters.
+                actions.setActiveQueryText(singleQuery?.query ?? null, singleQuery?.start ?? 0)
 
                 if (!singleQuery) {
                     if (isStale()) {
