@@ -1,3 +1,5 @@
+import type { Meta, StoryObj } from '@storybook/react'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -5,11 +7,6 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { ReplayScannerApi, UserBasicApi, VisionQuotaApi } from '../generated/api.schemas'
-
-// Meta/StoryObj are not imported from `@storybook/react`: unlike error_tracking and
-// ai_observability, this product's package.json doesn't declare @storybook/react, so it
-// isn't symlinked into products/replay_vision/node_modules and won't resolve here. CSF
-// reads these plain objects at runtime regardless.
 
 const alice: UserBasicApi = {
     id: 1,
@@ -99,7 +96,7 @@ const quota: VisionQuotaApi = {
     period_end: '2026-06-01T00:00:00Z',
 }
 
-const meta = {
+const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
     parameters: {
@@ -120,4 +117,4 @@ const meta = {
 }
 export default meta
 
-export const ScannersList = {}
+export const ScannersList: StoryObj = {}
