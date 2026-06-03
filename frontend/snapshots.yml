@@ -1059,7 +1059,7 @@ snapshots:
     components-playerinspector--with-logs-filter--dark:
         hash: v1.k794b7964.537624adca851ef7e40b2919c9a4f1210f889d52e7252a2d9872b7e5505699c4.FPTbSCzHxm_zEN6ukUKgJmKnxcxa8lUCeRMeXkiKQ6g
     components-playerinspector--with-logs-filter--light:
-        hash: v1.k794b7964.fc1e747bd67f854c0af094265d80864fbf4d5209a58f51ed3a687505e1f07ec1.D72cCuWMnCuMOTIlraogIRFg4FGpFNvO7dmSuiku2sc
+        hash: v1.k794b7964.e4a2b000ff9ea9e18a9474d1924a797f9893a9581dc66533aaf628ee52fc68cf.E5TauuBHMLbTsqudJivv3X0OISOKJcmgfPlp6Gdg15M
     components-playerinspector--with-logs-filter-upsell--dark:
         hash: v1.k794b7964.31676235fb000d8f24fa2d59f359f5c873a51574d5d923738c276e783cf464de.Vcyb2UICIL3mRG4QCqh_Uz9cp7kLVRPTgsGJrDZ8R6E
     components-playerinspector--with-logs-filter-upsell--light:
@@ -4182,10 +4182,42 @@ snapshots:
         hash: v1.k794b7964.05d7f391fdbe1f565e9329575dd8fff8c86069cff8345c39c05c1a4f286df301.AM7OsTQnhgqypXvL58dwrdjoxBeSBt7EvF7GdNKix_U
     scenes-app-batchexports--metrics--light:
         hash: v1.k794b7964.2a35529dda76e924c361be19057499c3aa72c98fc7b86e31184b1ccb7acbc938.6UBr4F4PNQVWEwdoGsRsEkA_af40UyfrYI7v2EyyWJ0
+    scenes-app-batchexports--new-azure-blob-export--dark:
+        hash: v1.k794b7964.d889b4305b0056ccfa2c51d2e6f1e6eb1ae6d5264cea194e3215d100e62818c7.6JLJrVz0vp_ceIn4eG6qqj6yHEkGmVAIbQXDD0e2OYY
+    scenes-app-batchexports--new-azure-blob-export--light:
+        hash: v1.k794b7964.2f4fa15b571bd753e50ecc95371b3312d2ae007f94c60d23242ba50be982667c.8AmhbsCHMfm--TPjY0Iv3SS4xSIYXjGgAs1hEn6eudE
+    scenes-app-batchexports--new-big-query-export--dark:
+        hash: v1.k794b7964.46c1bbbfd1614c8e98ed13cf8158a6c06e13db9d6b7998ac9993f18f226fabca.1lULOvQgq6-NHwB6ywiUHZlQanVlslaBGlx_YuuXH9s
+    scenes-app-batchexports--new-big-query-export--light:
+        hash: v1.k794b7964.a7f74ef88efd16339eb283b55c2522f1cb5f12f7b8712d6daa86cce126406892.jV4L5DRuUxqr-uKjYNPeyNTrBNqzH_LmFca8lhKanaY
+    scenes-app-batchexports--new-big-query-export-with-integration--dark:
+        hash: v1.k794b7964.b0017a9704d860ae6dbefea6e35ad51210bcd9b0d1b9e880b40bff062ef0313e.4ZitrIL91s40q-7PAttfTwKJR6m7_7AuVnJ3tdjCrm8
+    scenes-app-batchexports--new-big-query-export-with-integration--light:
+        hash: v1.k794b7964.d74e0bf9deea6e90d2f919bcf36fd70546c91c7aef5fc6068ca8ec5ac8e5212e.pL2_3mN2nQvLGMs44hBLwFItesrAIlMK_NTNB-umOfE
+    scenes-app-batchexports--new-databricks-export--dark:
+        hash: v1.k794b7964.d54b3f7c4845b3c5f945b45689f5917c9bcde6a4ac4f72bf40d161f10d4f55fd.93WWAtDciTnt8SaNbW7U0AbnWuGyrb3Y3ZE3AvW6NVI
+    scenes-app-batchexports--new-databricks-export--light:
+        hash: v1.k794b7964.25a8b8417770d57fedd4a87ea1e565d8749e57e64511036f79ffa3e00cc3ac88.-rGyOuxDyRv6LxIlt41gnX8xgcfyPDo4_XPadJsX_1A
+    scenes-app-batchexports--new-http-export--dark:
+        hash: v1.k794b7964.8a51cbc65d54323ce7921415a5addf2ef6636ae025e7f1ebd90bc779ef6340bd.5bsQAoyEK02dWepnexFwFlknBQaHA_rxqmzG8_VuYR8
+    scenes-app-batchexports--new-http-export--light:
+        hash: v1.k794b7964.41b85adf2c732f7993fe8dafa8761d769de9e825b07a27e04bfd30a4b4e1e331.AeuHOHQ083cCjRCL8jgGsQBNUGtTY-v-lsEDL2brjM0
+    scenes-app-batchexports--new-postgres-export--dark:
+        hash: v1.k794b7964.e561016272750fba9398c089d1eab97ab0ef03b7c3097979f54ec5d012af2d95.3yAd7b56ixt10f9MJGGNsNdz6HnrVbQ6AoBB_F8wSBU
+    scenes-app-batchexports--new-postgres-export--light:
+        hash: v1.k794b7964.3c78b42055b7d98c09546dfc41b4fc0f0e0cce043d9447f06b86733fd0503af8.dcAy1PghWvnE-NjkzKk17akgZdR7-tImG-BE9VjtDlM
+    scenes-app-batchexports--new-redshift-export--dark:
+        hash: v1.k794b7964.0aac5a33d0d3acc010704bffeca2e41830ccadd9bfd6261ea9790ef91f403a13.3Edh4xHy7pPf3pRzqlryayXIsh_YDLrer5tyix2_jHE
+    scenes-app-batchexports--new-redshift-export--light:
+        hash: v1.k794b7964.6856b135d2cee2cbd2a1a9527aa85b1e90a707f3e2d885cc23291c0187950727.a2O1CYhMK8AU6b6Q2aqUmzSvdaVKa04jeFBJSppqBhU
     scenes-app-batchexports--new-s-3-export--dark:
         hash: v1.k794b7964.16c44e9771d0e22656f294bf4a3f8496f74d884e55f4c1975c32ff9db8575995.dhas1f5NftAK5emoP0pwlGK5BbXgVftA5e1z7fbCh48
     scenes-app-batchexports--new-s-3-export--light:
         hash: v1.k794b7964.9beb1795f4cea49e745ddda559a7af22233c7a2b9cd177f9f11c687ad867e730.pUIek5HBtefgmROQr34mIxWgg-9c71ZgpRBVtRazuG4
+    scenes-app-batchexports--new-snowflake-export--dark:
+        hash: v1.k794b7964.d71afa50deeeff7b2e20d1bb35276409fab5c04a9980d5ed7e922389bf7214a7.n6T6TEpb1Mc_77pKNgeGCh0Ew5SbetLpN-ToCJ0YCWU
+    scenes-app-batchexports--new-snowflake-export--light:
+        hash: v1.k794b7964.23fe84ba49bf8a12e4b838d8a6cd092df08d8b917fa8c698bb8a7559f6c78e9f.F8cBpNu2gGhWQXzUgS-aLEcHjZjP-5RQSd30eoh99qA
     scenes-app-batchexports--runs-empty--dark:
         hash: v1.k794b7964.103efa98046087636634d3cdeac2bcf9018b137397177e8bb3b43354de35afa1.5-pXsFef6HCA_Z08n1pVKjgb1GnnOrpo--4lrN1EKts
     scenes-app-batchexports--runs-empty--light:

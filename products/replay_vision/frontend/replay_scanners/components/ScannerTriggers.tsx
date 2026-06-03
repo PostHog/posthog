@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { Field } from 'kea-forms'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -97,6 +97,7 @@ export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId
                 }}
             </Field>
 
+            <LemonDivider className="my-0" />
             <ScannerQuotaForecast scannerId={scannerId} tabId={tabId} />
         </div>
     )
