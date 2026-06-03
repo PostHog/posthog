@@ -1,4 +1,5 @@
 import dataclasses
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -25,9 +26,25 @@ VALIDATE_TIMEOUT_SECONDS = 10
 TIME_OFF_WINDOW_START = "2000-01-01"
 TIME_OFF_FUTURE_DAYS = 730
 
+# A BambooHR company subdomain is the "<company>" slug from <company>.bamboohr.com — letters, digits,
+# and hyphens only. It's an editable, non-secret field spliced straight into the request path, so pin
+# it to this allowlist before building any URL. Without it a value like "acme/v1/employees/123?" would
+# inject extra path segments / query params and redirect the authenticated request (which carries the
+# API key in its Basic auth header) at an arbitrary BambooHR endpoint.
+SUBDOMAIN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
+INVALID_SUBDOMAIN_MESSAGE = (
+    "Invalid BambooHR company subdomain. Use only the company name from your BambooHR URL "
+    "(letters, digits, and hyphens)."
+)
+
 
 class BambooHRRetryableError(Exception):
     pass
+
+
+def _validate_subdomain(subdomain: str) -> None:
+    if not SUBDOMAIN_PATTERN.fullmatch(subdomain):
+        raise ValueError(f"Invalid BambooHR subdomain: {subdomain!r}")
 
 
 @dataclasses.dataclass
@@ -36,6 +53,7 @@ class BambooHRResumeConfig:
 
 
 def _base_url(subdomain: str) -> str:
+    _validate_subdomain(subdomain)
     return f"{BAMBOOHR_API_HOST}/{subdomain}/v1"
 
 
@@ -101,7 +119,10 @@ def validate_credentials(subdomain: str, api_key: str, schema_name: Optional[str
     A 403 means the key is valid but lacks scope for this endpoint — accept it at source-create
     (``schema_name is None``) since users may only grant the scopes they intend to sync.
     """
-    url = f"{_base_url(subdomain)}/meta/fields"
+    try:
+        url = f"{_base_url(subdomain)}/meta/fields"
+    except ValueError:
+        return False, INVALID_SUBDOMAIN_MESSAGE
     try:
         response = make_tracked_session().get(
             url, auth=_auth(api_key), headers=_headers(), timeout=VALIDATE_TIMEOUT_SECONDS

@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.bamboohr.bamboohr import (
+    INVALID_SUBDOMAIN_MESSAGE,
     BambooHRResumeConfig,
+    _base_url,
     _build_url,
     _extract_records,
     _next_url,
@@ -99,6 +101,34 @@ class TestNextUrl:
         assert _next_url(payload) == expected
 
 
+class TestValidateSubdomain:
+    @parameterized.expand(
+        [
+            ("simple", "acme"),
+            ("with_hyphen", "acme-corp"),
+            ("with_digits", "acme123"),
+        ]
+    )
+    def test_valid_subdomains_build_urls(self, _name: str, subdomain: str) -> None:
+        assert _base_url(subdomain) == f"https://api.bamboohr.com/api/gateway.php/{subdomain}/v1"
+
+    @parameterized.expand(
+        [
+            ("path_injection", "acme/v1/employees/123/tables/jobInfo?"),
+            ("slash", "acme/admin"),
+            ("query", "acme?foo=bar"),
+            ("dot_segment", "../internal"),
+            ("empty", ""),
+            ("whitespace", "acme corp"),
+            ("scheme", "http://169.254.169.254"),
+        ]
+    )
+    def test_invalid_subdomains_rejected(self, _name: str, subdomain: str) -> None:
+        # An editable, non-secret subdomain must never be able to inject path segments or query params.
+        with pytest.raises(ValueError):
+            _base_url(subdomain)
+
+
 class TestBuildUrl:
     def test_employees_directory_has_no_params(self) -> None:
         url = _build_url("acme", BAMBOOHR_ENDPOINTS["employees"])
@@ -138,6 +168,14 @@ class TestValidateCredentials:
             valid, message = validate_credentials("acme", "key")
         assert valid is False
         assert message is not None
+
+    def test_invalid_subdomain_rejected_before_request(self) -> None:
+        session = MagicMock()
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            valid, message = validate_credentials("acme/v1/employees/123?", "key")
+        assert valid is False
+        assert message == INVALID_SUBDOMAIN_MESSAGE
+        session.get.assert_not_called()
 
 
 class TestBambooHRSource:
