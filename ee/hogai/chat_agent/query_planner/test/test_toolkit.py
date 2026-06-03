@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 from textwrap import dedent
-from unittest.mock import patch
 
 from freezegun import freeze_time
-from posthog.schema import CachedEventTaxonomyQueryResponse
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
+
+from posthog.schema import CachedEventTaxonomyQueryResponse
 
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
