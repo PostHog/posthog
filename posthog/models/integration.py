@@ -151,6 +151,7 @@ class Integration(models.Model):
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
+        CURSOR = "cursor"
         CUSTOMERIO_APP = "customerio-app"
         CUSTOMERIO_TRACK = "customerio-track"
         CUSTOMERIO_WEBHOOK = "customerio-webhook"

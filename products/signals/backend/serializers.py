@@ -435,6 +435,19 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         return value
 
 
+class CursorConnectionRequestSerializer(serializers.Serializer):
+    api_key = serializers.CharField(
+        write_only=True,
+        help_text="Cursor API key for this team. Stored encrypted on the team's Cursor integration.",
+    )
+
+
+class CursorConnectionStatusSerializer(serializers.Serializer):
+    connected = serializers.BooleanField(
+        help_text="Whether this team has a Cursor integration configured.",
+    )
+
+
 class CursorDispatchResponseSerializer(serializers.Serializer):
     agent_id = serializers.CharField(
         allow_null=True,

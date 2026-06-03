@@ -52,9 +52,11 @@ from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
 from products.signals.backend.cursor_dispatch import (
+    CURSOR_INTEGRATION_KIND,
     SIGNALS_CURSOR_DISPATCH_FLAG,
     CursorDispatchError,
     dispatch_report_to_cursor,
+    resolve_cursor_api_key,
 )
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
@@ -74,6 +76,8 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
+    CursorConnectionRequestSerializer,
+    CursorConnectionStatusSerializer,
     CursorDispatchResponseSerializer,
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteSerializer,
@@ -937,10 +941,10 @@ class SignalReportViewSet(
         ):
             raise NotFound()
 
-        api_key = settings.CURSOR_API_KEY
+        api_key = resolve_cursor_api_key(self.team)
         if not api_key:
             return Response(
-                {"error": "Cursor is not connected for this instance."},
+                {"error": "Cursor is not connected for this team."},
                 status=status.HTTP_409_CONFLICT,
             )
 
@@ -953,6 +957,25 @@ class SignalReportViewSet(
             return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response(CursorDispatchResponseSerializer(result).data)
+
+    @extend_schema(
+        request=CursorConnectionRequestSerializer,
+        responses={200: CursorConnectionStatusSerializer},
+    )
+    @action(detail=False, methods=["get", "post"], url_path="cursor_connection", required_scopes=["task:write"])
+    def cursor_connection(self, request, **kwargs):
+        """Get or set this team's Cursor connection (the key a settings UI configures, stored per team)."""
+        if request.method == "POST":
+            serializer = CursorConnectionRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            Integration.objects.update_or_create(
+                team=self.team,
+                kind=CURSOR_INTEGRATION_KIND,
+                defaults={"sensitive_config": {"api_key": serializer.validated_data["api_key"]}},
+            )
+
+        connected = Integration.objects.filter(team=self.team, kind=CURSOR_INTEGRATION_KIND).exists()
+        return Response(CursorConnectionStatusSerializer({"connected": connected}).data)
 
 
 @extend_schema_view(

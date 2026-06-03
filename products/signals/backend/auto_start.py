@@ -14,6 +14,7 @@ from products.signals.backend.cursor_dispatch import (
     SIGNALS_CURSOR_DISPATCH_FLAG,
     CursorDispatchError,
     dispatch_report_to_cursor,
+    resolve_cursor_api_key,
 )
 from products.signals.backend.models import SignalReport, SignalReportTask, SignalTeamConfig, SignalUserAutonomyConfig
 from products.signals.backend.report_generation.research import (
@@ -48,9 +49,7 @@ def _priority_rank(priority: Priority) -> int:
     return _PRIORITY_RANK[priority]
 
 
-def _should_route_to_cursor(distinct_id: str | None, organization_id: str) -> bool:
-    if not settings.CURSOR_API_KEY:
-        return False
+def _cursor_flag_enabled(distinct_id: str | None, organization_id: str) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             SIGNALS_CURSOR_DISPATCH_FLAG,
@@ -181,14 +180,15 @@ async def maybe_autostart_implementation_task(
     if task_user is None:
         return
 
-    if _should_route_to_cursor(task_user.distinct_id, str(team.organization_id)):
+    cursor_api_key = await database_sync_to_async(resolve_cursor_api_key, thread_sensitive=False)(team)
+    if cursor_api_key and _cursor_flag_enabled(task_user.distinct_id, str(team.organization_id)):
         report = await SignalReport.objects.aget(id=report_id)
         try:
             # No SignalReportTask is created for the Cursor path: its `task` FK requires an
             # internal Task. Dedup is handled by Cursor returning 409 on a duplicate agentId,
             # which dispatch_report_to_cursor treats as already_dispatched.
             await database_sync_to_async(dispatch_report_to_cursor, thread_sensitive=False)(
-                report, api_key=settings.CURSOR_API_KEY, site_url=settings.SITE_URL
+                report, api_key=cursor_api_key, site_url=settings.SITE_URL
             )
         except CursorDispatchError as error:
             logger.warning(

@@ -10,14 +10,35 @@ Cursor's cloud and opens a PR. Dedup across double-clicks relies on Cursor's
 import json
 from dataclasses import dataclass, field
 
+from django.conf import settings
+
 import requests
 import structlog
+
+from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 logger = structlog.get_logger(__name__)
 
 SIGNALS_CURSOR_DISPATCH_FLAG = "signals-cursor-dispatch"
+CURSOR_INTEGRATION_KIND = "cursor"
+
+
+def resolve_cursor_api_key(team: Team) -> str | None:
+    """Per-team Cursor key from the team's Cursor integration.
+
+    Falls back to the instance-wide CURSOR_API_KEY setting only for self-hosted/dev;
+    the integration is the source of truth so each team uses its own Cursor account.
+    """
+    integration = Integration.objects.filter(team=team, kind=CURSOR_INTEGRATION_KIND).first()
+    if integration:
+        key = integration.sensitive_config.get("api_key")
+        if key:
+            return key
+    return settings.CURSOR_API_KEY or None
+
 
 CURSOR_AGENTS_API_URL = "https://api.cursor.com/v1/agents"
 CURSOR_AGENT_WEB_URL_BASE = "https://cursor.com/agents"

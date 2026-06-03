@@ -6,12 +6,15 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.models.integration import Integration
+
 from products.signals.backend.cursor_dispatch import (
     CURSOR_AGENTS_API_URL,
     CursorDispatchContext,
     CursorDispatchError,
     agent_id_for_report,
     build_cursor_agent_request,
+    resolve_cursor_api_key,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
@@ -190,6 +193,41 @@ class TestDispatchToCursorEndpoint(APIBaseTest):
         assert "P1" in prompt_text
         assert "billing/views.py" in prompt_text
         assert "abc123" in prompt_text
+
+    def _connection_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/cursor_connection/"
+
+    def test_cursor_connection_set_and_status(self):
+        assert self.client.get(self._connection_url()).json()["connected"] is False
+
+        response = self.client.post(self._connection_url(), {"api_key": "crsr_team_key"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["connected"] is True
+
+        integration = Integration.objects.get(team=self.team, kind="cursor")
+        assert integration.sensitive_config.get("api_key") == "crsr_team_key"
+        assert self.client.get(self._connection_url()).json()["connected"] is True
+
+    def test_resolve_prefers_team_integration_over_setting(self):
+        Integration.objects.create(team=self.team, kind="cursor", sensitive_config={"api_key": "team-key"})
+        with self.settings(CURSOR_API_KEY="setting-key"):
+            assert resolve_cursor_api_key(self.team) == "team-key"
+
+    def test_dispatch_uses_team_integration_key(self):
+        report = self._create_report()
+        Integration.objects.create(team=self.team, kind="cursor", sensitive_config={"api_key": "team-key"})
+        cursor_response = MagicMock(status_code=201)
+        cursor_response.json.return_value = {"agent": {"id": "bc-x", "url": "u", "status": "ACTIVE"}}
+
+        with (
+            patch(FLAG_PATH, return_value=True),
+            self.settings(CURSOR_API_KEY=""),
+            patch(POST_PATH, return_value=cursor_response) as mock_post,
+        ):
+            response = self.client.post(self._url(str(report.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_post.call_args.kwargs["headers"]["Authorization"] == "Bearer team-key"
 
     def test_duplicate_dispatch_returns_already_dispatched(self):
         report = self._create_report()
