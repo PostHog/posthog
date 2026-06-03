@@ -32,7 +32,6 @@ import {
 // customSourceManifest.ts; only the labels live here, so the allowed values can't
 // drift between the type, the parser, and these selects.
 const PAGINATOR_LABELS: Record<PaginatorType, string> = {
-    auto: 'Auto-detect',
     single_page: 'Single page (no pagination)',
     json_response: 'JSON body next-URL',
     cursor: 'Cursor in JSON body',
@@ -375,7 +374,6 @@ function PaginatorSection({
 }): JSX.Element {
     const switchType = (type: Paginator['type']): void => {
         switch (type) {
-            case 'auto':
             case 'single_page':
                 onUpdate({ type })
                 return

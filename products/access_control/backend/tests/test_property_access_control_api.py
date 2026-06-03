@@ -1,5 +1,6 @@
 from posthog.test.base import BaseTest
 
+from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
 from posthog.models.event.util import ClickhouseEventSerializer
 
@@ -7,9 +8,17 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 
 
+def _enable_property_access_control(organization):
+    organization.available_product_features = [
+        {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+    ]
+    organization.save()
+
+
 class TestClickhouseEventSerializerPropertyAccess(BaseTest):
     def setUp(self):
         super().setUp()
+        _enable_property_access_control(self.organization)
         self.event_prop = PropertyDefinition.objects.create(
             team=self.team,
             name="secret_event_prop",
@@ -83,6 +92,7 @@ class TestClickhouseEventSerializerPropertyAccess(BaseTest):
 class TestPersonSerializerPropertyAccess(BaseTest):
     def setUp(self):
         super().setUp()
+        _enable_property_access_control(self.organization)
         from posthog.models import Person
 
         self.person = Person.objects.create(
@@ -148,6 +158,7 @@ class TestPersonSerializerPropertyAccess(BaseTest):
 class TestPropertyAccessControlHelpers(BaseTest):
     def setUp(self):
         super().setUp()
+        _enable_property_access_control(self.organization)
         self.person_prop = PropertyDefinition.objects.create(
             team=self.team,
             name="secret_prop",

@@ -14,10 +14,10 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
+import { AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
 
@@ -310,7 +310,8 @@ function AccountsHogQLSkeleton(): JSX.Element {
     )
 }
 
-function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Element {
+export function AccountsHogQLTable(): JSX.Element {
+    const { hogqlQuery } = useValues(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
@@ -320,7 +321,7 @@ function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Elemen
     return (
         <DataTable
             uniqueKey="customer-analytics-accounts-hogql"
-            query={query}
+            query={hogqlQuery}
             setQuery={() => {
                 // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
             }}
@@ -333,18 +334,5 @@ function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Elemen
             }}
             readOnly
         />
-    )
-}
-
-export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery } = useValues(accountsLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-                <AccountsColumnConfigurator />
-            </div>
-            <AccountsHogQLDataTable query={hogqlQuery} />
-        </div>
     )
 }

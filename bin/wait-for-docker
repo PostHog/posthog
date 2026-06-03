@@ -115,8 +115,8 @@ print_service_diagnostics() {
     else
         echo "Container exists (id=${container_id:0:12}) but readiness state is: $status"
         echo ""
-        echo "Last 20 lines of container logs:"
-        docker logs --tail 20 "$container_id" 2>&1 || true
+        echo "Last 100 lines of container logs:"
+        docker logs --tail 100 "$container_id" 2>&1 || true
         echo ""
         echo "Health check log:"
         docker inspect --format='{{if .State.Health}}{{range .State.Health.Log}}{{.Output}}{{end}}{{else}}no health check configured{{end}}' "$container_id" 2>&1 | tail -5 || true

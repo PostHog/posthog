@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartHover, useChartLayout } from '../core/chart-context'
+import { barColorAt } from '../core/color-utils'
 import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartDimensions, ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
@@ -128,7 +129,6 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     }
     const topSeries = visible[visible.length - 1]
     const yScale = resolveYScaleForSeries(scales, topSeries)
-    const topColor = topSeries.color
 
     for (let dIdx = 0; dIdx < labels.length; dIdx++) {
         const total = bandTotal(visible, dIdx)
@@ -147,7 +147,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             `${STACK_TOTAL_KEY}-${dIdx}`,
             -1,
             dIdx,
-            topColor,
+            barColorAt(topSeries, dIdx),
             valueFormatter(total, -1, dIdx),
             categoricalCoord,
             valueCoord,
@@ -216,7 +216,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 `${s.key}-${dIdx}`,
                 sIdx,
                 dIdx,
-                s.color,
+                barColorAt(s, dIdx),
                 valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
                 valueCoord,

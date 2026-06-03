@@ -47,6 +47,14 @@ function isUserInitiatedError(error: unknown): boolean {
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
+function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
+    if (count === 0) {
+        posthog.capture('tracing no results returned', { query_type: queryType })
+    } else {
+        posthog.capture('tracing results returned', { count, query_type: queryType })
+    }
+}
+
 export interface TracingDataLogicProps {
     tabId?: string
 }
@@ -500,12 +508,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             actions.setSpanTreeAbortController(controller)
         },
         fetchSpansSuccess: () => {
-            const tracesCount = values.rootSpans.length
-            if (tracesCount === 0) {
-                posthog.capture('tracing no results returned')
-            } else {
-                posthog.capture('tracing results returned', { count: tracesCount })
-            }
+            captureTracingResults(values.rootSpans.length, 'spans')
+        },
+        fetchAggregationSuccess: ({ aggregation }) => {
+            captureTracingResults(aggregation.current.length, 'aggregation')
         },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
