@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.hogql import ast
@@ -87,10 +88,17 @@ class TestHogQLTypeObservability(SimpleTestCase):
         self.assertEqual(_metric("hogql_expression_typed_total", {**base, "precision": "precise"}) - before_precise, 1)
         self.assertEqual(_metric("hogql_expression_typed_total", {**base, "precision": "unknown"}) - before_unknown, 2)
 
-    def test_classifies_type_precision(self):
-        self.assertEqual(classify_constant_type(ast.StringType()), "precise")
-        self.assertEqual(classify_constant_type(ast.UnknownType()), "unknown")
-        self.assertEqual(classify_constant_type(ast.ArrayType(item_type=ast.UnknownType())), "unknown")
+    @parameterized.expand(
+        [
+            ("scalar", ast.StringType(), "precise"),
+            ("unknown", ast.UnknownType(), "unknown"),
+            ("array_of_unknown", ast.ArrayType(item_type=ast.UnknownType()), "unknown"),
+        ]
+    )
+    def test_classifies_constant_type_precision(self, _name, type_, expected):
+        self.assertEqual(classify_constant_type(type_), expected)
+
+    def test_classifies_call_expr_precision(self):
         self.assertEqual(
             classify_expr_type(ast.CallType(name="concat", arg_types=[ast.StringType()], return_type=ast.StringType())),
             "precise",
@@ -118,14 +126,18 @@ class TestHogQLTypeObservability(SimpleTestCase):
         stats.record_property_definition_lookup(property_source="event", known_count=2, total_count=3)
         stats.record_property_definition_lookup(property_source="person", known_count=1, total_count=1)
 
-        self.assertEqual(stats.property_access_count, 4)
         self.assertEqual(stats.property_typing["event_known"], 2)
         self.assertEqual(stats.property_typing["event_unknown"], 1)
         self.assertEqual(stats.property_typing["person_known"], 1)
         self.assertEqual(stats.unknown_by_reason["unknown_property_metadata"], 1)
 
-    def test_function_groups_are_bounded(self):
-        self.assertEqual(classify_function_group("toDateTime"), "cast")
-        self.assertEqual(classify_function_group("JSONExtractString"), "json")
-        self.assertEqual(classify_function_group("arrayMap"), "array")
-        self.assertEqual(classify_function_group("someCustomThing"), "unknown")
+    @parameterized.expand(
+        [
+            ("toDateTime", "cast"),
+            ("JSONExtractString", "json"),
+            ("arrayMap", "array"),
+            ("someCustomThing", "unknown"),
+        ]
+    )
+    def test_function_groups_are_bounded(self, name, expected):
+        self.assertEqual(classify_function_group(name), expected)

@@ -142,6 +142,20 @@ _UNKNOWN_REASONS = {
     "inference_exception",
 }
 
+# Allowed values for the `source` label. Bounded to keep Prometheus label cardinality
+# fixed even if a call site sets `context.observability_source` to a high-cardinality
+# value (URL path, view name, …); anything off-list collapses to "unknown".
+# Add new surfaces here as call sites are wired up.
+_KNOWN_SOURCES = {
+    "sql_editor",
+    "insights",
+    "api",
+    "mcp",
+    "subscription",
+    "probe",
+    "unknown",
+}
+
 
 @dataclass
 class HogQLTypeObservability:
@@ -161,7 +175,6 @@ class HogQLTypeObservability:
     function_signature_miss_by_group: Counter[str] = field(default_factory=Counter)
     function_signature_mismatch_by_group: Counter[str] = field(default_factory=Counter)
 
-    property_access_count: int = 0
     property_typing: Counter[str] = field(default_factory=Counter)
     materialized_property_usage: Counter[str] = field(default_factory=Counter)
 
@@ -197,7 +210,6 @@ class HogQLTypeObservability:
     def record_property_definition_lookup(self, property_source: str, known_count: int, total_count: int) -> None:
         property_source = _bounded(property_source, {"event", "person", "group"})
         unknown_count = max(total_count - known_count, 0)
-        self.property_access_count += total_count
         self.property_typing[f"{property_source}_known"] += known_count
         self.property_typing[f"{property_source}_unknown"] += unknown_count
         if unknown_count:
@@ -222,7 +234,7 @@ def create_hogql_type_observability(
     return HogQLTypeObservability(
         engine=_clean_tag(engine),
         dialect=_clean_tag(dialect),
-        source=_clean_tag(source),
+        source=_bounded(_clean_tag(source), _KNOWN_SOURCES),
     )
 
 
@@ -337,7 +349,8 @@ class TypeCoverageCollector(TraversingVisitor):
         return super().visit(node)
 
 
-# Type-coercion casts that wrap a property; each also counts as a property_conversion_wrapper.
+# Type-coercion cast functions. Every matching call is counted (regardless of whether its
+# argument is a property, field, or constant) and each also bumps property_conversion_wrapper.
 _CAST_SHAPES = {
     "todatetime": "datetime_cast",
     "todatetime64": "datetime_cast",
