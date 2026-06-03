@@ -16,12 +16,11 @@ export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarCha
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
-export { Metric } from './blocks/Metric/Metric'
-export type { ChangeColor, MetricChange, MetricProps } from './blocks/Metric/Metric'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'
+export { ChartErrorBoundary } from './core/ChartErrorBoundary'
 export { RadialChart, RADIAL_MARGINS } from './core/RadialChart'
 export type { RadialChartProps, RadialLayoutBuilder } from './core/RadialChart'
 export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
@@ -111,9 +110,12 @@ export { createXAxisTickCallback, parseDateForAxis } from './utils/dates'
 export type { TimeInterval } from './utils/dates'
 export { buildYTickFormatter } from './utils/y-formatters'
 export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'
+export { percentage } from './utils/format'
 export type { XAxisConfig, YAxisConfig } from './utils/use-axis-formatters'
 export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './utils/goal-lines'
 export type { GoalLineConfig } from './utils/goal-lines'
+export { normalizeAxisLabel } from './utils/axis-labels'
+export { MAX_CATEGORY_LABEL_WIDTH } from './utils/text-measure'
 
 // Statistics helpers (used by trend-line / moving-average / confidence-interval features)
 export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/statistics'

@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
 import { barColorAt } from './color-utils'
 import { yTickCountForHeight } from './scales'
@@ -8,7 +8,7 @@ export interface DrawContext {
     ctx: CanvasRenderingContext2D
     dimensions: ChartDimensions
     xScale: (label: string) => number | undefined
-    yScale: d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
+    yScale: ScaleLinear<number, number> | ScaleLogarithmic<number, number>
     labels: string[]
 }
 
@@ -324,7 +324,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
     const categoryTicks = options.categoryTicks ?? []
 
-    const valueTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
+    const valueTicks = (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
