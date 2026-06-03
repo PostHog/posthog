@@ -99,6 +99,7 @@ class TestWebExperiment(APIBaseTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": web_experiment.created_at,
                 "creation_mode": "new",
