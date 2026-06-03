@@ -41,7 +41,7 @@ _DEFAULT_TOKEN_ONLY = re.compile(
 
 
 class SetupActionTokenCheck(WorkflowCheck):
-    id = "WF006-setup-action-token"
+    id = "WF005-setup-action-token"
     label = "setup-* off default token"
     description = "actions/setup-{node,python,go} should pass an app-scoped token: (not the default GITHUB_TOKEN)"
     blocking = False  # rollout: warn while existing call sites are migrated
