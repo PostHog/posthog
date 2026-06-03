@@ -61,6 +61,7 @@ from posthog.tasks.tasks import (
     sync_all_organization_available_product_features,
     sync_feature_flag_last_called,
     update_event_partitions,
+    update_sdk_version_group_snapshots,
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
@@ -331,6 +332,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             send_org_usage_reports.s(organization_ids=delayed_orgs),
             name="send delayed org usage reports",
         )
+
+    # Snapshot current SDK versions per org/customer onto group properties daily at 6:30 AM UTC
+    # (after the usage report; lets Sales/CS self-serve "which customers are on SDK X version Y")
+    sender.add_periodic_task(
+        crontab(hour="6", minute="30"),
+        update_sdk_version_group_snapshots.s(),
+        name="update sdk version group snapshots",
+    )
 
     # Send AI observability usage reports daily at 4:15 AM UTC
     sender.add_periodic_task(

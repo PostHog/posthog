@@ -965,6 +965,13 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
+@shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
+def update_sdk_version_group_snapshots() -> None:
+    from products.growth.backend.sdk_version_snapshot import snapshot_sdk_versions_to_groups
+
+    snapshot_sdk_versions_to_groups()
+
+
 @shared_task(ignore_result=True, retries=3)
 def clickhouse_send_license_usage() -> None:
     try:
