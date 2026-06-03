@@ -192,6 +192,10 @@ export interface ChartConfig {
      *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
      *  Should be referentially stable — pass a module-level constant rather than an inline object. */
     margins?: Partial<ChartMargins>
+    /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
+     *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
+     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+    maxCategoryLabelWidth?: number
 }
 
 export interface TooltipConfig {
@@ -245,6 +249,11 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
+    /** Horizontal bar charts only — fit the chart to the height it's given instead of expanding the
+     *  container (the {@link minBandSize} default behavior). Rows that don't fit at `minBandSize` are
+     *  dropped, keeping the leading (value-sorted) rows, so bands never crush below `minBandSize` and
+     *  the container never grows or scrolls. Use inside fixed-height tiles such as dashboard cards. */
+    fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,

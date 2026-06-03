@@ -1872,6 +1872,8 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+    stackBreakdownValues?: boolean | null
     /** Custom label rendered under the X axis. */
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
@@ -4187,6 +4189,8 @@ export interface Response27Api {
     hogql: string
     kind?: 'AccountsQuery'
     limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
@@ -6873,6 +6877,8 @@ export interface AccountsQueryResponseApi {
     hogql: string
     kind?: 'AccountsQuery'
     limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
@@ -6893,8 +6899,12 @@ export interface AccountsQueryApi {
     accountOwner?: string | number | null
     allRolesUnassigned?: boolean | null
     csm?: string | number | null
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: string | null
     kind?: 'AccountsQuery'
     limit?: number | null
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: string[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null

@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+
 
 @dataclass
 class FileSystemRepresentation:
@@ -15,6 +17,7 @@ class FileSystemRepresentation:
       - href
       - meta
       - should_delete: if True, we remove the entry instead of creating/updating
+      - surface: the product surface the entry belongs to (defaults to "web")
     """
 
     base_folder: str
@@ -24,3 +27,4 @@ class FileSystemRepresentation:
     href: str
     meta: dict[str, Any]
     should_delete: bool = False
+    surface: str = DEFAULT_SURFACE
