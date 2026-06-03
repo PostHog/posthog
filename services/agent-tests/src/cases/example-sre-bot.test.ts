@@ -31,32 +31,17 @@ async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Rec
     return { spec, files }
 }
 
-/** Stub fetch — covers slack.com/api/* and any web-fetch URL. */
-function stubFetch(responses: Record<string, unknown>): typeof fetch {
-    return (async (input: string | URL | Request) => {
-        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-        const match = Object.keys(responses).find((k) => url.includes(k))
-        const body = match ? responses[match] : { ok: true }
-        return {
-            ok: true,
-            status: 200,
-            json: async () => body,
-            text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
-        } as unknown as Response
-    }) as unknown as typeof fetch
-}
-
 describe('example: sre-slack-bot bundle', () => {
     let c: Cluster
     const originalFetch = global.fetch
 
     beforeEach(async () => {
         c = await buildCluster({
-            // Slack tools resolve credentials from session integrations; the
-            // tools throw if no token is wired even when fetch is stubbed.
-            resolveIntegrations: async () => ({
-                'slack:T01TEST': { kind: 'slack', access_token: 'xoxb-faux' },
-            }),
+            // Bundle uses bring-your-own Slack via `@posthog/http-request` +
+            // a `SLACK_BOT_TOKEN` secret — the runner substitutes the value
+            // into `Authorization: Bearer ${SLACK_BOT_TOKEN}` before dispatch.
+            // No platform-managed Slack integration is needed.
+            resolveSecrets: async () => ({ SLACK_BOT_TOKEN: 'xoxb-test-token' }),
         })
     })
 
@@ -82,30 +67,62 @@ describe('example: sre-slack-bot bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(200)
     })
 
-    it('deploys end-to-end and runs through a webhook-driven triage flow', async () => {
+    it('deploys end-to-end and runs through a webhook-driven triage flow using bring-your-own Slack token', async () => {
         const { spec, files } = await loadBundle()
 
-        global.fetch = stubFetch({
-            'slack.com/api/reactions.add': { ok: true },
-            'slack.com/api/conversations.history': {
+        // Track every Slack-bound request the agent made so we can prove the
+        // bearer header was stamped (i.e. ${SLACK_BOT_TOKEN} substitution
+        // actually fired on the runner side) and the JSON body was shaped
+        // correctly for the Slack Web API.
+        const slackCalls: Array<{ url: string; method?: string; auth?: string; body?: unknown }> = []
+        global.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+            const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+            if (url.includes('slack.com/api/')) {
+                const headers = (init?.headers ?? {}) as Record<string, string>
+                slackCalls.push({
+                    url,
+                    method: init?.method,
+                    auth: headers.Authorization,
+                    body: typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body,
+                })
+                // Every Slack endpoint we hit in this test responds with `ok: true`.
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
+                    text: async () => JSON.stringify({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
+                    headers: new Map([['content-type', 'application/json']]),
+                } as unknown as Response)
+            }
+            if (url.includes('runbooks.internal')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    text: async () => '# Runbook: ingest 500s\nCheck kafka consumer lag.',
+                    headers: new Map([['content-type', 'text/markdown']]),
+                } as unknown as Response)
+            }
+            return Promise.resolve({
                 ok: true,
-                messages: [{ ts: '1700000000.000100', user: 'U01', text: 'anyone else seeing 500s on ingest?' }],
-                has_more: false,
-            },
-            'slack.com/api/chat.postMessage': { ok: true, ts: '1700000050.000200', channel: 'C01' },
-            'runbooks.internal/ingestion-500s': '# Runbook: ingest 500s\nCheck kafka consumer lag.',
-        })
+                status: 200,
+                text: async () => '{}',
+                headers: new Map(),
+            } as unknown as Response)
+        }) as unknown as typeof fetch
 
-        // The faux model's script — a realistic eight-call investigation that
-        // also exercises tabular memory: check the incidents table for prior
-        // hits on this alert signature, then record the resolved outcome.
+        // The faux model's script — same triage flow as before, but every
+        // Slack tool call now goes through `@posthog/http-request` against
+        // `https://slack.com/api/<method>` with `${SLACK_BOT_TOKEN}` in the
+        // Authorization header. The runner substitutes the secret before
+        // dispatch, so the raw header here is the placeholder; the captured
+        // fetch headers above prove the substitution fired.
         c.setScript([
             // Phase 1: react to acknowledge.
-            fauxCallTool('@posthog/slack-react', {
-                team_integration_id: 'slack:T01TEST',
-                channel: 'C-incidents',
-                ts: '1700000099.000000',
-                name: 'eyes',
+            fauxCallTool('@posthog/http-request', {
+                url: 'https://slack.com/api/reactions.add',
+                method: 'POST',
+                headers: { Authorization: 'Bearer ${SLACK_BOT_TOKEN}' },
+                body: { channel: 'C-incidents', timestamp: '1700000099.000000', name: 'eyes' },
             }),
             // Phase 2: check prior incidents for this alert signature.
             fauxCallTool('@posthog/table-query', {
@@ -116,10 +133,11 @@ describe('example: sre-slack-bot bundle', () => {
             // Phase 3: load the triage skill.
             fauxCallTool('@posthog/load-skill', { id: 'triage-playbook' }),
             // Phase 4: read the channel for context.
-            fauxCallTool('@posthog/slack-read-channel', {
-                team_integration_id: 'slack:T01TEST',
-                channel: 'C-incidents',
-                limit: 20,
+            fauxCallTool('@posthog/http-request', {
+                url: 'https://slack.com/api/conversations.history',
+                method: 'POST',
+                headers: { Authorization: 'Bearer ${SLACK_BOT_TOKEN}' },
+                body: { channel: 'C-incidents', limit: 20 },
             }),
             // Phase 5: fetch the runbook.
             fauxCallTool('@posthog/web-fetch', {
@@ -128,11 +146,15 @@ describe('example: sre-slack-bot bundle', () => {
             // Phase 6: load the reply-protocol skill.
             fauxCallTool('@posthog/load-skill', { id: 'slack-thread-protocol' }),
             // Phase 7: post the final analysis.
-            fauxCallTool('@posthog/slack-post-message', {
-                team_integration_id: 'slack:T01TEST',
-                channel: 'C-incidents',
-                thread_ts: '1700000099.000000',
-                text: ':mag: *TL;DR:* ingest 500s correlate with kafka consumer lag.\n\n*Suggested next step* cc oncall',
+            fauxCallTool('@posthog/http-request', {
+                url: 'https://slack.com/api/chat.postMessage',
+                method: 'POST',
+                headers: { Authorization: 'Bearer ${SLACK_BOT_TOKEN}' },
+                body: {
+                    channel: 'C-incidents',
+                    thread_ts: '1700000099.000000',
+                    text: ':mag: *TL;DR:* ingest 500s correlate with kafka consumer lag.\n\n*Suggested next step* cc oncall',
+                },
             }),
             // Phase 8: record the resolved outcome so future alerts can
             // short-circuit. Dedupe on thread_url.
@@ -176,15 +198,29 @@ describe('example: sre-slack-bot bundle', () => {
             .filter((m) => m.role === 'toolResult')
             .map((m) => (m as { toolName?: string }).toolName)
         expect(calledTools).toEqual([
-            '@posthog/slack-react',
+            '@posthog/http-request',
             '@posthog/table-query',
             '@posthog/load-skill',
-            '@posthog/slack-read-channel',
+            '@posthog/http-request',
             '@posthog/web-fetch',
             '@posthog/load-skill',
-            '@posthog/slack-post-message',
+            '@posthog/http-request',
             '@posthog/table-append',
         ])
+
+        // Prove the bring-your-own-token wiring actually fired. The agent's
+        // tool calls reference `${SLACK_BOT_TOKEN}`; we expect the runner to
+        // have substituted the resolved value before each request went out.
+        // Captured fetch headers should NEVER contain the literal placeholder.
+        expect(slackCalls).toHaveLength(3)
+        for (const call of slackCalls) {
+            expect(call.method).toBe('POST')
+            expect(call.auth).toBe('Bearer xoxb-test-token')
+            expect(call.auth).not.toContain('${') // no unsubstituted placeholders
+        }
+        // Spot-check the three Slack endpoints we expected to hit.
+        const endpoints = slackCalls.map((c) => c.url.replace('https://slack.com/api/', '')).sort()
+        expect(endpoints).toEqual(['chat.postMessage', 'conversations.history', 'reactions.add'])
 
         // Confirm the row actually landed in the tabular store — proves the
         // tool wired through to a real S3 backend, not just executed in a vacuum.
