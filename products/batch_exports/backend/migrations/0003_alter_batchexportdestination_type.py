@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("batch_exports", "0002_batchexport_batchexportbackfill_and_more"),
     ]

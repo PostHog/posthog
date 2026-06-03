@@ -212,7 +212,9 @@ def test_run_test_step_rejects_destination_type_change(client: HttpClient, tempo
         "interval": "hour",
     }
 
-    with unittest.mock.patch("products.batch_exports.backend.api.batch_export.get_destination_test") as mock_get_destination_test:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.batch_export.get_destination_test"
+    ) as mock_get_destination_test:
         response = client.post(
             f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
             {**{"step": 0}, **malicious_data},
