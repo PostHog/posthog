@@ -113,6 +113,8 @@ class TeamAdmin(admin.ModelAdmin):
         "import_individual_replay",
         "delete_recordings",
         "api_token_display",
+        "admit_state",
+        "policy_cache_blob",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -122,6 +124,8 @@ class TeamAdmin(admin.ModelAdmin):
         TeamExperimentsConfigInline,
         UserProductListInline,
     ]
+
+    actions = ["enable_llm_gateway", "revoke_llm_gateway", "clear_llm_gateway_revoke"]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -230,6 +234,24 @@ class TeamAdmin(admin.ModelAdmin):
                 ],
             },
         ),
+        (
+            "LLM Gateway",
+            {
+                "fields": [
+                    "llm_gateway_enabled_at",
+                    "llm_gateway_revoked_at",
+                    "admit_state",
+                    "policy_cache_blob",
+                ],
+                "description": mark_safe(
+                    "<strong>Per-region change.</strong> Applies to the current region only. "
+                    "If you want the team enabled or revoked in the other region too, flip the "
+                    "matching Team row there. The gateway admits a team only when "
+                    "<code>llm_gateway_enabled_at</code> is set and "
+                    "<code>llm_gateway_revoked_at</code> is null."
+                ),
+            },
+        ),
     ]
 
     def organization_link(self, team: Team):
@@ -335,6 +357,83 @@ class TeamAdmin(admin.ModelAdmin):
                 },
             )
         )
+
+    @admin.action(description="Enable LLM gateway access (set enabled_at to now)")
+    def enable_llm_gateway(self, request, queryset):
+        from django.utils import timezone
+
+        changed = 0
+        for team in queryset:
+            if team.llm_gateway_enabled_at is None:
+                team.llm_gateway_enabled_at = timezone.now()
+                team.save()
+                changed += 1
+        self.message_user(
+            request,
+            f"Enabled {changed} team(s) for LLM gateway ({queryset.count() - changed} already enabled).",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Revoke LLM gateway access (set revoked_at to now)")
+    def revoke_llm_gateway(self, request, queryset):
+        from django.utils import timezone
+
+        changed = 0
+        for team in queryset:
+            if team.llm_gateway_revoked_at is None:
+                team.llm_gateway_revoked_at = timezone.now()
+                team.save()
+                changed += 1
+        self.message_user(
+            request,
+            f"Revoked {changed} team(s) from LLM gateway ({queryset.count() - changed} already revoked).",
+            level=messages.WARNING,
+        )
+
+    @admin.action(description="Clear LLM gateway revoke (set revoked_at to null)")
+    def clear_llm_gateway_revoke(self, request, queryset):
+        changed = 0
+        for team in queryset:
+            if team.llm_gateway_revoked_at is not None:
+                team.llm_gateway_revoked_at = None
+                team.save()
+                changed += 1
+        self.message_user(
+            request,
+            f"Cleared LLM gateway revoke for {changed} team(s) ({queryset.count() - changed} were not revoked).",
+            level=messages.SUCCESS,
+        )
+
+    @admin.display(description="Admit state")
+    def admit_state(self, team: Team):
+        if not team.pk:
+            return "-"
+        if team.llm_gateway_revoked_at:
+            return format_html(
+                '<span style="color:red"><strong>Revoked</strong></span> at {}',
+                team.llm_gateway_revoked_at.isoformat(),
+            )
+        if team.llm_gateway_enabled_at:
+            return format_html(
+                '<span style="color:green"><strong>Enrolled</strong></span> since {}',
+                team.llm_gateway_enabled_at.isoformat(),
+            )
+        return format_html("<em>Not enrolled</em>")
+
+    @admin.display(description="Policy cache blob (what the gateway sees)")
+    def policy_cache_blob(self, team: Team):
+        if not team.pk:
+            return "-"
+        from posthog.storage.team_llm_gateway_policy_cache import get_team_llm_gateway_policy
+
+        try:
+            blob = get_team_llm_gateway_policy(team)
+        except Exception as exc:
+            return format_html("<em>(cache read failed: {})</em>", str(exc))
+        if blob is None:
+            return format_html("<em>(empty — gateway will repopulate from S3 on next request)</em>")
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, trusted JSON)
+        return mark_safe(f"<pre>{json.dumps(blob, indent=2, default=str)}</pre>")
 
     def get_urls(self):
         urls = super().get_urls()

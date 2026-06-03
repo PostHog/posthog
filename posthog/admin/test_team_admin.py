@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -104,3 +106,86 @@ class TestTeamAdminSetApiTokenView(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.api_token == "phc_admin_test_old"
+
+
+class TestTeamAdminLLMGateway(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+
+    def _request(self):
+        request = self.factory.post("/")
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def test_admit_state_not_enrolled(self) -> None:
+        rendered = str(self.admin.admit_state(self.team))
+        assert "Not enrolled" in rendered
+
+    def test_admit_state_enrolled(self) -> None:
+        from django.utils import timezone
+
+        self.team.llm_gateway_enabled_at = timezone.now()
+        self.team.save()
+        rendered = str(self.admin.admit_state(self.team))
+        assert "Enrolled" in rendered
+
+    def test_admit_state_revoked_wins_over_enabled(self) -> None:
+        from django.utils import timezone
+
+        self.team.llm_gateway_enabled_at = timezone.now()
+        self.team.llm_gateway_revoked_at = timezone.now()
+        self.team.save()
+        rendered = str(self.admin.admit_state(self.team))
+        assert "Revoked" in rendered
+
+    def test_enable_action_sets_timestamp_and_saves(self) -> None:
+        assert self.team.llm_gateway_enabled_at is None
+        self.admin.enable_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_enabled_at is not None
+
+    def test_enable_action_is_idempotent(self) -> None:
+        from django.utils import timezone
+
+        original = timezone.now() - timedelta(days=1)
+        self.team.llm_gateway_enabled_at = original
+        self.team.save()
+        self.admin.enable_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_enabled_at == original
+
+    def test_revoke_action_sets_timestamp(self) -> None:
+        assert self.team.llm_gateway_revoked_at is None
+        self.admin.revoke_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at is not None
+
+    def test_clear_revoke_action_clears_timestamp(self) -> None:
+        from django.utils import timezone
+
+        self.team.llm_gateway_revoked_at = timezone.now()
+        self.team.save()
+        self.admin.clear_llm_gateway_revoke(self._request(), Team.objects.filter(pk=self.team.pk))
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_revoked_at is None
+
+    def test_policy_cache_blob_handles_empty(self) -> None:
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy",
+            return_value=None,
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "empty" in rendered.lower()
+
+    def test_policy_cache_blob_renders_blob(self) -> None:
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy",
+            return_value={"id": self.team.id, "llm_gateway_enabled_at": "2026-06-02T00:00:00+00:00"},
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "llm_gateway_enabled_at" in rendered
