@@ -62,6 +62,14 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class ServiceNowAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
@@ -253,7 +261,7 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class CloseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -279,7 +287,8 @@ class ConvexSourceConfig(config.Config):
 
 @config.config
 class CopperSourceConfig(config.Config):
-    pass
+    api_key: str
+    user_email: str
 
 
 @config.config
@@ -559,7 +568,8 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class OktaSourceConfig(config.Config):
-    pass
+    okta_domain: str
+    api_key: str
 
 
 @config.config
@@ -674,7 +684,8 @@ class RechargeSourceConfig(config.Config):
 
 @config.config
 class RecurlySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -742,7 +753,8 @@ class SentrySourceConfig(config.Config):
 
 @config.config
 class ServiceNowSourceConfig(config.Config):
-    pass
+    instance_url: str
+    auth_method: ServiceNowAuthMethodConfig
 
 
 @config.config
@@ -791,7 +803,8 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SquareSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
