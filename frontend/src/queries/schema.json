@@ -23425,7 +23425,6 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",

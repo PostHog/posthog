@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
+const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
 
@@ -61,6 +62,34 @@ const SINGLE_ROW: AccountRow[] = [
         null,
     ],
 ]
+
+const ACCOUNT_WITH_LINKS = {
+    id: 'acc-1',
+    name: 'Acme Inc',
+    external_id: 'cust_acme_001',
+    properties: {
+        billing_id: 'cus_acme_123',
+        slack_channel_id: 'C0123456789',
+        usage_dashboard_link: 'https://us.posthog.com/project/2/dashboard/12345',
+    },
+    tags: [],
+    notebooks: [],
+    created_at: '2026-05-15T10:30:00Z',
+    created_by: null,
+    updated_at: '2026-05-15T10:30:00Z',
+}
+
+const ACCOUNT_WITHOUT_LINKS = {
+    id: 'acc-1',
+    name: 'Acme Inc',
+    external_id: null,
+    properties: {},
+    tags: [],
+    notebooks: [],
+    created_at: '2026-05-15T10:30:00Z',
+    created_by: null,
+    updated_at: '2026-05-15T10:30:00Z',
+}
 
 async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
     const canvas = within(canvasElement)
@@ -138,6 +167,7 @@ export const RowExpandedEmpty: Story = {
     decorators: [
         mswDecorator({
             get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
             },
             post: {
@@ -155,6 +185,7 @@ export const RowExpandedWithNote: Story = {
     decorators: [
         mswDecorator({
             get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: {
                     count: 1,
                     next: null,
@@ -188,6 +219,24 @@ export const RowExpandedWithNote: Story = {
                         },
                     ],
                 },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandFirstRow(canvasElement)
+    },
+}
+
+export const RowExpandedLinksDisabled: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITHOUT_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
             },
             post: {
                 [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
