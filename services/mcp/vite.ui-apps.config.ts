@@ -51,6 +51,12 @@ export default defineConfig({
                 find: /^@posthog\/quill$/,
                 replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
             },
+            // Quill charts ship as TypeScript source (no dist build), so resolve the
+            // package entry directly — Vite compiles it alongside the app bundle.
+            {
+                find: /^@posthog\/quill-charts$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/charts/src/index.ts'),
+            },
             // lucide-react isn't a workspace dep at the products/ level, so files
             // resolved via the `products` alias can't find it. Pin to this
             // package's installed copy (matches the version Quill expects).
