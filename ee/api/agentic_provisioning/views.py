@@ -924,12 +924,13 @@ def agentic_authorize_confirm(request: Request) -> Response:
         return Response({"error": "team_not_accessible"}, status=403)
 
     confirm_partner_id = pending.get("partner_id", "")
+    confirm_partner: OAuthApplication | None = None
     if confirm_partner_id:
         try:
             confirm_partner = OAuthApplication.objects.get(id=confirm_partner_id)
             if not confirm_partner.provisioning_active:
                 cache.delete(pending_key)
-                _capture_provisioning_event("authorize_confirm", "partner_deactivated")
+                _capture_provisioning_event("authorize_confirm", "partner_deactivated", partner=confirm_partner)
                 return Response({"error": "partner_deactivated"}, status=403)
         except OAuthApplication.DoesNotExist:
             pass
@@ -959,7 +960,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
     params = urlencode({"code": code, "state": sanitized_state})
     redirect_url = f"{callback_url}?{params}"
 
-    _capture_provisioning_event("authorize_confirm", "success", team_id=team_id)
+    _capture_provisioning_event("authorize_confirm", "success", partner=confirm_partner, team_id=team_id)
 
     return Response({"redirect_url": redirect_url})
 
@@ -1983,7 +1984,7 @@ def deep_links(request: Request) -> Response:
         return error
 
     if not access_token.application.provisioning_can_issue_deep_links:
-        _capture_provisioning_event("deep_link_created", "not_enabled")
+        _capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
         return _error_response(
             "deep_links_not_enabled",
             "Deep links are not enabled for this partner",
@@ -1992,7 +1993,9 @@ def deep_links(request: Request) -> Response:
 
     purpose = request.data.get("purpose", "dashboard")
     if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
-        _capture_provisioning_event("deep_link_created", "unsupported_purpose", purpose=purpose)
+        _capture_provisioning_event(
+            "deep_link_created", "unsupported_purpose", partner=access_token.application, purpose=purpose
+        )
         return Response(
             {
                 "error": {
@@ -2027,7 +2030,9 @@ def deep_links(request: Request) -> Response:
     if team_id:
         url += f"&team_id={team_id}"
 
-    _capture_provisioning_event("deep_link_created", "success", purpose=purpose, team_id=team_id)
+    _capture_provisioning_event(
+        "deep_link_created", "success", partner=access_token.application, purpose=purpose, team_id=team_id
+    )
 
     return Response(
         {
