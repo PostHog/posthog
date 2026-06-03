@@ -20,8 +20,7 @@ import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from '.
 /**
  * Session replay's producer slots: DOWNSTREAM (warpstream-ingestion, defined in ingestion
  * common) for ClickHouse-bound outputs, and SESSIONREPLAY (warpstream-replay, defined in the
- * session-replay folder) for replay-domain topics. The legacy DEFAULT/WARPSTREAM/INGESTION
- * slots have been retired for session replay.
+ * session-replay folder) for replay-domain topics.
  */
 export type SessionReplayProducerName = IngestionDownstreamProducer | IngestionSessionreplayProducer
 

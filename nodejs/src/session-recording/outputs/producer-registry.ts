@@ -7,10 +7,9 @@ import {
 } from '../../session-replay/shared/outputs/producer-config'
 
 /**
- * Session replay's producer slots: DOWNSTREAM (warpstream-ingestion, from ingestion common)
- * for ClickHouse-bound outputs, and SESSIONREPLAY (warpstream-replay) for replay-domain topics
- * including their DLQ and overflow. The legacy DEFAULT/WARPSTREAM/INGESTION slots have been
- * retired here; replay does not use UPSTREAM.
+ * Session replay's producer slots: DOWNSTREAM (warpstream-ingestion) for ClickHouse-bound
+ * outputs, and SESSIONREPLAY (warpstream-replay) for replay-domain topics including their DLQ
+ * and overflow. Replay does not use UPSTREAM.
  */
 export function createProducerRegistry(kafkaClientRack: string | undefined) {
     return new KafkaProducerRegistryBuilder(kafkaClientRack)
