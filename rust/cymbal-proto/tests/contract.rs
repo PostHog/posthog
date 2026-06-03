@@ -1,8 +1,151 @@
-use cymbal_proto::cymbal::resolution::v1::{
-    resolve_outcome, Accepted, Done, Error, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
-    Retry, SubscribeRequest,
+use cymbal_proto::cymbal::{
+    process::v1::{
+        process_outcome, ProcessDone, ProcessDrop, ProcessDropReason, ProcessError,
+        ProcessErrorCode, ProcessErrorKind, ProcessItem, ProcessOutcome,
+    },
+    resolution::v1::{
+        resolve_outcome, Accepted, Done, Error, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
+        Retry, SubscribeRequest,
+    },
 };
 use prost::Message;
+
+#[test]
+fn process_item_serializes_canonical_event_with_opaque_correlation_id() {
+    let item = ProcessItem {
+        caller_correlation_id: "caller-1".to_string(),
+        event_json: br#"{"uuid":"0198f1d7-26fb-7f17-9b75-4377002fe472","event":"$exception","team_id":42,"timestamp":"2026-01-01T00:00:00Z","properties":{"$exception_list":[]}}"#.to_vec(),
+    };
+
+    let decoded = ProcessItem::decode(item.encode_to_vec().as_slice()).unwrap();
+
+    assert_eq!(decoded.caller_correlation_id, "caller-1");
+    assert_eq!(
+        decoded.event_json,
+        br#"{"uuid":"0198f1d7-26fb-7f17-9b75-4377002fe472","event":"$exception","team_id":42,"timestamp":"2026-01-01T00:00:00Z","properties":{"$exception_list":[]}}"#
+    );
+}
+
+#[test]
+fn process_outcome_carries_exactly_one_terminal_variant() {
+    let outcomes = [
+        ProcessOutcome {
+            caller_correlation_id: "done-1".to_string(),
+            result: Some(process_outcome::Result::Done(ProcessDone {
+                processed_event_json: br#"{"event":"$exception","properties":{"resolved":true}}"#
+                    .to_vec(),
+            })),
+        },
+        ProcessOutcome {
+            caller_correlation_id: "drop-1".to_string(),
+            result: Some(process_outcome::Result::Drop(ProcessDrop {
+                reason: ProcessDropReason::SuppressionRule as i32,
+            })),
+        },
+        ProcessOutcome {
+            caller_correlation_id: "error-1".to_string(),
+            result: Some(process_outcome::Result::Error(ProcessError {
+                kind: ProcessErrorKind::Invalid as i32,
+                code: ProcessErrorCode::InvalidPayload as i32,
+                retryable: false,
+                retry_after_ms: 0,
+                message: "event_json could not be decoded".to_string(),
+                details_json: b"{}".to_vec(),
+            })),
+        },
+    ];
+
+    let decoded: Vec<ProcessOutcome> = outcomes
+        .iter()
+        .map(|outcome| ProcessOutcome::decode(outcome.encode_to_vec().as_slice()).unwrap())
+        .collect();
+
+    assert!(matches!(
+        decoded[0].result,
+        Some(process_outcome::Result::Done(_))
+    ));
+    assert!(matches!(
+        decoded[1].result,
+        Some(process_outcome::Result::Drop(ProcessDrop {
+            reason,
+        })) if reason == ProcessDropReason::SuppressionRule as i32
+    ));
+    assert!(matches!(
+        decoded[2].result,
+        Some(process_outcome::Result::Error(ProcessError {
+            kind,
+            code,
+            retryable: false,
+            ..
+        })) if kind == ProcessErrorKind::Invalid as i32
+            && code == ProcessErrorCode::InvalidPayload as i32
+    ));
+}
+
+#[test]
+fn process_enums_keep_initial_wire_values() {
+    assert_eq!(ProcessDropReason::SuppressedIssue as i32, 1);
+    assert_eq!(ProcessDropReason::SuppressionRule as i32, 2);
+    assert_eq!(ProcessErrorKind::Invalid as i32, 1);
+    assert_eq!(ProcessErrorKind::Processing as i32, 2);
+    assert_eq!(ProcessErrorKind::Timeout as i32, 3);
+    assert_eq!(ProcessErrorKind::Dependency as i32, 4);
+    assert_eq!(ProcessErrorKind::Internal as i32, 5);
+    assert_eq!(ProcessErrorCode::InvalidPayload as i32, 1);
+    assert_eq!(ProcessErrorCode::Unimplemented as i32, 7);
+}
+
+#[test]
+fn process_contract_allows_duplicate_caller_correlation_ids() {
+    let items = [
+        ProcessItem {
+            caller_correlation_id: "duplicate".to_string(),
+            event_json: br#"{"event":"$exception","properties":{}}"#.to_vec(),
+        },
+        ProcessItem {
+            caller_correlation_id: "duplicate".to_string(),
+            event_json: br#"{"event":"$exception","properties":{"second":true}}"#.to_vec(),
+        },
+    ];
+
+    let decoded: Vec<ProcessItem> = items
+        .iter()
+        .map(|item| ProcessItem::decode(item.encode_to_vec().as_slice()).unwrap())
+        .collect();
+
+    assert_eq!(decoded[0].caller_correlation_id, "duplicate");
+    assert_eq!(decoded[1].caller_correlation_id, "duplicate");
+    assert_ne!(decoded[0].event_json, decoded[1].event_json);
+}
+
+#[test]
+fn process_error_round_trips_retry_after_hint() {
+    let outcome = ProcessOutcome {
+        caller_correlation_id: "retryable-1".to_string(),
+        result: Some(process_outcome::Result::Error(ProcessError {
+            kind: ProcessErrorKind::Dependency as i32,
+            code: ProcessErrorCode::DependencyUnavailable as i32,
+            retryable: true,
+            retry_after_ms: 250,
+            message: "dependency unavailable".to_string(),
+            details_json: br#"{"safe":true}"#.to_vec(),
+        })),
+    };
+
+    let decoded = ProcessOutcome::decode(outcome.encode_to_vec().as_slice()).unwrap();
+
+    assert!(matches!(
+        decoded.result,
+        Some(process_outcome::Result::Error(ProcessError {
+            kind,
+            code,
+            retryable: true,
+            retry_after_ms: 250,
+            ..
+        })) if kind == ProcessErrorKind::Dependency as i32
+            && code == ProcessErrorCode::DependencyUnavailable as i32
+    ));
+}
 
 #[test]
 fn resolve_item_serializes_exception_payload_with_correlation_id_and_deadline() {

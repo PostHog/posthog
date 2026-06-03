@@ -1,0 +1,91 @@
+syntax = "proto3";
+package cymbal.process.v1;
+
+// CymbalProcess is the Node-facing Cymbal processing API. It accepts whole
+// canonical error-tracking events and returns one terminal outcome per item.
+service CymbalProcess {
+  // Process is a bidirectional stream of independent items. Outcomes may be
+  // emitted out of input order, but every accepted item gets exactly one
+  // terminal ProcessOutcome. Stream-level failures are reserved for protocol,
+  // transport, or server-shutdown cases where item-level outcomes cannot be
+  // maintained.
+  rpc Process(stream ProcessItem) returns (stream ProcessOutcome);
+}
+
+// ProcessItem is one canonical event payload to process. The
+// caller_correlation_id is an opaque caller-provided token that Cymbal echoes
+// on the terminal outcome. It is not interpreted by Cymbal, may be duplicated
+// within a stream, and must not be used for internal in-flight bookkeeping;
+// Cymbal generates unique internal processing IDs when handling items.
+message ProcessItem {
+  string caller_correlation_id = 1;
+  // Serialized rust/cymbal AnyEvent JSON in the strict canonical shape already
+  // accepted by Cymbal's HTTP /process boundary.
+  bytes event_json = 2;
+}
+
+// ProcessOutcome is the terminal result for one ProcessItem. Exactly one of
+// done, drop, or error is set for each accepted item, and the caller correlation
+// ID from the ProcessItem is echoed unchanged.
+message ProcessOutcome {
+  string caller_correlation_id = 1;
+
+  oneof result {
+    ProcessDone done = 2;
+    ProcessDrop drop = 3;
+    ProcessError error = 4;
+  }
+}
+
+// ProcessDone means Cymbal fully processed the event. The returned event is the
+// authoritative canonical processed event for downstream callers.
+message ProcessDone {
+  // Serialized rust/cymbal AnyEvent JSON after Cymbal has updated properties.
+  bytes processed_event_json = 1;
+}
+
+// ProcessDrop means Cymbal intentionally discarded a valid item. Dropped items
+// are terminal and should not be retried.
+message ProcessDrop {
+  ProcessDropReason reason = 1;
+}
+
+enum ProcessDropReason {
+  PROCESS_DROP_REASON_UNSPECIFIED = 0;
+  PROCESS_DROP_REASON_SUPPRESSED_ISSUE = 1;
+  PROCESS_DROP_REASON_SUPPRESSION_RULE = 2;
+}
+
+// ProcessError means Cymbal could not produce a processed event. Invalid
+// payloads are represented as kind PROCESS_ERROR_KIND_INVALID with retryable
+// false. message and details_json are debug-safe diagnostics only and are not
+// control-flow surfaces.
+message ProcessError {
+  ProcessErrorKind kind = 1;
+  ProcessErrorCode code = 2;
+  bool retryable = 3;
+  // Optional server hint in milliseconds. A zero value means no hint.
+  uint32 retry_after_ms = 4;
+  string message = 5;
+  bytes details_json = 6;
+}
+
+enum ProcessErrorKind {
+  PROCESS_ERROR_KIND_UNSPECIFIED = 0;
+  PROCESS_ERROR_KIND_INVALID = 1;
+  PROCESS_ERROR_KIND_PROCESSING = 2;
+  PROCESS_ERROR_KIND_TIMEOUT = 3;
+  PROCESS_ERROR_KIND_DEPENDENCY = 4;
+  PROCESS_ERROR_KIND_INTERNAL = 5;
+}
+
+enum ProcessErrorCode {
+  PROCESS_ERROR_CODE_UNSPECIFIED = 0;
+  PROCESS_ERROR_CODE_INVALID_PAYLOAD = 1;
+  PROCESS_ERROR_CODE_PROCESSING_FAILED = 2;
+  PROCESS_ERROR_CODE_TIMEOUT = 3;
+  PROCESS_ERROR_CODE_DEPENDENCY_UNAVAILABLE = 4;
+  PROCESS_ERROR_CODE_INTERNAL = 5;
+  PROCESS_ERROR_CODE_OVERLOADED = 6;
+  PROCESS_ERROR_CODE_UNIMPLEMENTED = 7;
+}
