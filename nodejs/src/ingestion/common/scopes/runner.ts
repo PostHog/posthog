@@ -8,7 +8,7 @@ import type { Startable } from './scope'
  * map from the parent's container, boots those components in parallel, and
  * exposes `parent ∪ child`. If a child entry fails, the already-started
  * children are rolled back, the parent is released, and the first error is
- * rethrown. The returned `stop` tears children down in reverse order, then
+ * rethrown. The returned `stop` tears children down in parallel, then
  * releases the parent. A root scope is this runner over an `EmptyScope`.
  */
 export class ScopeRunner<SParent extends Record<string, object>, SChild extends Record<string, object>>
@@ -98,19 +98,25 @@ export class ScopeRunner<SParent extends Record<string, object>, SChild extends 
     }
 
     private async teardown(started: Array<{ name: string; stop: () => Promise<void> }>): Promise<void> {
-        // Stop every component even if one throws, so a single failed stop
-        // can't leak the resources owned by earlier-declared components. Every
-        // stop error is collected and rethrown together once teardown is done.
-        const errors: unknown[] = []
-        for (let i = started.length - 1; i >= 0; i--) {
-            logger.info(`Scope[${this.name}]: stopping ${started[i].name}`)
-            try {
-                await started[i].stop()
-            } catch (err) {
-                logger.error(`Scope[${this.name}]: ${started[i].name} stop failed`, { error: err })
-                errors.push(err)
-            }
-        }
+        // Siblings within a scope are built independently from the parent
+        // container, so they have no ordering dependencies on each other and can
+        // be stopped in parallel (the parent is released afterwards, separately).
+        // Stop every component even if one throws, so a single failed stop can't
+        // leak the resources owned by another. Every stop error is collected and
+        // rethrown together once teardown is done.
+        const results = await Promise.allSettled(
+            started.map(async (s) => {
+                logger.info(`Scope[${this.name}]: stopping ${s.name}`)
+                try {
+                    await s.stop()
+                } catch (err) {
+                    logger.error(`Scope[${this.name}]: ${s.name} stop failed`, { error: err })
+                    throw err
+                }
+            })
+        )
+
+        const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
         if (errors.length > 0) {
             throw new AggregateError(errors, `Scope[${this.name}]: ${errors.length} component(s) failed to stop`)
         }

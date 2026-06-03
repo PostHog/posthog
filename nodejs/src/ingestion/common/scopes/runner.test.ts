@@ -21,7 +21,7 @@ describe('ScopeRunner', () => {
         expect(value).toEqual({ a: { name: 'a' }, b: { name: 'b' } })
     })
 
-    it('tears down started entries in reverse order', async () => {
+    it('tears down all started entries', async () => {
         const log: string[] = []
         const a = makeComponent('a', log)
         const b = makeComponent('b', log)
@@ -35,7 +35,10 @@ describe('ScopeRunner', () => {
         const { stop } = await runner.start()
         await stop()
 
-        expect(log).toEqual(['start:a', 'start:b', 'start:c', 'stop:c', 'stop:b', 'stop:a'])
+        // Siblings are torn down in parallel, so stop ordering is not deterministic.
+        expect(log.slice(0, 3)).toEqual(['start:a', 'start:b', 'start:c'])
+        expect(log.slice(3).sort()).toEqual(['stop:a', 'stop:b', 'stop:c'])
+        expect([a, b, c].map((component) => component.stopCalls)).toEqual([1, 1, 1])
     })
 
     it('stops every entry even when stops throw, accumulating errors into an AggregateError', async () => {
@@ -63,7 +66,7 @@ describe('ScopeRunner', () => {
         )
         const { stop } = await runner.start()
 
-        // Both c and b throw, but neither aborts the loop, so a still stops —
+        // Both c and b throw, but neither aborts teardown, so a still stops —
         // no leaked resources — and both errors come back in the AggregateError.
         const error = await stop().then(
             () => null,
@@ -72,8 +75,9 @@ describe('ScopeRunner', () => {
         if (!(error instanceof AggregateError)) {
             throw new Error(`expected an AggregateError, got ${String(error)}`)
         }
-        expect(error.errors.map((e: Error) => e.message)).toEqual(['c stop failed', 'b stop failed'])
-        expect(log).toEqual(['start:a', 'start:b', 'start:c', 'stop:c', 'stop:b', 'stop:a'])
+        expect(error.errors.map((e: Error) => e.message).sort()).toEqual(['b stop failed', 'c stop failed'])
+        expect(log.slice(0, 3)).toEqual(['start:a', 'start:b', 'start:c'])
+        expect(log.slice(3).sort()).toEqual(['stop:a', 'stop:b', 'stop:c'])
     })
 
     it('rolls back already-started entries when a later one fails to start', async () => {
