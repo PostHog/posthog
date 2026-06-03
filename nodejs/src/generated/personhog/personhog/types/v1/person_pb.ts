@@ -241,6 +241,8 @@ export type GetPersonsRequest = Message<'personhog.types.v1.GetPersonsRequest'> 
     teamId: bigint
 
     /**
+     * Max 250 per request.
+     *
      * @generated from field: repeated int64 person_ids = 2;
      */
     personIds: bigint[]
@@ -320,6 +322,8 @@ export type GetPersonsByUuidsRequest = Message<'personhog.types.v1.GetPersonsByU
     teamId: bigint
 
     /**
+     * Max 250 per request.
+     *
      * @generated from field: repeated string uuids = 2;
      */
     uuids: string[]
@@ -377,6 +381,8 @@ export type GetPersonsByDistinctIdsInTeamRequest =
         teamId: bigint
 
         /**
+         * Max 250 per request.
+         *
          * @generated from field: repeated string distinct_ids = 2;
          */
         distinctIds: string[]
@@ -418,6 +424,8 @@ export const PersonsByDistinctIdsInTeamResponseSchema: GenMessage<PersonsByDisti
  */
 export type GetPersonsByDistinctIdsRequest = Message<'personhog.types.v1.GetPersonsByDistinctIdsRequest'> & {
     /**
+     * Max 250 per request.
+     *
      * @generated from field: repeated personhog.types.v1.TeamDistinctId team_distinct_ids = 1;
      */
     teamDistinctIds: TeamDistinctId[]

@@ -75,7 +75,7 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
             key: 'configuration',
             label: 'Configuration',
             content: (
-                <div className="space-y-6 max-w-3xl">
+                <div className="space-y-6 max-w-3xl pb-8">
                     <div>
                         <h3 className="text-base font-semibold mb-1">Details</h3>
                         <p className="text-sm text-muted m-0">

@@ -29,6 +29,7 @@ const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
 pub const KNOWN_METHODS: &[&str] = &[
     "CheckCohortMembership",
     "CountCohortMembers",
+    "CountGroupTypeMappings",
     "CreateGroup",
     "DeleteCohortMember",
     "DeleteCohortMembersBulk",

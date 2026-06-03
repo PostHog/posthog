@@ -95,7 +95,8 @@ class AdjustSourceConfig(config.Config):
 
 @config.config
 class AircallSourceConfig(config.Config):
-    pass
+    api_id: str
+    api_token: str
 
 
 @config.config
@@ -150,7 +151,8 @@ class AzureBlobSourceConfig(config.Config):
 
 @config.config
 class BambooHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -192,7 +194,7 @@ class BrazeSourceConfig(config.Config):
 
 @config.config
 class BrevoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -218,7 +220,7 @@ class ChargebeeSourceConfig(config.Config):
 
 @config.config
 class ChartMogulSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -266,7 +268,7 @@ class ConfluenceSourceConfig(config.Config):
 
 @config.config
 class ConvertKitSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -396,7 +398,9 @@ class GoogleSheetsSourceConfig(config.Config):
 
 @config.config
 class GorgiasSourceConfig(config.Config):
-    pass
+    gorgias_domain: str
+    email: str
+    api_key: str
 
 
 @config.config
@@ -457,7 +461,7 @@ class LaunchDarklySourceConfig(config.Config):
 
 @config.config
 class LeverSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -551,7 +555,7 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NotionSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -586,7 +590,7 @@ class PaddleSourceConfig(config.Config):
 
 @config.config
 class PagerDutySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -666,7 +670,7 @@ class QuickBooksSourceConfig(config.Config):
 
 @config.config
 class RechargeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -811,7 +815,8 @@ class SupabaseSourceConfig(config.Config):
 
 @config.config
 class SurveyMonkeySourceConfig(config.Config):
-    pass
+    access_token: str
+    data_center: Literal["us", "eu", "ca"] = config.value(default="us")
 
 
 @config.config
@@ -867,7 +872,9 @@ class WebflowSourceConfig(config.Config):
 
 @config.config
 class WooCommerceSourceConfig(config.Config):
-    pass
+    store_url: str
+    consumer_key: str
+    consumer_secret: str
 
 
 @config.config
