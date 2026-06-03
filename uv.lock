@@ -1776,6 +1776,18 @@ wheels = [
 ]
 
 [[package]]
+name = "django-display-ids"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fb/a1/1dfc6e6521b85a891fa15fac02947c109e83a739c4865f4b9f75b2eff737/django_display_ids-0.7.0.tar.gz", hash = "sha256:7ce0936aa3edac256514ca1c7d3b23b804fd498c3ee06f4a78a5d417f7ee25f3", size = 20828, upload-time = "2026-05-18T19:02:15.294716Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/d4/89a7eb4ab8ce2f26ad172003b2bd0218fd61a4ec9fd9f539b13bd14a39fb/django_display_ids-0.7.0-py3-none-any.whl", hash = "sha256:264498b7946efaace718cccba7ac5d5a65a1c786b19878a8bda3de8f17fdafd5", size = 30952, upload-time = "2026-05-18T19:02:13.870029Z" },
+]
+
+[[package]]
 name = "django-extensions"
 version = "4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5266,6 +5278,7 @@ dependencies = [
     { name = "django-axes", extra = ["ipware"] },
     { name = "django-cors-headers" },
     { name = "django-deprecate-fields" },
+    { name = "django-display-ids" },
     { name = "django-extensions" },
     { name = "django-filter" },
     { name = "django-loginas" },
@@ -5533,6 +5546,7 @@ requires-dist = [
     { name = "django-axes", extras = ["ipware"], specifier = "==8.0.0" },
     { name = "django-cors-headers", specifier = "~=4.8.0" },
     { name = "django-deprecate-fields", specifier = "==0.1.1" },
+    { name = "django-display-ids", specifier = "~=0.7.0" },
     { name = "django-extensions", specifier = "~=4.1.0" },
     { name = "django-filter", specifier = "~=25.1" },
     { name = "django-loginas", specifier = "==0.3.14" },

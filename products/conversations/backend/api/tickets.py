@@ -12,6 +12,8 @@ from django.http import Http404
 from django.utils import timezone
 
 import structlog
+from django_display_ids import decode_display_id
+from django_display_ids.contrib.rest_framework import DisplayIDField
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
@@ -167,11 +169,16 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    display_id = DisplayIDField(
+        help_text="Stripe-style human-readable identifier (e.g. `tkt_2aUyqjCzEIiEcYMKj7TZtw`). "
+        "Encodes the ticket UUID and can be used in place of it on detail endpoints."
+    )
 
     class Meta:
         model = Ticket
         fields = [
             "id",
+            "display_id",
             "ticket_number",
             "channel_source",
             "channel_detail",
@@ -207,6 +214,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "display_id",
             "ticket_number",
             "channel_source",
             "channel_detail",
@@ -396,13 +404,26 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
     def safely_get_object(self, queryset):
         """
-        Support looking up tickets by either UUID or ticket_number.
-        This allows URLs like /tickets/123/ (ticket_number) alongside /tickets/<uuid>/ for backward compatibility.
+        Support looking up tickets by display ID, UUID, or ticket_number.
+        This allows URLs like /tickets/tkt_2aUyqj.../ (display ID) and /tickets/123/ (ticket_number)
+        alongside /tickets/<uuid>/ for backward compatibility.
         """
         lookup_value: str | None = self.kwargs.get("pk")
 
         if not lookup_value:
             raise Http404("Ticket not found")
+
+        # Stripe-style display ID (e.g. "tkt_2aUyqj...") decodes back to the ticket UUID.
+        try:
+            prefix, ticket_uuid = decode_display_id(lookup_value)
+        except ValueError:
+            pass
+        else:
+            if prefix == Ticket.display_id_prefix:
+                try:
+                    return queryset.get(id=ticket_uuid)
+                except Ticket.DoesNotExist:
+                    raise Http404("Ticket not found")
 
         # Try to parse as UUID first
         try:

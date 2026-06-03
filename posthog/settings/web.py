@@ -110,6 +110,7 @@ INSTALLED_APPS = [
     "axes",
     "django_structlog",
     "drf_spectacular",
+    "django_display_ids",
     *PRODUCTS_APPS,
     "django_otp",
     "django_otp.plugins.otp_static",

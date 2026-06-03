@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 
+from django_display_ids import DisplayIDModel
+
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
@@ -31,7 +33,11 @@ class TicketManager(models.Manager):
             return self.create(**kwargs)
 
 
-class Ticket(UUIDTModel):
+class Ticket(DisplayIDModel, UUIDTModel):
+    # Stripe-style prefixed display ID (e.g. "tkt_2aUyqjCzEIiEcYMKj7TZtw"). Encodes the
+    # existing UUID `id` — no extra column, no migration. Exposed via `ticket.display_id`.
+    display_id_prefix = "tkt"
+
     objects = TicketManager()
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization

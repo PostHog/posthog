@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import (
     APIBaseTest,
@@ -15,6 +16,7 @@ from unittest.mock import patch
 from django.db import transaction
 from django.utils import timezone
 
+from django_display_ids import decode_display_id, encode_display_id
 from parameterized import parameterized, parameterized_class
 from rest_framework import status
 
@@ -94,6 +96,44 @@ class TestTicketAPI(APIBaseTest):
     def test_retrieve_ticket_invalid_identifier_returns_404(self, mock_on_commit):
         """Test that invalid identifier returns 404."""
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/invalid/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_response_includes_display_id(self, mock_on_commit):
+        """display_id is a Stripe-style prefixed encoding of the ticket UUID."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        display_id = response.json()["display_id"]
+        self.assertEqual(display_id, self.ticket.display_id)
+        self.assertTrue(display_id.startswith("tkt_"))
+        # It must round-trip back to the ticket's UUID.
+        _prefix, decoded_uuid = decode_display_id(display_id)
+        self.assertEqual(decoded_uuid, self.ticket.id)
+
+    def test_list_includes_display_id(self, mock_on_commit):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["display_id"], self.ticket.display_id)
+
+    def test_retrieve_ticket_by_display_id(self, mock_on_commit):
+        """Tickets resolve by their display ID just like by UUID or ticket_number."""
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.display_id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+
+    def test_retrieve_ticket_by_display_id_unknown_uuid_returns_404(self, mock_on_commit):
+        """A well-formed display ID whose UUID has no ticket returns 404, not a server error."""
+        display_id = encode_display_id("tkt", uuid4())
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{display_id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retrieve_ticket_by_display_id_wrong_prefix_returns_404(self, mock_on_commit):
+        """A display ID with another model's prefix is not treated as a ticket lookup."""
+        foreign_display_id = encode_display_id("cus", self.ticket.id)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{foreign_display_id}/"
+        )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update_ticket_by_ticket_number(self, mock_on_commit):
