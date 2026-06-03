@@ -59,6 +59,7 @@ the row lists both.
 | close         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit    | HTTP                        | requests                                                        | ✅                          |
 | convex        | HTTP                        | requests                                                        | ✅                          |
+| copper        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
 | drip          | HTTP                        | requests                                                        | ✅                          |
