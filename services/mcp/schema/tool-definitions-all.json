@@ -3574,7 +3574,7 @@
         }
     },
     "llma-skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get skill",
@@ -3588,7 +3588,7 @@
         }
     },
     "llma-skill-list": {
-        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content).",
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List skills",
