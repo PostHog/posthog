@@ -96,7 +96,7 @@ def _resolve_autostart_assignee(
         for u in User.objects.filter(
             id__in=candidate_user_ids,
             signal_autonomy_config__isnull=False,
-            teams__id=team_id,
+            organizations__teams=team_id,
         ).select_related("signal_autonomy_config")
     }
 
