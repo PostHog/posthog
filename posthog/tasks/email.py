@@ -12,6 +12,7 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
+
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
