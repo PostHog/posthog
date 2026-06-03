@@ -54,9 +54,11 @@ class RedisClusterConnectionFactory(ConnectionFactory):
 
     @tracer.start_as_current_span("redis_cluster.discovery")
     def _discover_cluster(self, url: str) -> RedisCluster:
-        # socket_keepalive keeps the long-lived pooled connections healthy across
-        # idle periods, so an LB/NAT idle-timeout can't silently drop them and
-        # force a reconnect (and fresh discovery) mid-request.
+        # socket_keepalive enables TCP keepalive on the long-lived pooled
+        # connections -- best-effort protection against an idle LB/NAT silently
+        # dropping them and forcing a reconnect (and fresh discovery) mid-request.
+        # With OS-default keepalive timing this isn't a hard guarantee; tune
+        # socket_keepalive_options below the real idle timeout if drops persist.
         return RedisCluster.from_url(url, socket_keepalive=True)
 
     def disconnect(self, connection) -> None:
