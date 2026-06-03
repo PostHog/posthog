@@ -19,6 +19,11 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+)
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
@@ -384,10 +389,22 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
     scope_object = "activity_log"
-    scope_object_read_actions = ["list", "retrieve", "available_filters", "export"]
+    scope_object_read_actions = ["list", "retrieve", "available_filters"]
     queryset = ActivityLog.objects.all()
     permission_classes = [PremiumFeaturePermission]
     premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
+
+    def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # `export` renders already-viewable activity-log data to a file, so a session user with
+        # viewer access (including read-only impersonation) may run it. Token auth (personal API
+        # keys, OAuth, ID-JAG) falls through to the default action mapping, where `export` is
+        # intentionally unlisted and therefore unsupported for programmatic access.
+        if view.action == "export" and not isinstance(
+            request.successful_authenticator,
+            (PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication, IDJagAccessTokenAuthentication),
+        ):
+            return [f"{self.scope_object}:read"]
+        return None
 
     def _should_skip_parents_filter(self) -> bool:
         """
