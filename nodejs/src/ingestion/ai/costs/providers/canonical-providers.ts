@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-01 21:10:02 UTC
+// Generated at: 2026-06-03 11:35:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -25,6 +25,7 @@ export type CanonicalProvider =
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
+    | 'azure-eu'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp4'

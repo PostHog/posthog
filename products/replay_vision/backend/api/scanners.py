@@ -66,8 +66,8 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     )
     scanner_config = serializers.JSONField(
         help_text=(
-            "Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, "
-            "scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag."
+            "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, "
+            "classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]

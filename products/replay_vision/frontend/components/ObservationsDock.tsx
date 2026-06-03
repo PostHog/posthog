@@ -6,18 +6,38 @@ import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { dayjs } from 'lib/dayjs'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
-import type { ReplayScannerApi } from '../generated/api.schemas'
+import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
 const DEFAULT_EXPANDED_HEIGHT = 480
 const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
+const QUOTA_WARN_THRESHOLD = 0.8
+
+// Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable buttons on metered orgs.
+function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
+    if (!quota || quota.monthly_quota <= 0) {
+        return {}
+    }
+    const resetsOn = dayjs(quota.period_end).format('MMM D')
+    if (quota.exhausted) {
+        return { disabledReason: `Monthly observation quota reached. Resets ${resetsOn}.` }
+    }
+    if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
+        return {
+            tooltip: `${quota.remaining.toLocaleString()} observations left this month (resets ${resetsOn})`,
+        }
+    }
+    return {}
+}
 
 export function ObservationsDock(): JSX.Element | null {
     const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
@@ -33,6 +53,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { scanners, filteredScanners, scannerSearch, scannerPickerOpen, observing } = useValues(logic)
     const { observe, setScannerSearch, setScannerPickerOpen } = useActions(logic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
 
     return (
         <LemonDropdown
@@ -84,6 +106,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 icon={<IconEye />}
                 sideIcon={<IconChevronDown />}
                 loading={observing}
+                disabledReason={quotaDisabledReason}
+                tooltip={quotaTooltip}
                 data-attr="vision-observe-recording"
             >
                 Scan this recording
@@ -153,7 +177,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : observations.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No observations yet. Pick a scanner to observe this recording.
+                            No observations yet. Pick a scanner to run on this recording.
                         </div>
                     ) : (
                         observations.map((observation) => (

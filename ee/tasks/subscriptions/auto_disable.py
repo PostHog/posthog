@@ -5,7 +5,8 @@ import structlog
 
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models.subscription import Subscription
+
+from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
