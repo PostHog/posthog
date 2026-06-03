@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { fullName } from 'lib/utils'
@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 
 const PREVIEW_MAX_CHARS = 200
@@ -21,23 +22,31 @@ function getPreview(notebook: AccountNotebookApi): string {
     return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}…` : collapsed
 }
 
-const USEFUL_LINKS: { label: string; to: string }[] = [
-    { label: 'Salesforce', to: 'https://www.salesforce.com' },
-    { label: 'HubSpot', to: 'https://www.hubspot.com' },
-    { label: 'Stripe', to: 'https://stripe.com' },
-    { label: 'Zendesk', to: 'https://www.zendesk.com' },
-    { label: 'Slack', to: 'https://slack.com' },
-]
-
-function UsefulLinks(): JSX.Element {
+function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
+    const { links, accountLoading } = useValues(accountLinksLogic({ accountId }))
     return (
         <div className="flex flex-col gap-1">
             <h4 className="secondary uppercase text-secondary mb-1">Useful links</h4>
-            {USEFUL_LINKS.map((link) => (
-                <Link key={link.label} to={link.to} target="_blank" className="text-sm">
-                    {link.label}
-                </Link>
-            ))}
+            {accountLoading ? (
+                <>
+                    <LemonSkeleton className="h-4 w-24" />
+                    <LemonSkeleton className="h-4 w-20" />
+                    <LemonSkeleton className="h-4 w-28" />
+                </>
+            ) : links.length > 0 ? (
+                links.map((link) => (
+                    <Link
+                        key={link.key}
+                        to={link.to}
+                        target={link.targetBlank ? '_blank' : undefined}
+                        className="text-sm"
+                    >
+                        {link.label}
+                    </Link>
+                ))
+            ) : (
+                <span className="text-muted text-sm italic">No links available</span>
+            )}
         </div>
     )
 }
@@ -99,7 +108,7 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
         <div className="sticky left-0 w-[100cqw] p-3 bg-bg-light">
             <div className="flex gap-4">
                 <div className="w-1/4">
-                    <UsefulLinks />
+                    <UsefulLinks accountId={accountId} />
                 </div>
                 <div className="flex-1 min-w-0">
                     <LemonTable<AccountNotebookApi>
