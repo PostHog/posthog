@@ -21,6 +21,7 @@ import {
     SCANNER_TYPE_OPTIONS,
     ScannerType,
     ReplayScanner,
+    createdByLabel,
     scannerFromApi,
     scannerToApiBody,
     scannersFromApi,
@@ -35,19 +36,16 @@ const ALL_SCANNER_TYPES: ScannerType[] = SCANNER_TYPE_OPTIONS.map((o) => o.value
 
 const csv = (values: string[]): string | undefined => (values.length > 0 ? values.join(',') : undefined)
 const splitCsv = (value: unknown): string[] =>
-    typeof value === 'string' && value.length > 0
-        ? value
+    // The router coerces a purely-numeric single param (e.g. `created_by=1`) to a number,
+    // so coerce back to a string before splitting rather than dropping it.
+    value === null || value === undefined || value === ''
+        ? []
+        : String(value)
               .split(',')
               .map((v) => v.trim())
               .filter(Boolean)
-        : []
 const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] =>
     splitCsv(value).filter((v): v is T => (allowed as readonly string[]).includes(v))
-
-const createdByLabel = (user: NonNullable<ReplayScanner['created_by']>): string => {
-    const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
-    return name || user.email || `User ${user.id}`
-}
 
 export const replayScannersLogic = kea<replayScannersLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
@@ -232,8 +230,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 search.trim().length > 0 || enabled.length > 0 || scannerTypes.length > 0 || createdBy.length > 0,
         ],
         createdByOptions: [
-            (s) => [s.scanners],
-            (scanners: ReplayScanner[]): { value: string; label: string }[] => {
+            (s) => [s.scanners, s.createdByFilter],
+            (scanners: ReplayScanner[], selectedIds: string[]): { value: string; label: string }[] => {
                 const byId = new Map<string, string>()
                 for (const scanner of scanners) {
                     if (scanner.created_by) {
@@ -241,6 +239,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                         if (!byId.has(id)) {
                             byId.set(id, createdByLabel(scanner.created_by))
                         }
+                    }
+                }
+                // Keep a selected creator visible (and so untickable) even when no loaded
+                // scanner has them — e.g. a shared URL or a refresh that dropped their scanners.
+                for (const id of selectedIds) {
+                    if (!byId.has(id)) {
+                        byId.set(id, `User ${id}`)
                     }
                 }
                 return Array.from(byId, ([value, label]) => ({ value, label })).sort((a, b) =>

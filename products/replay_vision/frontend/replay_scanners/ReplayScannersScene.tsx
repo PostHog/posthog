@@ -29,6 +29,7 @@ import {
     SCANNER_TYPE_TAG_TYPE,
     ScannerType,
     ReplayScanner,
+    createdByLabel,
     scannerTypeLabel,
 } from './types'
 
@@ -144,10 +145,7 @@ export function ReplayScannersScene(): JSX.Element {
                 ) : (
                     <span className="text-muted">—</span>
                 ),
-            sorter: (a, b) =>
-                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
-                    b.created_by?.first_name || b.created_by?.email || ''
-                ),
+            sorter: (a, b) => createdByLabel(a.created_by).localeCompare(createdByLabel(b.created_by)),
         },
         {
             title: 'Actions',
@@ -267,7 +265,7 @@ export function ReplayScannersScene(): JSX.Element {
                             value={scannerTypeFilter}
                             onChange={setScannerTypeFilter}
                         />
-                        <FilterPill
+                        <FilterPill<string>
                             label="Created by"
                             options={createdByOptions}
                             value={createdByFilter}
