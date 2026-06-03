@@ -11,7 +11,6 @@ from copy import copy
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
 
-import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
@@ -20,7 +19,27 @@ from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_po
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
-logger = dagster.get_dagster_logger("clickhouse")
+
+class _LazyDagsterLogger:
+    """Defer `import dagster` (~320ms) off this module's import. cluster.py loads very early at
+    django.setup() (via posthog.errors -> the clickhouse client), but the dagster logger is only
+    needed when a log call actually fires. get_dagster_logger() resolves the dagster run context at
+    emit time, so caching one instance here matches the previous module-level behavior — no change to
+    log routing inside dagster ops, just no dagster import for the web/migrate/shell/celery processes
+    that never log from here.
+    """
+
+    _logger = None
+
+    def __getattr__(self, name):
+        if _LazyDagsterLogger._logger is None:
+            import dagster  # noqa: PLC0415
+
+            _LazyDagsterLogger._logger = dagster.get_dagster_logger("clickhouse")
+        return getattr(_LazyDagsterLogger._logger, name)
+
+
+logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
