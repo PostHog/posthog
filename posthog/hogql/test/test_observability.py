@@ -36,7 +36,7 @@ class TestHogQLTypeObservability(SimpleTestCase):
     @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
     def test_sampling_returns_accumulator(self):
         stats = create_hogql_type_observability(dialect="clickhouse", source="sql_editor")
-        self.assertIsNotNone(stats)
+        assert stats is not None
         self.assertTrue(stats.sampled)
 
     def test_observability_failures_never_propagate(self):

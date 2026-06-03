@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from random import random
 from time import perf_counter
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, cast
 
 import structlog
 from prometheus_client import (
@@ -125,7 +125,7 @@ def _safe(fn: _F) -> _F:
             _log_observability_error(fn.__name__)
             return None
 
-    return wrapper  # ty: ignore[invalid-return-type]
+    return cast(_F, wrapper)
 
 
 _UNKNOWN_REASONS = {
