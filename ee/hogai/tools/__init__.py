@@ -2,7 +2,6 @@ from .call_mcp_server.tool import CallMCPServerTool
 from .create_form import CreateFormTool
 from .create_insight import CreateInsightTool
 from .create_notebook import CreateNotebookTool
-from .edit_notebook import EditNotebookTool
 
 # MCP tool imports trigger @mcp_tool_registry.register decorators
 from .execute_sql.mcp_tool import ExecuteSQLMCPTool  # noqa: F401
@@ -34,5 +33,4 @@ __all__ = [
     "CreateInsightTool",
     "UpsertDashboardTool",
     "CreateNotebookTool",
-    "EditNotebookTool",
 ]
