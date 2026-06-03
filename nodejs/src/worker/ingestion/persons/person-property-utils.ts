@@ -138,25 +138,6 @@ export function isInitialProperty(propertyName: string): boolean {
 
 export const eventToPersonProperties = new Set([...EVENT_TO_PERSON_PROPERTIES, ...CAMPAIGN_PROPERTIES])
 
-// $lib values of server SDKs, which auto-stamp the host $os/$os_version (not the user's device).
-export const SERVER_SIDE_LIBS = new Set([
-    'posthog-python',
-    'posthog-node',
-    'posthog-edge',
-    'posthog-server',
-    'posthog-go',
-    'posthog-ruby',
-    'posthog-php',
-    'posthog-java',
-    'posthog-dotnet',
-    'posthog-elixir',
-    'posthog-rs',
-])
-
-export function isServerSideLib(lib: unknown): boolean {
-    return typeof lib === 'string' && SERVER_SIDE_LIBS.has(lib)
-}
-
 export const initialCampaignParams = new Set(
     Array.from(CAMPAIGN_PROPERTIES, (key) => `$initial_${key.replace('$', '')}`)
 )

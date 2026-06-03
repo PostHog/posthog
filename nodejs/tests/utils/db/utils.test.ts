@@ -118,17 +118,17 @@ describe('personInitialAndUTMProperties()', () => {
             $set: { $os: 'Windows' },
         })
     })
-    it('does not lift device context from a server-side SDK, but keeps campaign params', () => {
-        // posthog-python on a Linux host stamps its own $os on every event. It must not reach
-        // $set or $set_once, or it permanently poisons $initial_os. utm is real attribution.
+    it('does not lift device context from an $is_server event, but keeps campaign params', () => {
+        // A server SDK (is_server: true) stamps its host $os; it must not reach $set/$set_once or
+        // it permanently poisons $initial_os. utm is real attribution and still flows through.
         const properties = {
-            $lib: 'posthog-python',
+            $is_server: true,
             $os: 'Linux',
             $os_version: '5.15.0',
             utm_source: 'newsletter',
         }
         expect(personInitialAndUTMProperties(properties)).toEqual({
-            $lib: 'posthog-python',
+            $is_server: true,
             $os: 'Linux',
             $os_version: '5.15.0',
             utm_source: 'newsletter',
@@ -136,20 +136,18 @@ describe('personInitialAndUTMProperties()', () => {
             $set_once: { $initial_utm_source: 'newsletter' },
         })
     })
-    it('does not let a server-side $os_name alias into $initial_os', () => {
-        const result = personInitialAndUTMProperties({ $lib: 'posthog-node', $os_name: 'Linux' })
+    it('does not let a server $os_name alias into $initial_os', () => {
+        const result = personInitialAndUTMProperties({ $is_server: true, $os_name: 'Linux' })
         expect((result.$set_once as Record<string, any> | undefined)?.$initial_os).toBeUndefined()
     })
     it.each([
-        ['client web lib', { $lib: 'web', $os: 'Linux' }, 'Linux'],
-        ['client mobile lib via $os_name', { $lib: 'posthog-ios', $os_name: 'iOS' }, 'iOS'],
-        ['unknown lib is treated as client', { $os: 'Linux' }, 'Linux'],
-        ['server python lib', { $lib: 'posthog-python', $os: 'Linux' }, undefined],
-        ['server node lib', { $lib: 'posthog-node', $os: 'Linux' }, undefined],
-        ['server go lib', { $lib: 'posthog-go', $os: 'Linux' }, undefined],
-        ['$is_server flag overrides a non-server lib', { $lib: 'web', $os: 'Linux', $is_server: true }, undefined],
-        ['$is_server flag with no lib', { $os: 'Linux', $is_server: true }, undefined],
-    ])('maps $os to $initial_os unless the event is from a server SDK: %s', (_desc, properties, expected) => {
+        ['client event maps $os', { $lib: 'web', $os: 'Linux' }, 'Linux'],
+        ['client mobile via $os_name', { $lib: 'posthog-ios', $os_name: 'iOS' }, 'iOS'],
+        ['no $is_server is treated as client', { $os: 'Linux' }, 'Linux'],
+        ['$is_server false is treated as client', { $os: 'Linux', $is_server: false }, 'Linux'],
+        ['$is_server true skips $os', { $os: 'Linux', $is_server: true }, undefined],
+        ['$is_server true skips regardless of lib', { $lib: 'web', $os: 'Linux', $is_server: true }, undefined],
+    ])('maps $os to $initial_os unless $is_server is true: %s', (_desc, properties, expected) => {
         const result = personInitialAndUTMProperties({ ...properties })
         const setOnce = result.$set_once as Record<string, any> | undefined
         const set = result.$set as Record<string, any> | undefined
