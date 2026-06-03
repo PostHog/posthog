@@ -341,7 +341,7 @@
             {
                 "type": "oauth",
                 "issuer": "posthog",
-                "scopes": ["agent_application:read", "agent_application:write", "agent_session:read"]
+                "scopes": ["agents:read", "agents:write", "agent_session:read"]
             },
             { "type": "pat" },
             { "type": "posthog_internal" }

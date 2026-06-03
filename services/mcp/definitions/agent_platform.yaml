@@ -22,7 +22,7 @@ tools:
         operation: agent_applications_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -36,7 +36,7 @@ tools:
         operation: agent_applications_destroy
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -50,7 +50,7 @@ tools:
         operation: agent_applications_env_keys_clear
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -64,7 +64,7 @@ tools:
         operation: agent_applications_env_keys_get
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -78,7 +78,7 @@ tools:
         operation: agent_applications_env_keys_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -92,7 +92,7 @@ tools:
         operation: agent_applications_env_keys_set
         enabled: false
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -108,7 +108,7 @@ tools:
         operation: agent_applications_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -121,7 +121,7 @@ tools:
         operation: agent_applications_partial_update
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -134,7 +134,7 @@ tools:
         operation: agent_applications_preview_proxy
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: false
             destructive: false
@@ -157,7 +157,7 @@ tools:
         operation: agent_applications_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -171,7 +171,7 @@ tools:
         operation: agent_applications_revisions_archive_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -184,7 +184,7 @@ tools:
         operation: agent_applications_revisions_bundle_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -197,7 +197,7 @@ tools:
         operation: agent_applications_revisions_bundle_update
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -211,7 +211,7 @@ tools:
         operation: agent_applications_revisions_clone_from_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -225,7 +225,7 @@ tools:
         operation: agent_applications_revisions_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -240,7 +240,7 @@ tools:
         operation: agent_applications_revisions_cron_fire_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -261,7 +261,7 @@ tools:
         operation: agent_applications_revisions_file_destroy
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -273,7 +273,7 @@ tools:
         operation: agent_applications_revisions_file_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -286,7 +286,7 @@ tools:
         operation: agent_applications_revisions_file_update
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -299,7 +299,7 @@ tools:
         operation: agent_applications_revisions_freeze_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -313,7 +313,7 @@ tools:
         operation: agent_applications_revisions_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -326,7 +326,7 @@ tools:
         operation: agent_applications_revisions_manifest_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -340,7 +340,7 @@ tools:
         operation: agent_applications_revisions_new_draft_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -354,7 +354,7 @@ tools:
         operation: agent_applications_revisions_partial_update
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -368,7 +368,7 @@ tools:
         operation: agent_applications_revisions_promote_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -382,7 +382,7 @@ tools:
         operation: agent_applications_revisions_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -396,7 +396,7 @@ tools:
         operation: agent_applications_revisions_system_prompt
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -415,7 +415,7 @@ tools:
         operation: agent_applications_revisions_validate_create
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -433,7 +433,7 @@ tools:
         operation: agent_applications_sessions_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -451,7 +451,7 @@ tools:
         operation: agent_applications_sessions_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -468,7 +468,7 @@ tools:
         operation: agent_applications_set_env_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -488,7 +488,7 @@ tools:
         operation: agent_custom_tool_templates_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -502,7 +502,7 @@ tools:
         operation: agent_custom_tool_templates_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -517,7 +517,7 @@ tools:
         operation: agent_custom_tool_templates_name_archive_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -530,7 +530,7 @@ tools:
         operation: agent_custom_tool_templates_name_duplicate_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -542,7 +542,7 @@ tools:
         operation: agent_custom_tool_templates_name_publish_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -556,7 +556,7 @@ tools:
         operation: agent_custom_tool_templates_name_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -569,7 +569,7 @@ tools:
         operation: agent_custom_tool_templates_name_usages_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -582,7 +582,7 @@ tools:
         operation: agent_custom_tool_templates_name_versions_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -621,7 +621,7 @@ tools:
         operation: agent_native_tools_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -636,7 +636,7 @@ tools:
         operation: agent_skill_templates_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -650,7 +650,7 @@ tools:
         operation: agent_skill_templates_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -665,7 +665,7 @@ tools:
         operation: agent_skill_templates_name_archive_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -678,7 +678,7 @@ tools:
         operation: agent_skill_templates_name_duplicate_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -692,7 +692,7 @@ tools:
         operation: agent_skill_templates_name_files_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -705,7 +705,7 @@ tools:
         operation: agent_skill_templates_name_files_destroy
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: true
@@ -718,7 +718,7 @@ tools:
         operation: agent_skill_templates_name_files_rename_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -731,7 +731,7 @@ tools:
         operation: agent_skill_templates_name_publish_create
         enabled: true
         scopes:
-            - agent_application:write
+            - agents:write
         annotations:
             readOnly: false
             destructive: false
@@ -745,7 +745,7 @@ tools:
         operation: agent_skill_templates_name_retrieve
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -758,7 +758,7 @@ tools:
         operation: agent_skill_templates_name_usages_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
@@ -772,7 +772,7 @@ tools:
         operation: agent_skill_templates_name_versions_list
         enabled: true
         scopes:
-            - agent_application:read
+            - agents:read
         annotations:
             readOnly: true
             destructive: false
