@@ -1,0 +1,85 @@
+name: CI Fail-Fast
+
+# When a required CI workflow concludes in failure on a PR, cancel the sibling CI
+# runs still in flight for the same commit. A tainted run is rarely salvaged by
+# re-running just the failed check — the usual next step is a new push, which
+# re-runs everything anyway — so finishing the rest burns runner minutes for a
+# result nobody reads.
+#
+# Gated by the CI_FAIL_FAST repository variable (Settings -> Secrets and variables
+# -> Actions -> Variables). `vars` is not available in `on:`, so the trigger always
+# fires and the job `if:` does the gating (one skipped job per failure when off):
+#   unset / "off" -> job skipped, no-op
+#   "dry"         -> log what WOULD be cancelled, cancel nothing (safe rollout)
+#   "on"          -> actually cancel
+#
+# Optional: set the CI_FAIL_FAST_SLACK_CHANNEL variable to mirror each action to a
+# Slack channel (silent if unset).
+#
+# The workflow_run.workflows trigger and CANCELLABLE_WORKFLOWS must stay in sync,
+# and both mirror REQUIRED_WORKFLOWS in ci-master-status.yml (the canonical
+# required-CI set).
+
+on:
+    workflow_run:
+        workflows:
+            - 'Backend CI'
+            - 'Node.js CI'
+            - 'Frontend CI'
+            - 'Storybook'
+            - 'Security'
+            - 'Dagster CI'
+            - 'E2E CI Playwright'
+            - 'Rust CI'
+            - 'LLM Services CI'
+        types: [completed]
+
+permissions:
+    contents: read
+    actions: write # cancel sibling runs
+
+env:
+    # Keep in sync with the workflow_run.workflows trigger above and with
+    # REQUIRED_WORKFLOWS in ci-master-status.yml.
+    CANCELLABLE_WORKFLOWS: '["Backend CI","Node.js CI","Frontend CI","Storybook","Security","Dagster CI","E2E CI Playwright","Rust CI","LLM Services CI"]'
+
+jobs:
+    cancel-siblings:
+        name: Cancel tainted sibling CI runs
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # Only on PR failures, never master/push (which share no cancel intent), and
+        # only when the toggle is dry or on. `cancelled` never matches, so our own
+        # cancellations cannot cascade.
+        if: >-
+            ${{ (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out')
+                && github.event.workflow_run.event == 'pull_request'
+                && (vars.CI_FAIL_FAST == 'dry' || vars.CI_FAIL_FAST == 'on') }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Only the cancel script is needed — skip the rest of the monorepo.
+                  sparse-checkout: .github/scripts/ci-fail-fast.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Cancel sibling runs
+              id: cancel
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  CI_FAIL_FAST_MODE: ${{ vars.CI_FAIL_FAST }}
+                  CI_FAIL_FAST_ALLOWLIST: ${{ env.CANCELLABLE_WORKFLOWS }}
+              with:
+                  script: |
+                      const run = require('./.github/scripts/ci-fail-fast.js')
+                      await run({ github, context, core })
+
+            # Optional visibility — silent unless CI_FAIL_FAST_SLACK_CHANNEL is set.
+            - name: Notify Slack
+              if: steps.cancel.outputs.summary != '' && vars.CI_FAIL_FAST_SLACK_CHANNEL != ''
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ vars.CI_FAIL_FAST_SLACK_CHANNEL }}"
+                      text: "${{ steps.cancel.outputs.summary }}"

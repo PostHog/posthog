@@ -48,3 +48,6 @@ jobs:
 
             - name: Master CI alerts tests (Node)
               run: node --test .github/scripts/ci-alerts-devex.test.js
+
+            - name: CI fail-fast tests (Node)
+              run: node --test .github/scripts/ci-fail-fast.test.js
