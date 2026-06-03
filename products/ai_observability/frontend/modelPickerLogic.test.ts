@@ -120,6 +120,7 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
+                    '/api/llm_proxy/models/': () => [200, []],
                 },
             })
 
@@ -244,6 +245,7 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
+                    '/api/llm_proxy/models/': () => [200, []],
                 },
             })
 
@@ -263,6 +265,7 @@ describe('modelPickerLogic', () => {
                     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
+                    '/api/llm_proxy/models/': () => [200, []],
                 },
             })
 
