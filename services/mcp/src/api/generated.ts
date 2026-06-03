@@ -34275,11 +34275,11 @@ export namespace Schemas {
       subject: string;
       /** The fully rendered, CSS-inlined HTML body of the invite email. Safe to display in a sandboxed iframe. */
       html: string;
-      /** The interview link shown in the previewed email body. */
+      /** An illustrative placeholder interview link shown in the previewed email body. The preview never exposes a real per-recipient share token — that link is minted only when invites are sent. */
       interview_url: string;
       /** True if this interviewee has an email address and could actually receive the invite. */
       emailable: boolean;
-      /** True if interview_url is an illustrative placeholder because no share link exists yet — a real per-recipient link is minted when invites are sent. */
+      /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
     }
 

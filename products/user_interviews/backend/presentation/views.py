@@ -938,16 +938,16 @@ class PreviewInviteResultSerializer(serializers.Serializer):
         help_text="The fully rendered, CSS-inlined HTML body of the invite email. Safe to display in a sandboxed iframe.",
     )
     interview_url = serializers.URLField(
-        help_text="The interview link shown in the previewed email body.",
+        help_text=(
+            "An illustrative placeholder interview link shown in the previewed email body. The preview "
+            "never exposes a real per-recipient share token — that link is minted only when invites are sent."
+        ),
     )
     emailable = serializers.BooleanField(
         help_text="True if this interviewee has an email address and could actually receive the invite.",
     )
     is_preview_link = serializers.BooleanField(
-        help_text=(
-            "True if interview_url is an illustrative placeholder because no share link exists yet — "
-            "a real per-recipient link is minted when invites are sent."
-        ),
+        help_text="Always true — the previewed interview_url is an illustrative placeholder, never a live link.",
     )
 
 
@@ -973,8 +973,12 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "test_link",
     ]
     # preview_invite is a POST (body carries the identifier, keeping emails out of query-string logs)
-    # but renders read-only with no side effects, so it maps to the read scope.
+    # but renders read-only with no side effects, so it maps to the read scope. Keep the default read
+    # actions (list/retrieve) — this list REPLACES the default, so omitting them would drop read-scope
+    # access for token-authenticated list/retrieve.
     scope_object_read_actions = [
+        "list",
+        "retrieve",
         "preview_invite",
     ]
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
@@ -1197,15 +1201,14 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         topic = self.get_object()
         payload = resolve_invite_preview(
             topic=topic,
-            team=self.team,
             interviewee_identifier=params.validated_data.get("interviewee_identifier") or "",
         )
         if payload is None:
             return response.Response(
                 {
                     "error": (
-                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
-                        "Add them before previewing an invite."
+                        "Topic has no targeted interviewees, or the given interviewee_identifier is not "
+                        "one of this topic's interviewee_emails / interviewee_distinct_ids."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,

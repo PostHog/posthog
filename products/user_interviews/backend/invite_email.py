@@ -1,9 +1,7 @@
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Q
 from django.template.loader import get_template
-from django.utils import timezone
 
 from rest_framework import serializers
 
@@ -15,8 +13,6 @@ from posthog.helpers.email_utils import (
     validate_display_name,
     validate_message_body,
 )
-from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.team import Team
 from posthog.utils import absolute_uri
 
 from .logic import parse_interviewee_identifier
@@ -103,47 +99,35 @@ def render_invite_email_html(
     return {"subject": built["subject"], "html": html}
 
 
-def _first_targeted_identifier(topic: UserInterviewTopic) -> str:
-    targets = [*(topic.interviewee_emails or []), *(topic.interviewee_distinct_ids or [])]
-    return next((t.strip() for t in targets if t and t.strip()), "")
+def _targeted_identifiers(topic: UserInterviewTopic) -> list[str]:
+    return [
+        raw.strip()
+        for raw in [*(topic.interviewee_emails or []), *(topic.interviewee_distinct_ids or [])]
+        if raw and raw.strip()
+    ]
 
 
 def resolve_invite_preview(
     *,
     topic: UserInterviewTopic,
-    team: Team,
     interviewee_identifier: str = "",
 ) -> dict[str, Any] | None:
     """Render an invite-email preview for one targeted interviewee. Defaults to the first targeted
-    interviewee when none is given. Returns None when the topic targets nobody yet.
+    interviewee when none is given. Returns None when the topic targets nobody, or when a specific
+    interviewee_identifier is given that the topic does not target.
 
-    Read-only: reuses an existing enabled share link if one exists, otherwise shows an illustrative
-    placeholder link. Never creates IntervieweeContext / SharingConfiguration rows — a real
-    per-recipient link is minted only when invites are actually sent.
+    Read-only and never exposes a live interview link: the previewed body always shows an illustrative
+    placeholder URL. The real per-recipient share token is minted only when invites are actually sent,
+    so a read-scoped caller can't harvest working interview links through the preview.
     """
-    identifier = (interviewee_identifier or "").strip() or _first_targeted_identifier(topic)
-    if not identifier:
+    targets = _targeted_identifiers(topic)
+    requested = (interviewee_identifier or "").strip()
+    identifier = requested or (targets[0] if targets else "")
+    if not identifier or (requested and requested not in targets):
         return None
 
     identity = parse_interviewee_identifier(identifier)
-    sharing_config = (
-        SharingConfiguration.objects.filter(
-            team=team,
-            interviewee_context__topic=topic,
-            interviewee_context__interviewee_identifier=identifier,
-            enabled=True,
-        )
-        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
-        .order_by("-created_at")
-        .first()
-    )
-    is_preview_link = sharing_config is None
-    interview_url = (
-        absolute_uri(f"/interview/{sharing_config.access_token}")
-        if sharing_config
-        else absolute_uri(PREVIEW_PLACEHOLDER_PATH)
-    )
-
+    interview_url = absolute_uri(PREVIEW_PLACEHOLDER_PATH)
     rendered = render_invite_email_html(topic=topic, user_name=identity.display_name, interview_url=interview_url)
     return {
         "interviewee_identifier": identifier,
@@ -153,5 +137,5 @@ def resolve_invite_preview(
         "html": rendered["html"],
         "interview_url": interview_url,
         "emailable": identity.email is not None,
-        "is_preview_link": is_preview_link,
+        "is_preview_link": True,
     }

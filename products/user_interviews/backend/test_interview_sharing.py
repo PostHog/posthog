@@ -1306,17 +1306,18 @@ class TestPreviewInterviewInvite(_FeatureFlagEnabledMixin):
         assert body["emailable"] is True
         assert "Got a sec?" in body["html"]
 
-    def test_preview_falls_back_to_default_copy_for_blank_message(self):
-        topic = self._create_topic(invite_message="")
+    @parameterized.expand(
+        [
+            ("blank_message", ""),
+            ("unsafe_stored_brackets", "<script>alert(1)</script>"),
+        ]
+    )
+    def test_preview_falls_back_to_default_copy(self, _name: str, invite_message: str):
+        topic = self._create_topic(invite_message=invite_message)
         body = self.client.post(self._url(str(topic.id)), data={}, format="json").json()
         assert "AI interviewer" in body["html"]
-        assert "Got 5 minutes to talk about Session replay adoption?" == body["subject"]
-
-    def test_preview_sanitizes_unsafe_stored_message(self):
-        topic = self._create_topic(invite_message="<script>alert(1)</script>")
-        body = self.client.post(self._url(str(topic.id)), data={}, format="json").json()
         assert "<script>" not in body["html"]
-        assert "AI interviewer" in body["html"]
+        assert body["subject"] == "Got 5 minutes to talk about Session replay adoption?"
 
     def test_preview_for_distinct_id_only_identifier_is_not_emailable(self):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=["distinct-123"])
@@ -1337,7 +1338,8 @@ class TestPreviewInterviewInvite(_FeatureFlagEnabledMixin):
         assert IntervieweeContext.objects.count() == before_ic
         assert SharingConfiguration.objects.count() == before_sc
 
-    def test_preview_reuses_existing_share_link(self):
+    def test_preview_never_exposes_live_share_token(self):
+        # A read-scoped preview must not leak a working interview link even when one exists.
         topic = self._create_topic()
         ic = IntervieweeContext.objects.create(
             team=self.team,
@@ -1348,12 +1350,20 @@ class TestPreviewInterviewInvite(_FeatureFlagEnabledMixin):
         )
         share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
         body = self.client.post(self._url(str(topic.id)), data={}, format="json").json()
-        assert body["is_preview_link"] is False
-        assert share.access_token in body["interview_url"]
+        assert share.access_token not in body["interview_url"]
+        assert "/interview/preview" in body["interview_url"]
+        assert body["is_preview_link"] is True
 
     def test_preview_400_when_topic_has_no_identifiers(self):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         response = self.client.post(self._url(str(topic.id)), data={}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_preview_400_for_non_targeted_identifier(self):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        response = self.client.post(
+            self._url(str(topic.id)), data={"interviewee_identifier": "bob@example.com"}, format="json"
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
