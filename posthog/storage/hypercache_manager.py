@@ -63,6 +63,7 @@ HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
 
 def push_hypercache_stats_metrics(
     namespace: str,
+    cache_name: str,
     coverage_percent: float,
     entries_total: int,
     expiry_tracked_total: int,
@@ -74,8 +75,15 @@ def push_hypercache_stats_metrics(
     Gauge metrics are pushed to Pushgateway instead of using module-level gauges
     to ensure only one value per metric appears in Grafana dashboards.
 
+    Multiple caches can share a namespace (e.g. the team_metadata cache and the
+    llm_gateway_policy cache both live under namespace="team_metadata"), so
+    metrics are labeled and grouped by cache_name as well — otherwise the two
+    caches collide on a single {namespace} series and overwrite each other's
+    coverage/size values.
+
     Args:
         namespace: The HyperCache namespace (e.g., "feature_flags", "team_metadata")
+        cache_name: The canonical cache name (e.g., "team_metadata", "llm_gateway_policy")
         coverage_percent: Percentage of teams with cached data
         entries_total: Total number of entries in the HyperCache
         expiry_tracked_total: Number of entries tracked in the expiry sorted set
@@ -84,46 +92,38 @@ def push_hypercache_stats_metrics(
     if not settings.PROM_PUSHGATEWAY_ADDRESS:
         return
 
+    # (namespace, cache_name) must be unique per cache — caches sharing a namespace
+    # rely on cache_name to keep their series and Pushgateway groups distinct.
+    gauges = [
+        ("posthog_hypercache_coverage_percent", "Percentage of teams with cached data", coverage_percent),
+        ("posthog_hypercache_entries_total", "Total number of entries in the HyperCache", entries_total),
+        (
+            "posthog_hypercache_expiry_tracked_total",
+            "Number of entries tracked in the expiry sorted set",
+            expiry_tracked_total,
+        ),
+        ("posthog_hypercache_size_bytes", "Estimated total cache size in bytes", size_bytes),
+    ]
+
     try:
-        with pushed_metrics_registry(f"hypercache_stats_{namespace}") as registry:
-            coverage_gauge = Gauge(
-                "posthog_hypercache_coverage_percent",
-                "Percentage of teams with cached data",
-                labelnames=["namespace"],
-                registry=registry,
-            )
-            coverage_gauge.labels(namespace=namespace).set(coverage_percent)
-
-            entries_gauge = Gauge(
-                "posthog_hypercache_entries_total",
-                "Total number of entries in the HyperCache",
-                labelnames=["namespace"],
-                registry=registry,
-            )
-            entries_gauge.labels(namespace=namespace).set(entries_total)
-
-            expiry_tracked_gauge = Gauge(
-                "posthog_hypercache_expiry_tracked_total",
-                "Number of entries tracked in the expiry sorted set",
-                labelnames=["namespace"],
-                registry=registry,
-            )
-            expiry_tracked_gauge.labels(namespace=namespace).set(expiry_tracked_total)
-
-            if size_bytes is not None:
-                size_gauge = Gauge(
-                    "posthog_hypercache_size_bytes",
-                    "Estimated total cache size in bytes",
-                    labelnames=["namespace"],
-                    registry=registry,
-                )
-                size_gauge.labels(namespace=namespace).set(size_bytes)
+        with pushed_metrics_registry(f"hypercache_stats_{namespace}_{cache_name}") as registry:
+            for name, description, value in gauges:
+                if value is None:
+                    continue
+                gauge = Gauge(name, description, labelnames=["namespace", "cache_name"], registry=registry)
+                gauge.labels(namespace=namespace, cache_name=cache_name).set(value)
     except Exception as e:
-        logger.warning("Failed to push hypercache stats to Pushgateway", error=str(e), namespace=namespace)
+        logger.warning(
+            "Failed to push hypercache stats to Pushgateway",
+            error=str(e),
+            namespace=namespace,
+            cache_name=cache_name,
+        )
 
 
 def push_hypercache_teams_processed_metrics(
     namespace: str,
+    cache_name: str,
     successful: int,
     failed: int,
 ) -> None:
@@ -134,8 +134,12 @@ def push_hypercache_teams_processed_metrics(
     (they reset on each push). Gauges show the count from the most recent batch run,
     which is the relevant information for an hourly task.
 
+    Labeled and grouped by cache_name in addition to namespace so caches sharing a
+    namespace don't overwrite each other's series (see push_hypercache_stats_metrics).
+
     Args:
         namespace: The HyperCache namespace (e.g., "feature_flags", "team_metadata")
+        cache_name: The canonical cache name (e.g., "team_metadata", "llm_gateway_policy")
         successful: Number of teams successfully processed
         failed: Number of teams that failed processing
     """
@@ -143,17 +147,22 @@ def push_hypercache_teams_processed_metrics(
         return
 
     try:
-        with pushed_metrics_registry(f"hypercache_teams_processed_{namespace}") as registry:
+        with pushed_metrics_registry(f"hypercache_teams_processed_{namespace}_{cache_name}") as registry:
             success_gauge = Gauge(
                 "posthog_hypercache_teams_processed_last_run",
                 "Teams processed in the last batch refresh run",
-                labelnames=["namespace", "result"],
+                labelnames=["namespace", "cache_name", "result"],
                 registry=registry,
             )
-            success_gauge.labels(namespace=namespace, result="success").set(successful)
-            success_gauge.labels(namespace=namespace, result="failure").set(failed)
+            success_gauge.labels(namespace=namespace, cache_name=cache_name, result="success").set(successful)
+            success_gauge.labels(namespace=namespace, cache_name=cache_name, result="failure").set(failed)
     except Exception as e:
-        logger.warning("Failed to push hypercache teams processed to Pushgateway", error=str(e), namespace=namespace)
+        logger.warning(
+            "Failed to push hypercache teams processed to Pushgateway",
+            error=str(e),
+            namespace=namespace,
+            cache_name=cache_name,
+        )
 
 
 class UpdateFn(Protocol):
@@ -523,6 +532,7 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         # Push metrics to Pushgateway for single-value display in Grafana
         push_hypercache_stats_metrics(
             namespace=config.namespace,
+            cache_name=config.cache_name,
             coverage_percent=coverage_percent,
             entries_total=total_keys,
             expiry_tracked_total=expiry_tracked_count,
