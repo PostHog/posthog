@@ -147,6 +147,8 @@ describe('personInitialAndUTMProperties()', () => {
         ['server python lib', { $lib: 'posthog-python', $os: 'Linux' }, undefined],
         ['server node lib', { $lib: 'posthog-node', $os: 'Linux' }, undefined],
         ['server go lib', { $lib: 'posthog-go', $os: 'Linux' }, undefined],
+        ['$is_server flag overrides a non-server lib', { $lib: 'web', $os: 'Linux', $is_server: true }, undefined],
+        ['$is_server flag with no lib', { $os: 'Linux', $is_server: true }, undefined],
     ])('maps $os to $initial_os unless the event is from a server SDK: %s', (_desc, properties, expected) => {
         const result = personInitialAndUTMProperties({ ...properties })
         const setOnce = result.$set_once as Record<string, any> | undefined

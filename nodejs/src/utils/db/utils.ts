@@ -66,8 +66,10 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     let $set: Record<string, any> | undefined
     let $set_once: Record<string, any> | undefined
 
-    // Don't lift a server SDK's host $os/$os_version onto the person (poisons sticky $initial_os).
-    const skipServerHostOs = isServerSideLib(properties.$lib)
+    // Don't lift a server's host $os/$os_version onto the person (poisons sticky $initial_os).
+    // Prefer the SDK's explicit $is_server flag; fall back to the $lib allowlist for SDK versions
+    // in the field that don't emit it yet (removable once $is_server is widespread).
+    const skipServerHostOs = properties.$is_server === true || isServerSideLib(properties.$lib)
 
     for (const key of eventToPersonProperties) {
         if (!(key in properties)) {
