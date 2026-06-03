@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
@@ -55,3 +57,22 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
         data = ExperimentMetricsRecalculationSerializer(recalc).data
         assert data["metric_errors"] == {"m1": {"step": "calculation", "message": "boom"}}
         assert "errors" not in data
+
+    @parameterized.expand(
+        [
+            ("explicit_true", True),
+            ("explicit_false", False),
+        ]
+    )
+    def test_is_existing_round_trips_when_set(self, name: str, value: bool):
+        # is_existing is required=False; when the caller populates it, it must round-trip with that value.
+        data = ExperimentMetricsRecalculationSerializer({"is_existing": value}).data
+        assert data["is_existing"] is value
+
+    def test_is_existing_omitted_when_absent_from_instance(self):
+        # required=False + no default means Field.get_attribute() raises SkipField() for missing attributes,
+        # and the field disappears from the output entirely (rather than serializing as None). Pins the
+        # contract so a future refactor — adding default=, switching to ModelSerializer, flipping required —
+        # can't silently start emitting is_existing on payloads that never asked for it.
+        data = ExperimentMetricsRecalculationSerializer({}).data
+        assert "is_existing" not in data
