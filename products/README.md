@@ -160,7 +160,7 @@ The lint command validates:
   - Register the backend as a Django app with an `AppConfig` that sets `label = "<name>"` (not `products.<name>`).
   - Modify `posthog/settings/web.py` and add your new product under `PRODUCTS_APPS`.
   - Modify `tach.toml` and add a new block for your product. We use `tach` to track cross-dependencies between python apps.
-  - Modify `posthog/api/__init__.py` and add your API routes as you normally would (e.g. `import products.early_access_features.backend.api as early_access_feature`)
+  - Add your API routes in `backend/routes.py` with a `register_routes(routers)` function (e.g. `routers.projects.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])`), then wire it up in `posthog/api/__init__.py` with `from products.<name>.backend.routes import register_routes as register_<name>_routes` and a `register_<name>_routes(routers)` call. See `posthog/api/routing.py:RouterRegistry` for the available router handles (`projects`/`environments`/`organizations`/`root`).
   - NOTE: we will automate some of these steps in the future, but for now, please do them manually.
 
 ## Adding or moving backend models and migrations
