@@ -103,7 +103,7 @@ registers the four parents (`root` + `projects`/`environments`/`organizations`)
 first, then runs the discovery loop. Products only nest onto those parents and
 never onto each other, so discovery order is irrelevant. The registration is kept
 eager (it runs when `posthog.api` is first imported, i.e. on the first request) and
-deliberately *not* moved into `AppConfig.ready()`: `ready()` runs inside
+deliberately _not_ moved into `AppConfig.ready()`: `ready()` runs inside
 `django.setup()` in every process, and registering a route imports its viewset, so
 that would pull the whole API into `setup()` everywhere — regressing the laziness
 that keeps the API out of Celery workers and management commands. See the
