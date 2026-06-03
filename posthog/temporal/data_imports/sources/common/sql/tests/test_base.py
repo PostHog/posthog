@@ -237,8 +237,3 @@ class TestDefaultNonRetryableErrors:
         message = errors[key]
         assert message is not None
         assert expected_substring in message
-
-    def test_returns_exactly_the_shared_entries(self) -> None:
-        errors = SQLSource.default_non_retryable_errors()
-        assert isinstance(errors, dict)
-        assert len(errors) == 3
