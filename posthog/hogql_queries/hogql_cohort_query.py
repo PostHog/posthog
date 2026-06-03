@@ -68,12 +68,12 @@ def validate_interval(interval: Optional[OperatorInterval]) -> OperatorInterval:
         return interval
 
 
-def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -> int:
+def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_name: str) -> int:
     if value is None:
         raise ValueError(f"{value_name} cannot be None")
     try:
         parsed_value = int(value)
-    except ValueError:
+    except (ValueError, TypeError):
         raise ValueError(f"{value_name} must be an integer, got {value}")
     if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")
@@ -529,25 +529,33 @@ class HogQLCohortQuery:
         return query_runner.to_query()
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort = Cohort.objects.get(pk=cast(int, prop.value), team__project_id=self.team.project_id)
+        # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
+        # prop.value is normally a cohort pk, but an internal cohort property smuggled through the
+        # unvalidated legacy `groups` field could carry an arbitrary string; binding it (rather than
+        # interpolating into parse_select) keeps it out of the query structure.
+        if isinstance(prop.value, list):
+            raise ValueError(f"cohort id must be an integer, got {prop.value}")
+        cohort = Cohort.objects.get(
+            pk=parse_and_validate_positive_integer(prop.value, "cohort id"), team__project_id=self.team.project_id
+        )
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
+                "SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
+                {"cohort_id": ast.Constant(value=cohort.pk), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )
 
     def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort_id = cast(int, prop.value)
-
+        # See get_static_cohort_condition: convert + bind so a non-int value can't alter the query.
+        if isinstance(prop.value, list):
+            raise ValueError(f"cohort id must be an integer, got {prop.value}")
+        cohort_id = parse_and_validate_positive_integer(prop.value, "cohort id")
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"""
-                SELECT person_id as id FROM cohort_people
-                WHERE cohort_id = {cohort_id}
-                AND team_id = {self.team.pk}
-                """,
+                "SELECT person_id as id FROM cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
+                {"cohort_id": ast.Constant(value=cohort_id), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )
 
