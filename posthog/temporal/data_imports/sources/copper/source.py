@@ -91,7 +91,6 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
             name=SchemaExternalDataSourceType.COPPER,
             label="Copper",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Sync your Copper CRM data into the PostHog Data warehouse.
 
 Generate an API key in Copper under **Settings → Integrations → API Keys**. The email below must be the email of the user the API key belongs to.""",

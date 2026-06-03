@@ -29,7 +29,7 @@ class TestCopperSource:
         config = self.source.get_source_config
 
         assert config.label == "Copper"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.releaseStatus == "alpha"
 
         fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
