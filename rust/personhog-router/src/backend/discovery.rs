@@ -158,24 +158,35 @@ impl EndpointDiscovery {
     ) {
         match event {
             Event::Apply(slice) | Event::InitApply(slice) => {
-                let slice_name = slice
+                let slice_key = slice
                     .metadata
                     .name
                     .clone()
+                    .or_else(|| slice.metadata.uid.clone())
                     .unwrap_or_else(|| "unknown".to_string());
                 let new_addrs = extract_ready_addrs(&slice, self.port);
-                slices.insert(slice_name, new_addrs);
+                slices.insert(slice_key, new_addrs);
                 self.sync_active(slices, active_addrs).await;
             }
             Event::Delete(slice) => {
-                let slice_name = slice.metadata.name.unwrap_or_else(|| "unknown".to_string());
-                slices.remove(&slice_name);
+                let slice_key = slice
+                    .metadata
+                    .name
+                    .or_else(|| slice.metadata.uid.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+                slices.remove(&slice_key);
                 self.sync_active(slices, active_addrs).await;
             }
             Event::Init => {
                 slices.clear();
                 for addr in active_addrs.drain() {
-                    drop(self.tx.send(Change::Remove(addr)).await);
+                    if self.tx.send(Change::Remove(addr)).await.is_ok() {
+                        metrics::counter!(
+                            "personhog_router_discovery_updates_total",
+                            "action" => "remove"
+                        )
+                        .increment(1);
+                    }
                 }
                 metrics::gauge!("personhog_router_discovery_endpoints_active").set(0.0);
             }
@@ -768,8 +779,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_event_apply_slice_without_name_uses_unknown_key() {
-        // Unnamed slices don't crash and use the "unknown" fallback key.
+    async fn handle_event_apply_slice_without_name_falls_back_to_uid() {
         let (tx, mut rx) = mpsc::channel(64);
         let discovery = EndpointDiscovery::new_for_test(50051, tx);
 
@@ -781,6 +791,37 @@ mod tests {
             vec![make_endpoint_with_conditions(vec!["10.0.0.1"], Some(true))],
         );
         slice.metadata.name = None;
+        slice.metadata.uid = Some("abc-123".to_string());
+
+        discovery
+            .handle_event(Event::Apply(slice), &mut slices, &mut active)
+            .await;
+
+        assert!(
+            slices.contains_key("abc-123"),
+            "unnamed slice stored under UID key"
+        );
+        let changes = drain_changes(&mut rx);
+        assert!(
+            !inserted_addrs(&changes).is_empty(),
+            "addr is still inserted"
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_event_apply_slice_without_name_or_uid_uses_unknown() {
+        let (tx, mut rx) = mpsc::channel(64);
+        let discovery = EndpointDiscovery::new_for_test(50051, tx);
+
+        let mut slices = HashMap::new();
+        let mut active = HashSet::new();
+
+        let mut slice = make_slice(
+            "s1",
+            vec![make_endpoint_with_conditions(vec!["10.0.0.1"], Some(true))],
+        );
+        slice.metadata.name = None;
+        slice.metadata.uid = None;
 
         discovery
             .handle_event(Event::Apply(slice), &mut slices, &mut active)
@@ -788,7 +829,7 @@ mod tests {
 
         assert!(
             slices.contains_key("unknown"),
-            "unnamed slice stored under 'unknown' key"
+            "slice with no name or UID stored under 'unknown' key"
         );
         let changes = drain_changes(&mut rx);
         assert!(
