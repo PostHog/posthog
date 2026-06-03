@@ -818,10 +818,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
         new_status: str = serializer.validated_data["status"]
 
-        tickets = list(self.get_queryset().filter(id__in=ticket_ids))
-
         changed: list[tuple[Ticket, str]] = []
         with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
             for ticket in tickets:
                 old_status = ticket.status
                 if old_status == new_status:
@@ -830,24 +829,26 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 ticket.save(update_fields=["status", "updated_at"])
                 changed.append((ticket, old_status))
 
-        # Side effects after commit
-        if any(old == "resolved" or new_status == "resolved" for _, old in changed):
-            invalidate_unread_count_cache(self.team_id)
+        def _emit_bulk_side_effects() -> None:
+            if any(old == "resolved" or new_status == "resolved" for _, old in changed):
+                invalidate_unread_count_cache(self.team_id)
 
-        for ticket, old_status in changed:
-            self._emit_status_change_side_effects(request, ticket, old_status, new_status)
+            for ticket, old_status in changed:
+                self._emit_status_change_side_effects(request, ticket, old_status, new_status)
 
-        if changed:
-            try:
-                report_user_action(
-                    request.user,
-                    "support tickets bulk status updated",
-                    {"count": len(changed), "ticket_status": new_status},
-                    team=self.team,
-                    request=request,
-                )
-            except Exception as e:
-                capture_exception(e, {"team_id": self.team_id})
+            if changed:
+                try:
+                    report_user_action(
+                        request.user,
+                        "support tickets bulk status updated",
+                        {"count": len(changed), "ticket_status": new_status},
+                        team=self.team,
+                        request=request,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
+
+        transaction.on_commit(_emit_bulk_side_effects)
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
