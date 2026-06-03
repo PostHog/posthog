@@ -35,6 +35,11 @@ class RedisClusterConnectionFactory(ConnectionFactory):
     request thread would re-run discovery. Class-level state is shared across all
     instances, so discovery runs once per process and the post-fork prewarm
     populates the same client the request threads read.
+
+    This relies on the client being long-lived: do not enable CLOSE_CONNECTION
+    on the query_cache alias. django_redis closes connections per request when
+    it is set, which would tear down and rediscover the shared client on every
+    request -- the exact per-request discovery this class exists to avoid.
     """
 
     # Class scope (process-global), not per-instance -- see the class docstring.
@@ -59,18 +64,6 @@ class RedisClusterConnectionFactory(ConnectionFactory):
         # With OS-default keepalive timing this isn't a hard guarantee; tune
         # socket_keepalive_options below the real idle timeout if drops persist.
         return RedisCluster.from_url(url, socket_keepalive=True)
-
-    def disconnect(self, connection: RedisCluster) -> None:
-        # The client is process-global, so evict it before closing -- otherwise
-        # the cache would keep handing out a closed client. A no-op in the default
-        # config (CLOSE_CONNECTION is unset, so django_redis never calls this per
-        # request), but keeps the shared cache consistent if it is ever enabled.
-        with self._lock:
-            for url, client in list(self._cluster_clients.items()):
-                if client is connection:
-                    del self._cluster_clients[url]
-                    break
-        connection.close()
 
 
 def prewarm_query_cache_cluster() -> None:

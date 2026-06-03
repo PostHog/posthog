@@ -63,20 +63,6 @@ class TestRedisClusterConnectionFactory(TestCase):
         from_url.assert_called_once_with("redis://node-a:6379", socket_keepalive=True)
 
     @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
-    def test_disconnect_evicts_client_so_next_connect_rediscovers(self, from_url: MagicMock) -> None:
-        clients = [MagicMock(name="client-a"), MagicMock(name="client-b")]
-        from_url.side_effect = clients
-        factory = self._factory()
-
-        first = factory.connect("redis://node-a:6379")
-        factory.disconnect(first)
-        second = factory.connect("redis://node-a:6379")
-
-        clients[0].close.assert_called_once_with()
-        assert second is not first
-        assert from_url.call_count == 2
-
-    @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
     def test_concurrent_connect_discovers_once_and_returns_one_shared_client(self, from_url: MagicMock) -> None:
         # A thundering herd of request threads must not each run discovery: the
         # double-checked lock means exactly one construction even when every
