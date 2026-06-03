@@ -1356,63 +1356,64 @@ export interface FileDownloadDestinationFileConfigApi {
     max_size_mb?: number | null
 }
 
-export type FileDownloadEventsRequestApiModel =
-    (typeof FileDownloadEventsRequestApiModel)[keyof typeof FileDownloadEventsRequestApiModel]
+export type FileDownloadEventsModelApiType =
+    (typeof FileDownloadEventsModelApiType)[keyof typeof FileDownloadEventsModelApiType]
 
-export const FileDownloadEventsRequestApiModel = {
+export const FileDownloadEventsModelApiType = {
     Events: 'events',
 } as const
 
 /**
- * Typed configuration for the events model.
+ * Events model, with optional event-name filters.
  */
-export interface FileDownloadEventsRequestApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadEventsRequestApiModel
+export interface FileDownloadEventsModelApi {
+    type: FileDownloadEventsModelApiType
     include?: string[]
     exclude?: string[]
-    data_interval_start: string
-    data_interval_end: string
 }
 
-export type FileDownloadPersonsRequestApiModel =
-    (typeof FileDownloadPersonsRequestApiModel)[keyof typeof FileDownloadPersonsRequestApiModel]
+export type FileDownloadPersonsModelApiType =
+    (typeof FileDownloadPersonsModelApiType)[keyof typeof FileDownloadPersonsModelApiType]
 
-export const FileDownloadPersonsRequestApiModel = {
+export const FileDownloadPersonsModelApiType = {
     Persons: 'persons',
 } as const
 
 /**
- * Typed configuration for the persons model.
+ * Persons model.
  */
-export interface FileDownloadPersonsRequestApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadPersonsRequestApiModel
-    data_interval_start: string
-    data_interval_end: string
+export interface FileDownloadPersonsModelApi {
+    type: FileDownloadPersonsModelApiType
 }
 
-export type FileDownloadSessionsRequestApiModel =
-    (typeof FileDownloadSessionsRequestApiModel)[keyof typeof FileDownloadSessionsRequestApiModel]
+export type FileDownloadSessionsModelApiType =
+    (typeof FileDownloadSessionsModelApiType)[keyof typeof FileDownloadSessionsModelApiType]
 
-export const FileDownloadSessionsRequestApiModel = {
+export const FileDownloadSessionsModelApiType = {
     Sessions: 'sessions',
 } as const
 
 /**
- * Typed configuration for the sessions model.
+ * Sessions model.
  */
-export interface FileDownloadSessionsRequestApi {
+export interface FileDownloadSessionsModelApi {
+    type: FileDownloadSessionsModelApiType
+}
+
+export type FileDownloadModelApi =
+    | FileDownloadEventsModelApi
+    | FileDownloadPersonsModelApi
+    | FileDownloadSessionsModelApi
+
+/**
+ * Request shape for a FileDownload batch export on demand.
+ */
+export interface FileDownloadBatchExportOnDemandApi {
     file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadSessionsRequestApiModel
+    model: FileDownloadModelApi
     data_interval_start: string
     data_interval_end: string
 }
-
-export type CreateFileDownloadRequestApi =
-    | FileDownloadEventsRequestApi
-    | FileDownloadPersonsRequestApi
-    | FileDownloadSessionsRequestApi
 
 /**
  * Typed output for view set `create`.
@@ -1475,32 +1476,6 @@ export type RetrieveFileDownloadResponseApi =
     | RetrieveBasicOutputApi
     | RetrieveCompletedOutputApi
     | RetrieveFailedOutputApi
-
-/**
- * * `events` - events
- * `persons` - persons
- * `sessions` - sessions
- */
-export type FileDownloadBatchExportOnDemandModelEnumApi =
-    (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
-
-export const FileDownloadBatchExportOnDemandModelEnumApi = {
-    Events: 'events',
-    Persons: 'persons',
-    Sessions: 'sessions',
-} as const
-
-/**
- * Request shape for a FileDownload batch export on demand.
- */
-export interface FileDownloadBatchExportOnDemandApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadBatchExportOnDemandModelEnumApi
-    include?: string[]
-    exclude?: string[]
-    data_interval_start: string
-    data_interval_end: string
-}
 
 /**
  * * `completed` - Completed
@@ -1569,36 +1544,6 @@ export interface PatchedBatchImportApi {
     readonly display_status_message?: string | null
     readonly import_config?: unknown
 }
-
-/**
- * * `events` - events
- */
-export type FileDownloadEventsRequestModelEnumApi =
-    (typeof FileDownloadEventsRequestModelEnumApi)[keyof typeof FileDownloadEventsRequestModelEnumApi]
-
-export const FileDownloadEventsRequestModelEnumApi = {
-    Events: 'events',
-} as const
-
-/**
- * * `persons` - persons
- */
-export type FileDownloadPersonsRequestModelEnumApi =
-    (typeof FileDownloadPersonsRequestModelEnumApi)[keyof typeof FileDownloadPersonsRequestModelEnumApi]
-
-export const FileDownloadPersonsRequestModelEnumApi = {
-    Persons: 'persons',
-} as const
-
-/**
- * * `sessions` - sessions
- */
-export type FileDownloadSessionsRequestModelEnumApi =
-    (typeof FileDownloadSessionsRequestModelEnumApi)[keyof typeof FileDownloadSessionsRequestModelEnumApi]
-
-export const FileDownloadSessionsRequestModelEnumApi = {
-    Sessions: 'sessions',
-} as const
 
 /**
  * * `Starting` - Starting
@@ -1670,6 +1615,36 @@ export type BigQueryDestinationRequestTypeEnumApi =
 
 export const BigQueryDestinationRequestTypeEnumApi = {
     BigQuery: 'BigQuery',
+} as const
+
+/**
+ * * `events` - events
+ */
+export type FileDownloadEventsModelTypeEnumApi =
+    (typeof FileDownloadEventsModelTypeEnumApi)[keyof typeof FileDownloadEventsModelTypeEnumApi]
+
+export const FileDownloadEventsModelTypeEnumApi = {
+    Events: 'events',
+} as const
+
+/**
+ * * `persons` - persons
+ */
+export type FileDownloadPersonsModelTypeEnumApi =
+    (typeof FileDownloadPersonsModelTypeEnumApi)[keyof typeof FileDownloadPersonsModelTypeEnumApi]
+
+export const FileDownloadPersonsModelTypeEnumApi = {
+    Persons: 'persons',
+} as const
+
+/**
+ * * `sessions` - sessions
+ */
+export type FileDownloadSessionsModelTypeEnumApi =
+    (typeof FileDownloadSessionsModelTypeEnumApi)[keyof typeof FileDownloadSessionsModelTypeEnumApi]
+
+export const FileDownloadSessionsModelTypeEnumApi = {
+    Sessions: 'sessions',
 } as const
 
 export type BatchExportsListParams = {

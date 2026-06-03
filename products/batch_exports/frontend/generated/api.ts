@@ -19,7 +19,6 @@ import type {
     BatchExportsRunsListParams,
     BatchExportsRunsLogsRetrieveParams,
     BatchImportApi,
-    CreateFileDownloadRequestApi,
     CreateOutputApi,
     FileDownloadBatchExportOnDemandApi,
     FileDownloadBatchExportsListParams,
@@ -547,14 +546,14 @@ export const getFileDownloadBatchExportsCreateUrl = (projectId: string) => {
  */
 export const fileDownloadBatchExportsCreate = async (
     projectId: string,
-    createFileDownloadRequestApi?: CreateFileDownloadRequestApi,
+    fileDownloadBatchExportOnDemandApi: FileDownloadBatchExportOnDemandApi,
     options?: RequestInit
 ): Promise<CreateOutputApi> => {
     return apiMutator<CreateOutputApi>(getFileDownloadBatchExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(createFileDownloadRequestApi),
+        body: JSON.stringify(fileDownloadBatchExportOnDemandApi),
     })
 }
 

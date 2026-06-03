@@ -11361,86 +11361,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed configuration for a FileDownload batch-export destination.
-     */
-    export interface FileDownloadDestinationFileConfig {
-      /** File format
-
-      * `Parquet` - Parquet
-      * `JSONLines` - JSONLines */
-      format?: FileFormatEnum;
-      /** Compress the file with a supported compression format
-
-      * `zstd` - zstd
-      * `gzip` - gzip
-      * `brotli` - brotli
-      * `lz4` - lz4
-      * `snappy` - snappy */
-      compression?: CompressionEnum | null;
-      /**
-         * Split download into multiple files of at most this size in MB
-         * @minimum 0
-         * @nullable
-         */
-      max_size_mb?: number | null;
-    }
-
-    export type FileDownloadEventsRequestModel = typeof FileDownloadEventsRequestModel[keyof typeof FileDownloadEventsRequestModel];
-
-
-    export const FileDownloadEventsRequestModel = {
-      Events: 'events',
-    } as const;
-
-    /**
-     * Typed configuration for the events model.
-     */
-    export interface FileDownloadEventsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadEventsRequestModel;
-      include?: string[];
-      exclude?: string[];
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type FileDownloadPersonsRequestModel = typeof FileDownloadPersonsRequestModel[keyof typeof FileDownloadPersonsRequestModel];
-
-
-    export const FileDownloadPersonsRequestModel = {
-      Persons: 'persons',
-    } as const;
-
-    /**
-     * Typed configuration for the persons model.
-     */
-    export interface FileDownloadPersonsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadPersonsRequestModel;
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type FileDownloadSessionsRequestModel = typeof FileDownloadSessionsRequestModel[keyof typeof FileDownloadSessionsRequestModel];
-
-
-    export const FileDownloadSessionsRequestModel = {
-      Sessions: 'sessions',
-    } as const;
-
-    /**
-     * Typed configuration for the sessions model.
-     */
-    export interface FileDownloadSessionsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadSessionsRequestModel;
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
-
-    /**
      * * `cost` - cost
     * `latency` - latency
     * `eval_pass_rate` - eval_pass_rate
@@ -17680,27 +17600,82 @@ export namespace Schemas {
     }
 
     /**
-     * * `events` - events
-    * `persons` - persons
-    * `sessions` - sessions
+     * Typed configuration for a FileDownload batch-export destination.
      */
-    export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
+    export interface FileDownloadDestinationFileConfig {
+      /** File format
+
+      * `Parquet` - Parquet
+      * `JSONLines` - JSONLines */
+      format?: FileFormatEnum;
+      /** Compress the file with a supported compression format
+
+      * `zstd` - zstd
+      * `gzip` - gzip
+      * `brotli` - brotli
+      * `lz4` - lz4
+      * `snappy` - snappy */
+      compression?: CompressionEnum | null;
+      /**
+         * Split download into multiple files of at most this size in MB
+         * @minimum 0
+         * @nullable
+         */
+      max_size_mb?: number | null;
+    }
+
+    export type FileDownloadEventsModelType = typeof FileDownloadEventsModelType[keyof typeof FileDownloadEventsModelType];
 
 
-    export const FileDownloadBatchExportOnDemandModelEnum = {
+    export const FileDownloadEventsModelType = {
       Events: 'events',
+    } as const;
+
+    /**
+     * Events model, with optional event-name filters.
+     */
+    export interface FileDownloadEventsModel {
+      type: FileDownloadEventsModelType;
+      include?: string[];
+      exclude?: string[];
+    }
+
+    export type FileDownloadPersonsModelType = typeof FileDownloadPersonsModelType[keyof typeof FileDownloadPersonsModelType];
+
+
+    export const FileDownloadPersonsModelType = {
       Persons: 'persons',
+    } as const;
+
+    /**
+     * Persons model.
+     */
+    export interface FileDownloadPersonsModel {
+      type: FileDownloadPersonsModelType;
+    }
+
+    export type FileDownloadSessionsModelType = typeof FileDownloadSessionsModelType[keyof typeof FileDownloadSessionsModelType];
+
+
+    export const FileDownloadSessionsModelType = {
       Sessions: 'sessions',
     } as const;
+
+    /**
+     * Sessions model.
+     */
+    export interface FileDownloadSessionsModel {
+      type: FileDownloadSessionsModelType;
+    }
+
+    export type FileDownloadModel = FileDownloadEventsModel | FileDownloadPersonsModel | FileDownloadSessionsModel;
 
     /**
      * Request shape for a FileDownload batch export on demand.
      */
     export interface FileDownloadBatchExportOnDemand {
       file: FileDownloadDestinationFileConfig;
-      model: FileDownloadBatchExportOnDemandModelEnum;
-      include?: string[];
-      exclude?: string[];
+      model: FileDownloadModel;
       data_interval_start: string;
       data_interval_end: string;
     }
@@ -17708,30 +17683,30 @@ export namespace Schemas {
     /**
      * * `events` - events
      */
-    export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
+    export type FileDownloadEventsModelTypeEnum = typeof FileDownloadEventsModelTypeEnum[keyof typeof FileDownloadEventsModelTypeEnum];
 
 
-    export const FileDownloadEventsRequestModelEnum = {
+    export const FileDownloadEventsModelTypeEnum = {
       Events: 'events',
     } as const;
 
     /**
      * * `persons` - persons
      */
-    export type FileDownloadPersonsRequestModelEnum = typeof FileDownloadPersonsRequestModelEnum[keyof typeof FileDownloadPersonsRequestModelEnum];
+    export type FileDownloadPersonsModelTypeEnum = typeof FileDownloadPersonsModelTypeEnum[keyof typeof FileDownloadPersonsModelTypeEnum];
 
 
-    export const FileDownloadPersonsRequestModelEnum = {
+    export const FileDownloadPersonsModelTypeEnum = {
       Persons: 'persons',
     } as const;
 
     /**
      * * `sessions` - sessions
      */
-    export type FileDownloadSessionsRequestModelEnum = typeof FileDownloadSessionsRequestModelEnum[keyof typeof FileDownloadSessionsRequestModelEnum];
+    export type FileDownloadSessionsModelTypeEnum = typeof FileDownloadSessionsModelTypeEnum[keyof typeof FileDownloadSessionsModelTypeEnum];
 
 
-    export const FileDownloadSessionsRequestModelEnum = {
+    export const FileDownloadSessionsModelTypeEnum = {
       Sessions: 'sessions',
     } as const;
 

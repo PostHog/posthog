@@ -1601,121 +1601,61 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
 /**
  * Create and start a batch export on demand run to download a file.
  */
-export const fileDownloadBatchExportsCreateBodyOneFileFormatDefault = `Parquet`
-export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin = 0
+export const fileDownloadBatchExportsCreateBodyFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyFileMaxSizeMbMin = 0
 
-export const fileDownloadBatchExportsCreateBodyTwoFileFormatDefault = `Parquet`
-export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
-
-export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
-export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
-
-export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
-    zod
-        .object({
-            file: zod
+export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod
+    .object({
+        file: zod
+            .object({
+                format: zod
+                    .enum(['JSONLines', 'Parquet'])
+                    .describe('\* `JSONLines` - JSONLines\n\* `Parquet` - Parquet')
+                    .default(fileDownloadBatchExportsCreateBodyFileFormatDefault)
+                    .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
+                compression: zod
+                    .union([
+                        zod
+                            .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                            .describe(
+                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
+                    ),
+                max_size_mb: zod
+                    .number()
+                    .min(fileDownloadBatchExportsCreateBodyFileMaxSizeMbMin)
+                    .nullish()
+                    .describe('Split download into multiple files of at most this size in MB'),
+            })
+            .describe('Typed configuration for a FileDownload batch-export destination.'),
+        model: zod.union([
+            zod
                 .object({
-                    format: zod
-                        .enum(['JSONLines', 'Parquet'])
-                        .describe('\* `JSONLines` - JSONLines\n\* `Parquet` - Parquet')
-                        .default(fileDownloadBatchExportsCreateBodyOneFileFormatDefault)
-                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
-                    compression: zod
-                        .union([
-                            zod
-                                .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
-                                .describe(
-                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
-                                ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
-                        ),
-                    max_size_mb: zod
-                        .number()
-                        .min(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin)
-                        .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                    type: zod.enum(['events']),
+                    include: zod.array(zod.string()).optional(),
+                    exclude: zod.array(zod.string()).optional(),
                 })
-                .describe('Typed configuration for a FileDownload batch-export destination.'),
-            model: zod.enum(['events']),
-            include: zod.array(zod.string()).optional(),
-            exclude: zod.array(zod.string()).optional(),
-            data_interval_start: zod.iso.datetime({ offset: true }),
-            data_interval_end: zod.iso.datetime({ offset: true }),
-        })
-        .describe('Typed configuration for the events model.'),
-    zod
-        .object({
-            file: zod
+                .describe('Events model, with optional event-name filters.'),
+            zod
                 .object({
-                    format: zod
-                        .enum(['JSONLines', 'Parquet'])
-                        .describe('\* `JSONLines` - JSONLines\n\* `Parquet` - Parquet')
-                        .default(fileDownloadBatchExportsCreateBodyTwoFileFormatDefault)
-                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
-                    compression: zod
-                        .union([
-                            zod
-                                .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
-                                .describe(
-                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
-                                ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
-                        ),
-                    max_size_mb: zod
-                        .number()
-                        .min(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin)
-                        .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                    type: zod.enum(['persons']),
                 })
-                .describe('Typed configuration for a FileDownload batch-export destination.'),
-            model: zod.enum(['persons']),
-            data_interval_start: zod.iso.datetime({ offset: true }),
-            data_interval_end: zod.iso.datetime({ offset: true }),
-        })
-        .describe('Typed configuration for the persons model.'),
-    zod
-        .object({
-            file: zod
+                .describe('Persons model.'),
+            zod
                 .object({
-                    format: zod
-                        .enum(['JSONLines', 'Parquet'])
-                        .describe('\* `JSONLines` - JSONLines\n\* `Parquet` - Parquet')
-                        .default(fileDownloadBatchExportsCreateBodyThreeFileFormatDefault)
-                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
-                    compression: zod
-                        .union([
-                            zod
-                                .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
-                                .describe(
-                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
-                                ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
-                        ),
-                    max_size_mb: zod
-                        .number()
-                        .min(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin)
-                        .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                    type: zod.enum(['sessions']),
                 })
-                .describe('Typed configuration for a FileDownload batch-export destination.'),
-            model: zod.enum(['sessions']),
-            data_interval_start: zod.iso.datetime({ offset: true }),
-            data_interval_end: zod.iso.datetime({ offset: true }),
-        })
-        .describe('Typed configuration for the sessions model.'),
-])
+                .describe('Sessions model.'),
+        ]),
+        data_interval_start: zod.iso.datetime({ offset: true }),
+        data_interval_end: zod.iso.datetime({ offset: true }),
+    })
+    .describe('Request shape for a FileDownload batch export on demand.')
 
 /**
  * Cancel an ongoing file-download batch export.
@@ -1752,11 +1692,25 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
                     .describe('Split download into multiple files of at most this size in MB'),
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
-        model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions'),
-        include: zod.array(zod.string()).optional(),
-        exclude: zod.array(zod.string()).optional(),
+        model: zod.union([
+            zod
+                .object({
+                    type: zod.enum(['events']),
+                    include: zod.array(zod.string()).optional(),
+                    exclude: zod.array(zod.string()).optional(),
+                })
+                .describe('Events model, with optional event-name filters.'),
+            zod
+                .object({
+                    type: zod.enum(['persons']),
+                })
+                .describe('Persons model.'),
+            zod
+                .object({
+                    type: zod.enum(['sessions']),
+                })
+                .describe('Sessions model.'),
+        ]),
         data_interval_start: zod.iso.datetime({ offset: true }),
         data_interval_end: zod.iso.datetime({ offset: true }),
     })
