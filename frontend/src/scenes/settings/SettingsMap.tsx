@@ -67,6 +67,8 @@ import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
+import { DefaultSequentialTestingEnabled } from './environment/DefaultSequentialTestingEnabled'
+import { DefaultSequentialTuningParameter } from './environment/DefaultSequentialTuningParameter'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -98,7 +100,6 @@ import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyt
 import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { PostHogCodeSlackIntegration } from './environment/PostHogCodeSlackIntegration'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
 import {
@@ -300,20 +301,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
                 component: <MaxChangelogSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-posthog-code',
-        title: 'PostHog Code',
-        group: 'AI',
-        flag: 'TASKS',
-        settings: [
-            {
-                id: 'integration-posthog-code-slack',
-                title: 'Slack integration',
-                component: <PostHogCodeSlackIntegration />,
             },
         ],
     },
@@ -592,6 +579,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedLookbackDays />,
                 keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
+            },
+            {
+                id: 'environment-experiment-sequential-testing-enabled',
+                title: 'Default sequential testing',
+                description:
+                    'When enabled, frequentist experiments will use sequential testing by default, producing always-valid p-values that are robust to peeking. Confidence intervals are wider in exchange. Only applies to the frequentist statistical method. Can be overridden per experiment.',
+                component: <DefaultSequentialTestingEnabled />,
+                keywords: ['sequential', 'peeking', 'always-valid', 'p-value', 'frequentist'],
+            },
+            {
+                id: 'environment-experiment-sequential-tuning-parameter',
+                title: 'Default sequential testing tuning parameter',
+                description:
+                    'Roughly the sample size at which the always-valid confidence sequence is tightest. Set close to the expected total sample size of new experiments to minimize the width penalty. Can be overridden per experiment.',
+                component: <DefaultSequentialTuningParameter />,
+                keywords: ['sequential', 'tuning', 'parameter', 'rho', 'frequentist'],
             },
         ],
     },

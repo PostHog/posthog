@@ -16,6 +16,7 @@ import {
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { barColorAt } from '../../core/color-utils'
 import { DEFAULT_MARGINS, X_AXIS_TITLE_MARGIN } from '../../core/hooks/useChartMargins'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
@@ -169,14 +170,17 @@ function BarChartInner<Meta = unknown>({
         maxBandRange,
         bandPadding,
         minBandSize,
+        fitToHeight = false,
         valueDomain,
         roundStackEnds = false,
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
+    // Fit-to-height drops overflow rows instead of growing the container, so it never sets a
+    // wrapper floor — the chart fills whatever height the tile gives it.
     const wrapperMinHeight = useMemo(() => {
-        if (!isHorizontal || resolvedMinBandSize <= 0) {
+        if (!isHorizontal || fitToHeight || resolvedMinBandSize <= 0) {
             return undefined
         }
         const uniqueBands = new Set(labels).size
@@ -184,7 +188,7 @@ function BarChartInner<Meta = unknown>({
             return undefined
         }
         return uniqueBands * resolvedMinBandSize + HORIZONTAL_CHART_MARGIN_PX
-    }, [isHorizontal, resolvedMinBandSize, labels])
+    }, [isHorizontal, fitToHeight, resolvedMinBandSize, labels])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
@@ -256,6 +260,8 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                fitToHeight,
+                minBandSize: resolvedMinBandSize,
                 valueDomain,
             })
 
@@ -315,6 +321,8 @@ function BarChartInner<Meta = unknown>({
             divergingStack,
             maxBandRange,
             bandPadding,
+            fitToHeight,
+            resolvedMinBandSize,
             valueDomain,
         ]
     )
@@ -550,8 +558,8 @@ function BarChartInner<Meta = unknown>({
             }
             for (const { series: s, bar, isTrackHighlight } of items) {
                 if (isTrackHighlight) {
-                    const parsed = d3.color(s.color)
-                    // Always translucent — `s.color` direct would paint an opaque full-height
+                    const parsed = d3.color(barColorAt(s, bar.dataIndex))
+                    // Always translucent — the bar color direct would paint an opaque full-height
                     // block if d3 can't parse the color.
                     let trackColor: string
                     if (parsed) {
@@ -567,7 +575,8 @@ function BarChartInner<Meta = unknown>({
                         highlightRadius
                     )
                 } else {
-                    const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
+                    const barColor = barColorAt(s, bar.dataIndex)
+                    const highlightColor = d3.color(barColor)?.darker(0.6).toString() ?? barColor
                     drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
                 }
             }

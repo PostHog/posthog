@@ -4,7 +4,6 @@ from rest_framework_extensions.routers import NestedRegistryItem
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
-from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
@@ -12,13 +11,17 @@ from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
-from posthog.batch_exports import http as batch_exports
-from posthog.batch_exports.api import file_download
 from posthog.settings import EE_AVAILABLE
 
 import products.alerts.backend.api.alert as alert
 from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.routes import register_routes as register_ai_observability_routes
+from products.annotations.backend.api import annotation
+from products.batch_exports.backend.api import (
+    batch_export as batch_exports,
+    file_download,
+)
+from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 from products.business_knowledge.backend.routes import register_routes as register_business_knowledge_routes
 from products.cdp.backend.routes import register_routes as register_cdp_routes
 from products.conversations.backend.routes import register_routes as register_conversations_routes
@@ -26,11 +29,11 @@ from products.customer_analytics.backend.routes import register_routes as regist
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.routes import register_routes as register_data_modeling_routes
 from products.data_warehouse.backend.routes import register_routes as register_data_warehouse_routes
-from products.deployments.backend.routes import register_routes as register_deployments_routes
 from products.desktop_recordings.backend.routes import register_routes as register_desktop_recordings_routes
 from products.early_access_features.backend.routes import register_routes as register_early_access_features_routes
 from products.endpoints.backend.routes import register_routes as register_endpoints_routes
 from products.error_tracking.backend.routes import register_routes as register_error_tracking_routes
+from products.exports.backend.api import exports
 from products.feature_flags.backend.routes import register_routes as register_feature_flags_routes
 from products.legal_documents.backend.routes import register_routes as register_legal_documents_routes
 from products.links.backend.routes import register_routes as register_links_routes
@@ -66,7 +69,6 @@ from ..session_recordings.session_recording_playlist_api import SessionRecording
 from ..taxonomy import property_definition_api
 from . import (
     advanced_activity_logs,
-    annotation,
     async_migration,
     authentication,
     cimd_verification_token,
@@ -76,7 +78,6 @@ from . import (
     debug_ch_queries,
     event_definition,
     event_schema,
-    exports,
     health_issue,
     hog,
     ingestion_warnings,
@@ -218,7 +219,6 @@ projects_router.register(
     ["project_id"],
 )
 register_wizard_routes(routers)
-register_deployments_routes(routers)
 
 # Tasks endpoints
 
@@ -310,6 +310,13 @@ register_legacy_dual_route_team_nested_viewset(
     r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
 )
 
+projects_router.register(
+    r"desktop_file_system",
+    file_system.DesktopFileSystemViewSet,
+    "project_desktop_file_system",
+    ["team_id"],
+)
+
 register_legacy_dual_route_team_nested_viewset(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
@@ -317,10 +324,24 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
+projects_router.register(
+    r"desktop_file_system_shortcut",
+    file_system_shortcut.DesktopFileSystemShortcutViewSet,
+    "project_desktop_file_system_shortcut",
+    ["team_id"],
+)
+
 register_legacy_dual_route_team_nested_viewset(
     r"persisted_folder",
     persisted_folder.PersistedFolderViewSet,
     "environment_persisted_folder",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"desktop_persisted_folder",
+    persisted_folder.DesktopPersistedFolderViewSet,
+    "project_desktop_persisted_folder",
     ["team_id"],
 )
 
