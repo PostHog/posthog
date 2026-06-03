@@ -202,7 +202,7 @@ class BuildBetterSourceConfig(config.Config):
 
 @config.config
 class CalendlySourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
