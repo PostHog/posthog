@@ -227,6 +227,26 @@ tools:
             - invite_subject
             - invite_message
         feature_flag: user-interviews
+    user-interview-topics-preview-invite:
+        operation: user_interview_topics_preview_invite_create
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview the invite email for a targeted interviewee
+        description: >
+            Render the invitation email exactly as a specific targeted interviewee would receive it — the personalized
+            subject and HTML body — without sending anything and without creating any share links. Pass
+            interviewee_identifier (an email or distinct ID already on the topic) to preview for a particular person, or
+            omit it to preview for the first targeted interviewee. The response includes the rendered subject and html,
+            the recipient, whether they are emailable, and whether the embedded link is a placeholder.
+        include_params:
+            - interviewee_identifier
+        ui_app: invite-email-preview
+        feature_flag: user-interviews
     user-interview-topics-preview-invite-create:
         operation: user_interview_topics_preview_invite_create
         enabled: false
@@ -286,26 +306,6 @@ tools:
             - subject
             - reply_to
             - send_async
-        feature_flag: user-interviews
-    user-interview-topics-preview-invite:
-        operation: user_interview_topics_preview_invite_create
-        enabled: true
-        scopes:
-            - user_interview:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Preview the invite email for a targeted interviewee
-        description: >
-            Render the invitation email exactly as a specific targeted interviewee would receive it — the personalized
-            subject and HTML body — without sending anything and without creating any share links. Pass
-            interviewee_identifier (an email or distinct ID already on the topic) to preview for a particular person, or
-            omit it to preview for the first targeted interviewee. The response includes the rendered subject and html,
-            the recipient, whether they are emailable, and whether the embedded link is a placeholder.
-        include_params:
-            - interviewee_identifier
-        ui_app: invite-email-preview
         feature_flag: user-interviews
     user-interview-topics-test-link-retrieve:
         operation: user_interview_topics_test_link_retrieve
