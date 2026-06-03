@@ -44,7 +44,7 @@ class TestWooCommerceSource:
 
         assert config.name.value == "WooCommerce"
         assert config.label == "WooCommerce"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/woocommerce.png"
 

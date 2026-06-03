@@ -144,7 +144,6 @@ class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResu
             ),
             iconPath="/static/services/woocommerce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/woocommerce",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],
