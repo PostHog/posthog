@@ -1,0 +1,70 @@
+{
+    "csv_rows": [
+        "id,name,distinct_ids.0,properties.$os,properties.email,properties.realm,properties.$browser,properties.joined_at,properties.project_id,properties.$initial_os,properties.billing_plan,properties.email_opt_in,properties.is_signed_up,properties.project_count,properties.anonymize_data,properties.$geoip_latitude,properties.has_social_auth,properties.organization_id,properties.$browser_version,properties.$geoip_city_name,properties.$geoip_longitude,properties.$geoip_time_zone,properties.$initial_browser,properties.has_password_set,properties.$initial_pathname,properties.$initial_referrer,properties.$geoip_postal_code,properties.organization_count,properties.$geoip_country_code,properties.$geoip_country_name,properties.$initial_current_url,properties.$initial_device_type,properties.$geoip_continent_code,properties.$geoip_continent_name,properties.team_member_count_all,properties.project_setup_complete,properties.$initial_geoip_latitude,properties.$initial_browser_version,properties.$initial_geoip_city_name,properties.$initial_geoip_longitude,properties.$initial_geoip_time_zone,properties.$geoip_subdivision_1_code,properties.$geoip_subdivision_1_name,properties.$initial_referring_domain,properties.completed_onboarding_once,properties.$initial_geoip_postal_code,properties.$initial_geoip_country_code,properties.$initial_geoip_country_name,properties.$initial_geoip_continent_code,properties.$initial_geoip_continent_name,properties.$initial_geoip_subdivision_1_code,properties.$initial_geoip_subdivision_1_name,created_at,uuid",
+        "1,person@posthog.com,1234,Mac OS X,person@posthog.com,hosted-clickhouse,Chrome,2022-07-07T09:33:21.934719+00:00,0181d801-bed6-0000-8f2b-e4969cf5a6a3,Mac OS X,,True,True,1,False,-33.8715,False,0181d801-ba46-0000-734e-ab2e7d2617d9,103,Sydney,151.2006,Australia/Sydney,Chrome,True,/ingestion,http://localhost:8000/signup,2000,1,AU,Australia,http://localhost:8000/ingestion,Desktop,OC,Oceania,1,True,-33.8715,103,Sydney,151.2006,Australia/Sydney,NSW,New South Wales,localhost:8000,True,2000,AU,Australia,OC,Oceania,NSW,New South Wales,2022-07-07T09:33:23.447000Z,0181d801-c717-0000-ba5e-05262063a1e0",
+        ""
+    ],
+    "response": {
+        "results": [
+            {
+                "id": 1,
+                "name": "person@posthog.com",
+                "distinct_ids": ["1234"],
+                "properties": {
+                    "$os": "Mac OS X",
+                    "email": "person@posthog.com",
+                    "realm": "hosted-clickhouse",
+                    "$browser": "Chrome",
+                    "joined_at": "2022-07-07T09:33:21.934719+00:00",
+                    "project_id": "0181d801-bed6-0000-8f2b-e4969cf5a6a3",
+                    "$initial_os": "Mac OS X",
+                    "billing_plan": null,
+                    "email_opt_in": true,
+                    "is_signed_up": true,
+                    "project_count": 1,
+                    "anonymize_data": false,
+                    "$geoip_latitude": -33.8715,
+                    "has_social_auth": false,
+                    "organization_id": "0181d801-ba46-0000-734e-ab2e7d2617d9",
+                    "$browser_version": 103,
+                    "$geoip_city_name": "Sydney",
+                    "$geoip_longitude": 151.2006,
+                    "$geoip_time_zone": "Australia/Sydney",
+                    "$initial_browser": "Chrome",
+                    "has_password_set": true,
+                    "social_providers": [],
+                    "$initial_pathname": "/ingestion",
+                    "$initial_referrer": "http://localhost:8000/signup",
+                    "$geoip_postal_code": "2000",
+                    "organization_count": 1,
+                    "$geoip_country_code": "AU",
+                    "$geoip_country_name": "Australia",
+                    "$initial_current_url": "http://localhost:8000/ingestion",
+                    "$initial_device_type": "Desktop",
+                    "$geoip_continent_code": "OC",
+                    "$geoip_continent_name": "Oceania",
+                    "team_member_count_all": 1,
+                    "project_setup_complete": true,
+                    "$initial_geoip_latitude": -33.8715,
+                    "$initial_browser_version": 103,
+                    "$initial_geoip_city_name": "Sydney",
+                    "$initial_geoip_longitude": 151.2006,
+                    "$initial_geoip_time_zone": "Australia/Sydney",
+                    "$geoip_subdivision_1_code": "NSW",
+                    "$geoip_subdivision_1_name": "New South Wales",
+                    "$initial_referring_domain": "localhost:8000",
+                    "completed_onboarding_once": true,
+                    "$initial_geoip_postal_code": "2000",
+                    "$initial_geoip_country_code": "AU",
+                    "$initial_geoip_country_name": "Australia",
+                    "$initial_geoip_continent_code": "OC",
+                    "$initial_geoip_continent_name": "Oceania",
+                    "$initial_geoip_subdivision_1_code": "NSW",
+                    "$initial_geoip_subdivision_1_name": "New South Wales"
+                },
+                "created_at": "2022-07-07T09:33:23.447000Z",
+                "uuid": "0181d801-c717-0000-ba5e-05262063a1e0"
+            }
+        ]
+    }
+}

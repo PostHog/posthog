@@ -1,0 +1,7 @@
+{
+    "csv_rows": ["person,id,created_at,person.$delete", ",,,", ""],
+    "response": {
+        "columns": ["person", "id", "created_at", "person.$delete"],
+        "results": []
+    }
+}

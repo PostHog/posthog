@@ -259,6 +259,7 @@ export const HogFunctionTypeEnumApi = {
  * `posthog_assignee` - posthog_assignee
  * `posthog_ticket_tags` - posthog_ticket_tags
  * `posthog_business_hours` - posthog_business_hours
+ * `non_failure_status_codes` - non_failure_status_codes
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -276,6 +277,7 @@ export const InputsSchemaItemTypeEnumApi = {
     PosthogAssignee: 'posthog_assignee',
     PosthogTicketTags: 'posthog_ticket_tags',
     PosthogBusinessHours: 'posthog_business_hours',
+    NonFailureStatusCodes: 'non_failure_status_codes',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }

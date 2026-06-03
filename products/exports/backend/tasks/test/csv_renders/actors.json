@@ -1,0 +1,130 @@
+{
+    "csv_rows": [
+        "person.id,person.distinct_ids.0,person.distinct_ids.1,person.distinct_ids.2,person.properties.$os,person.properties.email,person.properties.realm,person.properties.$browser,person.properties.$pathname,person.properties.$referrer,person.properties.joined_at,person.properties.strapi_id,person.properties.project_id,person.properties.$initial_os,person.properties.$os_version,person.properties.$current_url,person.properties.$device_type,person.properties.email_opt_in,person.properties.instance_tag,person.properties.instance_url,person.properties.is_signed_up,person.properties.project_count,person.properties.anonymize_data,person.properties.$geoip_latitude,person.properties.has_social_auth,person.properties.organization_id,person.properties.$browser_version,person.properties.$geoip_city_name,person.properties.$geoip_longitude,person.properties.$geoip_time_zone,person.properties.$initial_browser,person.properties.has_password_set,person.properties.$initial_pathname,person.properties.$initial_referrer,person.properties.$referring_domain,person.properties.is_email_verified,person.properties.$geoip_postal_code,person.properties.organization_count,person.properties.$creator_event_uuid,person.properties.$geoip_country_code,person.properties.$geoip_country_name,person.properties.$initial_os_version,person.properties.$initial_current_url,person.properties.$initial_device_type,person.properties.$geoip_continent_code,person.properties.$geoip_continent_name,person.properties.team_member_count_all,person.properties.project_setup_complete,person.properties.$initial_geoip_latitude,person.properties.$initial_browser_version,person.properties.$initial_geoip_city_name,person.properties.$initial_geoip_longitude,person.properties.$initial_geoip_time_zone,person.properties.$geoip_subdivision_1_code,person.properties.$geoip_subdivision_1_name,person.properties.$initial_referring_domain,person.properties.completed_onboarding_once,person.properties.$initial_geoip_postal_code,person.properties.has_seen_product_intro_for.feature_flags,person.properties.$initial_geoip_country_code,person.properties.$initial_geoip_country_name,person.properties.$initial_geoip_continent_code,person.properties.$initial_geoip_continent_name,person.properties.$feature_enrollment/hedgehog-mode,person.properties.$initial_geoip_subdivision_1_code,person.properties.$initial_geoip_subdivision_1_name,person.properties.current_organization_membership_level,person.created_at,person.is_identified,person.properties.utm_source,person.properties.$initial_utm_source,week_0,week_1,week_2",
+        "018d7e83-8128-0000-cf1a-5aebc38e9e29,LSAuX6g2ThDlpL90cxdXUZiIpeGAGKaOuqf2yLdVXiv,018d7e83-42db-7b76-9cb9-1cfd433c5320,018dc1b3-a78e-7a6f-9b05-5a0c2f8f159e,Mac OS X,test@posthog.com,hosted-clickhouse,Firefox,/project/1/dashboard/1,$direct,2024-02-06T12:59:04.494385+00:00,,018d7e80-2847-0000-89dc-fc0c217e7169,Mac OS X,10.15.0,http://localhost:8000/project/1/dashboard/1,Desktop,False,none,http://localhost:8000,True,1,False,-33.8715,False,018d7e80-1c8a-0000-6523-520cb9bde5db,121,Sydney,151.2006,Australia/Sydney,Firefox,True,/login,$direct,$direct,,2000,1,018d7e83-80e6-0000-fbfc-79f900d1e733,AU,Australia,10.15.0,http://localhost:8000/login?next=/project/1/events#q=%7B%22kind%22%3A%22DataTableNode%22%2C%22full%22%3Atrue%2C%22source%22%3A%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%2C%22event%22%2C%22person%22%2C%22coalesce(properties.%24current_url%2C%20properties.%24screen_name)%20--%20Url%20%2F%20Screen%22%2C%22properties.%24lib%22%2C%22timestamp%22%5D%2C%22orderBy%22%3A%5B%22timestamp%20DESC%22%5D%2C%22after%22%3A%222023-11-01%22%2C%22before%22%3A%222023-11-01T23%3A59%3A59%2B01%3A00%22%7D%2C%22propertiesViaUrl%22%3Atrue%2C%22showSavedQueries%22%3Atrue%2C%22showPersistentColumnConfigurator%22%3Atrue%7D,Desktop,OC,Oceania,1,True,-33.8715,121,Sydney,151.2006,Australia/Sydney,NSW,New South Wales,$direct,True,2000,True,AU,Australia,OC,Oceania,False,NSW,New South Wales,8,2024-02-06T13:02:28.078000Z,True,,,1,1,1",
+        "018d7971-2a19-0000-017e-4d23e37acc32,1e22e423-fe62-2909-4ce6-29d7bd817f89,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,MN,,,,,,,,,,,,,,,,,,,,,,,,,,,,2024-02-06T12:59:24.573349Z,False,google,google,1,0,0",
+        "018d7783-0608-0000-0244-b8b907ecfcd8,0be52477-03ae-8c64-7471-14c61a9e266c,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,US,,,,,,,,,,,,,,,,,,,,,,,,,,,,2024-02-06T12:59:24.579286Z,False,google,google,1,0,0",
+        ""
+    ],
+    "response": {
+        "columns": ["person", "week_0", "week_1", "week_2"],
+        "types": ["UUID", "UInt8", "UInt8", "UInt8"],
+        "results": [
+            [
+                {
+                    "id": "018d7e83-8128-0000-cf1a-5aebc38e9e29",
+                    "distinct_ids": [
+                        "LSAuX6g2ThDlpL90cxdXUZiIpeGAGKaOuqf2yLdVXiv",
+                        "018d7e83-42db-7b76-9cb9-1cfd433c5320",
+                        "018dc1b3-a78e-7a6f-9b05-5a0c2f8f159e"
+                    ],
+                    "properties": {
+                        "$os": "Mac OS X",
+                        "email": "test@posthog.com",
+                        "realm": "hosted-clickhouse",
+                        "$browser": "Firefox",
+                        "$pathname": "/project/1/dashboard/1",
+                        "$referrer": "$direct",
+                        "joined_at": "2024-02-06T12:59:04.494385+00:00",
+                        "strapi_id": null,
+                        "project_id": "018d7e80-2847-0000-89dc-fc0c217e7169",
+                        "$initial_os": "Mac OS X",
+                        "$os_version": "10.15.0",
+                        "$current_url": "http://localhost:8000/project/1/dashboard/1",
+                        "$device_type": "Desktop",
+                        "email_opt_in": false,
+                        "instance_tag": "none",
+                        "instance_url": "http://localhost:8000",
+                        "is_signed_up": true,
+                        "project_count": 1,
+                        "anonymize_data": false,
+                        "$geoip_latitude": -33.8715,
+                        "has_social_auth": false,
+                        "organization_id": "018d7e80-1c8a-0000-6523-520cb9bde5db",
+                        "$browser_version": 121,
+                        "$geoip_city_name": "Sydney",
+                        "$geoip_longitude": 151.2006,
+                        "$geoip_time_zone": "Australia/Sydney",
+                        "$initial_browser": "Firefox",
+                        "has_password_set": true,
+                        "social_providers": [],
+                        "$initial_pathname": "/login",
+                        "$initial_referrer": "$direct",
+                        "$referring_domain": "$direct",
+                        "is_email_verified": null,
+                        "$geoip_postal_code": "2000",
+                        "organization_count": 1,
+                        "$creator_event_uuid": "018d7e83-80e6-0000-fbfc-79f900d1e733",
+                        "$geoip_country_code": "AU",
+                        "$geoip_country_name": "Australia",
+                        "$initial_os_version": "10.15.0",
+                        "$initial_current_url": "http://localhost:8000/login?next=/project/1/events#q=%7B%22kind%22%3A%22DataTableNode%22%2C%22full%22%3Atrue%2C%22source%22%3A%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%2C%22event%22%2C%22person%22%2C%22coalesce(properties.%24current_url%2C%20properties.%24screen_name)%20--%20Url%20%2F%20Screen%22%2C%22properties.%24lib%22%2C%22timestamp%22%5D%2C%22orderBy%22%3A%5B%22timestamp%20DESC%22%5D%2C%22after%22%3A%222023-11-01%22%2C%22before%22%3A%222023-11-01T23%3A59%3A59%2B01%3A00%22%7D%2C%22propertiesViaUrl%22%3Atrue%2C%22showSavedQueries%22%3Atrue%2C%22showPersistentColumnConfigurator%22%3Atrue%7D",
+                        "$initial_device_type": "Desktop",
+                        "$geoip_continent_code": "OC",
+                        "$geoip_continent_name": "Oceania",
+                        "team_member_count_all": 1,
+                        "project_setup_complete": true,
+                        "$initial_geoip_latitude": -33.8715,
+                        "$initial_browser_version": 121,
+                        "$initial_geoip_city_name": "Sydney",
+                        "$initial_geoip_longitude": 151.2006,
+                        "$initial_geoip_time_zone": "Australia/Sydney",
+                        "$geoip_subdivision_1_code": "NSW",
+                        "$geoip_subdivision_1_name": "New South Wales",
+                        "$initial_referring_domain": "$direct",
+                        "completed_onboarding_once": true,
+                        "$initial_geoip_postal_code": "2000",
+                        "has_seen_product_intro_for": {
+                            "feature_flags": true
+                        },
+                        "$initial_geoip_country_code": "AU",
+                        "$initial_geoip_country_name": "Australia",
+                        "$initial_geoip_continent_code": "OC",
+                        "$initial_geoip_continent_name": "Oceania",
+                        "$feature_enrollment/hedgehog-mode": false,
+                        "$initial_geoip_subdivision_1_code": "NSW",
+                        "$initial_geoip_subdivision_1_name": "New South Wales",
+                        "current_organization_membership_level": 8
+                    },
+                    "created_at": "2024-02-06T13:02:28.078000Z",
+                    "is_identified": true
+                },
+                1,
+                1,
+                1
+            ],
+            [
+                {
+                    "id": "018d7971-2a19-0000-017e-4d23e37acc32",
+                    "distinct_ids": ["1e22e423-fe62-2909-4ce6-29d7bd817f89"],
+                    "properties": {
+                        "utm_source": "google",
+                        "$geoip_country_code": "MN",
+                        "$initial_utm_source": "google"
+                    },
+                    "created_at": "2024-02-06T12:59:24.573349Z",
+                    "is_identified": false
+                },
+                1,
+                0,
+                0
+            ],
+            [
+                {
+                    "id": "018d7783-0608-0000-0244-b8b907ecfcd8",
+                    "distinct_ids": ["0be52477-03ae-8c64-7471-14c61a9e266c"],
+                    "properties": {
+                        "utm_source": "google",
+                        "$geoip_country_code": "US",
+                        "$initial_utm_source": "google"
+                    },
+                    "created_at": "2024-02-06T12:59:24.579286Z",
+                    "is_identified": false
+                },
+                1,
+                0,
+                0
+            ]
+        ]
+    }
+}

@@ -1,0 +1,38 @@
+{
+    "csv_rows": [
+        "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
+        "$pageview,,$pageview,5193,,",
+        "2671,,2671,88,30,473.5640151515152",
+        ""
+    ],
+    "response": {
+        "result": [
+            {
+                "action_id": "$pageview",
+                "name": "$pageview",
+                "custom_name": null,
+                "order": 0,
+                "people": [],
+                "count": 5193,
+                "type": "events",
+                "average_conversion_time": null,
+                "median_conversion_time": null,
+                "converted_people_url": "/api/person/funnel/?foo=bar",
+                "dropped_people_url": null
+            },
+            {
+                "action_id": "2671",
+                "name": "User Signed Up",
+                "custom_name": null,
+                "order": 1,
+                "people": [],
+                "count": 88,
+                "type": "actions",
+                "average_conversion_time": 473.5640151515152,
+                "median_conversion_time": 30,
+                "converted_people_url": "/api/person/funnel/?foo=bar",
+                "dropped_people_url": "/api/person/funnel/?foo=bar"
+            }
+        ]
+    }
+}
