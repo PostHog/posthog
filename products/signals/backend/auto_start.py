@@ -90,14 +90,19 @@ def _resolve_autostart_assignee(
     if not candidate_user_ids:
         return None
 
-    # Single query: fetch users who have an autonomy config, joined eagerly
+    # Single query: fetch users who have an autonomy config, joined eagerly.
+    # Scope to the team's org via reverse relations — both hops use the explicit
+    # singular related_query_name (organization/team), not the related_name accessors
+    # (organizations/teams), which Django's filter resolver does not accept.
     users_with_config = {
         u.id: u
         for u in User.objects.filter(
             id__in=candidate_user_ids,
             signal_autonomy_config__isnull=False,
-            organizations__teams=team_id,
-        ).select_related("signal_autonomy_config")
+            organization__team=team_id,
+        )
+        .select_related("signal_autonomy_config")
+        .distinct()
     }
 
     # Walk in reviewer order (most relevant first)
