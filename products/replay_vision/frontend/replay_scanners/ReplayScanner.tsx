@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -25,6 +26,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -206,6 +208,8 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
 
             {hasUnsavedChanges && !isNew && <LemonBanner type="info">You have unsaved changes.</LemonBanner>}
 
+            <QuotaBanner />
+
             <Form logic={replayScannerLogic} props={{ id: scannerId, tabId }} formKey="scanner" enableFormOnSubmit>
                 <LemonTabs
                     activeKey={activeTab}
@@ -215,6 +219,34 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
             </Form>
         </SceneContent>
     )
+}
+
+const QUOTA_WARN_THRESHOLD = 0.8
+
+// Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
+function QuotaBanner(): JSX.Element | null {
+    const { quota } = useValues(visionQuotaLogic)
+    if (!quota || quota.monthly_quota <= 0) {
+        return null
+    }
+    const resetsOn = dayjs(quota.period_end).format('MMM D')
+    if (quota.exhausted) {
+        return (
+            <LemonBanner type="warning">
+                Monthly Vision quota reached ({quota.usage_this_month.toLocaleString()} /{' '}
+                {quota.monthly_quota.toLocaleString()}). Scheduled scans are paused until {resetsOn}.
+            </LemonBanner>
+        )
+    }
+    if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
+        return (
+            <LemonBanner type="warning">
+                Approaching monthly Vision quota: {quota.usage_this_month.toLocaleString()} of{' '}
+                {quota.monthly_quota.toLocaleString()} used. Schedules will pause once the cap is reached on {resetsOn}.
+            </LemonBanner>
+        )
+    }
+    return null
 }
 
 export default ReplayScannerSceneComponent

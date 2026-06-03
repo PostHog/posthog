@@ -2,8 +2,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
+import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dimensions, setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
@@ -252,7 +253,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         ).toContain('rotate(-90')
     })
 
-    it('emits one series per breakdown so each bar gets its own color', async () => {
+    it('emits one series with a colored bar per breakdown value', async () => {
         renderInsight({
             query: aggregatedBar({
                 series: [
@@ -270,17 +271,39 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        // Five hedgehog breakdowns → five sparse-stacked series sharing five bands.
+        // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands.
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: /chart with 5 data series/i,
-                    })
-                ).toBeInTheDocument()
+                expect(getHogChart().yTicks()).toHaveLength(5)
             },
             { timeout: 5000 }
         )
+    })
+
+    it('colors each value-label pill by its own bar, not the first bar', async () => {
+        // Regression: the single collapsed series carries per-bar colors, so value labels must
+        // resolve `bars[dataIndex].color` — not the series-level color (which is just bars[0].color).
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsBarValue, showValuesOnSeries: true },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                expect(getHogChart().valueLabels().length).toBeGreaterThan(1)
+            },
+            { timeout: 5000 }
+        )
+        const pillColors = getHogChart()
+            .valueLabels()
+            .map((l) => l.color)
+        expect(new Set(pillColors).size).toBeGreaterThan(1)
     })
 
     it('labels each aggregated breakdown bar by its breakdown value, one band per value by default', async () => {
@@ -291,7 +314,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -403,7 +426,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             }),
             featureFlags: HOG_CHARTS_FLAG,
         })
-        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
 
         // Spike has aggregated_value 11 — largest, so it's the topmost row in DESC layout.
         const canvas = screen.getByRole('img', { name: /chart with/i })

@@ -466,6 +466,7 @@ def resolve_slack_user(
                         f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
                         f"Please make sure you're a member of that PostHog organization."
                     ),
+                    prefer_thread_message=True,
                 )
             return None
 

@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from 'lib/hog-charts'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
