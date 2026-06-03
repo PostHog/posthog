@@ -26,7 +26,7 @@ class TestOktaSource:
 
         assert config.name.value == "Okta"
         assert config.label == "Okta"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/okta.png"
 
