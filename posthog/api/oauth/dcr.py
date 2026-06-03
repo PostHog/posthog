@@ -125,12 +125,13 @@ class DCRRequestSerializer(serializers.Serializer):
     )
     # RFC 7591 standard `scope`: a flat, space-delimited string (NOT the CIMD
     # `com.posthog` namespace). Sets the app's scope ceiling. Privileged scopes
-    # are stripped on registration; if omitted the ceiling is left empty and
-    # /authorize resolves it to the broad UNPRIVILEGED_SCOPES default.
+    # are stripped on registration; a non-empty set that strips to nothing is
+    # rejected. If omitted (or blank), the ceiling is left empty and /authorize
+    # resolves it to the broad UNPRIVILEGED_SCOPES default.
     scope = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Space-delimited OAuth scopes (RFC 7591). Sets the client's scope ceiling; privileged scopes are stripped.",
+        help_text="Space-delimited OAuth scopes (RFC 7591). Sets the client's scope ceiling; privileged scopes are stripped, and a set that strips to nothing is rejected. Omit to use the default scope set.",
     )
 
 
@@ -173,6 +174,21 @@ class DynamicClientRegistrationView(APIView):
 
         requested_scope = data.get("scope")
         app_scopes = filter_dcr_scopes(requested_scope) if requested_scope else []
+
+        # A non-empty `scope` that filters to nothing means the client asked only for
+        # scopes it can't self-register (privileged/internal/hidden/unknown). Reject
+        # rather than store an empty ceiling: an empty ceiling resolves to the broad
+        # default at /authorize, so silently accepting would widen the client beyond
+        # what it requested. Absent / "" / null `scope` is the legitimate "use default"
+        # path and falls through to an empty ceiling below.
+        if requested_scope and not app_scopes:
+            return Response(
+                {
+                    "error": "invalid_client_metadata",
+                    "error_description": "None of the requested scopes are available to self-registered clients. Omit `scope` to register with the default scope set.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             app = OAuthApplication.objects.create(

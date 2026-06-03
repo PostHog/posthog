@@ -409,8 +409,6 @@ class TestDynamicClientRegistration(APIBaseTest):
                 "experiment:read",
             ),
             ("strips_unknown_junk", "experiment:read not_a_real:scope", ["experiment:read"], "experiment:read"),
-            ("only_privileged_yields_empty", "llm_gateway:read llm_gateway:write", [], None),
-            ("only_disallowed_yields_empty", "signal_scout_internal:write metrics:read not_a_real:scope", [], None),
             (
                 "dedupes_preserving_order",
                 "experiment:read dashboard:read experiment:read",
@@ -439,6 +437,21 @@ class TestDynamicClientRegistration(APIBaseTest):
             self.assertNotIn("scope", response.json())
         else:
             self.assertEqual(response.json()["scope"], expected_response_scope)
+
+    @parameterized.expand(
+        [
+            ("only_privileged", "llm_gateway:read llm_gateway:write"),
+            ("only_internal_hidden_junk", "signal_scout_internal:write metrics:read not_a_real:scope"),
+        ]
+    )
+    def test_register_with_only_ungrantable_scopes_is_rejected(self, _name, scope):
+        response = self.client.post(
+            "/oauth/register/",
+            {"redirect_uris": ["https://example.com/callback"], "scope": scope},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
 
     def test_register_without_scope_leaves_ceiling_empty(self):
         # Distinct from blank_string above: the `scope` key is absent entirely, exercising
