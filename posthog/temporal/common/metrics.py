@@ -51,7 +51,7 @@ class ExecutionTimeRecorder:
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback) -> None:
-        if not self._start_counter:
+        if self._start_counter is None:
             raise RuntimeError("Start counter not initialized, did you call `__enter__`?")
         end_counter = time.perf_counter()
         delta_milli_seconds = int((end_counter - self._start_counter) * 1000)
