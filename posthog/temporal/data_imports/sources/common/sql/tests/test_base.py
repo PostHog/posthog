@@ -226,7 +226,7 @@ class TestDefaultNonRetryableErrors:
         [
             ("Source column type changed", "reset and fully re-sync"),
             ("Cannot build decimal array from values", "decimal storage limits"),
-            ("rows failed validation check", "reset and fully re-sync"),
+            ("rows failed validation check", "delete and resync"),
         ],
     )
     def test_includes_expected_entry(self, key: str, expected_substring: str) -> None:

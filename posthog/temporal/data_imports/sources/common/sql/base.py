@@ -95,8 +95,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
             # the table was first synced. Retrying never repairs the divergent files.
             "rows failed validation check": (
                 "The table's data no longer matches the columns we stored — usually because a column was added or "
-                "its type changed in your source database after this table was first synced. We can't reconcile the "
-                "change in place — please reset and fully re-sync this table to fix."
+                "its type changed since the last sync. Please delete and resync the table to resolve the issue."
             ),
         }
 
