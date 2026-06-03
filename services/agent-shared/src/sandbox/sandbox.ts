@@ -23,9 +23,8 @@ export interface AcquireOpts {
     sessionId: string
     teamId: number
     tools: SandboxToolLoad[]
-    /** Per-invocation `{ secretName -> nonce }` map — substituted at egress. */
+    /** Per-invocation `{ secretName -> nonce }` map — substituted at the sandbox boundary. */
     nonces: Record<string, string>
-    egressProxyUrl?: string
     sessionTimeoutMs?: number
     limits?: SandboxLimits
 }
@@ -41,13 +40,6 @@ export interface SandboxToolLoad {
 export interface SandboxLimits {
     wallMs: number
     memoryMb: number
-    egress: EgressPolicy
-}
-
-export interface EgressPolicy {
-    allowedHosts: string[]
-    /** Insecure escape hatch — honored only by InProcess. Docker/Modal ignore. */
-    allowAll?: boolean
 }
 
 export interface InvokeRequest {
@@ -69,5 +61,4 @@ export interface Sandbox {
 export const DEFAULT_LIMITS: SandboxLimits = {
     wallMs: 30_000,
     memoryMb: 512,
-    egress: { allowedHosts: [] },
 }

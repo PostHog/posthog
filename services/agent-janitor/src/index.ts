@@ -24,6 +24,7 @@ import {
     createLogger,
     installProcessHandlers,
     MemoryStore,
+    PgApprovalStore,
     PgRevisionStore,
     PgSessionQueue,
     S3BundleStore,
@@ -78,9 +79,14 @@ async function main(): Promise<void> {
 
     const queue = new PgSessionQueue(agentDb)
     const revisions = new PgRevisionStore(posthogDb)
+    // Approvals: backs both the /approvals/* HTTP surface (decide / list /
+    // get for the authoring UI + MCP) and the sweep's expireQueued path.
+    // Without it both 503 / silently no-op.
+    const approvals = new PgApprovalStore(agentDb)
 
     const sweep = {
         queue,
+        approvals,
         stuckRunningThresholdMs: config.stuckRunningMs,
         stuckWaitingThresholdMs: config.stuckWaitingMs,
         idleCompletedThresholdMs: config.idleCompletedMs,
@@ -129,6 +135,7 @@ async function main(): Promise<void> {
     const app = buildJanitorApp({
         queue,
         sweep,
+        approvals,
         revisions,
         bundles,
         memoryStore,

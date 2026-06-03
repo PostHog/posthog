@@ -32,7 +32,7 @@ import {
     KafkaLogSink,
     MemoryStore,
     NoopAnalyticsSink,
-    NoopSessionEventBus,
+    PgApprovalStore,
     PgCredentialBroker,
     PgIdentityStore,
     PgIntegrationStore,
@@ -45,7 +45,6 @@ import {
     S3MemoryStore,
     SecretBroker,
     selectSandboxPool,
-    SessionEventBus,
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
@@ -116,15 +115,17 @@ async function main(): Promise<void> {
         return integrations.resolveForSpec(session.team_id, kinds)
     }
 
-    // Cross-process event bus. With REDIS_URL set, ingress /listen on host A
-    // sees events published by a runner on host B. Without it the runner
-    // still works — events just go nowhere (no SSE consumers can connect).
-    let bus: SessionEventBus = new NoopSessionEventBus()
-    if (config.redisUrl) {
-        const redis = new RedisSessionEventBus({ url: config.redisUrl })
-        await redis.connect()
-        bus = redis
+    // Cross-process event bus. REDIS_URL is required — ingress /listen on
+    // host A subscribes to events the runner publishes on host B via the
+    // same Redis. Fail closed at boot if unset rather than silently
+    // noop-publishing (the previous fallback behavior).
+    if (!config.redisUrl) {
+        throw new Error(
+            'REDIS_URL must be set — runner cannot publish session lifecycle events without it. Wire valkey-agent-platform via the chart.'
+        )
     }
+    const bus = new RedisSessionEventBus({ url: config.redisUrl })
+    await bus.connect()
 
     // Structured per-turn log sink. Every session lifecycle event the
     // runner emits is also shipped to the shared `log_entries` CH table
@@ -212,6 +213,12 @@ async function main(): Promise<void> {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
 
+    // Approval-gated tools intercept dispatch before the real call, queue an
+    // `agent_tool_approval_request` row, and resume after a janitor
+    // /approvals/<id>/decide writes the decision. Without this wiring,
+    // requires_approval flags on tools are silently ungated.
+    const approvals = new PgApprovalStore(agentDb)
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
@@ -220,6 +227,7 @@ async function main(): Promise<void> {
         sandboxInstances: new PgSandboxInstanceStore(agentDb),
         broker: new SecretBroker(),
         credentialBroker,
+        approvals,
         bus,
         logs: logSink,
         resolveIntegrations,

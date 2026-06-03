@@ -3,8 +3,8 @@
  *
  * Loads each tool's compiled.js into a fresh vm.Context, calls the exported
  * `defineTool({ id, actions })` to obtain the action map, then dispatches
- * `invoke` calls directly. Egress is unrestricted; secrets are substituted at
- * the `RuntimeHttp` boundary by the egress proxy URL the caller wires in.
+ * `invoke` calls directly. Egress is unrestricted — production isolation +
+ * outbound filtering live in the Modal sandbox + the cluster's smokescreen.
  */
 
 import * as vm from 'vm'
@@ -37,8 +37,6 @@ interface InProcessSandboxOpts {
     nonces: Record<string, string>
     /** Optional plaintext secret resolution for `secrets.value()` (escape hatch). */
     secretValues?: Record<string, string>
-    /** Optional egress proxy URL; if absent, requests go direct (insecure — tests only). */
-    egressProxyUrl?: string
 }
 
 class InProcessSandbox implements Sandbox {
@@ -46,14 +44,12 @@ class InProcessSandbox implements Sandbox {
     private readonly tools: Map<string, LoadedTool>
     private readonly nonces: Record<string, string>
     private readonly secretValues: Record<string, string>
-    private readonly egressProxyUrl?: string
     readonly sessionId: string
 
     constructor(opts: InProcessSandboxOpts) {
         this.sessionId = opts.sessionId
         this.nonces = opts.nonces
         this.secretValues = opts.secretValues ?? {}
-        this.egressProxyUrl = opts.egressProxyUrl
         this.tools = new Map(opts.tools.map((t) => [t.id, this.loadTool(t)]))
     }
 
@@ -128,12 +124,7 @@ class InProcessSandbox implements Sandbox {
                 },
             },
             http: {
-                fetch: async (url: string, init?: RequestInit) => {
-                    if (this.egressProxyUrl) {
-                        return fetch(`${this.egressProxyUrl}/proxy?url=${encodeURIComponent(url)}`, init)
-                    }
-                    return fetch(url, init)
-                },
+                fetch: async (url: string, init?: RequestInit) => fetch(url, init),
             },
         }
     }
@@ -199,7 +190,6 @@ export class InProcessSandboxPool implements SandboxPool {
             tools: opts.tools,
             nonces: opts.nonces,
             secretValues: this.secretValuesProvider ? this.secretValuesProvider(opts.sessionId) : {},
-            egressProxyUrl: opts.egressProxyUrl,
         })
         this.bySession.set(opts.sessionId, sandbox)
         return sandbox

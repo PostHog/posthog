@@ -21,6 +21,7 @@
         "@earendil-works/pi-ai": "^0.75.5",
         "fernet-nodejs": "^1.0.6",
         "minisearch": "^7.1.2",
+        "modal": "^0.7.6",
         "pg": "^8.6.0",
         "pino": "^8.11.0",
         "pino-pretty": "^9.4.0",

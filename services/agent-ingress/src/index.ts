@@ -17,14 +17,12 @@ import {
     createLogger,
     EncryptedFields,
     installProcessHandlers,
-    MemorySessionEventBus,
     PgCredentialBroker,
     PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
     PgSessionQueue,
     RedisSessionEventBus,
-    SessionEventBus,
 } from '@posthog/agent-shared'
 
 import { loadAgentIngressConfig } from './config'
@@ -41,14 +39,16 @@ async function main(): Promise<void> {
     const agentDb = createAgentPool(config.agentDbUrl)
 
     // SSE /listen is the consumer side of the same bus the runner publishes
-    // to. With REDIS_URL set, multi-host fan-out works; without it /listen
-    // only sees events from a runner inside the same process (dev).
-    let bus: SessionEventBus = new MemorySessionEventBus()
-    if (config.redisUrl) {
-        const redis = new RedisSessionEventBus({ url: config.redisUrl })
-        await redis.connect()
-        bus = redis
+    // to. REDIS_URL is required — without cross-host fan-out, /listen on
+    // ingress pod A would silently miss events from runner pod B. Fail
+    // closed at boot rather than serving a /listen that returns nothing.
+    if (!config.redisUrl) {
+        throw new Error(
+            'REDIS_URL must be set — ingress /listen SSE needs the SessionEventBus subscribe side. Wire valkey-agent-platform via the chart.'
+        )
     }
+    const bus = new RedisSessionEventBus({ url: config.redisUrl })
+    await bus.connect()
 
     // Slack → PostHog user bridge needs the integration store to fetch the
     // workspace bot token for `users.info`. Construction throws if
