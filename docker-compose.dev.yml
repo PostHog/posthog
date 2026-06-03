@@ -154,8 +154,6 @@ services:
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
-            PERSONHOG_ENABLED: 'true'
-            PERSONHOG_ADDR: personhog-router:50052
             # The plugins container runs the CDP rerun worker (default capabilities), which
             # requires this. bin/start exports it for local dev; the value below is the default
             # for callers (like the E2E CI job) that launch this service without bin/start.
@@ -183,28 +181,6 @@ services:
             timeout: 5s
             retries: 30
             start_period: 15s
-        profiles:
-            - ingestion
-
-    personhog-replica:
-        extends:
-            file: docker-compose.base.yml
-            service: personhog-replica
-        environment:
-            PRIMARY_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog_persons}
-        depends_on:
-            db:
-                condition: service_healthy
-        profiles:
-            - ingestion
-
-    personhog-router:
-        extends:
-            file: docker-compose.base.yml
-            service: personhog-router
-        depends_on:
-            personhog-replica:
-                condition: service_started
         profiles:
             - ingestion
 
