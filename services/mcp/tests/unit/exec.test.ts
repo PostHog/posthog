@@ -512,6 +512,52 @@ describe('exec tool', () => {
             expect(drilled.note).toBeUndefined()
             expect(drilled.schema).not.toBeUndefined()
         })
+
+        // Regression for the reported bug: `schema query-trends series` resolves to an
+        // array-of-union node that overflows the inline budget. The summarizer used to
+        // walk only `properties`, so it returned `{ type: 'array', properties: {} }` —
+        // an empty schema that hid the EventsNode/ActionsNode/GroupNode variants and
+        // forced callers onto the prose examples instead. The series item shapes must
+        // now be visible in the summary.
+        it('eval: query-trends series drill-down exposes the item variant shapes (not an empty array)', async () => {
+            const context: Context = {
+                api: {} as any,
+                cache: {} as any,
+                env: {
+                    MCP_APPS_BASE_URL: undefined,
+                    POSTHOG_ANALYTICS_API_KEY: undefined,
+                    POSTHOG_ANALYTICS_HOST: undefined,
+                    POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
+                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                    POSTHOG_UI_APPS_TOKEN: undefined,
+                },
+                stateManager: {
+                    getApiKey: async () => ({ scopes: ['*'] }),
+                    getAiConsentGiven: async () => true,
+                } as any,
+                sessionManager: new SessionManager({} as any),
+                getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
+            }
+            const v2Tools = await getToolsFromContext(context)
+            const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
+
+            const drilled = JSON.parse(
+                (await exec.handler(context, { command: 'schema query-trends series' })) as string
+            ) as { field?: string; schema?: { type?: string; properties?: Record<string, unknown>; items?: unknown } }
+
+            expect(drilled.field).toBe('series')
+            expect(drilled.schema?.type).toBe('array')
+            // The historical bug: an empty `properties: {}` and nothing else. The item
+            // schema (object or summarized union of variants) must now be present.
+            expect(drilled.schema?.items).not.toBeUndefined()
+            // And the serialized payload must actually carry variant field names — proof
+            // the variant shapes survived summarization rather than collapsing to {}.
+            const serialized = JSON.stringify(drilled.schema)
+            expect(serialized.length).toBeGreaterThan(100)
+            expect(serialized).toMatch(/event|kind|properties/)
+        })
     })
 
     describe('search command', () => {

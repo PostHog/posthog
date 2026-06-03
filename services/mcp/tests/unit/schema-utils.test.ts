@@ -145,6 +145,100 @@ describe('schema-utils', () => {
                 'DO NOT GUESS — you MUST run `schema my-tool parent.nested` before populating this field'
             )
         })
+
+        // Regression: `schema query-trends series` resolves to an array-of-union node
+        // that overflows the inline budget, so it gets summarized. The old summarizer
+        // only walked `properties`, collapsing it to `{ type: 'array', properties: {} }`
+        // and hiding every variant shape — forcing callers back to the prose examples.
+        it('summarizes an array-of-union root by recursing into the item variants', () => {
+            const schema = {
+                type: 'array',
+                items: {
+                    anyOf: [
+                        {
+                            type: 'object',
+                            title: 'EventsNode',
+                            properties: { event: { type: 'string' }, math: { type: 'string' } },
+                        },
+                        {
+                            type: 'object',
+                            title: 'ActionsNode',
+                            properties: { id: { type: 'number' } },
+                        },
+                    ],
+                },
+            }
+
+            const result = summarizeSchema(schema, 'query-trends', 'series')
+
+            expect(result.type).toBe('array')
+            // Not an empty object summary anymore — the items shape is present.
+            expect(result.items).not.toBeUndefined()
+            expect(result.items!.type).toBe('union of 2 types (EventsNode, ActionsNode)')
+            expect(result.items!.variants).toHaveLength(2)
+            expect(result.items!.variants![0]!.properties.event).toEqual(expect.objectContaining({ type: 'string' }))
+            expect(result.items!.variants![1]!.properties.id).toEqual(expect.objectContaining({ type: 'number' }))
+        })
+
+        // The `series.0` numeric-step workaround resolves to the bare union node; it
+        // suffered the same empty-summary collapse.
+        it('summarizes a union root into its variants', () => {
+            const schema = {
+                anyOf: [
+                    { type: 'object', title: 'TypeA', properties: { a: { type: 'string' } } },
+                    { type: 'object', title: 'TypeB', properties: { b: { type: 'number' } } },
+                ],
+            }
+
+            const result = summarizeSchema(schema, 'my-tool', 'field.0')
+
+            expect(result.type).toBe('union of 2 types (TypeA, TypeB)')
+            expect(result.variants).toHaveLength(2)
+            expect(result.variants![0]!.properties.a).toEqual(expect.objectContaining({ type: 'string' }))
+            // Drill-down hints thread the original field path so the follow-up resolves.
+            const eventSchema = {
+                type: 'array',
+                items: {
+                    anyOf: [
+                        {
+                            type: 'object',
+                            properties: { props: { type: 'object', properties: { x: { type: 'string' } } } },
+                        },
+                    ],
+                },
+            }
+            const drillable = summarizeSchema(eventSchema, 'query-trends', 'series')
+            expect(drillable.items!.properties.props!.hint).toBe(
+                'DO NOT GUESS — you MUST run `schema query-trends series.props` before populating this field'
+            )
+        })
+
+        // Zod discriminated unions (e.g. trends series) put variant identity in a `kind`
+        // const, not a `title` — name them off that so the union header is legible.
+        it('names union variants by a discriminator const when no title is present', () => {
+            const schema = {
+                anyOf: [
+                    { type: 'object', properties: { kind: { type: 'string', const: 'EventsNode' } } },
+                    { type: 'object', properties: { kind: { type: 'string', enum: ['ActionsNode'] } } },
+                ],
+            }
+
+            const result = summarizeSchema(schema, 'query-trends', 'series.0')
+
+            expect(result.type).toBe('union of 2 types (EventsNode, ActionsNode)')
+        })
+
+        it('collapses a nullable object union to the underlying object summary', () => {
+            const schema = {
+                anyOf: [{ type: 'object', properties: { a: { type: 'string' } } }, { type: 'null' }],
+            }
+
+            const result = summarizeSchema(schema, 'my-tool', 'maybeObj')
+
+            expect(result.type).toBe('object')
+            expect(result.variants).toBeUndefined()
+            expect(result.properties.a).toEqual(expect.objectContaining({ type: 'string' }))
+        })
     })
 
     describe('resolveSchemaPath', () => {
