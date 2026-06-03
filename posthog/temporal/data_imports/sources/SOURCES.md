@@ -168,6 +168,7 @@ doesn't conflict with concurrent PRs.
 - google_analytics
 - google_drive
 - gorgias
+- granola
 - greenhouse
 - helpscout
 - instagram
@@ -221,7 +222,6 @@ doesn't conflict with concurrent PRs.
 - zoho_crm
 - zoom
 - zuora
-
 
 ---
 
