@@ -6821,6 +6821,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "k8s-awareness",
+ "k8s-openapi",
  "kube",
  "lifecycle",
  "metrics",
