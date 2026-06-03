@@ -2,7 +2,7 @@ from typing import cast
 
 import structlog
 
-from posthog.schema import PropertyGroupsMode
+from posthog.schema import HogQLQueryModifiers, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -22,6 +22,15 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
+
+
+def events_pushdown_enabled(modifiers: HogQLQueryModifiers) -> bool:
+    """Whether events-predicate pushdown is enabled: explicitly on, or unset under TEST (broad coverage).
+
+    Single source of truth for the gate so the call-site short-circuit and the transform's own check can't
+    drift apart.
+    """
+    return bool(modifiers.pushDownPredicates or (modifiers.pushDownPredicates is None and TEST))
 
 
 def apply_events_predicate_pushdown(
@@ -363,8 +372,9 @@ class _ShortCircuitBlockerFinder(TraversingVisitor):
         if find_hogql_aggregation(node.name):
             self.found = True
         else:
-            for arg in node.args:
-                self.visit(arg)
+            # Recurse into every child position (args, params, within_group, order_by, filter_expr), not just
+            # args, so an aggregate nested in a parametric/filtered call can't slip past the gate.
+            super().visit_call(node)
 
 
 class EventsPredicatePushdownTransform(TraversingVisitor):
@@ -505,7 +515,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
           so the pre-filter subquery would be pure materialization overhead — a measured regression).
         """
         return (
-            (self.context.modifiers.pushDownPredicates or (self.context.modifiers.pushDownPredicates is None and TEST))
+            events_pushdown_enabled(self.context.modifiers)
             and node.select_from is not None
             and node.select_from.sample is None  # No SAMPLE clause
             and self._from_is_events_table(node.select_from)
@@ -518,10 +528,16 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     def _has_effective_limit(self, node: ast.SelectQuery) -> bool:
         """The LIMIT can bound the events scan, so the pushdown lets it short-circuit early.
 
-        An outermost select always gets a top-level LIMIT injected (<= MAX_SELECT_RETURNED_ROWS, in the
+        An outermost select normally gets a top-level LIMIT injected (<= MAX_SELECT_RETURNED_ROWS, in the
         beneficial range), so it counts regardless of what's on the AST right now. A nested subquery only
         counts if it carries an explicit LIMIT.
+
+        Contexts that disable the top-level cap (COHORT_CALCULATION / SAVED_QUERY / exports set
+        limit_top_select=False) inject only a huge sentinel limit that can't short-circuit the events scan,
+        so there's no benefit to gain — decline in those.
         """
+        if not self.context.limit_top_select:
+            return False
         return id(node) in self.top_level_select_ids or node.limit is not None
 
     def _forces_full_event_read(self, node: ast.SelectQuery) -> bool:
@@ -530,11 +546,15 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         GROUP BY, DISTINCT, and aggregate / window functions all read every matching row before the LIMIT
         selects from the result, so the LIMIT can't short-circuit the events scan. The pushdown stays
         correct, but with nothing to short-circuit the pre-filter subquery is pure materialization overhead.
+
+        An aggregate or window in ORDER BY or QUALIFY (e.g. `ORDER BY count() DESC` with no GROUP BY) is an
+        implicit whole-set read too, so those clauses are scanned as well. A plain `ORDER BY <column>` is not
+        a blocker (no aggregate/window present), so ordered-but-not-aggregated queries still push.
         """
         if node.group_by or node.distinct:
             return True
         finder = _ShortCircuitBlockerFinder()
-        for expr in (*node.select, node.having):
+        for expr in (*node.select, node.having, node.qualify, *(node.order_by or [])):
             if expr is not None:
                 finder.visit(expr)
         return finder.found

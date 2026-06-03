@@ -15,7 +15,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
-from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown
+from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -25,7 +25,6 @@ from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
-from posthog.settings import TEST
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
@@ -153,7 +152,7 @@ def prepare_ast_for_printing(
         # Skip the transform (and its full AST traversal) entirely when pushdown is off, so the common
         # production default is zero-cost. On by default under TEST for broad coverage, mirroring the gate
         # inside the transform.
-        if context.modifiers.pushDownPredicates or (context.modifiers.pushDownPredicates is None and TEST):
+        if events_pushdown_enabled(context.modifiers):
             with context.timings.measure("events_predicate_pushdown"):
                 node = apply_events_predicate_pushdown(node, context)
 

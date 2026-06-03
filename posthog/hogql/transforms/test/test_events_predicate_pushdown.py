@@ -524,6 +524,50 @@ class TestEventsPredicatePushdownTransformUnit:
 
         assert transform._should_apply_pushdown(node) is True
 
+    def test_should_not_apply_pushdown_when_top_level_limit_disabled(self):
+        # COHORT_CALCULATION / SAVED_QUERY / exports set limit_top_select=False and inject only a huge
+        # sentinel limit — nothing for the LIMIT to short-circuit, so decline even though node.limit is set.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        context = HogQLContext(team_id=1)
+        context.limit_top_select = False
+
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_not_apply_pushdown_with_aggregate_in_order_by(self):
+        # A bare aggregate in ORDER BY (no GROUP BY) is an implicit whole-set read — the LIMIT can't
+        # short-circuit, so decline.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.order_by = [ast.OrderExpr(expr=ast.Call(name="count", args=[]), order="DESC")]
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_not_apply_pushdown_with_aggregate_in_qualify(self):
+        # An aggregate/window reachable only via QUALIFY also forces a whole-set read.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.qualify = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt, left=ast.Call(name="count", args=[]), right=ast.Constant(value=0)
+        )
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_not_apply_pushdown_with_aggregate_in_call_filter(self):
+        # An aggregate hidden in a non-arg call position (here filter_expr of a non-aggregate call) must still
+        # be detected — the finder recurses into every child position, not just args.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.select = [
+            ast.Call(name="toString", args=[ast.Field(chain=["event"])], filter_expr=ast.Call(name="count", args=[]))
+        ]
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+
+        assert transform._should_apply_pushdown(node) is False
+
     def test_collect_joined_aliases_single_join(self):
         node = self._make_events_select_with_join(where_clause=ast.Constant(value=True))
 
