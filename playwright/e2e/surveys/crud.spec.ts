@@ -10,7 +10,9 @@ async function deleteSurvey(page: Page, name: string): Promise<void> {
 
     const archiveDialog = page.locator('.LemonModal__layout').filter({ hasText: 'Archive this survey?' })
     await expect(archiveDialog).toBeVisible()
-    await archiveDialog.getByRole('button', { name: 'Archive', exact: true }).click()
+    // The confirm button reads "Archive" when stopped but "Stop and archive" if the
+    // dialog still sees the survey as running (end_date not yet propagated), so match both.
+    await archiveDialog.getByRole('button', { name: /^(Archive|Stop and archive)$/ }).click()
     await expect(archiveDialog).not.toBeVisible()
 
     // Context menu is open again after archiving, so we can click "Delete permanently" right away
