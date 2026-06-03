@@ -65,7 +65,7 @@ from dagster import (
     sensor,
 )
 from psycopg import sql as psql
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, stop_after_delay, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
@@ -173,7 +173,11 @@ def _get_cluster() -> ClickhouseCluster:
 
 
 @retry(
-    stop=stop_after_attempt(3),
+    # Deep enough to outlast a cold colocated-node provision (minutes) or a brief
+    # warm-pool exhaustion under a burst: up to ~5 minutes or 12 attempts. A
+    # shallow 3-attempt/~10s budget would surface the very ConnectionTimeout this
+    # feature exists to remove. statement_timeout (set per connection) is separate.
+    stop=stop_after_delay(300) | stop_after_attempt(12),
     wait=wait_exponential(multiplier=1, min=5, max=60),
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
     reraise=True,
