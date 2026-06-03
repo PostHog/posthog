@@ -17,7 +17,9 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
+    PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    PromotedProductIntentSerializer,
     TeamSerializer,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
@@ -41,6 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
@@ -942,6 +945,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @extend_schema(
+        tags=["platform_features"],
+        responses={200: PromotedProductIntentSerializer},
+        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
+    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
+        project = self.get_object()
+        team = project.passthrough_team
+        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
+        return response.Response({"product_key": product_key})
 
     @action(
         methods=["PATCH"],

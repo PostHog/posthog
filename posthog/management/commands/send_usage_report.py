@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from posthog.tasks.usage_report import send_all_org_usage_reports
 
@@ -23,7 +24,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
-        date = options["date"]
+        date = options["date"] or timezone.now().date().isoformat()
         skip_capture_event = options["skip_capture_event"]
         run_async = options["async"]
         org_ids_str = options.get("org_ids")

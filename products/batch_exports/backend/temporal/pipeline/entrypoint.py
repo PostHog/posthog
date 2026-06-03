@@ -131,7 +131,7 @@ async def execute_batch_export_using_internal_stage(
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
         # TODO: Review timeouts for internal stage activity.
-        main_activity_start_to_close_timeout = max(dt.timedelta(hours=2), override_start_to_close_timeout_timedelta)
+        main_activity_start_to_close_timeout = max(dt.timedelta(hours=6), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         main_activity_start_to_close_timeout = max(dt.timedelta(days=1), override_start_to_close_timeout_timedelta)

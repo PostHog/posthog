@@ -75,6 +75,7 @@ export type {
     Series,
     TooltipConfig,
     TooltipContext,
+    ValueDomain,
     YAxisScale,
 } from './core/types'
 export { DEFAULT_Y_AXIS_ID } from './core/types'

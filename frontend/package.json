@@ -85,7 +85,6 @@
         "@posthog/products-data-modeling": "workspace:*",
         "@posthog/products-data-tools": "workspace:*",
         "@posthog/products-data-warehouse": "workspace:*",
-        "@posthog/products-deployments": "workspace:*",
         "@posthog/products-early-access-features": "workspace:*",
         "@posthog/products-endpoints": "workspace:*",
         "@posthog/products-engineering-analytics": "workspace:*",

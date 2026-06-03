@@ -12,6 +12,7 @@ from django.dispatch import receiver
 
 from celery.signals import task_postrun, task_prerun
 
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 
@@ -95,6 +96,7 @@ __all__ = [
     "get_property_access_level",
     "get_restricted_properties_for_team",
     "get_restricted_property_names",
+    "is_property_access_control_enabled",
     "strip_restricted_properties",
 ]
 
@@ -104,6 +106,20 @@ def get_default_access_level() -> PropertyAccessLevel:
     :returns: The default access level for a property
     """
     return PropertyAccessLevel.READ_WRITE
+
+
+def is_property_access_control_enabled(*, team: Team | None = None, team_id: int | None = None) -> bool:
+    if team is None and team_id is not None:
+        team = Team.objects.select_related("organization").filter(id=team_id).first()
+
+    if team is None:
+        return False
+
+    organization = team.organization
+    if organization is None:
+        return False  # type: ignore
+
+    return organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL)
 
 
 def get_property_access_level(
@@ -126,6 +142,9 @@ def get_property_access_level(
 
     :returns: The `PropertyAccessLevel` for the property.
     """
+    if not is_property_access_control_enabled(team=property.team):
+        return get_default_access_level()
+
     rules = list(
         PropertyAccessControl.objects.filter(property_definition=property).select_related("organization_member", "role")
     )
@@ -205,6 +224,10 @@ def get_non_writable_property_names(
 
     from products.access_control.backend.models.property_access_control import PropertyAccessControl
 
+    # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
+    if not is_property_access_control_enabled(team_id=team_id):
+        return set()
+
     rules = (
         PropertyAccessControl.objects.filter(team_id=team_id)
         .select_related("property_definition", "organization_member", "role")
@@ -277,6 +300,13 @@ def get_restricted_properties_for_team(
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
+
+    # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
+    if not is_property_access_control_enabled(team_id=team_id):
+        empty_no_feature: set[tuple[str, int]] = set()
+        if cache is not None:
+            cache[cache_key] = empty_no_feature
+        return empty_no_feature
 
     rules = (
         PropertyAccessControl.objects.filter(team_id=team_id)

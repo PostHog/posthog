@@ -74,7 +74,6 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
-    "products.deployments",
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
@@ -220,20 +219,6 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.deployments"
-depends_on = [
-    "ee",
-    "posthog",
-    # `error_tracking` is not isolated (no contract-check script), so we
-    # import its model directly to upsert an ErrorTrackingRelease row on
-    # successful deploys. If error_tracking later isolates, replace this
-    # raw dep with a facade call (`upsert_release(...)`).
-    "products.error_tracking",
-    "products.annotations",
 ]
 layer = "modules"
 
