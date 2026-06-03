@@ -124,7 +124,7 @@ export function resolveBarsAtCursor(
  *  Returns undefined for non-grouped layouts (no `group` scale) or an unknown label.
  *  A `scaleBand` is uniform, so the nearest slot index is the cursor's offset from the first
  *  slot center divided by the step — O(1), no scan over the domain. */
-export function resolveGroupedBandSlot(
+export function groupedBandSlotAtCursor(
     scales: BarScaleSet,
     label: string,
     bandAxisCursor: number

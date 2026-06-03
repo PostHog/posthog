@@ -53,9 +53,9 @@ import {
     barContainsPointOnBandAxis,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
-    iterBarsAtCursor,
+    groupedBandSlotAtCursor,
     isStackedLayout,
-    resolveGroupedBandSlot,
+    iterBarsAtCursor,
 } from './utils/bars-under-cursor'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
@@ -312,7 +312,7 @@ function BarChartInner<Meta = unknown>({
                 bandSlotAtCursor: (label: string, cursor: { x: number; y: number }) =>
                     isHorizontal || barLayout !== 'grouped'
                         ? undefined
-                        : resolveGroupedBandSlot(d3Scales, label, cursor.x),
+                        : groupedBandSlotAtCursor(d3Scales, label, cursor.x),
                 _private: barChartPrivate,
             }
         },
