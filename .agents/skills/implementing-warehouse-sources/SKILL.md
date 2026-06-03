@@ -238,9 +238,11 @@ whenever you:
 - **Switch a source's protocol** — e.g. swap REST for gRPC, add webhook support alongside the pull API,
   or move from `requests` to a vendor SDK. Update both the comm method and tracked-transport columns.
 
-Keep the entries alphabetical within each table. If you add a partially-tracked source, also append a
-short "Notes on partially-tracked sources" entry explaining what blocks tracking (e.g. a vendor SDK with no
-session/interceptor seam).
+Keep the entries alphabetical within each table. The scaffolded list is one source per line (one bullet
+each, also alphabetical) so adding or removing a source only touches its own line and avoids conflicts with
+concurrent PRs — don't collapse it back into a comma-separated paragraph. If you add a partially-tracked
+source, also append a short "Notes on partially-tracked sources" entry explaining what blocks tracking
+(e.g. a vendor SDK with no session/interceptor seam).
 
 ## Required coding conventions
 
