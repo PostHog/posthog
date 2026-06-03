@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+import structlog
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
@@ -23,6 +25,8 @@ from posthog.temporal.data_imports.sources.webflow.webflow import (
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 
 @SourceRegistry.register
@@ -71,8 +75,10 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
                         label=collection.get("displayName"),
                     )
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            # Best-effort: a missing scope, transient network error, or schema-discovery
+            # bug shouldn't fail the whole source. Log so the cause is debuggable.
+            logger.debug("Webflow: failed to discover CMS collections, returning static endpoints only", exc_info=e)
 
         if names is not None:
             names_set = set(names)

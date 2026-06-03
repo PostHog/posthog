@@ -72,7 +72,9 @@ def _normalize(item: dict[str, Any], config: WebflowEndpointConfig) -> dict[str,
 def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     url = f"{WEBFLOW_BASE_URL}/sites/{site_id}"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        response = make_tracked_session(redact_values=(api_token,)).get(
+            url, headers=_get_headers(api_token), timeout=10
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -103,7 +105,7 @@ def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str
 
 def list_collections(api_token: str, site_id: str) -> list[dict[str, Any]]:
     url = f"{WEBFLOW_BASE_URL}/sites/{site_id}/collections"
-    response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=30)
+    response = make_tracked_session(redact_values=(api_token,)).get(url, headers=_get_headers(api_token), timeout=30)
     response.raise_for_status()
     return _extract_items(response.json(), "collections")
 
@@ -160,7 +162,7 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def fetch_page(page_offset: int) -> dict[str, Any]:
+    def fetch_page(page_offset: int) -> Any:
         url = _build_url(config, site_id, page_offset)
         response = session.get(url, timeout=60)
 
@@ -175,7 +177,10 @@ def get_rows(
 
     while True:
         data = fetch_page(offset)
-        items = _extract_items(data, config.data_key)
+        if config.single_object:
+            items = [data] if isinstance(data, dict) else _extract_items(data, config.data_key)
+        else:
+            items = _extract_items(data, config.data_key)
 
         if items:
             yield [_normalize(item, config) for item in items]
@@ -183,7 +188,11 @@ def get_rows(
         if not config.paginated:
             break
 
-        total = (data.get("pagination") or {}).get("total")
+        # Pagination metadata only lives on a dict envelope; a bare-list (or otherwise
+        # non-dict) response has no pagination block, so fall through to short-page
+        # termination instead of crashing on data.get(...).
+        pagination = data.get("pagination") if isinstance(data, dict) else None
+        total = pagination.get("total") if isinstance(pagination, dict) else None
         next_offset = offset + DEFAULT_PAGE_SIZE
 
         if total is not None:

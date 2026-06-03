@@ -33,6 +33,9 @@ class WebflowEndpointConfig:
     partition_key: Optional[str] = None
     paginated: bool = True
     requires_site: bool = True
+    # When set, the endpoint returns a single resource object (not a list envelope),
+    # so the transport wraps it into a one-row page instead of looking for a list.
+    single_object: bool = False
     # When set, the named nested object is merged up into the row root. Webflow's
     # products endpoint nests the product under a "product" key alongside "skus".
     flatten_key: Optional[str] = None
@@ -46,13 +49,16 @@ class WebflowEndpointConfig:
 # dynamically per site (see WebflowSource.get_schemas), because every site has a
 # different set of collections.
 WEBFLOW_ENDPOINTS: dict[str, WebflowEndpointConfig] = {
+    # Site-scoped to the configured site_id. The account-wide /sites endpoint would
+    # leak metadata for every other site a broadly scoped token can reach, so we hit
+    # /sites/{site_id} (a single site object) instead.
     "sites": WebflowEndpointConfig(
         name="sites",
-        path="/sites",
+        path="/sites/{site_id}",
         data_key="sites",
         partition_key="createdOn",
         paginated=False,
-        requires_site=False,
+        single_object=True,
     ),
     "collections": WebflowEndpointConfig(
         name="collections",

@@ -81,9 +81,9 @@ class TestBuildUrl:
         url = _build_url(WEBFLOW_ENDPOINTS["collections"], "site-1", 0)
         assert url == "https://api.webflow.com/v2/sites/site-1/collections"
 
-    def test_site_independent_endpoint(self) -> None:
+    def test_sites_endpoint_is_site_scoped(self) -> None:
         url = _build_url(WEBFLOW_ENDPOINTS["sites"], "site-1", 0)
-        assert url == "https://api.webflow.com/v2/sites"
+        assert url == "https://api.webflow.com/v2/sites/site-1"
 
     def test_collection_items_includes_stable_sort(self) -> None:
         url = _build_url(collection_items_endpoint_config("col-99"), "site-1", 0)
@@ -156,14 +156,28 @@ class TestGetRows:
         assert rows == [[{"id": "only"}]]
         manager.save_state.assert_not_called()
 
-    def test_non_paginated_endpoint_fetches_once(self) -> None:
+    def test_single_object_endpoint_wraps_one_row_and_fetches_once(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
-        responses = [_make_response({"sites": [{"id": "s1"}, {"id": "s2"}]})]
+        # /sites/{site_id} returns a single site object, not a list envelope.
+        responses = [_make_response({"id": "s1", "displayName": "My site"})]
 
         rows, sent_urls = _drive_rows(WEBFLOW_ENDPOINTS["sites"], manager, responses, schema_name="sites")
 
-        assert rows == [[{"id": "s1"}, {"id": "s2"}]]
+        assert rows == [[{"id": "s1", "displayName": "My site"}]]
+        assert sent_urls == ["https://api.webflow.com/v2/sites/site-1"]
+        manager.save_state.assert_not_called()
+
+    def test_paginated_endpoint_with_bare_list_response_does_not_crash(self) -> None:
+        # A paginated endpoint that returns a bare list (no pagination block) must
+        # fall through to short-page termination instead of crashing on data.get(...).
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = [_make_response([{"id": "a"}, {"id": "b"}])]
+
+        rows, sent_urls = _drive_rows(WEBFLOW_ENDPOINTS["pages"], manager, responses)
+
+        assert rows == [[{"id": "a"}, {"id": "b"}]]
         assert len(sent_urls) == 1
         manager.save_state.assert_not_called()
 
