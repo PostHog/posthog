@@ -105,20 +105,25 @@ are gated behind explicit human approval.
 
 ```yaml
 triggers:
-  - type: slack          # @mention from engineers + alert channels
-  - type: webhook        # Grafana alerting → POST /agents/sre/webhook
+    - type: slack # @mention from engineers + alert channels
+    - type: webhook # Grafana alerting → POST /agents/sre/webhook
 tools:
-  - kind: native, id: '@posthog/query'        # PostHog logs
-  - kind: native, id: '@posthog/web-fetch'    # runbook URLs
-  - kind: native, id: '@posthog/slack/post'   # thread replies
-  - kind: native, id: '@posthog/memory/recall' # ⚠️ doesn't exist
-  - kind: native, id: '@posthog/memory/write'  # ⚠️ doesn't exist
-mcps:
-  - id: grafana,    endpoint: '<grafana mcp>' # ⚠️ runtime wiring not shipped
-  - id: kubernetes, endpoint: '<k8s mcp>'     # ⚠️ same
+    - kind: native, id: '@posthog/query' # PostHog logs
+    - kind: native, id: '@posthog/web-fetch' # runbook URLs
+    - kind: native, id: '@posthog/slack-post-message' # thread replies
+    - kind: native, id: '@posthog/slack-read-channel'
+    - kind: native, id: '@posthog/slack-read-thread'
+    - kind: native, id: '@posthog/slack-react'
+    - kind: native, id: '@posthog/table-query' # recall prior incidents
+    - kind: native, id: '@posthog/table-append' # record resolved outcome
+    - kind: native, id: '@posthog/table-membership' # cheap seen-set check
+mcps: []
+# v1: Grafana + Kubernetes MCPs are private. Cloudflare Tunnel exposes
+# them with a public hostname; register each as kind: 'external'.
+# Tracked separately — not on this branch.
 skills:
-  - triage-playbook
-  - postmortem-template
+    - triage-playbook
+    - slack-thread-protocol
 limits: { max_turns: 30, max_wall_seconds: 600 }
 reasoning: high
 ```
@@ -140,26 +145,116 @@ reasoning: high
       [`per-session-access-elevation.md`](per-session-access-elevation.md).
 - [x] ✅ Long-running sessions for multi-day incident threads —
       [`long-running-sessions.md`](long-running-sessions.md).
-- [ ] 📋 Runtime MCP support for Grafana + k8s servers —
-      [`runtime-mcps.md`](runtime-mcps.md) covers the publicly-reachable
-      case; [`tailscale-mcps.md`](tailscale-mcps.md) covers the _not_
-      publicly reachable case (most real Grafana / k8s deployments) by
-      adding a `kind: 'tailscale'` `McpRef` that joins the customer's
-      tailnet via a scoped OAuth client. For SRE bot in practice the
-      Tailscale path is the load-bearing one; runtime-mcps still helps
-      for things like Sentry that have public MCPs.
-- [x] ✅ Persistent agent memory — `MemoryStore` + `@posthog/memory-*`
-      tools cover the "remember outcomes by alert signature" use
-      case as markdown notes with BM25 search.
+- [x] ✅ Persistent agent memory — prose `MemoryStore` (`@posthog/memory-*`)
+      and deterministic `TabularStore` (`@posthog/table-*`) both ship.
+      SRE bot uses the tabular variant for the "alert signature →
+      outcome" pattern (one row per resolved incident, dedupe on
+      thread_url); the prose variant is reserved for free-form
+      lessons-learned notes.
+- [ ] 📋 Runtime MCP support for Grafana + k8s servers — **Cloudflare
+      Tunnel is the planned v1 path**, separate from this branch.
+      Exposes each private MCP behind a public hostname; agent spec
+      registers the tunneled hostname as a `kind: 'external'` McpRef,
+      so the runtime side ([`runtime-mcps.md`](runtime-mcps.md)) is
+      already shipped — only the deploy machinery is missing.
+      [`tailscale-mcps.md`](tailscale-mcps.md) is parked.
 - [ ] ⚠️ Runbook corpus retrieval — `web-fetch` works for a
       single URL but the agent needs a grounded index over the
       whole runbook tree. Memory store could host a periodic
       mirror; no loader job today. **Gap.**
 
-**Feasibility today.** Ship the v0 (already done). The next
-visible upgrade is **memory** — alert-signature → outcome notes
-land immediately because the primitive exists. Grafana / k8s
-MCPs wait on [`runtime-mcps.md`](runtime-mcps.md).
+**Feasibility today.** **Both v0 and v1-with-memory shipped on this
+branch.** Bundle at
+[`services/agent-tests/src/examples/sre-slack-bot/`](../../../services/agent-tests/src/examples/sre-slack-bot/),
+e2e at
+[`example-sre-bot.test.ts`](../../../services/agent-tests/src/cases/example-sre-bot.test.ts).
+Next upgrade is **Grafana / k8s MCPs over Cloudflare Tunnel** — a
+separate PR that adds the deploy recipe + an integration row for the
+tunnel hostname; no runner changes required.
+
+---
+
+## Wake-me-up — daily briefing agent
+
+**Status:** infant version built — see
+[`services/agent-tests/src/examples/wake-me-up/`](../../../services/agent-tests/src/examples/wake-me-up/).
+Regression test at
+[`example-wake-me-up.test.ts`](../../../services/agent-tests/src/cases/example-wake-me-up.test.ts).
+
+**Description.** A personal morning briefing agent. Fires on a
+weekday cron at 08:00 PT, optionally also on `@mention` from Slack,
+and produces a categorised briefing covering PostHog signals,
+GitHub PRs awaiting the user's review, monitored Slack channels,
+and yesterday's carry-over items. Writes a full markdown report
+into the agent's memory store, then projects a condensed mrkdwn
+version into a configured personal Slack channel. Inspired by the
+author's local Claude-Code skill of the same shape; this version
+runs on the platform without the user being awake.
+
+**Spec sketch.**
+
+```yaml
+triggers:
+    - type: cron
+      config:
+          name: morning-brief
+          schedule: '0 8 * * 1-5'
+          timezone: 'America/Los_Angeles'
+          prompt: 'Build the morning briefing for {fired_at:date}.'
+          external_key: 'wake-me-up:{fired_at:date}'
+    - type: slack # on-demand re-runs
+    - type: chat # ad-hoc iteration from the console
+tools:
+    - kind: native, id: '@posthog/query'
+    - kind: native, id: '@posthog/web-fetch'
+    - kind: native, id: '@posthog/web-search'
+    - kind: native, id: '@posthog/slack-post-message'
+    - kind: native, id: '@posthog/slack-read-channel'
+    - kind: native, id: '@posthog/memory-search'
+    - kind: native, id: '@posthog/memory-write'
+    - kind: native, id: '@posthog/memory-read'
+    - kind: native, id: '@posthog/table-query' # carry-over discovery
+    - kind: native, id: '@posthog/table-append' # briefings index
+mcps: []
+# Public external MCPs (GitHub MCP, Linear MCP, …) are valid additions
+# via kind: 'external' — runtime-mcps PR 7 already handles them.
+skills:
+    - briefing-template
+    - carry-over
+    - slack-post-format
+limits: { max_turns: 40, max_wall_seconds: 600 }
+reasoning: high
+```
+
+**Platform prerequisites.**
+
+- [x] ✅ Cron trigger — `TriggerSchema` `cron` variant +
+      `cron-tick.ts` scheduler. Placeholder expansion (`{fired_at:date}`)
+      lives in the trigger schema; `external_key` enables daily
+      idempotency.
+- [x] ✅ Slack + chat triggers — both shipped.
+- [x] ✅ PostHog query, web-fetch, web-search, slack-\* native tools.
+- [x] ✅ Both memory primitives — prose (`@posthog/memory-*`) for
+      the full markdown briefing, tabular (`@posthog/table-*`) for
+      the per-day index that powers carry-over.
+- [x] ✅ Skills with frontmatter descriptions — load-on-demand via
+      `@posthog/load-skill` keeps the system prompt small even when
+      the agent has many specialised pieces.
+- [ ] ⚠️ User-maintained config in memory (channels.yml,
+      relevance.yml, teammates.yml) — works today via
+      `@posthog/memory-write` for the user, `@posthog/memory-read`
+      for the agent. No tooling helps the user maintain it though;
+      a small console panel would lift this to "fully wired."
+
+**Feasibility today.** **Shipped on this branch.** Same e2e
+regression net as the SRE bot — load bundle, fire trigger
+(`cronTick` in tests, real `setInterval` in prod), drain, assert
+the right tools fired in the right order, prove the briefing row
+plus markdown landed in real S3. Extension paths are pure spec edits:
+add a `kind: 'external'` McpRef for GitHub MCP to replace
+`web-fetch` against the GitHub REST API; widen the cron to multiple
+times per day; switch the model to `reasoning: low` for cost
+savings.
 
 ---
 
@@ -772,22 +867,23 @@ exist; the data sources don't.
 
 ## Feasibility matrix
 
-| App                            | Verdict (now)                                                    | What's missing                                              |
-| ------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------- |
-| SRE Slack bot                  | ✅ Ship today; v1 needs memory (also ✅) + runtime MCP           | Grafana / k8s MCP                                           |
-| AI documentation agent         | 🟡 Internal-only Slack v0 ships; public docs surface waits       | Per-user memory scope + curated doc corpus                  |
-| Wizard for ASS (server)        | ✅ Ship today                                                    | —                                                           |
-| Wizard for ASS (local-CLI)     | 🔴 Blocked                                                       | CLI client to host `local-fs` / `local-git` tools           |
-| Marketing update agent         | 🟡 Slack-only v0 via webhook; full vision waits                  | Cron + runtime MCP (GitHub)                                 |
-| Feature prioritization agent   | 🟡 Webhook v0; cron variant waits                                | Cron + runtime MCP (GitHub)                                 |
-| Competitive pricing agent      | ✅ Webhook-triggered v0 ships now                                | Cron (for "every 6 months") + Sheets sink (use memory note) |
-| Industry intelligence agent    | 🔴 Two-gap blocked                                               | Email trigger + warehouse-write                             |
-| Customer research agent        | ✅ Webhook v0 ships now                                          | Per-respondent scope is nice-to-have, not blocking          |
-| AI user interviewing agent     | ✅ v0 ships now via skill templates + custom tool for Tremendous | Native incentive integration is convenience, not blocker    |
-| Growth review automation       | 🟡 Webhook v0; cron + agent-fan-out wait                         | Cron + agent-to-agent outbound                              |
-| Gap analysis agent             | 🔴 Blocked                                                       | Cron + runtime MCP for ticketing & GitHub                   |
-| Financial reconciliation agent | 🔴 Blocked                                                       | Runtime MCP for Stripe + banking                            |
-| Warpstream forecasting tool    | 🔴 Blocked                                                       | Runtime MCP for Warpstream + Grafana                        |
+| App                            | Verdict (now)                                                    | What's missing                                           |
+| ------------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------- |
+| SRE Slack bot                  | ✅ v0 + v1 (memory) shipped this branch                          | Grafana / k8s via Cloudflare Tunnel (separate PR)        |
+| Wake-me-up daily briefing      | ✅ v0 shipped this branch                                        | User-config console panel (nice-to-have)                 |
+| AI documentation agent         | 🟡 Internal-only Slack v0 ships; public docs surface waits       | Per-user memory scope + curated doc corpus               |
+| Wizard for ASS (server)        | ✅ Ship today                                                    | —                                                        |
+| Wizard for ASS (local-CLI)     | 🔴 Blocked                                                       | CLI client to host `local-fs` / `local-git` tools        |
+| Marketing update agent         | 🟡 Slack-only v0 via webhook; full vision waits                  | Runtime MCP (GitHub)                                     |
+| Feature prioritization agent   | ✅ Cron + webhook v0 ships now                                   | Runtime MCP (GitHub) for the curated review surface      |
+| Competitive pricing agent      | ✅ Cron + webhook v0 ships now                                   | Sheets sink (use memory note)                            |
+| Industry intelligence agent    | 🔴 Two-gap blocked                                               | Email trigger + warehouse-write                          |
+| Customer research agent        | ✅ Webhook v0 ships now                                          | Per-respondent scope is nice-to-have, not blocking       |
+| AI user interviewing agent     | ✅ v0 ships now via skill templates + custom tool for Tremendous | Native incentive integration is convenience, not blocker |
+| Growth review automation       | ✅ Cron + webhook v0 ships now                                   | Agent-to-agent outbound for the fan-out variant          |
+| Gap analysis agent             | 🟡 Cron half ships; data-source MCPs missing                     | Runtime MCP for ticketing & GitHub                       |
+| Financial reconciliation agent | 🟡 Cron half ships; data-source MCPs missing                     | Runtime MCP for Stripe + banking                         |
+| Warpstream forecasting tool    | 🟡 Cron half ships; data-source MCPs missing                     | Runtime MCP for Warpstream + Grafana                     |
 
 Legend: ✅ build now · 🟡 v0 buildable with a stripped scope ·
 🔴 blocked on a sibling plan.
@@ -799,29 +895,36 @@ Highest-leverage next picks given the matrix:
 1. **Wizard for ASS (server-side)** — the only fully-unblocked
    "showcase the platform" candidate; the agent-concierge bundle
    already covers most of it, registry + chat dock land the rest.
-2. **SRE Slack bot v1 (memory pass)** — memory's the highest-value
-   visible upgrade and was the doc's "single highest-leverage
-   platform investment." Now that the primitive is shipped, the
-   upgrade is days of bundle work, not platform work.
-3. **Competitive pricing agent (webhook variant)** — ships now
-   end-to-end with the memory-note-as-Sheets-substitute
-   workaround; uses sandbox + query + web-fetch + memory.
+2. **Cloudflare Tunnel recipe for SRE bot v2** — exposes Grafana
+   and Kubernetes MCPs behind a public hostname so the existing
+   `kind: 'external'` McpRef works as-is. No runner changes; pure
+   ops/deploy work. Separate PR from this branch.
+3. **Competitive pricing agent (cron variant)** — ships now
+   end-to-end on cron + sandbox + query + web-fetch + memory.
+   Uses the same skeleton the wake-me-up bundle proves out.
 
-**What unblocks the most apps for the least platform work:**
+**What's shipped vs. what's left.** This branch closed the two
+biggest blocks on the matrix:
 
 - **Cron scheduler** ([`cron-trigger-scheduler.md`](cron-trigger-scheduler.md))
-  → unblocks the time-based half of Marketing, Feature
+  ✅ shipped. Unblocked the time-based half of Marketing, Feature
   prioritization, Industry intel, Customer research, Growth
   review, Gap analysis, Financial reconciliation, Warpstream
   forecasting. **8 apps.**
 - **Runtime MCP (external)** ([`runtime-mcps.md`](runtime-mcps.md))
-  → unblocks Marketing (GitHub), Feature prioritization (GitHub),
-  Gap analysis (GitHub + ticketing), Financial reconciliation
-  (Stripe + banking), Warpstream forecasting (Warpstream +
-  Grafana), and the v1 of SRE bot. **6 apps.**
+  ✅ shipped. Public MCPs (Sentry, GitHub-public, Linear, anything
+  with `.well-known/oauth-protected-resource`) work via
+  `kind: 'external'`. Private MCPs (Grafana, k8s, internal
+  services) need a public hostname — Cloudflare Tunnel is the
+  v1 path on the SRE bot example; broader rollout is a deploy
+  recipe, not platform work.
+- **Persistent agent memory** ✅ shipped (prose + tabular). The
+  SRE bot uses the tabular variant for incident outcomes; the
+  wake-me-up bundle uses both (markdown briefing + per-day
+  index row).
 
-Memory was the previous highest-leverage block; it's now shipped.
-The next two platform investments in priority order are **cron
-scheduler** then **runtime MCP**. Per-user memory scope and a
-spreadsheet sink come third — neither blocks an app fully, both
-turn 🟡 verdicts into ✅.
+The remaining 🔴-classified apps all share the same gap:
+**runtime MCP for a specific provider's data**, with each
+provider also requiring an OAuth integration row in Django. The
+runner side is done; landing each provider is a small
+integration PR, not a platform investment.
