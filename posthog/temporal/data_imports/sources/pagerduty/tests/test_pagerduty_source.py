@@ -26,7 +26,7 @@ class TestPagerDutySource:
 
         assert config.label == "PagerDuty"
         assert config.iconPath == "/static/services/pagerduty.svg"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
         assert config.fields is not None

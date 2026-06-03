@@ -53,7 +53,6 @@ You can create a read-only API key in your PagerDuty account under **Integration
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 
