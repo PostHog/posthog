@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
+
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
 
 from posthog.schema import CachedEventTaxonomyQueryResponse
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -127,7 +128,7 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
         ):
             property_vals = await self.toolkit.retrieve_event_or_action_property_values({"event1": ["$virt_is_bot"]})
 
-        assert property_vals == {"event1": ["true, false"]}
+        assert property_vals == {"event1": ["property: $virt_is_bot\nvalues:\n- 'true'\n- 'false'\n"]}
 
     async def test_events_property_values_action_values_not_found(self):
         result = await self.toolkit._get_entity_names()

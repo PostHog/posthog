@@ -30,7 +30,7 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -38,9 +38,9 @@ from products.event_definitions.backend.models.property_definition import Proper
 from ee.hogai.chat_agent.taxonomy.event_property_definitions import (
     EventPropertyDefinition,
     event_property_is_string_like,
+    format_virtual_event_property_values,
     get_event_property_definition_type,
     get_virtual_event_property_definition,
-    get_virtual_event_property_sample_values,
     merge_virtual_event_property_definitions,
 )
 from ee.hogai.chat_agent.taxonomy.format import (
@@ -725,7 +725,11 @@ class TaxonomyAgentToolkit:
             for property_name in property_names:
                 virtual_definition = get_virtual_event_property_definition(property_name)
                 if virtual_definition is not None:
-                    results.append(self._format_virtual_event_property_values(property_name, virtual_definition))
+                    results.append(
+                        format_virtual_event_property_values(
+                            property_name, virtual_definition, self._format_property_values
+                        )
+                    )
                 else:
                     results.append(TaxonomyErrorMessages.property_values_not_found(property_name, verbose_name))
             return results
@@ -762,7 +766,11 @@ class TaxonomyAgentToolkit:
             if is_indexed:
                 if i >= len(property_results):
                     if virtual_definition := get_virtual_event_property_definition(property_name):
-                        results.append(self._format_virtual_event_property_values(property_name, virtual_definition))
+                        results.append(
+                            format_virtual_event_property_values(
+                                property_name, virtual_definition, self._format_property_values
+                            )
+                        )
                     else:
                         results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
                     continue
@@ -771,7 +779,11 @@ class TaxonomyAgentToolkit:
                 prop_result = next((r for r in property_results if r.property == property_name), None)
                 if prop_result is None:
                     if virtual_definition := get_virtual_event_property_definition(property_name):
-                        results.append(self._format_virtual_event_property_values(property_name, virtual_definition))
+                        results.append(
+                            format_virtual_event_property_values(
+                                property_name, virtual_definition, self._format_property_values
+                            )
+                        )
                     else:
                         results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
                     continue
@@ -785,23 +797,6 @@ class TaxonomyAgentToolkit:
             results.append(result)
 
         return results
-
-    def _format_virtual_event_property_values(
-        self, property_name: str, property_definition: CoreFilterDefinition
-    ) -> str:
-        sample_values, sample_count = get_virtual_event_property_sample_values(property_definition)
-        if sample_values:
-            return self._format_property_values(
-                property_name,
-                sample_values,
-                sample_count,
-                format_as_string=event_property_is_string_like(property_definition),
-            )
-
-        return (
-            f"The property {property_name} is a virtual event property computed at query time, "
-            "so the taxonomy may not have stored sample values."
-        )
 
     def _collect_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict:
         """
