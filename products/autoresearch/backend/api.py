@@ -495,7 +495,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
-        qs = queryset.filter(pipeline__team=self.team).select_related("pipeline")
+        qs = queryset.filter(pipeline__team=self.team).select_related("pipeline").prefetch_related("iterations")
         if pipeline_id:
             qs = qs.filter(pipeline_id=pipeline_id)
         return qs.order_by("-created_at")

@@ -340,12 +340,42 @@ class TrainingRunSummarySerializer(serializers.Serializer):
     )
 
 
+class IterationTrailSerializer(serializers.ModelSerializer):
+    """Compact, read-only view of one iteration for the cross-run history feed and the Training tab."""
+
+    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
+
+    class Meta:
+        model = AutoresearchIteration
+        fields = [
+            "iteration_number",
+            "status",
+            "holdout_score",
+            "train_score",
+            "agent_description",
+            "model_spec",
+        ]
+        extra_kwargs = {
+            "iteration_number": {"help_text": "Order of this attempt within its run (0-based)."},
+            "status": {"help_text": "Whether this recipe was kept (improved the best score), discarded, or crashed."},
+            "holdout_score": {"help_text": "Holdout AUC this iteration achieved. Null if it was skipped/degenerate."},
+            "train_score": {"help_text": "Train-fold AUC for this iteration, if recorded."},
+            "agent_description": {"help_text": "The agent's one-line rationale for what it tried and why."},
+        }
+
+
 class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
     task_url = serializers.SerializerMethodField(
         help_text="Relative URL to the underlying sandbox Task detail page. Null for stub/synchronous training runs."
     )
     summary = serializers.SerializerMethodField(
         help_text="Distilled cross-run learning summary written on completion. Null until the run completes."
+    )
+    iterations = IterationTrailSerializer(
+        many=True,
+        read_only=True,
+        help_text="Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, "
+        "with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number.",
     )
 
     class Meta:
@@ -361,6 +391,7 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
             "iteration_count",
             "best_holdout_score",
             "summary",
+            "iterations",
             "error",
             "started_at",
             "completed_at",
@@ -373,6 +404,7 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
             "iteration_count",
             "best_holdout_score",
             "summary",
+            "iterations",
             "error",
             "started_at",
             "completed_at",
@@ -425,30 +457,6 @@ class AutoresearchIterationSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
-
-
-class IterationTrailSerializer(serializers.ModelSerializer):
-    """Compact, read-only view of one iteration for the cross-run history feed."""
-
-    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
-
-    class Meta:
-        model = AutoresearchIteration
-        fields = [
-            "iteration_number",
-            "status",
-            "holdout_score",
-            "train_score",
-            "agent_description",
-            "model_spec",
-        ]
-        extra_kwargs = {
-            "iteration_number": {"help_text": "Order of this attempt within its run (0-based)."},
-            "status": {"help_text": "Whether this recipe was kept (improved the best score), discarded, or crashed."},
-            "holdout_score": {"help_text": "Holdout AUC this iteration achieved. Null if it was skipped/degenerate."},
-            "train_score": {"help_text": "Train-fold AUC for this iteration, if recorded."},
-            "agent_description": {"help_text": "The agent's one-line rationale for what it tried and why."},
-        }
 
 
 class TrainingRunHistoryEntrySerializer(serializers.Serializer):

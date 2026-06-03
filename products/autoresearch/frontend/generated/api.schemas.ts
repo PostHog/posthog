@@ -604,6 +604,52 @@ export interface TrainingRunSummaryApi {
     distillation: string
 }
 
+/**
+ * * `kept` - Kept
+ * `discarded` - Discarded
+ * `crashed` - Crashed
+ */
+export type AutoresearchIterationStatusEnumApi =
+    (typeof AutoresearchIterationStatusEnumApi)[keyof typeof AutoresearchIterationStatusEnumApi]
+
+export const AutoresearchIterationStatusEnumApi = {
+    Kept: 'kept',
+    Discarded: 'discarded',
+    Crashed: 'crashed',
+} as const
+
+/**
+ * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
+ */
+export interface IterationTrailApi {
+    /**
+     * Order of this attempt within its run (0-based).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+
+  * `kept` - Kept
+  * `discarded` - Discarded
+  * `crashed` - Crashed */
+    status: AutoresearchIterationStatusEnumApi
+    /**
+     * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+     * @nullable
+     */
+    holdout_score?: number | null
+    /**
+     * Train-fold AUC for this iteration, if recorded.
+     * @nullable
+     */
+    train_score?: number | null
+    /** The agent's one-line rationale for what it tried and why. */
+    agent_description?: string
+    /** Model class and hyperparameters tried in this iteration. */
+    model_spec: unknown
+}
+
 export interface AutoresearchTrainingRunApi {
     /** Unique UUID of this training run. */
     readonly id: string
@@ -646,6 +692,8 @@ export interface AutoresearchTrainingRunApi {
     readonly best_holdout_score: number | null
     /** Distilled cross-run learning summary written on completion. Null until the run completes. */
     readonly summary: TrainingRunSummaryApi | null
+    /** Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number. */
+    readonly iterations: readonly IterationTrailApi[]
     /** Error message if the run failed. */
     readonly error: string
     /**
@@ -838,20 +886,6 @@ export interface RecordIterationApi {
     agent_confidence?: number | null
 }
 
-/**
- * * `kept` - Kept
- * `discarded` - Discarded
- * `crashed` - Crashed
- */
-export type AutoresearchIterationStatusEnumApi =
-    (typeof AutoresearchIterationStatusEnumApi)[keyof typeof AutoresearchIterationStatusEnumApi]
-
-export const AutoresearchIterationStatusEnumApi = {
-    Kept: 'kept',
-    Discarded: 'discarded',
-    Crashed: 'crashed',
-} as const
-
 export interface AutoresearchIterationApi {
     readonly id: string
     pipeline: string
@@ -911,38 +945,6 @@ export interface MaterializeFeaturesResponseApi {
     n_features: number
     /** The numeric feature column names (excludes distinct_id, __label, __fold). */
     feature_cols: string[]
-}
-
-/**
- * Compact, read-only view of one iteration for the cross-run history feed.
- */
-export interface IterationTrailApi {
-    /**
-     * Order of this attempt within its run (0-based).
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    iteration_number: number
-    /** Whether this recipe was kept (improved the best score), discarded, or crashed.
-
-  * `kept` - Kept
-  * `discarded` - Discarded
-  * `crashed` - Crashed */
-    status: AutoresearchIterationStatusEnumApi
-    /**
-     * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
-     * @nullable
-     */
-    holdout_score?: number | null
-    /**
-     * Train-fold AUC for this iteration, if recorded.
-     * @nullable
-     */
-    train_score?: number | null
-    /** The agent's one-line rationale for what it tried and why. */
-    agent_description?: string
-    /** Model class and hyperparameters tried in this iteration. */
-    model_spec: unknown
 }
 
 /**
