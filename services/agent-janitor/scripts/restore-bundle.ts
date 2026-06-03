@@ -141,15 +141,10 @@ async function main(): Promise<void> {
         await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: frozenKey }))
     }
 
-    let count = 0
-    let bytes = 0
     for await (const { abs, rel } of walkFiles(from)) {
         const content = await readFile(abs, 'utf8')
         const bundlePath = rel.split(path.sep).join('/')
         await store.write(rev, bundlePath, content)
-        count++
-        const n = Buffer.byteLength(content, 'utf8')
-        bytes += n
     }
 
     if (freeze) {
