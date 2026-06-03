@@ -49,7 +49,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # Lake's decimal budget (precision > 76 or scale > 32). Fixed source-data shape —
             # retrying won't help.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
-            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
             # destination table was created with the narrower type. Delta Lake can't widen an
             # existing column in place, so retrying won't help — the table must be reset and

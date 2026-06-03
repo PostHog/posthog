@@ -2863,7 +2863,7 @@ class GitLabIntegration:
 
 class MetaAdsIntegration:
     integration: Integration
-    api_version: str = "v23.0"
+    api_version: str = "v25.0"
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "meta-ads":
