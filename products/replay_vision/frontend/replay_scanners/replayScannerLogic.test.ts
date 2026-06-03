@@ -118,6 +118,53 @@ describe('replayScannerLogic', () => {
                     scanner_config: expect.objectContaining({ scale: expect.stringContaining('greater than') }),
                 },
             },
+            {
+                name: 'flags scorer scale when min is not a finite number',
+                setup: () => {
+                    logic.actions.setScannerType('scorer')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'rate this',
+                            scale: { min: Number.NaN, max: 10 },
+                        } as ScorerScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ scale: expect.stringContaining('numbers') }),
+                },
+            },
+            {
+                name: 'flags classifier with empty tag vocabulary',
+                setup: () => {
+                    logic.actions.setScannerType('classifier')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'tag this',
+                            tags: [],
+                            multi_label: true,
+                        } as ClassifierScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one tag') }),
+                },
+            },
+            {
+                name: 'flags classifier with duplicate tags',
+                setup: () => {
+                    logic.actions.setScannerType('classifier')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'tag this',
+                            tags: ['Bug', 'bug'],
+                            multi_label: true,
+                        } as ClassifierScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ tags: 'Tags must be unique' }),
+                },
+            },
         ])('$name', async ({ setup, expectedErrors }) => {
             setup()
             await expectLogic(logic).toMatchValues({

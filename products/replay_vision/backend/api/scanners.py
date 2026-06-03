@@ -58,6 +58,29 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 logger = structlog.get_logger(__name__)
 
 
+def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any) -> str | None:
+    if not isinstance(scanner_config, dict):
+        return "Scanner configuration must be a JSON object."
+    if not str(scanner_config.get("prompt", "")).strip():
+        return "Prompt is required."
+    if scanner_type == ScannerType.CLASSIFIER and not scanner_config.get("tags"):
+        return "Tag vocabulary must have at least one tag."
+    if scanner_type == ScannerType.SCORER:
+        scale = scanner_config.get("scale")
+        if not isinstance(scale, dict):
+            return "Scale is required."
+        min_v, max_v = scale.get("min"), scale.get("max")
+        if not isinstance(min_v, (int, float)) or not isinstance(max_v, (int, float)):
+            return "Scale min and max must be numbers."
+        if min_v >= max_v:
+            return "Scale max must be greater than min."
+    try:
+        validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
+    except (ValueError, PydanticValidationError):
+        return "Scanner configuration is invalid."
+    return None
+
+
 class ReplayScannerSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=255,
@@ -176,18 +199,17 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         scanner_config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None))
         if scanner_type is None:
             return  # Upstream `scanner_type` ChoiceField rejects this on create; PATCH with no instance is unreachable.
-        try:
-            validate_scanner_config(scanner_config=scanner_config, scanner_type=ScannerType(scanner_type))
-        except (ValueError, PydanticValidationError) as exc:
-            raise serializers.ValidationError({"scanner_config": str(exc)})
+        message = _scanner_config_error_message(ScannerType(scanner_type), scanner_config)
+        if message is not None:
+            raise serializers.ValidationError({"scanner_config": message})
 
     def _validate_and_strip_query(self, attrs: dict[str, Any]) -> None:
         if "query" not in attrs:
             return
         try:
             RecordingsQuery.model_validate(attrs["query"])
-        except PydanticValidationError as exc:
-            raise serializers.ValidationError({"query": str(exc)})
+        except PydanticValidationError:
+            raise serializers.ValidationError({"query": "Recording filter is invalid."})
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
 
@@ -364,8 +386,8 @@ class EstimateRequestSerializer(serializers.Serializer):
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
             RecordingsQuery.model_validate(value)
-        except PydanticValidationError as exc:
-            raise serializers.ValidationError(str(exc))
+        except PydanticValidationError:
+            raise serializers.ValidationError("Recording filter is invalid.")
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
 
@@ -533,8 +555,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if snapshot.exhausted:
             raise QuotaLimitExceeded(
                 detail=(
-                    f"Monthly Replay Vision quota of {snapshot.monthly_quota} observations reached; "
-                    f"resets at {snapshot.period_end.isoformat()}."
+                    f"Monthly Replay Vision quota of {snapshot.monthly_quota:,} observations reached. "
+                    f"Resets {snapshot.period_end.strftime('%b %-d')}."
                 )
             )
 

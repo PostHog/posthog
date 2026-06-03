@@ -58,7 +58,7 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_name: 'Dead-end pages',
         scanner_description: 'Flag sessions where the user appears stuck with no obvious next action.',
         scanner_config: {
-            prompt: 'Answer `yes` if the user appears stuck on a page — scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer `no`.',
+            prompt: 'Answer yes if the user appears stuck on a page: scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer no.',
         },
     },
     {
@@ -70,7 +70,7 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_name: 'Session summary',
         scanner_description: 'A short narrative summary of the session.',
         scanner_config: {
-            prompt: "Summarize what the user did in this session — which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
+            prompt: "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
             length: 'medium',
         },
     },
@@ -97,14 +97,14 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_name: 'Frustration score',
         scanner_description: 'Numeric score for how frustrated the user appeared.',
         scanner_config: {
-            prompt: 'Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration — rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.',
+            prompt: 'Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration: rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.',
             scale: { min: 0, max: 10, label: 'frustration' },
         },
     },
     {
         key: 'session_outcome',
         name: 'Session outcome',
-        description: 'Tag each session with what actually happened — task completed, abandoned, errored, etc.',
+        description: 'Tag each session with what actually happened: task completed, abandoned, errored, etc.',
         icon: 'check',
         scanner_type: 'classifier',
         scanner_name: 'Session outcome',

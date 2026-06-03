@@ -95,7 +95,25 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                         <Field name="scanner_type" label="Scanner type">
                             <LemonSelect
                                 value={scanner.scanner_type}
-                                onChange={(v) => setScannerType(v)}
+                                onChange={(next) => {
+                                    if (next === scanner.scanner_type) {
+                                        return
+                                    }
+                                    if (scanner.scanner_config?.prompt?.trim()) {
+                                        LemonDialog.open({
+                                            title: 'Switch scanner type?',
+                                            description:
+                                                'Changing the scanner type will replace your current prompt and type-specific settings with the defaults for the new type.',
+                                            primaryButton: {
+                                                children: 'Switch and reset',
+                                                onClick: () => setScannerType(next),
+                                            },
+                                            secondaryButton: { children: 'Keep current' },
+                                        })
+                                        return
+                                    }
+                                    setScannerType(next)
+                                }}
                                 options={SCANNER_TYPE_OPTIONS.map((opt) => ({
                                     value: opt.value,
                                     label: opt.label,
@@ -120,6 +138,13 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                     )}
 
                     <ScannerTypeConfigEditor scannerId={scannerId} tabId={tabId} />
+
+                    <LemonDivider />
+
+                    <div>
+                        <h3 className="text-base font-semibold mb-1">Advanced</h3>
+                        <p className="text-sm text-muted m-0">Model choice and downstream emission.</p>
+                    </div>
 
                     <Field name="model" label="Model">
                         <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />

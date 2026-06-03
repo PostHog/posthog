@@ -224,9 +224,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!scanner.scanner_config?.prompt?.trim()) {
                     configErrors.prompt = 'Prompt is required'
                 }
+                if (scanner.scanner_type === 'classifier') {
+                    const tags = scanner.scanner_config.tags ?? []
+                    if (tags.length === 0) {
+                        configErrors.tags = 'Add at least one tag to the vocabulary'
+                    } else if (new Set(tags.map((t) => t.trim().toLowerCase())).size !== tags.length) {
+                        configErrors.tags = 'Tags must be unique'
+                    }
+                }
                 if (scanner.scanner_type === 'scorer') {
                     const { min, max } = scanner.scanner_config.scale
-                    if (typeof min !== 'number' || typeof max !== 'number' || min >= max) {
+                    if (
+                        typeof min !== 'number' ||
+                        typeof max !== 'number' ||
+                        !Number.isFinite(min) ||
+                        !Number.isFinite(max)
+                    ) {
+                        configErrors.scale = 'Scale min and max must be numbers'
+                    } else if (min >= max) {
                         configErrors.scale = 'Scale max must be greater than min'
                     }
                 }
@@ -254,8 +269,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         lemonToast.success('Scanner saved')
                     }
-                } catch (error) {
-                    lemonToast.error(`Failed to save scanner: ${String(error)}`)
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to save scanner')
                     throw error
                 }
             },
@@ -527,8 +542,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     const response = await visionScannersRetrieve(String(teamId), props.id)
                     actions.loadScannerSuccess(scannerFromApi(response))
-                } catch (error) {
-                    lemonToast.error(`Failed to load scanner: ${String(error)}`)
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to load scanner')
                     actions.loadScannerFailure()
                     router.actions.replace(urls.replayVision())
                 }
@@ -608,8 +623,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersDestroy(String(teamId), props.id)
                     lemonToast.success('Scanner deleted')
                     router.actions.replace(urls.replayVision())
-                } catch (error) {
-                    lemonToast.error(`Failed to delete scanner: ${String(error)}`)
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to delete scanner')
                 }
             },
 

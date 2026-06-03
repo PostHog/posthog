@@ -164,8 +164,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.observeSuccess()
                 actions.setDockOpen(true)
                 actions.loadObservations()
-            } catch (error) {
-                lemonToast.error(`Failed to start observation: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to start observation')
                 actions.observeFailure()
             }
         },
