@@ -40,9 +40,7 @@ export const cohortsCreateBodyNameMax = 400
 export const cohortsCreateBodyDescriptionMax = 1000
 
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersOneItemTwoValueDefault = null
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeValueDefault = null
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsCreateBodyCreateStaticPersonIdsDefault = []
 
@@ -91,11 +89,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.object({
                                                         type: zod.literal('hogql'),
                                                         key: zod.string(),
-                                                        value: zod
-                                                            .unknown()
-                                                            .default(
-                                                                cohortsCreateBodyFiltersOnePropertiesValuesItemOneEventFiltersOneItemTwoValueDefault
-                                                            ),
+                                                        value: zod.unknown().optional(),
                                                     }),
                                                 ])
                                             ),
@@ -123,9 +117,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                     type: zod.literal('person'),
                                     key: zod.string(),
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    value: zod
-                                        .unknown()
-                                        .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeValueDefault),
+                                    value: zod.unknown().optional(),
                                     negation: zod
                                         .boolean()
                                         .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault),
@@ -184,9 +176,7 @@ export const cohortsPartialUpdateBodyNameMax = 400
 export const cohortsPartialUpdateBodyDescriptionMax = 1000
 
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersOneItemTwoValueDefault = null
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
-export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeValueDefault = null
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 
 export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -237,11 +227,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.object({
                                                         type: zod.literal('hogql'),
                                                         key: zod.string(),
-                                                        value: zod
-                                                            .unknown()
-                                                            .default(
-                                                                cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneEventFiltersOneItemTwoValueDefault
-                                                            ),
+                                                        value: zod.unknown().optional(),
                                                     }),
                                                 ])
                                             ),
@@ -271,11 +257,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     type: zod.literal('person'),
                                     key: zod.string(),
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    value: zod
-                                        .unknown()
-                                        .default(
-                                            cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeValueDefault
-                                        ),
+                                    value: zod.unknown().optional(),
                                     negation: zod
                                         .boolean()
                                         .default(
