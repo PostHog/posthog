@@ -17,6 +17,10 @@ FORBIDDEN_AT_SETUP = [
     "posthog.session_recordings.session_recording_api",  # pulls the session_summary workflow
     "google.genai",  # Gemini SDK — only reached via the session-summary video workflow
     "mimesis",  # fake-data generator — only used by demo-data tasks
+    "stripe",  # Stripe SDK — only on the billing/agentic-provisioning request path (deferred there)
+    "dagster",  # orchestration framework — only the dagster worker needs it (cluster.py logger is lazy)
+    "dlt",  # data-load-tool — only the warehouse import pipelines need it (deferred in pipeline typings)
+    "products.revenue_analytics.backend.views.sources.stripe",  # revenue view builders (pandas-heavy)
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
