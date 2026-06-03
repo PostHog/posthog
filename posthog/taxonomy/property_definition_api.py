@@ -72,7 +72,11 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
     # :TODO: Move this under `type`
     is_feature_flag = serializers.BooleanField(
-        help_text="Whether to return only (or excluding) feature flag properties",
+        help_text=(
+            "Whether to return only (or excluding) feature flag properties ($feature/*). "
+            "Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — "
+            "pass is_feature_flag=true to list them all."
+        ),
         required=False,
         allow_null=True,
         default=None,
@@ -82,7 +86,11 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         required=False,
     )
     filter_by_event_names = serializers.BooleanField(
-        help_text="Whether to return only properties for events in `event_names`",
+        help_text=(
+            "Whether to return only properties for events in `event_names`. "
+            "Note: this event scoping does not apply to feature flag properties ($feature/*), which are "
+            "global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead."
+        ),
         required=False,
         allow_null=True,
         default=None,
