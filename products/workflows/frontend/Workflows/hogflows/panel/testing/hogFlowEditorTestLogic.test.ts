@@ -156,4 +156,25 @@ describe('hogFlowEditorTestLogic', () => {
             })
         })
     })
+
+    describe('testResult.groups', () => {
+        beforeEach(() => {
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+        })
+
+        it('carries server-resolved groups through to the test result', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTestResult({
+                    status: 'success',
+                    nextActionId: 'next-step',
+                    groups: { organization: { id: 'org-1', properties: { billing_plan: 'scale' } } },
+                })
+            }).toMatchValues({
+                testResult: expect.objectContaining({
+                    groups: { organization: { id: 'org-1', properties: { billing_plan: 'scale' } } },
+                }),
+            })
+        })
+    })
 })

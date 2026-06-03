@@ -96,6 +96,7 @@ export class CdpApi {
     private recipientTokensService: RecipientTokensService
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
+    private groupsManager: GroupsManagerService
 
     constructor(
         private config: PluginsServerConfig,
@@ -130,10 +131,11 @@ export class CdpApi {
             services.hogFunctionMonitoringService,
             services.recipientsManager
         )
+        this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
-            new GroupsManagerService(deps.teamManager, deps.groupRepository),
+            this.groupsManager,
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -538,19 +540,31 @@ export class CdpApi {
                 team_id: team.id,
             }
 
+            const projectUrl = `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
+
+            // Resolve group properties from the event's $groups the same way the live worker does
+            // (cdp-cyclotron-worker-hogflow.consumer), so group-property conditions evaluate
+            // correctly in the test dialog. Caller-provided groups win, so an explicit override
+            // (or a re-run of already-resolved groups) is used verbatim rather than re-resolved.
+            const groups =
+                globals.groups && Object.keys(globals.groups).length > 0
+                    ? globals.groups
+                    : await this.groupsManager.getGroupsForEvent(team.id, globals.event.properties, projectUrl)
+
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
+                groups,
                 project: {
                     id: team.id,
                     name: team.name,
-                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                    url: projectUrl,
                 },
             }
 
             const filterGlobals = convertToHogFunctionFilterGlobal({
                 event: globals.event,
                 person: globals.person,
-                groups: globals.groups,
+                groups,
                 variables: globals.variables || {},
             })
 
@@ -574,6 +588,9 @@ export class CdpApi {
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
                 execResult: result.execResult ?? null,
+                // Surface the resolved groups read-only so the test dialog can show what the
+                // step evaluated against (vs. silently resolving them behind the editor).
+                groups,
             })
         } catch (e) {
             console.error(e)

@@ -312,4 +312,7 @@ export interface HogflowTestResult {
     errors?: string[]
     variables?: Record<string, any>
     execResult?: unknown
+    // Groups resolved server-side from the event's $groups, surfaced read-only so the test
+    // dialog shows what group/organization properties the step actually evaluated against.
+    groups?: Record<string, { id?: string; index?: number; type?: string; properties?: Record<string, any> }>
 }

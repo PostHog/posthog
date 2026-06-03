@@ -13,9 +13,11 @@ import { HogFlow } from '~/schema/hogflow'
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
-import { Hub, Team } from '../types'
+import { GroupTypeIndex, Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { GroupReadRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
+import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
@@ -24,7 +26,8 @@ import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { compileHog } from './templates/compiler'
+import { HogBytecode, HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 describe('CDP API', () => {
     let hub: Hub
@@ -35,6 +38,17 @@ describe('CDP API', () => {
     let api: CdpApi
     let hogFunction: HogFunctionType
     let hogFunctionMultiFetch: HogFunctionType
+
+    // Group data is served from these arrays so tests can populate org group properties
+    // without writing to the persons store. Reset per-test; the CdpApi's GroupsManagerService
+    // (built in beforeAll) reads through this mock repo.
+    let mockGroupTypes: { team_id: number; group_type: string; group_type_index: GroupTypeIndex }[] = []
+    let mockGroups: {
+        team_id: number
+        group_type_index: GroupTypeIndex
+        group_key: string
+        group_properties: Record<string, any>
+    }[] = []
 
     const globals: Partial<HogFunctionInvocationGlobals> = {
         groups: {},
@@ -80,7 +94,40 @@ describe('CDP API', () => {
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub.postgres)
 
-        cdpDeps = createCdpConsumerDeps(hub)
+        // group loading is gated on group_analytics; force it on (scoped) without standing up billing
+        const realHasFeature = hub.teamManager.hasAvailableFeature.bind(hub.teamManager)
+        jest.spyOn(hub.teamManager, 'hasAvailableFeature').mockImplementation((teamId, feature) =>
+            feature === 'group_analytics' ? Promise.resolve(true) : realHasFeature(teamId, feature)
+        )
+
+        const mockGroupRepo: GroupReadRepository = {
+            fetchGroupTypesByTeamIds: (teamIds) => {
+                const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+                teamIds.forEach((id) => (result[String(id)] = []))
+                mockGroupTypes.forEach((gt) => {
+                    if (teamIds.includes(gt.team_id)) {
+                        result[String(gt.team_id)].push({
+                            group_type: gt.group_type,
+                            group_type_index: gt.group_type_index,
+                        })
+                    }
+                })
+                return Promise.resolve(result)
+            },
+            fetchGroupsByKeys: (teamIds, groupIndexes, groupKeys) =>
+                Promise.resolve(
+                    mockGroups.filter((g) =>
+                        teamIds.some(
+                            (teamId, i) =>
+                                teamId === g.team_id &&
+                                groupIndexes[i] === g.group_type_index &&
+                                groupKeys[i] === g.group_key
+                        )
+                    )
+                ),
+        }
+
+        cdpDeps = { ...createCdpConsumerDeps(hub), groupRepository: mockGroupRepo }
         api = new CdpApi(hub, cdpDeps, {
             hogQueue: createMockJobQueue(),
             hogflowQueue: createMockJobQueue(),
@@ -656,6 +703,137 @@ describe('CDP API', () => {
                 ],
                 total: 2,
             })
+        })
+    })
+
+    describe('hog flow invocations - group (organization) properties', () => {
+        const ORG_GROUP_INDEX: GroupTypeIndex = 2
+        const ORG_KEY = 'org-scale-1'
+        let billingPlanIsScale: HogBytecode
+
+        beforeAll(async () => {
+            // same chain the frontend produces for "organization.billing_plan = scale"
+            billingPlanIsScale = await compileHog(
+                `return ifNull(group_${ORG_GROUP_INDEX}.properties.billing_plan == 'scale', false)`
+            )
+        })
+
+        beforeEach(() => {
+            mockGroupTypes = [{ team_id: team.id, group_type: 'organization', group_type_index: ORG_GROUP_INDEX }]
+            mockGroups = [
+                {
+                    team_id: team.id,
+                    group_type_index: ORG_GROUP_INDEX,
+                    group_key: ORG_KEY,
+                    group_properties: { billing_plan: 'scale' },
+                },
+            ]
+            // LazyLoader cache lives on the long-lived CdpApi instance
+            ;(api as any).groupsManager?.clear?.()
+        })
+
+        const buildFlow = async () => {
+            const flow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        branch: {
+                            type: 'conditional_branch',
+                            config: {
+                                conditions: [
+                                    {
+                                        filters: {
+                                            properties: [
+                                                {
+                                                    type: 'group',
+                                                    group_type_index: ORG_GROUP_INDEX,
+                                                    key: 'billing_plan',
+                                                    value: 'scale',
+                                                    operator: 'exact',
+                                                },
+                                            ],
+                                            bytecode: billingPlanIsScale,
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        action_match: { type: 'delay', config: { delay_duration: '2h' } },
+                        action_nomatch: { type: 'delay', config: { delay_duration: '2h' } },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'branch', type: 'continue' },
+                        { from: 'branch', to: 'action_match', type: 'branch', index: 0 },
+                        { from: 'branch', to: 'action_nomatch', type: 'continue' },
+                    ],
+                })
+                .build()
+            return await insertHogFlow(flow)
+        }
+
+        const runBranch = (
+            flowId: string,
+            eventProperties: Record<string, any>,
+            groupsOverride?: Record<string, any>
+        ) =>
+            supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/invocations`)
+                .send({
+                    current_action_id: 'branch',
+                    mock_async_functions: true,
+                    globals: {
+                        ...globals,
+                        groups: groupsOverride ?? {},
+                        event: {
+                            ...globals.event,
+                            event: '$conversation_ticket_created',
+                            properties: eventProperties,
+                        },
+                    },
+                })
+
+        it('resolves org groups from the event $groups and takes the matching branch', async () => {
+            const flow = await buildFlow()
+            const res = await runBranch(flow.id, { $groups: { organization: ORG_KEY } })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.nextActionId).toEqual('action_match')
+            // resolved groups are surfaced read-only in the response
+            expect(res.body.groups?.organization?.properties?.billing_plan).toEqual('scale')
+        })
+
+        it('takes the no-match branch when the event has no $groups', async () => {
+            const flow = await buildFlow()
+            const res = await runBranch(flow.id, {})
+
+            expect(res.status).toEqual(200)
+            expect(res.body.nextActionId).toEqual('action_nomatch')
+        })
+
+        it('honors caller-provided groups verbatim instead of re-resolving', async () => {
+            const flow = await buildFlow()
+            // caller overrides billing_plan to 'enterprise' (!= 'scale'), so the branch must NOT match —
+            // proving the explicit groups are used as-is rather than re-resolved from the event.
+            const res = await runBranch(
+                flow.id,
+                { $groups: { organization: ORG_KEY } },
+                {
+                    organization: {
+                        id: ORG_KEY,
+                        type: 'organization',
+                        index: ORG_GROUP_INDEX,
+                        properties: { billing_plan: 'enterprise' },
+                    },
+                }
+            )
+
+            expect(res.status).toEqual(200)
+            expect(res.body.nextActionId).toEqual('action_nomatch')
+            expect(res.body.groups?.organization?.properties?.billing_plan).toEqual('enterprise')
         })
     })
 
