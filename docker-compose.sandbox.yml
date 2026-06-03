@@ -156,6 +156,12 @@ services:
             - ${SANDBOX_HOST_GIT_SIGNINGKEY:-/dev/null}:/tmp/host-git-signingkey:ro
             - ${SANDBOX_HOST_ALLOWED_SIGNERS:-/dev/null}:/tmp/host-allowed-signers:ro
             - ${SANDBOX_SSH_AUTHORIZED_KEYS:-/dev/null}:/tmp/sandbox-authorized-keys:ro
+            # Claude conversation transcripts + todos, shared across all sandboxes
+            # (cwd is always /workspace, so they land under one projects/-workspace
+            # namespace). Host dirs supplied by bin/sandbox; persisted there so they
+            # outlive container recreation and `sandbox rm`.
+            - ${SANDBOX_CLAUDE_SESSIONS}:/home/sandbox/.claude/projects
+            - ${SANDBOX_CLAUDE_TODOS}:/home/sandbox/.claude/todos
             # Forwarded SSH agent. Host path resolved by bin/sandbox.
             - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
             # Shared caches — persist across sandboxes so the second one is fast.
@@ -180,9 +186,6 @@ services:
             SANDBOX_UID: '${SANDBOX_UID:-1000}'
             SANDBOX_GID: '${SANDBOX_GID:-1000}'
             POSTHOG_SANDBOX: '1'
-            # 1 during a cache-backed `create`: the setup window waits for the
-            # background ClickHouse restore to land before migrating.
-            SANDBOX_USE_CACHE: '${SANDBOX_USE_CACHE:-0}'
             SANDBOX_INTENTS: '${SANDBOX_INTENTS:-product_analytics}'
             DEBUG: '1'
             HOST_BIND: '0.0.0.0'

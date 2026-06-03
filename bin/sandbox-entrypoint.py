@@ -44,11 +44,10 @@ PROGRESS_FILE = Path("/tmp/sandbox-progress")
 # Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.
 STATUS_FILE = Path("/tmp/sandbox-status")
 
-# The host's detached restore writes its status here: "done" once the (cache)
-# ClickHouse RESTORE has fully landed, or a failure reason if it dies before the
-# database is ready. The setup window waits for "done" before migrating and
-# aborts on a failure reason instead of timing out. Written by bin/sandbox.
-RESTORE_STATUS_FILE = Path("/tmp/sandbox-restore-status")
+# Written by the boot setup window once dependency installation finishes; the
+# up-stack phase waits for it before migrating (deps install concurrently with
+# the host's infra bring-up). Lives on /tmp, so it's fresh on every boot.
+DEPS_READY_FILE = Path("/tmp/sandbox-deps-ready")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -624,7 +623,7 @@ def user_phase() -> None:
     _write_status("booting")
 
     # Window 1: claude (launched immediately, may lack hogli until uv sync finishes)
-    # Window 2: setup (deps, migrations, then spawns phrocs in window 3)
+    # Window 2: setup (installs deps; the stack is brought up separately by the host)
     tmux = ["tmux", "-L", "sandbox"]
     run(
         [
@@ -688,80 +687,42 @@ def _clickhouse_ready() -> bool:
         return False
 
 
-def _restore_status() -> str | None:
-    """What the host's detached restore last wrote: "done", a failure reason, or
-    None if it hasn't written yet. The setup window waits for "done" (cache
-    creates) and aborts on a failure reason instead of timing out.
-    """
-    if RESTORE_STATUS_FILE.exists():
-        return RESTORE_STATUS_FILE.read_text().strip() or None
-    return None
-
-
-def _restore_failed_reason() -> str | None:
-    """The failure reason if the restore reported one, else None ("done" is success)."""
-    status = _restore_status()
-    return status if status and status != "done" else None
-
-
-def _wait_for(
-    label: str,
-    ready: Callable[[], bool],
-    timeout: int = 300,
-    fail_check: Callable[[], str | None] | None = None,
-) -> None:
-    """Poll `ready` until true, updating the status bar; raise on timeout.
-
-    `fail_check` returns a reason string to abort early. It's checked *after*
-    `ready`, so a restore that already signalled success wins over a late failure.
-    """
+def _wait_for(label: str, ready: Callable[[], bool], timeout: int = 300) -> None:
+    """Poll `ready` until true, updating the status bar; raise on timeout."""
     _write_status(f"waiting for {label}")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if ready():
             return
-        if fail_check and (reason := fail_check()):
-            raise RuntimeError(reason)
         time.sleep(2)
     raise RuntimeError(f"{label} not ready within {timeout}s")
 
 
 def _wait_for_databases() -> None:
-    """Block until infra is ready before migrating.
+    """Block until infra (Postgres, ClickHouse, Kafka) is reachable before migrating.
 
-    Postgres restores before its container boots, so a reachable db is already
-    restored. ClickHouse restores onto a *running* server, and the database can
-    appear mid-restore — so for a cache-backed create we wait for the "done" status
-    the host writes once its synchronous RESTORE has fully landed, not on a probe.
+    The host brings infra up and restores it before the up-stack phase runs, so
+    a reachable database is already a fully restored one — a plain probe suffices.
     """
     _wait_for(
         "Postgres",
         lambda: run_quiet(["psql", "-h", "db", "-U", "posthog", "-d", "posthog", "-tAc", "SELECT 1"]).returncode == 0,
-        fail_check=_restore_failed_reason,
     )
-    if os.environ.get("SANDBOX_USE_CACHE") == "1":
-        _wait_for("ClickHouse cache restore", lambda: _restore_status() == "done", fail_check=_restore_failed_reason)
-    else:
-        _wait_for("ClickHouse", _clickhouse_ready, fail_check=_restore_failed_reason)
-    _wait_for("Kafka", lambda: _port_open("kafka", 9092), fail_check=_restore_failed_reason)
+    _wait_for("ClickHouse", _clickhouse_ready)
+    _wait_for("Kafka", lambda: _port_open("kafka", 9092))
 
 
 def run_setup() -> None:
-    """Tmux window 2: install deps, migrate, seed data, spawn phrocs, exec bash.
+    """Tmux window 2 (every boot): install deps, set up JetBrains, signal readiness.
 
-    On failure, writes "SETUP FAILED" to the status bar and drops into bash
-    so the user can diagnose. Claude keeps running in window 1 either way.
+    The database stack is brought up separately — by the host via the up-stack
+    phase — so this path is identical for full and --no-stack sandboxes. On
+    failure it writes "SETUP FAILED" and drops to bash; claude keeps running.
     """
     _setup_user_env()
-    # The status file can linger in /tmp across a stop/start; clear it before
-    # waiting so a stale "done"/failure from a previous boot can't trip this one.
-    # On a cache create the host worker writes the fresh status later.
-    RESTORE_STATUS_FILE.unlink(missing_ok=True)
-    _write_status("setup starting")
+    _write_status("installing dependencies")
 
     try:
-        # Deps need no database, so install them while the host brings up and
-        # restores infra in the background.
         _run_parallel(
             {
                 "python deps": install_python_deps,
@@ -770,18 +731,6 @@ def run_setup() -> None:
             }
         )
 
-        # Gate DB work on infra being ready (and the cache restore having landed)
-        # so we never migrate a half-restored database.
-        _wait_for_databases()
-        create_kafka_topics()
-        _write_status("running migrations")
-        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
-        _write_status("seeding demo data")
-        ensure_demo_data()
-
-        # generate_mprocs_config needs the hogli symlink created by install_python_deps.
-        generate_mprocs_config()
-
         # Forks internally — must run after ThreadPoolExecutor is closed.
         try:
             setup_jetbrains_background()
@@ -789,25 +738,16 @@ def run_setup() -> None:
             # Loud but non-fatal — IDE setup failing should not prevent the sandbox from booting.
             print(f"[{_ts()}] ERROR: JetBrains IDE setup failed: {e}", flush=True)  # noqa: T201
 
-        lock = WORKSPACE / "bin/start.lock"
-        lock.unlink(missing_ok=True)
-
+        # Tell the up-stack phase the deps it migrates against are ready.
+        DEPS_READY_FILE.write_text("ready")
         _write_status("C-b 1 claude  C-b 2 setup  C-b 3 phrocs  C-b d detach  mouse enabled")
-
-        # Spawn phrocs in its own tmux window.
-        run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
-
-        print(  # noqa: T201
-            "\nSetup complete — see status bar for keybinding hints.\n",
-            flush=True,
-        )
+        print("\nDependencies installed.\n", flush=True)  # noqa: T201
     except Exception as e:
         traceback.print_exc()
         _write_status("!! SETUP FAILED. Ctrl-b 1 returns to claude")
         print(  # noqa: T201
             f"\n\n!!! Setup failed: {e}"
-            "\n!!! Traceback above. This window is now a bash shell; claude is still running in window 1."
-            "\n!!! Fix the issue, then `tmux new-window bin/start --phrocs` when ready.\n",
+            "\n!!! Traceback above. This window is now a bash shell; claude is still running in window 1.\n",
             flush=True,
         )
         # Pull the user's view to this window so the failure can't be missed,
@@ -819,6 +759,45 @@ def run_setup() -> None:
 
     # Exec into bash so this window stays usable (both success and failure).
     os.execvp("bash", ["bash", "-l"])
+
+
+def bring_up_stack() -> None:
+    """Bring the database stack up in the container: wait for infra, migrate, seed
+    demo data, regenerate the mprocs config, and spawn the phrocs tmux window.
+
+    Shared by full `create`/`start` (run via the host's detached worker) and
+    `sandbox stack up` (run in the foreground). Assumes deps are installed.
+    """
+    _wait_for_databases()
+    create_kafka_topics()
+    _write_status("running migrations")
+    run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+    _write_status("seeding demo data")
+    ensure_demo_data()
+    # generate_mprocs_config needs the hogli symlink created by install_python_deps.
+    generate_mprocs_config()
+    # bin/start refuses to start if a stale lock lingers from a previous boot.
+    (WORKSPACE / "bin/start.lock").unlink(missing_ok=True)
+    _write_status("C-b 1 claude  C-b 2 setup  C-b 3 phrocs  C-b d detach  mouse enabled")
+    # Spawn phrocs in its own tmux window (cwd inherits /workspace from the client).
+    run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
+
+
+def up_stack_phase() -> None:
+    """SANDBOX_MODE=up-stack: bring the database stack up on a booted container.
+
+    Triggered by the host (`bin/sandbox stack up`, or the detached worker behind
+    `create`/`start`) via `docker exec` once infra is up. Waits for the boot
+    window's deps to finish, then runs the shared bring-up.
+    """
+    _setup_user_env()
+    try:
+        _wait_for("dependencies", DEPS_READY_FILE.exists, timeout=900)
+        bring_up_stack()
+    except Exception as e:
+        traceback.print_exc()
+        _write_status(f"!! STACK UP FAILED: {e}")
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -879,5 +858,7 @@ if __name__ == "__main__":
         cache_init_phase()
     elif mode == "setup":
         run_setup()
+    elif mode == "up-stack":
+        up_stack_phase()
     else:
         user_phase()

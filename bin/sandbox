@@ -237,6 +237,12 @@ class SandboxEntry:
     slug: str
     port: int
     intents: str = "product_analytics"
+    # Whether the heavy stack (infra + phrocs) is currently down for this sandbox.
+    no_stack: bool = False
+    # Whether the database has ever been restored + migrated. Defaults True so
+    # entries predating this field (always full sandboxes) read as initialized;
+    # allocate() sets it False for fresh sandboxes until the first bring-up.
+    stack_initialized: bool = True
 
 
 class Registry:
@@ -287,7 +293,9 @@ class Registry:
         entry = self._read().get(branch)
         return self._make_entry(entry) if entry else None
 
-    def allocate(self, branch: str, slug: str, intents: str = "product_analytics") -> SandboxEntry:
+    def allocate(
+        self, branch: str, slug: str, intents: str = "product_analytics", *, no_stack: bool = False
+    ) -> SandboxEntry:
         """Atomically allocate a port and save the entry under the file lock."""
         with self._locked() as f:
             data = json.loads(f.read() or "{}")
@@ -295,7 +303,9 @@ class Registry:
             port = PORT_BASE
             while port in used:
                 port += 1
-            entry = SandboxEntry(slug=slug, port=port, intents=intents)
+            # Fresh sandbox: the DB has not been restored yet, so stack_initialized
+            # starts False regardless of no_stack; the first bring-up flips it.
+            entry = SandboxEntry(slug=slug, port=port, intents=intents, no_stack=no_stack, stack_initialized=False)
             data[branch] = asdict(entry)
             self._write(f, data)
             return entry
@@ -429,6 +439,26 @@ def _claude_json_file() -> str:
     out.write_text(json.dumps(config, indent=2) + "\n")
     out.chmod(0o600)
     return str(out)
+
+
+def _claude_sessions_dirs() -> tuple[str, str]:
+    """Host dirs bind-mounted into ~/.claude so Claude conversation transcripts
+    and todos outlive the container.
+
+    Shared across all sandboxes, not branch-scoped: every sandbox runs Claude
+    with cwd /workspace, so they all write under projects/-workspace and thus
+    see + resume each other's sessions from one merged list. Session and todo
+    files are UUID-named, so concurrently running sandboxes never collide.
+
+    Persisted on the host (not a compose volume), so they also survive
+    `sandbox rm`, which would `docker compose down -v` a per-project volume away.
+    """
+    base = REGISTRY_DIR / "claude-sessions"
+    projects = base / "projects"
+    todos = base / "todos"
+    projects.mkdir(parents=True, exist_ok=True)
+    todos.mkdir(parents=True, exist_ok=True)
+    return str(projects), str(todos)
 
 
 def _ssh_authorized_keys_path() -> str:
@@ -724,9 +754,15 @@ def _host_compose_env() -> dict[str, str]:
     config = _load_config()
     ide = config.get("jetbrains")
     host_gitconfig = Path.home() / ".gitconfig"
+    claude_projects, claude_todos = _claude_sessions_dirs()
     env = {
         "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
         "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
+        # Shared, host-persisted Claude transcripts + todos — bind-mounted into
+        # ~/.claude so they survive container recreation and `sandbox rm`, and
+        # every sandbox can resume the others' sessions.
+        "SANDBOX_CLAUDE_SESSIONS": claude_projects,
+        "SANDBOX_CLAUDE_TODOS": claude_todos,
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
         # Finalized .claude.json (installMethod stripped, MCP servers merged
@@ -1223,6 +1259,13 @@ def init_cache_from_master() -> None:
     success("Database cache built from master.")
 
 
+def _ensure_db_cache() -> None:
+    """Ensure the shared database cache is built; build it from master if not."""
+    _ensure_cache_volumes()
+    if not _is_cache_ready():
+        init_cache_from_master()
+
+
 def check_migration_staleness(branch_sha: str) -> str | None:
     """Compare cached migration versions against the branch's max_migration files.
 
@@ -1343,11 +1386,10 @@ def _restore_databases(
     use_cache: bool,
     profiles: list[str] | None = None,
 ) -> None:
-    """Bring up infra and restore databases from cache. Runs detached, behind the
-    already-started app container, so the Claude window is available immediately.
+    """Bring up infra and restore databases from cache.
 
-    The app's setup window waits for these to be ready (and, when use_cache, for
-    the ClickHouse restore to land) before it migrates.
+    Called by _stack_up — in the detached worker behind create/start, or in the
+    foreground for `sandbox stack up` — before the container-side migrate runs.
     """
     if not use_cache:
         info("Starting infrastructure...")
@@ -1413,11 +1455,6 @@ def _restore_databases(
         capture=True,
     )
 
-    # The RESTORE above is synchronous and has fully landed — tell the app's
-    # setup window (same container) it's safe to migrate. Without this it would
-    # wait on a probe that can pass mid-restore.
-    run(["docker", "exec", f"{project}-app-1", "sh", "-c", "printf done > /tmp/sandbox-restore-status"], capture=True)
-
     # Bring up the proxy (and any profile-gated services) now that infra is ready;
     # the app container is already running.
     info("Starting proxy and supporting services...")
@@ -1429,7 +1466,7 @@ def _restore_databases(
 # ---------------------------------------------------------------------------
 
 
-def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = False) -> None:
+def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = False, no_stack: bool = False) -> None:
     registry = Registry()
     slug = slugify(branch)
     project = project_name(slug)
@@ -1453,25 +1490,27 @@ def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = F
     _check_ssh_agent_has_keys()
     _check_host_git_signing()
 
-    _ensure_cache_volumes()
     _ensure_jetbrains()
-    if not _is_cache_ready():
-        init_cache_from_master()
 
-    # Staleness check reads the already-built cache; if the user picks 'q' we
-    # can bail cleanly before allocating any per-sandbox state.
+    # No-stack create skips all DB-cache work — the cache is built lazily on the
+    # first `sandbox stack up`. Full create prepares it up front so the background
+    # bring-up can restore from it.
     use_cache = True
-    stale = check_migration_staleness(branch_sha)
-    if stale:
-        choice = _prompt_migration_choice(stale)
-        if choice == "q":
-            info("Aborted.")
-            return
-        if choice == "f":
-            use_cache = False
+    if not no_stack:
+        _ensure_db_cache()
+        # Staleness check reads the already-built cache; if the user picks 'q' we
+        # can bail cleanly before allocating any per-sandbox state.
+        stale = check_migration_staleness(branch_sha)
+        if stale:
+            choice = _prompt_migration_choice(stale)
+            if choice == "q":
+                info("Aborted.")
+                return
+            if choice == "f":
+                use_cache = False
 
     intents = os.environ.get("SANDBOX_INTENTS", "product_analytics")
-    entry = registry.allocate(branch, slug, intents=intents)
+    entry = registry.allocate(branch, slug, intents=intents, no_stack=no_stack)
     port = entry.port
 
     # From here down anything that fails leaves partial state (workspace
@@ -1496,9 +1535,9 @@ def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = F
         if profiles:
             info(f"Docker profiles: {', '.join(profiles)}")
         # Start the app container alone (--no-deps skips the db/ch/kafka health
-        # gates) so the Claude window is up in seconds. Infra + DB restore run
-        # in the background below; the setup window waits for them before migrating.
-        os.environ["SANDBOX_USE_CACHE"] = "1" if use_cache else "0"
+        # gates) so the Claude window is up in seconds. For a full sandbox the
+        # background worker below brings up infra and runs migrate/phrocs;
+        # --no-stack stops here.
         info("Starting Claude window...")
         compose(project, port, "up", "-d", "--build", "--no-deps", "app", capture=True, profiles=profiles)
     except BaseException:
@@ -1506,22 +1545,70 @@ def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = F
         cmd_destroy(branch, force=True)
         raise
 
-    _spawn_db_restore(branch, use_cache)
     container = f"{project}-app-1"
     _seed_tool_auth(container, sandbox_tools.load_user_tools())
-    health_url = f"http://localhost:{port}/_health"
+    if not no_stack:
+        _spawn_stack_up(branch, use_cache)
+    health_url = None if no_stack else f"http://localhost:{port}/_health"
     _attach_with_health_poll(container, health_url, destroy_prompt_branch=branch)
 
 
-def _spawn_db_restore(branch: str, use_cache: bool) -> None:
-    """Run infra bringup + DB restore in a detached process so the foreground can
-    attach to Claude immediately. Output goes to a log for post-mortems; failures
-    surface in the sandbox's setup window when its DB wait times out.
+def _stack_up(branch: str, *, use_cache: bool = True) -> None:
+    """Bring the full stack up for a sandbox: infra + DB + migrate + phrocs.
+
+    The single bring-up path, shared by `create`/`start` (run detached via
+    _spawn_stack_up so the Claude window attaches immediately) and `sandbox
+    stack up` (run in the foreground). stack_initialized decides between a cache
+    restore and a plain restart on existing data.
     """
-    log_path = REGISTRY_DIR / f"{slugify(branch)}-db-restore.log"
+    registry = Registry()
+    entry = registry.get(branch)
+    if entry is None:
+        fatal(f"No sandbox registered for '{branch}'.")
+    project = project_name(entry.slug)
+    profiles = resolve_docker_profiles(entry.intents)
+    container = f"{project}-app-1"
+
+    if entry.stack_initialized:
+        # Data volumes already hold a migrated database — just start infra.
+        info("Starting infrastructure...")
+        compose(project, entry.port, "up", "-d", capture=True, profiles=profiles)
+    else:
+        _restore_databases(project, entry.port, use_cache, profiles=profiles)
+
+    # Migrate, seed, and spawn phrocs inside the container. up-stack waits for
+    # the boot window's deps and for the database before migrating. `bash -l`
+    # sources the env (PATH, VIRTUAL_ENV) the entrypoint exported at boot.
+    info("Migrating database and starting phrocs...")
+    run(
+        [
+            "docker",
+            "exec",
+            "-u",
+            f"{os.getuid()}:{os.getgid()}",
+            "-e",
+            "SANDBOX_MODE=up-stack",
+            container,
+            "bash",
+            "-lc",
+            "python3 /usr/local/bin/sandbox-entrypoint.py",
+        ]
+    )
+
+    entry.no_stack = False
+    entry.stack_initialized = True
+    registry.save(branch, entry)
+
+
+def _spawn_stack_up(branch: str, use_cache: bool = True) -> None:
+    """Run the stack bring-up in a detached process so create/start can attach to
+    Claude immediately. Output goes to a log; on failure the stack can be brought
+    up (or retried) with `sandbox stack up`.
+    """
+    log_path = REGISTRY_DIR / f"{slugify(branch)}-stack-up.log"
     log = open(log_path, "w")
     subprocess.Popen(
-        [sys.executable, __file__, "_db-restore", branch, "1" if use_cache else "0"],
+        [sys.executable, __file__, "_stack-up", branch, "1" if use_cache else "0"],
         stdin=subprocess.DEVNULL,
         stdout=log,
         stderr=log,
@@ -1529,39 +1616,42 @@ def _spawn_db_restore(branch: str, use_cache: bool) -> None:
     )
 
 
-def _mark_restore_failed(container: str, reason: str) -> None:
-    """Record the restore failure in the app container so its setup window stops
-    waiting on the database and surfaces the error, instead of timing out.
-
-    Best-effort. Skips writing if the status is already "done": a failure after
-    the DB restore succeeded (e.g. proxy bringup) must not turn a ready sandbox
-    into an error for the setup window.
-    """
-    script = (
-        '[ "$(cat /tmp/sandbox-restore-status 2>/dev/null)" = done ] || '
-        f"printf %s {shlex.quote(reason)} > /tmp/sandbox-restore-status"
-    )
-    run(["docker", "exec", container, "sh", "-c", script], check=False, capture=True)
+def _stack_up_worker(branch: str, use_cache: bool) -> None:
+    """`_stack-up` worker entry point (detached, behind create/start). A
+    backgrounded failure must not be silent, so pop the error into the sandbox
+    before re-raising (the worker log keeps the full traceback)."""
+    try:
+        _stack_up(branch, use_cache=use_cache)
+    except BaseException as e:
+        _surface_stack_failure(branch, str(e).strip())
+        raise
 
 
-def cmd_db_restore(branch: str, use_cache: bool) -> None:
-    """Internal: detached worker spawned by `create` to bring up infra + restore.
-
-    Runs detached, so its output only reaches a log file. On failure it writes
-    the reason into the app container, where the setup window is blocking on the
-    database; otherwise that window would wait out its full timeout in silence.
-    """
+def _surface_stack_failure(branch: str, reason: str) -> None:
+    """Open a tmux window in the sandbox reporting a failed background bring-up and
+    switch the user's view to it, with the retry command. Best-effort."""
     entry = Registry().get(branch)
     if entry is None:
-        fatal(f"No sandbox registered for '{branch}'.")
-    project = project_name(entry.slug)
-    profiles = resolve_docker_profiles(entry.intents)
-    try:
-        _restore_databases(project, entry.port, use_cache, profiles=profiles)
-    except BaseException as e:  # includes SystemExit from any fatal() below
-        reason = str(e).strip() or f"Database restore failed ({type(e).__name__})."
-        _mark_restore_failed(f"{project}-app-1", reason)
-        raise
+        return
+    container = f"{project_name(entry.slug)}-app-1"
+    details = (
+        f"⚠  Stack bring-up failed for '{branch}'\n\n"
+        f"  {reason or 'see the log below'}\n\n"
+        f"  Full log: {REGISTRY_DIR / f'{slugify(branch)}-stack-up.log'}\n"
+        f"  Retry:    sandbox stack up {branch}\n\n"
+    )
+    run(
+        ["docker", "exec", container, "sh", "-c", f"printf %s {shlex.quote(details)} > /tmp/sandbox-stack-failure"],
+        check=False,
+        capture=True,
+    )
+    tmux = ["docker", "exec", "-u", f"{os.getuid()}:{os.getgid()}", container, "tmux", "-L", "sandbox"]
+    run(
+        [*tmux, "new-window", "-t", "posthog:", "-n", "⚠ stack failed", "cat /tmp/sandbox-stack-failure; exec bash"],
+        check=False,
+        capture=True,
+    )
+    run([*tmux, "select-window", "-t", "posthog:⚠ stack failed"], check=False, capture=True)
 
 
 def cmd_start(branch: str) -> None:
@@ -1574,10 +1664,15 @@ def cmd_start(branch: str) -> None:
     info(f"Starting sandbox '{project}' on port {entry.port} (Vite: {vite_port})...")
     if profiles:
         info(f"Docker profiles: {', '.join(profiles)}")
-    compose(project, entry.port, "up", "-d", capture=True, profiles=profiles)
+    # Start the app alone so the Claude window is up in seconds; for a full
+    # sandbox the stack is brought back up in the background by the worker.
+    compose(project, entry.port, "up", "-d", "--no-deps", "app", capture=True, profiles=profiles)
+
+    if not entry.no_stack:
+        _spawn_stack_up(branch)
 
     container = f"{project}-app-1"
-    health_url = f"http://localhost:{entry.port}/_health"
+    health_url = None if entry.no_stack else f"http://localhost:{entry.port}/_health"
     _attach_with_health_poll(container, health_url, destroy_prompt_branch=branch)
 
 
@@ -1590,6 +1685,94 @@ def cmd_stop(branch: str) -> None:
     info(f"Stopping sandbox '{project}'...")
     compose(project, entry.port, "stop", capture=True, profiles=profiles)
     success("Sandbox stopped. Volumes preserved.")
+
+
+def _project_containers(project: str, *, exclude_service: str | None = None) -> list[str]:
+    """Running container IDs in a sandbox's compose project, optionally excluding
+    one service. Profile-agnostic: reads the labels Docker Compose attaches."""
+    result = run(
+        [
+            "docker",
+            "ps",
+            "--filter",
+            f"label=com.docker.compose.project={project}",
+            "--format",
+            '{{.ID}} {{.Label "com.docker.compose.service"}}',
+        ],
+        check=False,
+        capture=True,
+    )
+    ids: list[str] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] != exclude_service:
+            ids.append(parts[0])
+    return ids
+
+
+def cmd_stack_up(branch: str) -> None:
+    """Bring the stack (infra + DB + phrocs) up on a running no-stack sandbox."""
+    registry = Registry()
+    branch = _resolve_branch(registry, branch)
+    entry = _require_registered(registry, branch)
+    # "Already up" only when the stack genuinely came up (not no_stack AND its DB
+    # was initialized). A full create whose background bring-up failed leaves
+    # no_stack=False, stack_initialized=False — this must allow retry, not block.
+    if not entry.no_stack and entry.stack_initialized:
+        fatal(f"Stack is already up for '{branch}'. Use 'sandbox stack down {branch}' first.")
+    container = f"{project_name(entry.slug)}-app-1"
+    if not _container_running(container):
+        fatal(f"Sandbox '{branch}' is not running. Start it with: sandbox start {branch}")
+
+    if not entry.stack_initialized:
+        _ensure_db_cache()
+    _stack_up(branch)
+    success(f"Stack up for '{branch}'. phrocs is starting — attach with: sandbox phrocs {branch}")
+
+
+def cmd_stack_down(branch: str) -> None:
+    """Take the stack down: stop phrocs and every container except the app."""
+    registry = Registry()
+    branch = _resolve_branch(registry, branch)
+    entry = _require_registered(registry, branch)
+    if entry.no_stack:
+        fatal(f"Stack is already down for '{branch}'.")
+    project = project_name(entry.slug)
+    container = f"{project}-app-1"
+
+    # Stop phrocs gracefully by sending its quit key ('q') to the TUI, exactly as
+    # a user would. The TUI's quit handler runs StopAll *synchronously in the
+    # event loop* before exiting, so every managed process is stopped first — no
+    # orphans. A signal (SIGTERM/SIGHUP) or `tmux kill-window` instead races the
+    # TUI's own exit (bubbletea quits on the signal / closed pty) against its
+    # cleanup goroutine, killing phrocs mid-StopAll and orphaning its children.
+    info("Stopping phrocs...")
+    tmux_exec = ["docker", "exec", "-u", f"{os.getuid()}:{os.getgid()}", container, "tmux", "-L", "sandbox"]
+    run([*tmux_exec, "send-keys", "-t", "posthog:phrocs", "q"], check=False, capture=True)
+    # Wait for phrocs to finish StopAll and exit (bounded), then tidy its window.
+    for _ in range(60):
+        if run(["docker", "exec", container, "pgrep", "-x", "phrocs"], check=False, capture=True).returncode != 0:
+            break
+        time.sleep(1)
+    run([*tmux_exec, "kill-window", "-t", "posthog:phrocs"], check=False, capture=True)
+
+    info("Stopping infrastructure containers...")
+    ids = _project_containers(project, exclude_service="app")
+    if ids:
+        run(["docker", "stop", *ids], check=False, capture=True)
+
+    entry.no_stack = True
+    registry.save(branch, entry)
+    success(f"Stack down for '{branch}'. Only the app container is running; volumes preserved.")
+
+
+def cmd_stack(args) -> None:
+    if args.stack_command == "up":
+        cmd_stack_up(args.branch)
+    elif args.stack_command == "down":
+        cmd_stack_down(args.branch)
+    else:
+        fatal("Usage: sandbox stack {up|down} <branch>")
 
 
 def _container_running(container: str) -> bool:
@@ -1712,8 +1895,8 @@ def cmd_list() -> None:
         print("No sandboxes found. Create one with: sandbox create <branch>")
         return
 
-    print(f"{'BRANCH':<40} {'PORT':<8} {'STATUS':<10} URL")
-    print(f"{'------':<40} {'----':<8} {'------':<10} ---")
+    print(f"{'BRANCH':<40} {'PORT':<8} {'STATUS':<10} {'STACK':<9} URL")
+    print(f"{'------':<40} {'----':<8} {'------':<10} {'-----':<9} ---")
 
     for branch, entry in entries.items():
         project = project_name(entry.slug)
@@ -1731,8 +1914,9 @@ def cmd_list() -> None:
         )
         running = len(result.stdout.strip().splitlines()) if result.stdout.strip() else 0
         status = "running" if running > 0 else "stopped"
+        stack = "no-stack" if entry.no_stack else "full"
         url = f"http://localhost:{entry.port}" if running > 0 else "-"
-        print(f"{branch:<40} {entry.port:<8} {status:<10} {url}")
+        print(f"{branch:<40} {entry.port:<8} {status:<10} {stack:<9} {url}")
 
 
 def cmd_code(branch: str) -> None:
@@ -1827,29 +2011,33 @@ def _attach_tmux(container: str, target: str | None = None, *, destroy_prompt_br
     _prompt_destroy_on_exit(destroy_prompt_branch)
 
 
-def _attach_with_health_poll(container: str, health_url: str, *, destroy_prompt_branch: str | None = None) -> None:
-    """Attach to tmux; open browser in background when healthy."""
-    # Launch a detached process to poll health and open the browser.
-    # Separate process so the main process can execvp into tmux with a clean TTY.
-    url = health_url.replace("/_health", "")
-    script = textwrap.dedent(f"""\
-        import time, webbrowser, urllib.request
-        deadline = time.time() + 600
-        while time.time() < deadline:
-            try:
-                urllib.request.urlopen({health_url!r}, timeout=2)
-                webbrowser.open({url!r})
-                break
-            except Exception:
-                time.sleep(5)
-    """)
-    subprocess.Popen(
-        [sys.executable, "-c", script],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+def _attach_with_health_poll(
+    container: str, health_url: str | None, *, destroy_prompt_branch: str | None = None
+) -> None:
+    """Attach to tmux; if health_url is given, open the browser in the background
+    once it responds. No-stack sandboxes pass None (no proxy/port to open)."""
+    if health_url:
+        # Launch a detached process to poll health and open the browser.
+        # Separate process so the main process can execvp into tmux with a clean TTY.
+        url = health_url.replace("/_health", "")
+        script = textwrap.dedent(f"""\
+            import time, webbrowser, urllib.request
+            deadline = time.time() + 600
+            while time.time() < deadline:
+                try:
+                    urllib.request.urlopen({health_url!r}, timeout=2)
+                    webbrowser.open({url!r})
+                    break
+                except Exception:
+                    time.sleep(5)
+        """)
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
 
     # Wait for tmux then attach (replaces this process).
     # Tmux starts within seconds of boot; this loop is usually very short.
@@ -2307,6 +2495,9 @@ examples:
   sandbox create aspicer/cool-feature
   sandbox create aspicer/bugfix main
   sandbox create aspicer/cool-feature --full-clone
+  sandbox create aspicer/quick-test --no-stack
+  sandbox stack up aspicer/quick-test
+  sandbox stack down aspicer/quick-test
   sandbox ls
   sandbox shell aspicer/cool-feature
   sandbox ssh aspicer/cool-feature
@@ -2329,6 +2520,12 @@ examples:
         "--full-clone",
         action="store_true",
         help="Clone full git history instead of shallow (more disk; enables git log/blame/bisect)",
+    )
+    p.add_argument(
+        "--no-stack",
+        action="store_true",
+        help="Boot only the app container (clone + tools + MCP); no infra or phrocs. "
+        "Bring the stack up later with 'sandbox stack up'",
     )
 
     for name, help_text in [
@@ -2359,6 +2556,18 @@ examples:
     sub.add_parser("list", aliases=["ls"], help="List all sandboxes")
     sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
     sub.add_parser("nuke", help="Destroy all sandboxes and clear the cache")
+
+    stack_parser = sub.add_parser(
+        "stack",
+        help="Toggle the database stack (infra + phrocs) on a running sandbox",
+    )
+    stack_sub = stack_parser.add_subparsers(dest="stack_command")
+    stack_up_p = stack_sub.add_parser("up", help="Bring the stack up (infra, database, phrocs)")
+    stack_up_p.add_argument("branch")
+    stack_down_p = stack_sub.add_parser(
+        "down", help="Take the stack down (stop infra + phrocs; keep the app container running)"
+    )
+    stack_down_p.add_argument("branch")
 
     tools_parser = sub.add_parser(
         "tools",
@@ -2420,10 +2629,10 @@ examples:
     env_sub.add_parser("edit", help="Open the env file in $EDITOR (default action)")
     env_sub.add_parser("list", help="List configured env var names and descriptions")
 
-    # Internal: detached infra-bringup/restore worker spawned by `create`.
-    db_restore_p = sub.add_parser("_db-restore")
-    db_restore_p.add_argument("branch")
-    db_restore_p.add_argument("use_cache", choices=["0", "1"])
+    # Internal: detached stack bring-up worker spawned by create/start.
+    stack_up_worker_p = sub.add_parser("_stack-up")
+    stack_up_worker_p.add_argument("branch")
+    stack_up_worker_p.add_argument("use_cache", choices=["0", "1"])
 
     return parser
 
@@ -2440,7 +2649,7 @@ def main() -> None:
         os.environ["SANDBOX_INTENTS"] = args.intents
 
     dispatch = {
-        "create": lambda: cmd_create(args.branch, args.base_branch, full_clone=args.full_clone),
+        "create": lambda: cmd_create(args.branch, args.base_branch, full_clone=args.full_clone, no_stack=args.no_stack),
         "start": lambda: cmd_start(args.branch),
         "stop": lambda: cmd_stop(args.branch),
         "destroy": lambda: cmd_destroy(args.branch, force=args.force),
@@ -2458,7 +2667,8 @@ def main() -> None:
         "tools": lambda: cmd_tools(args),
         "mcp": lambda: cmd_mcp(args),
         "env": lambda: cmd_env(args),
-        "_db-restore": lambda: cmd_db_restore(args.branch, args.use_cache == "1"),
+        "stack": lambda: cmd_stack(args),
+        "_stack-up": lambda: _stack_up_worker(args.branch, args.use_cache == "1"),
     }
 
     try:
