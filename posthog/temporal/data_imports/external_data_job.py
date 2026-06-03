@@ -66,6 +66,9 @@ Any_Source_Errors: dict[str, str | None] = {
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
     "Integration matching query does not exist": None,
+    # delta-rs raises this when an incremental batch's schema no longer matches the existing delta
+    # table (e.g. a column was added to the source table). Retrying never repairs the divergent files.
+    "rows failed validation check": "Schema drift detected — the table's columns changed since it was first synced. Delete the table data and resync to fix.",
 }
 
 

@@ -515,6 +515,57 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert schema.should_sync is False
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_schema_drift_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.FAILED,
+        latest_error=None,
+        internal_error="max retries exceeded: Generic DeltaTable error: External error: Invalid data found: 2245 rows failed validation check. \nPreview of invalid data:\n+----+\n| id |\n+----+",
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch(
+        "products.warehouse_sources.backend.models.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert new_job.status == ExternalDataJob.Status.FAILED
+    assert schema.should_sync is False
+    assert schema.latest_error == Any_Source_Errors["rows failed validation check"]
+    assert "Preview of invalid data" not in (schema.latest_error or "")
+
+
 @pytest.fixture
 def mock_stripe_client():
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
