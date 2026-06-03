@@ -20,7 +20,7 @@ Env vars:
     DRY_RUN        If '1', print what would happen without mutating
     SPEC_FILE      Override path to spec.json (default sibling spec.json)
     BUNDLE_ROOT    Override bundle directory (default this script's parent)
-    MCP_URL        Rewrite every `kind: external` mcps[].url (local-dev override)
+    MCP_URL        Rewrite every mcps[].url (local-dev override)
     MCP_URL_<id>   Rewrite only the mcps entry whose id matches; wins over MCP_URL
 
 Exit codes:
@@ -90,11 +90,10 @@ def log(msg: str) -> None:
 
 def load_v0_spec() -> dict:
     """Load the forward-looking spec.json and strip features the platform
-    doesn't accept yet (resume block). Auth is now multi-mode natively;
-    we pass spec.auth.modes through verbatim. `mcps[]` is now accepted
-    in the discriminated `{ kind: 'external', tools[] }` shape post-PR 7
-    — destructive remote tools carry inline approval gating via
-    `tools[].approval_policy`.
+    doesn't accept yet (resume block). Auth is multi-mode natively;
+    we pass spec.auth.modes through verbatim. `mcps[]` uses the flat
+    `{ id, url, tools[] }` shape — destructive remote tools carry inline
+    approval gating via `tools[].approval_policy`.
     """
     spec = json.loads(SPEC_FILE.read_text())
 
@@ -136,13 +135,11 @@ def load_v0_spec() -> dict:
 
     # MCP URL overrides — let a local seed point at localhost:8787/mcp without
     # editing the canonical bundle. Two forms:
-    #   MCP_URL=...                → rewrites every external mcp's `url`
+    #   MCP_URL=...                → rewrites every mcp's `url`
     #   MCP_URL_<mcp_id>=...       → rewrites only the entry whose id matches
-    # Per-id wins over the bare form. Only applies to `kind: external`.
+    # Per-id wins over the bare form.
     bare_override = os.environ.get("MCP_URL")
     for m in spec.get("mcps", []):
-        if m.get("kind") != "external":
-            continue
         per_id = os.environ.get(f"MCP_URL_{m.get('id', '')}")
         override = per_id or bare_override
         if override:
