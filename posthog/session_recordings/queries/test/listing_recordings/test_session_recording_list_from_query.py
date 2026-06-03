@@ -4546,10 +4546,13 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             )
         )
 
-        with mat_mock, self.settings(
-            PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
-            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
-            ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+        with (
+            mat_mock,
+            self.settings(
+                PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
+                PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
+                ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+            ),
         ):
             user_one = "test_event_filter_with_person_properties-user"
             user_two = "test_event_filter_with_person_properties-user2"
@@ -4642,10 +4645,13 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             )
         )
 
-        with mat_mock, self.settings(
-            PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
-            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
-            ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+        with (
+            mat_mock,
+            self.settings(
+                PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
+                PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
+                ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+            ),
         ):
             three_user_ids = ["person-1-distinct-1", "person-1-distinct-2", "person-2"]
             session_id_one = f"test_person_id_filter-session-one"
