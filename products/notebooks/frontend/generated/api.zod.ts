@@ -130,6 +130,12 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
     version: zod.number().describe("The collab version the client's steps are based on."),
     steps: zod.array(zod.unknown()).describe('List of ProseMirror step JSON objects to apply.'),
     content: zod.unknown().describe('The resulting ProseMirror document after applying the steps locally.'),
+    markdown_content: zod
+        .string()
+        .optional()
+        .describe(
+            'Canonical markdown document after applying the steps locally. Markdown-backed clients send this so collaborative editing can persist markdown without server-side JSON-to-markdown conversion.'
+        ),
     text_content: zod
         .string()
         .default(notebooksCollabSaveCreateBodyTextContentDefault)

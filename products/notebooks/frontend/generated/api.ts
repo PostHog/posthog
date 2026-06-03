@@ -190,8 +190,8 @@ export const notebooksCollabSaveCreate = async (
     shortId: string,
     notebookCollabSaveApi: NotebookCollabSaveApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksCollabSaveCreateUrl(projectId, shortId), {
+): Promise<NotebookApi> => {
+    return apiMutator<NotebookApi>(getNotebooksCollabSaveCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

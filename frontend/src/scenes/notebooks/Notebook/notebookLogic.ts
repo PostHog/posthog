@@ -445,43 +445,17 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
-                    if (values.isMarkdownBacked) {
-                        const localContent = values.editor?.getJSON() ?? notebook.content ?? values.notebook.content
-                        const markdownContent = values.editor?.getMarkdown() || notebookContentToMarkdown(localContent)
-
-                        try {
-                            const response = await api.notebooks.markdownSave(values.notebook.short_id, {
-                                version: values.notebook.version,
-                                markdown_content: markdownContent,
-                                text_content: values.editor?.getText() || '',
-                                title: notebook.title,
-                            })
-
-                            if (notebook.content === values.localContent) {
-                                actions.clearLocalContent()
-                            }
-                            refreshTreeItem('notebook', String(values.notebook.short_id))
-                            return response
-                        } catch (error: any) {
-                            if (error.code === 'conflict' || error.status === 409) {
-                                actions.showCollabConflict({
-                                    serverContent:
-                                        (error.data?.content as JSONContent) ?? values.notebook.content ?? {},
-                                    localContent: localContent ?? {},
-                                    localText: values.editor?.getText() ?? '',
-                                })
-                                return values.notebook
-                            }
-                            throw error
-                        }
-                    }
-
                     if (values.collabEnabled && values.ttEditor) {
                         const sendable = sendableSteps(values.ttEditor.state)
                         if (!sendable) {
                             return values.notebook
                         }
                         const stepsJson = sendable.steps.map((s) => s.toJSON())
+                        const localContent = values.editor?.getJSON() ?? notebook.content ?? values.notebook.content
+                        const markdownContent =
+                            values.isMarkdownBacked && localContent
+                                ? values.editor?.getMarkdown() || notebookContentToMarkdown(localContent)
+                                : undefined
 
                         try {
                             const response = await api.create(
@@ -490,7 +464,8 @@ export const notebookLogic = kea<notebookLogicType>([
                                     client_id: sendable.clientID,
                                     version: sendable.version,
                                     steps: stepsJson,
-                                    content: values.editor?.getJSON(),
+                                    content: localContent,
+                                    ...(markdownContent !== undefined ? { markdown_content: markdownContent } : {}),
                                     text_content: values.editor?.getText() || '',
                                     title: notebook.title,
                                     cursor_head: values.ttEditor.state.selection.head,
@@ -530,6 +505,37 @@ export const notebookLogic = kea<notebookLogicType>([
                                 // Stream trimmed
                                 actions.rebaseFailed({
                                     localContent: values.editor?.getJSON() ?? notebook.content ?? {},
+                                    localText: values.editor?.getText() ?? '',
+                                })
+                                return values.notebook
+                            }
+                            throw error
+                        }
+                    }
+
+                    if (values.isMarkdownBacked) {
+                        const localContent = values.editor?.getJSON() ?? notebook.content ?? values.notebook.content
+                        const markdownContent = values.editor?.getMarkdown() || notebookContentToMarkdown(localContent)
+
+                        try {
+                            const response = await api.notebooks.markdownSave(values.notebook.short_id, {
+                                version: values.notebook.version,
+                                markdown_content: markdownContent,
+                                text_content: values.editor?.getText() || '',
+                                title: notebook.title,
+                            })
+
+                            if (notebook.content === values.localContent) {
+                                actions.clearLocalContent()
+                            }
+                            refreshTreeItem('notebook', String(values.notebook.short_id))
+                            return response
+                        } catch (error: any) {
+                            if (error.code === 'conflict' || error.status === 409) {
+                                actions.showCollabConflict({
+                                    serverContent:
+                                        (error.data?.content as JSONContent) ?? values.notebook.content ?? {},
+                                    localContent: localContent ?? {},
                                     localText: values.editor?.getText() ?? '',
                                 })
                                 return values.notebook
@@ -663,12 +669,9 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         collabEnabled: [
-            (s) => [s.featureFlags, s.isLocalOnly, s.isMarkdownBacked],
-            (
-                featureFlags: Record<string, string | boolean>,
-                isLocalOnly: boolean,
-                isMarkdownBacked: boolean
-            ): boolean => !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] && !isLocalOnly && !isMarkdownBacked,
+            (s) => [s.featureFlags, s.isLocalOnly],
+            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean): boolean =>
+                !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] && !isLocalOnly,
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],

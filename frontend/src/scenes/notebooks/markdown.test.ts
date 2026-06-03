@@ -45,4 +45,35 @@ describe('notebook markdown', () => {
         expect(markdown).toContain('Markdown backed.')
         expect(markdown).toContain('<DuckSQL return_variable="rows">')
     })
+
+    it('uses Tiptap markdown serialization for standard editor nodes', () => {
+        const markdown = notebookContentToMarkdown({
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'Read ' },
+                        {
+                            type: 'text',
+                            text: 'the docs',
+                            marks: [{ type: 'link', attrs: { href: 'https://posthog.com/docs' } }],
+                        },
+                    ],
+                },
+                {
+                    type: 'bulletList',
+                    content: [
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }],
+                        },
+                    ],
+                },
+            ],
+        })
+
+        expect(markdown).toContain('[the docs](https://posthog.com/docs)')
+        expect(markdown).toContain('- one')
+    })
 })

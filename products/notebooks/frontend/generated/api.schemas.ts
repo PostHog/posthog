@@ -244,6 +244,8 @@ export interface NotebookCollabSaveApi {
     steps: unknown[]
     /** The resulting ProseMirror document after applying the steps locally. */
     content: unknown
+    /** Canonical markdown document after applying the steps locally. Markdown-backed clients send this so collaborative editing can persist markdown without server-side JSON-to-markdown conversion. */
+    markdown_content?: string
     /** Plain text for search indexing. */
     text_content?: string
     /** Updated notebook title. */

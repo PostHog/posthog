@@ -1,3 +1,10 @@
+import { Node } from '@tiptap/core'
+import { Link } from '@tiptap/extension-link'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
+import { MarkdownManager } from '@tiptap/markdown'
+import StarterKit from '@tiptap/starter-kit'
+
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { NotebookNodeType } from './types'
@@ -32,56 +39,6 @@ function serializeIdAttribute(attrs: JsonRecord): string {
     return attrs.id !== null && attrs.id !== undefined ? ` id="${escapeHtmlAttribute(attrs.id)}"` : ''
 }
 
-function serializeText(text: string): string {
-    return text
-        .replace(/\\/g, '\\\\')
-        .replace(/\*/g, '\\*')
-        .replace(/_/g, '\\_')
-        .replace(/`/g, '\\`')
-        .replace(/\[/g, '\\[')
-        .replace(/\]/g, '\\]')
-}
-
-function serializeTextNode(node: JSONContent): string {
-    let text = serializeText(node.text || '')
-    for (const mark of node.marks || []) {
-        if (mark.type === 'bold') {
-            text = `**${text}**`
-        } else if (mark.type === 'italic') {
-            text = `*${text}*`
-        } else if (mark.type === 'code') {
-            text = `\`${node.text || ''}\``
-        } else if (mark.type === 'link') {
-            text = `[${text}](${mark.attrs?.href || ''})`
-        }
-    }
-    return text
-}
-
-function inlineContentToMarkdown(node: JSONContent): string {
-    return (node.content || [])
-        .map((child) => (child.type === 'text' ? serializeTextNode(child) : nodeToMarkdown(child)))
-        .join('')
-}
-
-function listItemText(item: JSONContent): string {
-    return (item.content || [])
-        .map((child) => {
-            if (child.type === 'paragraph') {
-                return inlineContentToMarkdown(child)
-            }
-            return nodeToMarkdown(child)
-        })
-        .filter(Boolean)
-        .join('\n')
-}
-
-function codeBlockToMarkdown(node: JSONContent): string {
-    const language = node.attrs?.language || ''
-    const code = (node.content || []).map((child) => child.text || '').join('')
-    return `\`\`\`${language}\n${code}\n\`\`\``
-}
-
 export function notebookNodeToMarkdown(nodeType: string, attrs: JsonRecord | null | undefined): string {
     const safeAttrs = attrs || {}
 
@@ -114,54 +71,36 @@ export function notebookNodeToMarkdown(nodeType: string, attrs: JsonRecord | nul
     return ''
 }
 
-function nodeToMarkdown(node: JSONContent): string {
-    const nodeType = node.type || ''
-    const attrs = node.attrs || {}
+const notebookMarkdownExtensions = Object.values(NotebookNodeType)
+    .filter((nodeType) => nodeType.startsWith('ph-'))
+    .map((nodeType) =>
+        Node.create({
+            name: nodeType,
+            serializedText: () => '',
+            renderMarkdown(node) {
+                return notebookNodeToMarkdown(nodeType, node.attrs)
+            },
+        })
+    )
 
-    if (nodeType === 'heading') {
-        const level = Math.max(1, Math.min(Number(attrs.level || 1), 6))
-        return `${'#'.repeat(level)} ${inlineContentToMarkdown(node)}`
-    }
-
-    if (nodeType === 'paragraph') {
-        return inlineContentToMarkdown(node)
-    }
-
-    if (nodeType === 'bulletList') {
-        return (node.content || []).map((item) => `- ${listItemText(item)}`).join('\n')
-    }
-
-    if (nodeType === 'orderedList') {
-        return (node.content || []).map((item, index) => `${index + 1}. ${listItemText(item)}`).join('\n')
-    }
-
-    if (nodeType === 'codeBlock') {
-        return codeBlockToMarkdown(node)
-    }
-
-    if (nodeType === 'blockquote') {
-        return (node.content || [])
-            .map((child) =>
-                nodeToMarkdown(child)
-                    .split('\n')
-                    .map((line) => `> ${line}`)
-                    .join('\n')
-            )
-            .join('\n')
-    }
-
-    if (nodeType === 'horizontalRule') {
-        return '---'
-    }
-
-    if (nodeType.startsWith('ph-')) {
-        return notebookNodeToMarkdown(nodeType, attrs)
-    }
-
-    return (node.content || []).map(nodeToMarkdown).filter(Boolean).join('\n\n')
-}
+const notebookMarkdownManager = new MarkdownManager({
+    extensions: [
+        StarterKit.configure({ link: false }),
+        Link,
+        Table,
+        TableRow,
+        TableHeader,
+        TableCell,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        ...notebookMarkdownExtensions,
+    ],
+})
 
 export function notebookContentToMarkdown(content: JSONContent | JSONContent[] | null | undefined): string {
-    const nodes = Array.isArray(content) ? content : content?.content || []
-    return nodes.map(nodeToMarkdown).filter(Boolean).join('\n\n').trim()
+    if (!content) {
+        return ''
+    }
+
+    return notebookMarkdownManager.serialize(Array.isArray(content) ? { type: 'doc', content } : content).trim()
 }

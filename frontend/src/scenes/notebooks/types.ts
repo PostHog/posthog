@@ -181,6 +181,5 @@ declare module '@tiptap/core' {
         // instead we should probably make a new extension type that does what we want
         // or have some kind of wrapper around the existing Node
         serializedText: (attrs: NotebookNodeAttributes<any>) => string
-        renderMarkdown?: (node: any) => string
     }
 }

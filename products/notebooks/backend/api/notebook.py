@@ -406,6 +406,15 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
         help_text="List of ProseMirror step JSON objects to apply.",
     )
     content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
+    markdown_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text=(
+            "Canonical markdown document after applying the steps locally. "
+            "Markdown-backed clients send this so collaborative editing can persist markdown without server-side JSON-to-markdown conversion."
+        ),
+    )
     text_content = serializers.CharField(
         required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
     )
@@ -911,7 +920,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
-    @extend_schema(request=NotebookCollabSaveSerializer)
+    @extend_schema(request=NotebookCollabSaveSerializer, responses=NotebookSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])
     def collab_save(self, request: Request, **kwargs):
         serializer = NotebookCollabSaveSerializer(data=request.data)
@@ -948,7 +957,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "last_modified_by": request.user,
             }
             if notebook.content_storage == Notebook.ContentStorage.MARKDOWN and isinstance(content, dict):
-                markdown_content = tiptap_doc_to_markdown(content)
+                markdown_content = data.get("markdown_content")
+                if markdown_content is None:
+                    markdown_content = tiptap_doc_to_markdown(content)
                 update_values["markdown_content"] = markdown_content
                 update_values["text_content"] = markdown_to_text_content(markdown_content, title=update_values["title"])
             Notebook.objects.filter(pk=notebook.pk).update(**update_values)

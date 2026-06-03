@@ -20,16 +20,27 @@ UPDATED_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type
 
 
 class TestNotebookCollabSaveAPI(APIBaseTest):
-    def _create_notebook(self, content=None):
+    def _create_notebook(self, content=None, markdown_content=None):
         data = {}
         if content:
             data["content"] = content
+        if markdown_content is not None:
+            data["markdown_content"] = markdown_content
         response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data=data, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         return response.json()
 
     def _collab_save(
-        self, notebook, *, version, steps, content=None, text_content=None, title=None, client_id="test-client"
+        self,
+        notebook,
+        *,
+        version,
+        steps,
+        content=None,
+        markdown_content=None,
+        text_content=None,
+        title=None,
+        client_id="test-client",
     ):
         payload = {
             "client_id": client_id,
@@ -37,6 +48,8 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
             "steps": steps,
             "content": content or UPDATED_DOC,
         }
+        if markdown_content is not None:
+            payload["markdown_content"] = markdown_content
         if text_content is not None:
             payload["text_content"] = text_content
         if title is not None:
@@ -78,6 +91,25 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert nb.version == version + 1
         assert nb.content == UPDATED_DOC
         assert nb.text_content == "Updated"
+
+    def test_collab_save_persists_client_markdown_for_markdown_notebooks(self):
+        notebook = self._create_notebook(markdown_content="# Test")
+        version = notebook["version"]
+
+        response = self._collab_save(
+            notebook,
+            version=version,
+            steps=[{"stepType": "replace", "from": 0, "to": 0}],
+            content=UPDATED_DOC,
+            markdown_content="# Updated from client",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        nb = Notebook.objects.get(short_id=notebook["short_id"])
+        assert nb.content_storage == Notebook.ContentStorage.MARKDOWN
+        assert nb.content == UPDATED_DOC
+        assert nb.markdown_content == "# Updated from client"
+        assert nb.text_content == "Updated from client"
 
     def test_collab_save_updates_title(self):
         notebook = self._create_notebook(SAMPLE_DOC)

@@ -19,11 +19,13 @@ def test_collab_save_serializer_handles_blank_and_omitted_title(
             "version": 0,
             "steps": [{"stepType": "replace", "from": 0, "to": 0}],
             "content": {"type": "doc", "content": [{"type": "heading"}]},
+            "markdown_content": "# Test",
             **optional_payload,
         }
     )
 
     assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["markdown_content"] == "# Test"
     assert serializer.validated_data["text_content"] == ""
     if expected_title is None:
         assert "title" not in serializer.validated_data

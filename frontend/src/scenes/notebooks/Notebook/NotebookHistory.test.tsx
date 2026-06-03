@@ -67,6 +67,7 @@ describe('Notebook history revert flow', () => {
     let editorContent: JSONContent | null
     let apiCreateSpy: jest.SpyInstance
     let apiUpdateSpy: jest.SpyInstance
+    let apiMarkdownSaveSpy: jest.SpyInstance
 
     // The stub tracks its own content so getJSON() reflects the result of setContent
     // calls. Otherwise the collab path's wire payload (which is editor.getJSON()) would
@@ -78,7 +79,10 @@ describe('Notebook history revert flow', () => {
                 editorSetContent(content)
             },
             getJSON: () => editorContent,
+            getMarkdown: () => '# historical',
             getText: () => 'historical',
+            getMarks: () => [],
+            getAllCommentTexts: () => ({}),
             getCurrentPosition: () => 0,
             setTextSelection: jest.fn(),
         }) as unknown as NotebookEditor
@@ -88,6 +92,7 @@ describe('Notebook history revert flow', () => {
         useMocks({
             get: {
                 [`/api/projects/@current/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
+                [`/api/projects/:team_id/notebooks/${SHORT_ID}/kernel/status/`]: () => [200, { backend: null }],
             },
         })
         initKeaTests()
@@ -97,6 +102,9 @@ describe('Notebook history revert flow', () => {
         apiUpdateSpy = jest
             .spyOn(api.notebooks, 'update')
             .mockResolvedValue({ ...cachedNotebook, version: 2, content: HISTORICAL_DOC })
+        apiMarkdownSaveSpy = jest
+            .spyOn(api.notebooks, 'markdownSave')
+            .mockResolvedValue({ ...cachedNotebook, content_storage: 'markdown', markdown_content: '# historical' })
         // collabStream opens an SSE connection that never resolves in production —
         // resolve immediately in tests so the listener doesn't dangle.
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
@@ -205,5 +213,48 @@ describe('Notebook history revert flow', () => {
                 )
             }
         })
+    })
+
+    it('collab mode includes markdown_content for markdown-backed notebooks', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
+            [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
+        })
+        ;(PMCollab.sendableSteps as jest.Mock).mockReturnValue({
+            version: 1,
+            steps: [{ toJSON: () => ({ stepType: 'replace', from: 0, to: 0, slice: { content: [] } }) }],
+            clientID: 'test-client',
+        })
+
+        logic = notebookLogic({
+            shortId: SHORT_ID,
+            mode: 'notebook',
+            cachedNotebook: {
+                ...cachedNotebook,
+                content_storage: 'markdown',
+                markdown_content: '# current',
+            },
+        })
+        logic.mount()
+        logic.actions.setEditor(stubEditor())
+        notebookCollabLogic({ shortId: SHORT_ID }).actions.bindEditor({
+            state: { selection: { head: 0 } },
+        } as any)
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setLocalContent(HISTORICAL_DOC, true)
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(apiCreateSpy).toHaveBeenCalledWith(
+            `api/projects/@current/notebooks/${SHORT_ID}/collab/save/`,
+            expect.objectContaining({
+                content: HISTORICAL_DOC,
+                client_id: 'test-client',
+                markdown_content: '# historical',
+            })
+        )
+        expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
     })
 })

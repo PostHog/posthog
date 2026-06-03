@@ -20,6 +20,23 @@ export const NotebookMarkLink = Mark.create({
         return [{ tag: 'a[href]:not([href *= "javascript:" i])' }]
     },
 
+    markdownTokenName: 'link',
+
+    parseMarkdown(token, helpers) {
+        return helpers.applyMark('link', helpers.parseInline(token.tokens || []), {
+            href: token.href,
+            title: token.title || null,
+        })
+    },
+
+    renderMarkdown(node, helpers) {
+        const href = node.attrs?.href || ''
+        const title = node.attrs?.title || ''
+        const text = helpers.renderChildren(node)
+
+        return title ? `[${text}](${href} "${title}")` : `[${text}](${href})`
+    },
+
     renderHTML({ HTMLAttributes }) {
         const href = HTMLAttributes.href || ''
         const target = isPostHogLink(href) ? undefined : '_blank'
