@@ -446,7 +446,11 @@ export function PropertyValue({
                 onChange={(nextVal) => {
                     // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
                     // doesn't silently break the filter — the snack display hides the space.
-                    const trimmedVal = nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
+                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
+                    // part of the pattern (e.g. `^ foo`, `bar $`).
+                    const trimmedVal = isOperatorRegex(operator)
+                        ? nextVal
+                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
                     const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
                         const availableValues = new Set(displayOptions.map((o) => toString(o.name)))

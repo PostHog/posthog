@@ -176,6 +176,30 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('preserves surrounding whitespace for regex operators, where it can be meaningful', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="$current_url"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Regex}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        userEvent.click(input)
+        await userEvent.paste('bar $')
+        await userEvent.type(input, '{enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenCalledWith('bar $')
+        })
+    })
+
     it('keeps numeric-only input for non-regex numeric properties', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/userId': {
