@@ -103,8 +103,10 @@ Lifecycle:
 - Streaming tool results from MCPs (one-shot only for v1).
 - MCP sampling (the MCP-defined "ask the model" pattern). pi-ai handles all
   inference for now.
-- Self-hosted MCP gateway / quota management — covered separately by
-  [`self-hosted-tool-runners.md`](self-hosted-tool-runners.md), which
-  solves the _not-publicly-reachable_ MCP case (Grafana, k8s,
-  internal-only APIs) via an outbound-poll runner the customer deploys
-  in their own infra.
+- The _not-publicly-reachable_ MCP case (Grafana, k8s, internal-only
+  APIs) — covered separately by
+  [`tailscale-mcps.md`](tailscale-mcps.md), which adds a
+  `kind: 'tailscale'` `McpRef` variant. PostHog-hosted agents reach
+  customer MCP servers over the customer's own tailnet via a scoped
+  OAuth client they paste into PostHog. Same `McpClient` abstraction;
+  the dispatcher does not branch on transport.

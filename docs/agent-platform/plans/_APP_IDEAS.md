@@ -142,11 +142,12 @@ reasoning: high
       [`long-running-sessions.md`](long-running-sessions.md).
 - [ ] 📋 Runtime MCP support for Grafana + k8s servers —
       [`runtime-mcps.md`](runtime-mcps.md) covers the publicly-reachable
-      case; [`self-hosted-tool-runners.md`](self-hosted-tool-runners.md)
-      covers the _not_ publicly reachable case (most real Grafana / k8s
-      deployments). For SRE bot in practice the self-hosted-runner path
-      is the load-bearing one; runtime-mcps still helps for things like
-      Sentry that have public MCPs.
+      case; [`tailscale-mcps.md`](tailscale-mcps.md) covers the _not_
+      publicly reachable case (most real Grafana / k8s deployments) by
+      adding a `kind: 'tailscale'` `McpRef` that joins the customer's
+      tailnet via a scoped OAuth client. For SRE bot in practice the
+      Tailscale path is the load-bearing one; runtime-mcps still helps
+      for things like Sentry that have public MCPs.
 - [x] ✅ Persistent agent memory — `MemoryStore` + `@posthog/memory-*`
       tools cover the "remember outcomes by alert signature" use
       case as markdown notes with BM25 search.
