@@ -9,7 +9,7 @@ import structlog
 import django_filters
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -66,8 +66,8 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     )
     scanner_config = serializers.JSONField(
         help_text=(
-            "Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, "
-            "scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag."
+            "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, "
+            "classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
@@ -216,6 +216,10 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         raise error
 
 
+# Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
+SCANNER_ORDER_FIELDS = ("name", "created_at", "updated_at", "scanner_type")
+
+
 class ReplayScannerFilter(django_filters.FilterSet):
     enabled = django_filters.BooleanFilter(
         field_name="enabled",
@@ -231,12 +235,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         help_text="Filter to scanners that emit Signals.",
     )
     order_by = django_filters.OrderingFilter(
-        fields=(
-            ("name", "name"),
-            ("created_at", "created_at"),
-            ("updated_at", "updated_at"),
-            ("scanner_type", "scanner_type"),
-        ),
+        fields=tuple((field, field) for field in SCANNER_ORDER_FIELDS),
         help_text="Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.",
     )
 
@@ -313,6 +312,22 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+            OpenApiParameter(
+                "order_by",
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=[value for field in SCANNER_ORDER_FIELDS for value in (field, f"-{field}")],
+                description="Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.",
+            )
+        ]
+    )
+)
 class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 

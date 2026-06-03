@@ -1095,6 +1095,8 @@ export interface DataWarehouseSyncWarningApi {
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
     schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
     /** Source type, e.g. "Stripe", "Hubspot" */
     source_type: string
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -1870,6 +1872,8 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+    stackBreakdownValues?: boolean | null
     /** Custom label rendered under the X axis. */
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
@@ -3852,7 +3856,6 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 
 export const IntegrationKindApi = {
     Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -4185,6 +4188,8 @@ export interface Response27Api {
     hogql: string
     kind?: 'AccountsQuery'
     limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
@@ -6871,6 +6876,8 @@ export interface AccountsQueryResponseApi {
     hogql: string
     kind?: 'AccountsQuery'
     limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
@@ -6891,8 +6898,12 @@ export interface AccountsQueryApi {
     accountOwner?: string | number | null
     allRolesUnassigned?: boolean | null
     csm?: string | number | null
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: string | null
     kind?: 'AccountsQuery'
     limit?: number | null
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: string[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
@@ -7536,6 +7547,55 @@ export interface ErrorTrackingListWidgetConfigApi {
     filterTestAccounts?: boolean
 }
 
+/**
+ * * `activity_score` - activity_score
+ * `click_count` - click_count
+ * `console_error_count` - console_error_count
+ * `duration` - duration
+ * `recording_duration` - recording_duration
+ * `start_time` - start_time
+ */
+export type SessionReplayListWidgetConfigOrderByEnumApi =
+    (typeof SessionReplayListWidgetConfigOrderByEnumApi)[keyof typeof SessionReplayListWidgetConfigOrderByEnumApi]
+
+export const SessionReplayListWidgetConfigOrderByEnumApi = {
+    ActivityScore: 'activity_score',
+    ClickCount: 'click_count',
+    ConsoleErrorCount: 'console_error_count',
+    Duration: 'duration',
+    RecordingDuration: 'recording_duration',
+    StartTime: 'start_time',
+} as const
+
+export interface SessionReplayListWidgetConfigApi {
+    /**
+     * Maximum number of recordings to return.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /** Recording ranking column.
+
+  * `activity_score` - activity_score
+  * `click_count` - click_count
+  * `console_error_count` - console_error_count
+  * `duration` - duration
+  * `recording_duration` - recording_duration
+  * `start_time` - start_time */
+    orderBy?: SessionReplayListWidgetConfigOrderByEnumApi
+    /** Sort direction for orderBy.
+
+  * `ASC` - ASC
+  * `DESC` - DESC */
+    orderDirection?: OrderDirectionEnumApi
+    /** Optional relative date range override. */
+    dateRange?: WidgetDateRangeApi | null
+    /** When omitted, follows the project default for filtering test accounts. */
+    filterTestAccounts?: boolean
+}
+
+export type DashboardWidgetConfigApi = ErrorTrackingListWidgetConfigApi | SessionReplayListWidgetConfigApi
+
 export interface DashboardWidgetApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -7554,7 +7614,7 @@ export interface DashboardWidgetApi {
     /** Optional markdown description shown on the dashboard tile when enabled. */
     description?: string
     /** Widget-specific configuration JSON for this widget type. */
-    config?: ErrorTrackingListWidgetConfigApi
+    config?: DashboardWidgetConfigApi
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     readonly last_modified_at: string
     team: number
@@ -7587,6 +7647,13 @@ export interface DeleteTileRequestApi {
 export interface MoveTileTileApi {
     /** Dashboard tile ID to move. */
     id: number
+}
+
+export interface MoveTileRequestApi {
+    /** Destination dashboard ID. */
+    to_dashboard: number
+    /** Tile to move, identified by its dashboard tile ID. */
+    tile: MoveTileTileApi
 }
 
 export interface PatchedMoveTileRequestApi {
@@ -7692,12 +7759,12 @@ export interface UpdateTextTileRequestApi {
 
 export interface AddDashboardWidgetRequestApi {
     /**
-     * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+     * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
      * @maxLength 64
      */
     widget_type: string
-    /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
-    config: ErrorTrackingListWidgetConfigApi
+    /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
+    config: DashboardWidgetConfigApi
     /**
      * Optional custom display name for the widget tile.
      * @maxLength 400
@@ -7987,6 +8054,18 @@ export type DashboardsDeleteTileParams = {
 export type DashboardsDeleteTileFormat = (typeof DashboardsDeleteTileFormat)[keyof typeof DashboardsDeleteTileFormat]
 
 export const DashboardsDeleteTileFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsMoveTileCreateParams = {
+    format?: DashboardsMoveTileCreateFormat
+}
+
+export type DashboardsMoveTileCreateFormat =
+    (typeof DashboardsMoveTileCreateFormat)[keyof typeof DashboardsMoveTileCreateFormat]
+
+export const DashboardsMoveTileCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
