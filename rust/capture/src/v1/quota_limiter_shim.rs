@@ -104,6 +104,8 @@ mod tests {
     use tracing::Level;
     use uuid::Uuid;
 
+    use crate::config::EnvelopeCompression;
+
     use crate::config::{CaptureMode, Config, KafkaConfig};
     use crate::v1::analytics::types::{Event, Options};
 
@@ -205,6 +207,7 @@ mod tests {
                 kafka_metrics_producer_max_retries: None,
                 kafka_metrics_topic_metadata_refresh_interval_ms: None,
                 kafka_metrics_metadata_max_age_ms: None,
+                kafka_replay_envelope_compression: EnvelopeCompression::None,
             },
             otel_url: None,
             otel_sampling_rate: 0.0,
