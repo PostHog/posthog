@@ -21,7 +21,7 @@ export function SummarizerMaxChat({ scannerId, tabId }: { scannerId: string; tab
         contextDescription: scanner
             ? { text: scanner.name || 'Summarizer scanner', icon: iconForType('session_replay') }
             : undefined,
-        initialMaxPrompt: 'Summarize the session summaries from this scanner',
+        initialMaxPrompt: 'Find the common themes and patterns across these session summaries',
     })
 
     if (!openMax) {
