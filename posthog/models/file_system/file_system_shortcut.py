@@ -22,6 +22,8 @@ class FileSystemShortcut(models.Model):
     href = models.TextField(null=True, blank=True)
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+    # Product surface this shortcut belongs to (e.g. "web", "desktop"). NULL == DEFAULT_SURFACE.
+    surface = models.CharField(max_length=100, null=True, blank=True)
 
     class Meta:
         indexes = [

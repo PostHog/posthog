@@ -25,7 +25,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -273,9 +273,9 @@ async def get_query_row_count(
         limit_top_select=False,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async_pool(Database.create_for)(team=team, modifiers=context.modifiers)
 
-    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -287,7 +287,7 @@ async def get_query_row_count(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async(print_prepared_ast)(
+    printed = await database_sync_to_async_pool(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
@@ -331,10 +331,10 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async_pool(Database.create_for)(team=team, modifiers=context.modifiers)
 
     factory = bounded_resolver_factory_for_view(view_name)
-    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -345,7 +345,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async(print_prepared_ast)(
+    printed = await database_sync_to_async_pool(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
@@ -413,7 +413,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     context.output_format = "ArrowStream"
     settings.preferred_block_size_bytes = MB_100_IN_BYTES
 
-    arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -425,7 +425,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     if arrow_prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    arrow_printed = await database_sync_to_async(print_prepared_ast)(
+    arrow_printed = await database_sync_to_async_pool(print_prepared_ast)(
         arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
@@ -467,7 +467,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
             yield (empty_batch, ch_typings_pairs)
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_matview_input_objects(
     inputs: MaterializeViewInputs,
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
@@ -521,11 +521,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             rows_expected = await get_query_row_count(hogql_query, team, logger, view_name=saved_query.name)
             await logger.ainfo(f"Expected rows: {rows_expected}")
             job.rows_expected = rows_expected
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
         except Exception as e:
             await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
             job.rows_expected = None
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
 
         row_count = 0
         storage_options = _get_aws_storage_options()
@@ -567,7 +567,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 )
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
 
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
         # row count validation warning

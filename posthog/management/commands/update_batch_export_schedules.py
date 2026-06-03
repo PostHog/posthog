@@ -5,8 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
-from posthog.models import BatchExport
-
+from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import sync_batch_export
 
 logger = structlog.get_logger(__name__)

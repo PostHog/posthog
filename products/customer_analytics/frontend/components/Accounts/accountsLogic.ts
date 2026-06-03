@@ -14,11 +14,12 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
+import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 
-export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
+export const SEARCH_DEBOUNCE_MS = 300
 
 interface SortLikeValues {
     sortOrder: AccountSortOrder
@@ -81,10 +82,18 @@ export const savingRoleKey = (accountId: string, role: AccountRoleKey): string =
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], accountsColumnConfigLogic, ['selectColumns', 'visibleColumnNames']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            accountsColumnConfigLogic,
+            ['selectColumns', 'visibleColumnNames'],
+            accountsOverviewTilesLogic,
+            ['metrics as overviewMetrics', 'tileFilter'],
+        ],
         actions: [accountsColumnConfigLogic, ['setSelectColumns', 'unselectColumn', 'resetColumns']],
     })),
     actions({
+        setSearchInput: (query: string) => ({ query }),
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
@@ -104,6 +113,13 @@ export const accountsLogic = kea<accountsLogicType>([
         replaceAccount: (account: AccountApi) => ({ account }),
     }),
     reducers({
+        searchInput: [
+            '',
+            {
+                setSearchInput: (_, { query }) => query,
+                setSearchQuery: (_, { query }) => query,
+            },
+        ],
         searchQuery: [
             '',
             {
@@ -182,6 +198,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
+                s.tileFilter,
+                s.overviewMetrics,
                 s.sortOrder,
                 s.selectColumns,
             ],
@@ -192,6 +210,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
+                tileFilter: TileFilter | null,
+                overviewMetrics: string[],
                 sortOrder: AccountSortOrder,
                 selectColumns: string[]
             ): DataTableNode => {
@@ -199,6 +219,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     kind: NodeKind.AccountsQuery,
                     select: selectColumns,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
+                }
+                if (overviewMetrics.length > 0) {
+                    source.metrics = overviewMetrics
                 }
                 const trimmed = searchQuery.trim()
                 if (trimmed) {
@@ -219,6 +242,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (accountOwnerFilter !== null) {
                     source.accountOwner = accountOwnerFilter
                 }
+                if (tileFilter) {
+                    source.filterExpression = tileFilter.expression
+                }
                 if (sortOrder) {
                     const expr = deriveAccountsOrderByExpr(sortOrder.column)
                     source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
@@ -237,6 +263,10 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setSearchInput: async ({ query }, breakpoint) => {
+            await breakpoint(SEARCH_DEBOUNCE_MS)
+            actions.setSearchQuery(query)
+        },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
                 if (values.csmFilter !== null) {
