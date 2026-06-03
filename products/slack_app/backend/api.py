@@ -18,12 +18,12 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
-    GitHubIntegration,
     Integration,
     SlackIntegration,
     SlackIntegrationError,
@@ -32,6 +32,7 @@ from posthog.models.integration import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.posthog_code_slack_interactivity import (
     PostHogCodeSlackInteractivityInputs,
     PostHogCodeSlackTerminateTaskWorkflow,
@@ -90,12 +91,12 @@ REPO_LIST_CACHE_TTL_SECONDS = 300
 PENDING_REPO_PICKER_TTL_SECONDS = PICKER_TOKEN_MAX_AGE_SECONDS
 
 
-def _repo_list_cache_key(team_id: int) -> str:
-    return f"posthog_code:repo_list:v1:{team_id}"
+def _user_repo_list_cache_key(user_id: int) -> str:
+    return f"posthog_code:user_repo_list:v1:{user_id}"
 
 
-def _invalidate_repo_list_cache(team_id: int) -> None:
-    cache.delete(_repo_list_cache_key(team_id))
+def _invalidate_user_repo_list_cache(user_id: int) -> None:
+    cache.delete(_user_repo_list_cache_key(user_id))
 
 
 def _pending_repo_picker_cache_key(integration_id: int, channel: str, thread_ts: str, slack_user_id: str) -> str:
@@ -109,6 +110,7 @@ def _set_pending_repo_picker(
     channel: str,
     thread_ts: str,
     slack_user_id: str,
+    user_id: int,
     workflow_id: str,
     context_token: str,
     message_ts: str | None,
@@ -119,6 +121,7 @@ def _set_pending_repo_picker(
             "workflow_id": workflow_id,
             "context_token": context_token,
             "message_ts": message_ts,
+            "mentioning_user_id": user_id,
         },
         timeout=PENDING_REPO_PICKER_TTL_SECONDS,
     )
@@ -511,7 +514,9 @@ def resolve_slack_user(
 #  - hit US, local match           -> handle locally
 #  - hit US, no local match        -> proxy to EU (loop header set)
 #  - hit EU, US says "I have it"   -> proxy to US (loop header set)
-#  - hit EU, US says "no" / errs   -> handle locally if found, else drop
+#  - hit EU, US says "no"          -> handle locally if found, else drop
+#  - hit EU, probe errs / unknown  -> assume US claims and proxy (optimistic); US drops if it
+#                                     also has nothing, which is the same outcome as before
 #  - hit either with loop header   -> never proxy again; handle locally or drop
 #
 # This keeps the slack manifest endpoint swappable between us.posthog.com and eu.posthog.com
@@ -520,8 +525,12 @@ REGION_PROXY_HEADER = "X-PostHog-Region-Proxied"
 REGION_PROXY_TIMEOUT_SECONDS = 3
 # Tight budget: the workspace_claims endpoint is just a DB .exists(), and EU calls it inline
 # before deciding whether to proxy. Slack's webhook ack deadline is 3s total, so we want this
-# call to fail fast (and fall back to local handling) rather than eat into the proxy budget.
+# call to fail fast (and fall back to optimistic proxy) rather than eat into the proxy budget.
 WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
+# Cache definitive (True/False) claim answers per workspace so a single probe flake does not
+# re-flap routing for every subsequent event. Short TTL keeps us responsive when an integration
+# moves between regions; None answers are never cached.
+WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
 
 
 def _us_region_domain() -> str:
@@ -598,13 +607,28 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
 
 
+def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
+    kinds_token = ",".join(sorted(kinds))
+    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
+
+
 def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
 
     Returns True/False on a definitive answer, or None on transport failure or bad response.
-    Callers must treat None as "unknown" — typically by falling back to local handling so the
-    event is not silently dropped.
+    Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
+    flake does not reroute the next event. None is never cached so the next event re-probes.
     """
+    cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
+    cached = cache.get(cache_key)
+    if isinstance(cached, bool):
+        logger.info(
+            "slack_app_workspace_claims_cache_hit",
+            slack_team_id=slack_team_id,
+            claimed=cached,
+        )
+        return cached
+
     target_domain = _other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
@@ -647,6 +671,8 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     if not isinstance(claimed, bool):
         logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
         return None
+
+    cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
     return claimed
 
 
@@ -763,6 +789,7 @@ def _post_repo_picker_message(
     channel: str,
     thread_ts: str,
     slack_user_id: str,
+    user_id: int,
     event_text: str,
     user_message_ts: str | None,
     guidance: str,
@@ -776,6 +803,7 @@ def _post_repo_picker_message(
         "thread_ts": thread_ts,
         "user_message_ts": user_message_ts,
         "mentioning_slack_user_id": slack_user_id,
+        "mentioning_user_id": user_id,
         "event_text": event_text,
         "created_at": int(time.time()),
         "workflow_id": workflow_id,
@@ -833,6 +861,7 @@ def _post_repo_picker_message(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
+            user_id=user_id,
             workflow_id=workflow_id,
             context_token=context_token,
             message_ts=message_ts,
@@ -842,9 +871,9 @@ def _post_repo_picker_message(
     # is served from cache rather than hitting the GitHub API inline.
     # Non-fatal: the dropdown will still work, it will just fetch on demand.
     try:
-        _get_full_repo_names(integration)
+        _get_full_repo_names(integration, user_id=user_id)
     except Exception:
-        logger.warning("repo_list_prewarm_failed", team_id=integration.team_id, exc_info=True)
+        logger.warning("repo_list_prewarm_failed", user_id=user_id, exc_info=True)
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
@@ -945,7 +974,9 @@ def _collect_thread_messages(
     slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
 ) -> list[dict[str, str]]:
     """Fetch thread messages, strip bot mentions, and resolve user display names."""
-    thread_response = slack.client.conversations_replies(channel=channel, ts=thread_ts)
+    client = slack.client
+    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
+    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
     raw_messages: list[dict] = thread_response.get("messages", [])
 
     user_cache: dict[str, str] = {}
@@ -992,28 +1023,40 @@ def _collect_thread_messages(
     return messages
 
 
-def _get_full_repo_names(integration: Integration) -> list[str]:
-    """Return canonical org/repo names across all GitHub integrations for the team, or [] if unavailable."""
-    cache_key = _repo_list_cache_key(integration.team_id)
+def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
+    """Return canonical org/repo names from the mentioning user's GitHub install, or [] if unavailable.
+
+    Repos are scoped to the user's personal GitHub integration so the picker matches the
+    identity that will author the resulting pull request. Users without a personal install
+    see an empty list; the downstream personal-GitHub gate posts the connect-GitHub prompt.
+    A `None` user_id (e.g. a workflow replay predating per-user scoping) also returns [].
+    """
+    if user_id is None:
+        return []
+    cache_key = _user_repo_list_cache_key(user_id)
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
-    github_records = Integration.objects.filter(team=integration.team, kind="github")
-    if not github_records.exists():
+    user_records = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    )
+    if not user_records.exists():
         cache.set(cache_key, [], timeout=REPO_LIST_CACHE_TTL_SECONDS)
         return []
 
     all_repos: set[str] = set()
 
-    for record in github_records:
-        github = GitHubIntegration(record)
+    for record in user_records:
+        github = UserGitHubIntegration(record)
         repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
             if len(all_repos) >= _MAX_GITHUB_REPOS:
                 logger.warning(
                     "github_repo_list_capped",
+                    user_id=user_id,
                     team_id=integration.team_id,
                     cap=_MAX_GITHUB_REPOS,
                 )
@@ -1122,8 +1165,14 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
         )
         return False
 
+    mentioning_user_id = pending_picker.get("mentioning_user_id")
+    if not isinstance(mentioning_user_id, int):
+        # Without a known PostHog user we can't scope the picker to a personal install;
+        # let the message fall through to the standard flow, which will re-resolve and re-post.
+        return False
+
     try:
-        all_repos = _get_full_repo_names(integration)
+        all_repos = _get_full_repo_names(integration, user_id=mentioning_user_id)
     except Exception:
         logger.exception("posthog_code_pending_picker_repo_fetch_failed", integration_id=integration.id)
         return False
@@ -1519,19 +1568,25 @@ def route_posthog_code_event_to_relevant_region(
 def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str) -> bool:
     """US-precedence guard. EU yields to US when both claim a workspace.
 
-    Skipped when we're already US (we win), when we were proxied to (the other region already
-    deferred), or when the lookup transport fails (None) — in that last case the caller should
-    prefer handling locally over dropping.
+    Skipped when we're already US (we win) or when we were proxied to (the other region already
+    deferred). When the probe transport itself fails (None), bias toward proxying to US: during
+    a region cutover both regions hold a row for the same workspace and US is the rightful owner,
+    so a single probe flake should not pin the event to EU. If US in fact has no row, it sees the
+    proxied event with the loop header set and drops it — the same outcome the caller would have
+    reached by handling locally.
     """
     if not can_defer:
         return False
     claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    decision = True if claimed is None else claimed
     logger.info(
         "posthog_code_route_us_probe_result",
         slack_team_id=slack_team_id,
         claimed=claimed,
+        decision=decision,
+        optimistic_proxy=claimed is None,
     )
-    return bool(claimed)
+    return decision
 
 
 def _route_to_other_region_or_drop(
@@ -1813,8 +1868,15 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
+    mentioning_user_id = ctx.get("mentioning_user_id") if ctx else None
+    if not isinstance(mentioning_user_id, int):
+        # Without a known PostHog user we can't scope the options to a personal install;
+        # return empty rather than falling back to the team install — the user can re-mention.
+        logger.info("posthog_code_repo_picker_options_missing_user_id", context_token=context_token)
+        return JsonResponse({"options": []})
+
     try:
-        all_repos = _get_full_repo_names(integration)
+        all_repos = _get_full_repo_names(integration, user_id=mentioning_user_id)
     except Exception:
         logger.exception("twig_repo_picker_options_repo_fetch_error", integration_id=integration.id)
         return JsonResponse({"options": []})

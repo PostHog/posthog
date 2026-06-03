@@ -10,7 +10,7 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
+import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
     useXTickFormatter,
     useYTickFormatter,
@@ -101,6 +101,11 @@ export function TimeSeriesBarChart<Meta = unknown>({
         [referenceLines, axisOrientation]
     )
 
+    // Extend the value axis to cover goal lines that sit above (or below) the data, so a goal
+    // line off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
+    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
+    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
+
     const barChartConfig: BarChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
@@ -114,7 +119,11 @@ export function TimeSeriesBarChart<Meta = unknown>({
         axisOrientation,
         showCrosshair,
         tooltip: tooltipConfig,
-        bars: { cornerRadius: barCornerRadius, divergingStack },
+        bars: {
+            cornerRadius: barCornerRadius,
+            divergingStack,
+            valueDomain,
+        },
     }
 
     return (
