@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.7.16
+
+- feat: add `--dry-run` flag (and `POSTHOG_CLI_DRY_RUN` env var) to skip artifact uploads (sourcemap, dSYM, Hermes, ProGuard) without contacting PostHog or requiring credentials — for CI gates that bundle to catch regressions but must not upload.
+
 # 0.7.15
 
 - fix: make symbol upload retry logs clearer and report failed finalization explicitly.

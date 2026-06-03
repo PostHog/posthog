@@ -16,7 +16,9 @@ from products.dashboards.backend.widgets.config import (
     resolve_filter_test_accounts,
     validate_widget_date_range,
 )
+from products.error_tracking.backend.api.query import is_error_tracking_query_v3_enabled, query_v3_volume_resolution
 from products.error_tracking.backend.api.query_utils import (
+    ERROR_TRACKING_LISTING_VOLUME_RESOLUTION,
     LIST_ISSUE_FIELDS,
     build_date_range,
     get_page_info,
@@ -64,6 +66,8 @@ def run_error_tracking_list_widget(team: Team, config: dict[str, Any], user: Use
     limit = cast(int, config["limit"])
     offset = 0
     date_range_raw = config.get("dateRange")
+    use_query_v3 = is_error_tracking_query_v3_enabled(user, team) if user is not None else False
+    volume_resolution = ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
     query = ErrorTrackingQuery(
         kind="ErrorTrackingQuery",
         dateRange=DateRange(**build_date_range(date_range_raw)),
@@ -73,7 +77,8 @@ def run_error_tracking_list_widget(team: Team, config: dict[str, Any], user: Use
         orderDirection=cast(str, config.get("orderDirection", "DESC")),
         limit=limit,
         offset=offset,
-        volumeResolution=0,
+        volumeResolution=query_v3_volume_resolution(volume_resolution) if use_query_v3 else volume_resolution,
+        useQueryV3=use_query_v3 or None,
         withAggregations=True,
         withFirstEvent=False,
         withLastEvent=False,
