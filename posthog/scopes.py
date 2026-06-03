@@ -245,32 +245,44 @@ OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
 
 
-def scopes_within_ceiling(requested: Iterable[str], app_scopes: Iterable[str]) -> bool:
+def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
+    """The scope set a request resolves against: the explicit `app_scopes` ceiling,
+    or the broad `UNPRIVILEGED_SCOPES` default when the app has none."""
+    app = frozenset(app_scopes or [])
+    return app if app else UNPRIVILEGED_SCOPES
+
+
+def scopes_within_ceiling(
+    requested: Iterable[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> bool:
     """Whether every requested scope is grantable under an app's scope ceiling.
 
-    Mirrors the issuance-time resolution in `OAuthValidator.validate_scopes`
-    (`posthog/api/oauth/views.py`) so hand-rolled token mints (e.g. agentic
-    provisioning's direct-mint and consent paths) enforce the same ceiling as
-    `/authorize`, with one deliberate exception (the `*` note below):
+    The single source of truth for ceiling resolution: `/authorize`
+    (`OAuthValidator.validate_scopes`) and the hand-rolled agentic-provisioning
+    mint paths both call this so they enforce identical rules.
 
-    - OIDC + introspection are always allowed.
-    - An explicit `app_scopes` ceiling rejects anything outside it, including `*`.
-    - Empty `app_scopes` (no per-app cap) falls back to `UNPRIVILEGED_SCOPES`.
-      `*` is rejected even here: the provisioning mint paths this guards never
-      granted wildcard, so an unseeded (empty) ceiling must not silently become
-      one. (`/authorize` still grandfathers `*` under an empty ceiling for legacy
-      wildcard clients; provisioning has no such clients.)
+    - OIDC + introspection (`ALWAYS_ALLOWED_SCOPES`) are always granted.
+    - An explicit `app_scopes` ceiling is an exhaustive allow-list: anything
+      outside it is rejected, including `*`.
+    - An empty `app_scopes` falls back to the broad `UNPRIVILEGED_SCOPES` default.
+
+    `allow_wildcard_under_empty_ceiling` is the only resolution difference between
+    the callers: `/authorize` passes `True` to grandfather legacy `*` clients (the
+    PostHog Code CLI) until wildcard retirement; provisioning leaves it `False`
+    (the default) since it never granted wildcard, so an unseeded ceiling must not
+    silently become one.
     """
-    app = list(app_scopes or [])
-    has_ceiling = bool(app)
-    effective = frozenset(app) if has_ceiling else UNPRIVILEGED_SCOPES
-
+    app = frozenset(app_scopes or [])
     to_check = set(requested) - ALWAYS_ALLOWED_SCOPES
     if not to_check:
         return True
-    if has_ceiling:
-        return "*" not in to_check and to_check.issubset(effective)
-    return to_check.issubset(UNPRIVILEGED_SCOPES)
+    if app:
+        return "*" not in to_check and to_check.issubset(app)
+    allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
+    return to_check.issubset(allowed)
 
 
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:

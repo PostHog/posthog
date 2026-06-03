@@ -18,6 +18,7 @@ from posthog.scopes import (
     PRIVILEGED_SCOPES,
     UNPRIVILEGED_SCOPES,
     downgrade_scopes_to_read_only,
+    effective_ceiling,
     get_oauth_scopes_supported,
     get_scope_descriptions,
     narrow_scopes_to_ceiling,
@@ -258,6 +259,16 @@ class TestScopesWithinCeiling(SimpleTestCase):
         self, _name: str, requested: list[str], app_scopes: list[str]
     ) -> None:
         assert scopes_within_ceiling(requested, app_scopes) is True
+
+    def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
+        # The one resolution difference between callers: /authorize grandfathers `*`
+        # under an empty ceiling, provisioning (default) does not.
+        assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=True) is True
+        assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=False) is False
+
+    def test_effective_ceiling(self) -> None:
+        assert effective_ceiling([]) == UNPRIVILEGED_SCOPES
+        assert effective_ceiling(["query:read", "insight:read"]) == frozenset({"query:read", "insight:read"})
 
 
 class TestNarrowScopesToCeiling(SimpleTestCase):
