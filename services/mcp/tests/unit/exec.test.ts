@@ -538,7 +538,7 @@ describe('exec tool', () => {
         it('suggests system.notebooks when notebooks-list is called', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call notebooks-list {}' })).rejects.toThrow(
-                /deprecated[\s\S]*execute-sql[\s\S]*system\.notebooks[\s\S]*notebooks-retrieve/
+                /removed[\s\S]*execute-sql[\s\S]*system\.notebooks[\s\S]*notebooks-retrieve/
             )
         })
     })
