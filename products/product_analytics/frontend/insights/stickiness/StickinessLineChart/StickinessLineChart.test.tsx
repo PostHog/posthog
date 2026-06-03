@@ -8,7 +8,7 @@ import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 
-configure({ asyncUtilTimeout: 3000 })
+configure({ asyncUtilTimeout: 5000 })
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void

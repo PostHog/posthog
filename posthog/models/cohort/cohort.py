@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
@@ -233,6 +234,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 condition=models.Q(kind__isnull=False, deleted=False),
                 name="unique_cohort_kind_per_team",
             ),
+        ]
+        indexes = [
+            # Backs the default list ordering (filter by team, order by -created_at).
+            models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
+            # Backs `name__icontains` search (the cohort picker's server-side search).
+            GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self):

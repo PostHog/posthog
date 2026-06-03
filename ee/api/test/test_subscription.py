@@ -141,7 +141,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        assert "Either dashboard or insight is required" in str(response.json())
+        assert "must have an insight, a dashboard, or a prompt" in str(response.json())
 
     def test_can_update_subscription_without_resending_relation(self):
         sub_id = self._create_subscription().json()["id"]
