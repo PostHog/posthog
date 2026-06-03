@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.tests.test_views import (
 
 # All query modules run through this helper; patch it to test row mapping without a warehouse.
 _RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.run_query"
+_PR_LIST = "products.engineering_analytics.backend.logic.queries.pull_request_list"
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.logic"
 
@@ -192,10 +193,11 @@ class TestEndpointMapping(BaseTest):
             0,
         )
         with mock.patch(_RUN_QUERY, return_value=_resp([row])):
-            items = build_pull_request_list(team=self.team, date_from="-30d")
+            result = build_pull_request_list(team=self.team, date_from="-30d")
 
-        assert len(items) == 1
-        item = items[0]
+        assert result.truncated is False
+        assert len(result.items) == 1
+        item = result.items[0]
         assert item.number == 10
         assert item.author.handle == "alice" and item.author.is_bot is False
         assert item.repo.owner == "PostHog" and item.repo.name == "posthog"
@@ -203,6 +205,35 @@ class TestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+
+    def test_pull_request_list_flags_truncation(self) -> None:
+        # Cap patched low; return more rows than the cap to exercise the N+1 overflow
+        # detection — the list reports truncated instead of silently dropping the tail.
+        row = (
+            10,
+            "PR 10",
+            "PostHog",
+            "posthog",
+            "alice",
+            "https://avatars/alice",
+            False,
+            "open",
+            False,
+            _dt("2026-01-10T09:00:00"),
+            None,
+            None,
+            ["bug"],
+            0,
+            0,
+            0,
+            0,
+        )
+        with mock.patch(f"{_PR_LIST}._LIMIT", 2), mock.patch(_RUN_QUERY, return_value=_resp([row, row, row])):
+            result = build_pull_request_list(team=self.team, date_from="-30d")
+
+        assert result.truncated is True
+        assert result.limit == 2
+        assert len(result.items) == 2
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         rows = [
@@ -219,12 +250,21 @@ class TestEndpointMapping(BaseTest):
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
 
-    def test_run_query_translates_unknown_table_to_source_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("github_pull_requests", GitHubSourceNotConnectedError),
+            ("github_workflow_runs", GitHubSourceNotConnectedError),
+            # An unrelated missing table is a real bug, not "no GitHub source" — it must
+            # surface as the original QueryError rather than masquerade as a 4xx.
+            ("some_typo", QueryError),
+        ]
+    )
+    def test_unknown_table_only_translates_for_source_tables(self, table: str, expected: type[Exception]) -> None:
         with mock.patch(
             "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query",
-            side_effect=QueryError("Unknown table `github_pull_requests`."),
+            side_effect=QueryError(f"Unknown table `{table}`."),
         ):
-            with self.assertRaises(GitHubSourceNotConnectedError):
+            with self.assertRaises(expected):
                 _curated.run_query("SELECT 1", team=self.team, query_type="engineering_analytics.test")
 
     def test_build_propagates_source_error(self) -> None:
@@ -311,8 +351,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
 
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()
-        items = api.list_pull_requests(team=self.team)
-        by_number = {item.number: item for item in items}
+        result = api.list_pull_requests(team=self.team)
+        assert result.truncated is False
+        by_number = {item.number: item for item in result.items}
         assert set(by_number) == {10, 11, 12, 13, 14}  # 15 merged before the window
         assert by_number[10].ci.failing == 1
         assert by_number[11].ci.passing == 1

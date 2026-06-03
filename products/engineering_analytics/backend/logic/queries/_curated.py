@@ -23,6 +23,10 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 
+# The curated builders are the only place a warehouse table is named; reuse their
+# constants so "which tables mean a GitHub source is connected" is defined once.
+_SOURCE_TABLES = (pull_requests.SOURCE_TABLE, workflow_runs.SOURCE_TABLE)
+
 
 def pr_source() -> str:
     """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
@@ -74,9 +78,9 @@ def run_query(
     """Parse + execute a curated HogQL query.
 
     Raises ``GitHubSourceNotConnectedError`` when the team has no GitHub warehouse
-    source: the curated subqueries reference ``github_*`` tables that aren't in the
-    catalog, so the resolver raises ``Unknown table``. The presentation layer turns
-    that into a clear 4xx. Any other query error is a real bug and propagates.
+    source: the curated subqueries reference the ``github_*`` tables, which aren't in
+    the catalog, so the resolver raises ``Unknown table``. The presentation layer
+    turns that into a clear 4xx. Any other query error is a real bug and propagates.
     """
     try:
         return execute_hogql_query(
@@ -85,6 +89,11 @@ def run_query(
             query_type=query_type,
         )
     except QueryError as err:
-        if "Unknown table" in str(err):
+        message = str(err)
+        # HogQL raises ``Unknown table `<name>`.`` for any table missing from the
+        # catalog. Only the absence of OUR source tables means "no GitHub source";
+        # any other unknown table is a real bug (e.g. a typo in a curated builder)
+        # and must surface unchanged rather than masquerade as a missing-source 4xx.
+        if any(f"Unknown table `{table}`" in message for table in _SOURCE_TABLES):
             raise GitHubSourceNotConnectedError() from err
         raise
