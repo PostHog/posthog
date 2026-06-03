@@ -18,7 +18,6 @@ Product = Literal[
     "llma_eval_summary",
     "slack-twig",
     "customer_archetype_classification",
-    "slack-posthog-code",
     "product_analytics",
     "subscriptions",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
