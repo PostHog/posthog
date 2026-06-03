@@ -3,6 +3,8 @@ import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
+from django.core.cache import cache
+
 import orjson
 import pyarrow as pa
 import requests
@@ -173,6 +175,41 @@ def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> li
     return public + private
 
 
+_CHANNELS_CACHE_TTL_SECONDS = 300
+
+
+def _channels_cache_key(integration_id: int) -> str:
+    # Keyed on the Integration row PK (unique per PostHog team × Slack workspace), matching
+    # the convention used by the HogFunctions Slack channel-list cache in posthog.api.integration.
+    return f"@dwh/slack/{integration_id}/channels"
+
+
+def _fetch_all_channels_cached(
+    integration_id: int,
+    access_token: str,
+    authed_user: str | None = None,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """Cached wrapper around `_fetch_all_channels`.
+
+    Slack's `conversations.list` is Tier 2 (~20 req/min). Workspaces with thousands of
+    channels exhaust that budget in a single discovery pass, so callers that don't
+    strictly need fresh data should go through this wrapper. Callers that need fresh
+    data (e.g. the user-triggered `refresh_schemas` action) should pass
+    ``force_refresh=True`` — the upstream call still happens, but the previous value
+    stays in cache until the new one is written, so concurrent readers don't pile up
+    on a missing key.
+    """
+    cache_key = _channels_cache_key(integration_id)
+    if not force_refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+    channels = _fetch_all_channels(access_token, authed_user)
+    cache.set(cache_key, channels, _CHANNELS_CACHE_TTL_SECONDS)
+    return channels
+
+
 def _fetch_messages_page(
     access_token: str,
     channel_id: str,
@@ -250,9 +287,17 @@ def _fetch_thread_replies(
         has_more = cursor is not None
 
 
-def get_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, str]]:
+def get_channels(
+    integration_id: int,
+    access_token: str,
+    authed_user: str | None = None,
+    force_refresh: bool = False,
+) -> list[dict[str, str]]:
     """Return channel id + name pairs for all accessible channels."""
-    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels(access_token, authed_user)]
+    return [
+        {"id": ch["id"], "name": ch["name"]}
+        for ch in _fetch_all_channels_cached(integration_id, access_token, authed_user, force_refresh=force_refresh)
+    ]
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
@@ -337,6 +382,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
 
 def slack_source(
     access_token: str,
+    integration_id: int,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -356,7 +402,7 @@ def slack_source(
         # public+private types are mixed, so we walk public and private separately and
         # scope private channels to the installer (matches get_schemas behavior).
         endpoint_config = ENDPOINTS[endpoint]
-        items = lambda: iter(_fetch_all_channels(access_token, authed_user))
+        items = lambda: iter(_fetch_all_channels_cached(integration_id, access_token, authed_user))
     elif endpoint in ENDPOINTS:
         # $users — served via the generic REST framework
         endpoint_config = ENDPOINTS[endpoint]
@@ -375,32 +421,27 @@ def slack_source(
         resource = rest_api_resource(config, team_id, job_id, None)
         items = lambda: resource
     else:
-        # Per-channel message endpoint
+        # Per-channel message endpoint.
+        #
+        # Slack channel tables are webhook-only: we deliberately skip the historical
+        # `conversations.history` / `conversations.replies` backfill. That backfill makes one
+        # `conversations.replies` request per threaded message, which fans out into tens of
+        # thousands of rate-limited requests on workspaces with many channels and threads.
+        # Passing `skip_initial_sync_complete_check=True` activates webhook mode from the very
+        # first sync (the same pattern the Customer.io webhook tables use). Until the webhook is
+        # configured and delivering events, the table stays empty rather than backfilling history.
         endpoint_config = messages_endpoint_config()
         sort_mode = "desc"
 
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
 
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
-
-        oldest_ts: str | None = None
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            # Known limitation: incremental polling only fetches thread replies for parent messages
-            # returned by conversations.history in this window. Replies added to older parent threads
-            # (parent ts < oldest_ts) are intentionally not captured here and are expected to be
-            # addressed by webhook sources.
-            oldest_ts = str(db_incremental_field_last_value.timestamp())
-
-        resolved_id = channel_id
-        resolved_oldest_ts = oldest_ts
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
 
         def channel_items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
                 return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
-            return _channel_messages_generator(
-                access_token, resolved_id, resumable_source_manager, oldest_ts=resolved_oldest_ts
-            )
+            return iter([])
 
         items = channel_items
 

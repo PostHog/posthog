@@ -7,6 +7,7 @@ import posthoganalytics
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.tasks.usage_report import (
     AI_BILLING_EXCLUDED_TOOLS,
     AI_COST_MARKUP_PERCENT,
@@ -15,7 +16,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.utils import get_instance_region
 
-from ee.models.assistant import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 # Default free tier limit in credits
 DEFAULT_FREE_TIER_CREDITS = 2000
@@ -28,6 +29,24 @@ DEFAULT_GA_LAUNCH_DATE = datetime(2025, 11, 17, tzinfo=UTC)
 CH_BILLING_SETTINGS = {
     "max_execution_time": 60,  # 1 minute
 }
+
+# Name of the group type whose value is the customer cloud URL (e.g. https://eu.posthog.com).
+# Sent via `event_usage.groups(...)` when capturing $ai_trace / $ai_generation events.
+INSTANCE_GROUP_TYPE = "instance"
+
+
+def _get_instance_group_type_index(team_id: int) -> int | None:
+    """Resolve the $group_N index that holds the cloud URL for the given internal AI events team.
+
+    group_type_index is assigned in the order group types were registered per project,
+    so the same `instance` group lives at different indexes between the EU (team 1)
+    and US (team 2) internal projects.
+    """
+    for mapping in get_group_types_for_team(team_id):
+        if mapping.get("group_type") == INSTANCE_GROUP_TYPE:
+            index = mapping.get("group_type_index")
+            return int(index) if index is not None else None
+    return None
 
 
 def _get_billing_config_payload() -> dict | None:
@@ -132,9 +151,16 @@ def get_ai_credits(
     region_value = region if region in CLOUD_REGION_TO_TEAM_ID else "EU"
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region_value]
 
-    # Only filter by region in production (EU/US) - local dev events don't have region set
+    # Only filter by region in production (EU/US) - local dev events don't have region set.
+    # The $group_N index for the `instance` group differs across internal projects,
+    # so resolve it from the destination team rather than hard-coding $group_1.
     is_production = region in ["EU", "US"]
-    region_filter = "AND JSONExtractString(properties, '$group_1') = %(region_url)s" if is_production else ""
+    instance_group_index = _get_instance_group_type_index(team_to_query) if is_production else None
+    region_filter = (
+        f"AND JSONExtractString(properties, '$group_{instance_group_index}') = %(region_url)s"
+        if instance_group_index is not None
+        else ""
+    )
 
     # Session filter expression for PREWHERE (must NOT use alias)
     session_filter_prewhere = (
@@ -253,7 +279,7 @@ def get_ai_credits(
             "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
         }
 
-        if is_production:
+        if instance_group_index is not None:
             params["region_url"] = CLOUD_REGION_TO_URL[region_value]
 
         if conversation_id:

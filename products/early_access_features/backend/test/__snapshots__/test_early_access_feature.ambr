@@ -12,9 +12,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -89,6 +92,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -207,9 +212,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -265,9 +273,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -287,9 +298,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -312,6 +326,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
@@ -326,6 +341,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -335,8 +351,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.9
@@ -360,9 +376,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -418,9 +437,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -443,6 +465,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
@@ -457,6 +480,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -466,8 +490,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.5
@@ -527,6 +551,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -664,6 +690,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -725,9 +753,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -783,9 +814,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -808,6 +842,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
@@ -822,6 +857,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -831,8 +867,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.6
@@ -896,9 +932,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -954,9 +993,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -979,6 +1021,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
@@ -993,6 +1036,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1002,8 +1046,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.5

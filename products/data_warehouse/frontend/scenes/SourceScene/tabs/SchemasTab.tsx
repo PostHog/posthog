@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
@@ -226,6 +226,7 @@ function ManagedSchemaTable({
     showMetrics,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
+    const { setSelectedSchemas } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -271,8 +272,22 @@ function ManagedSchemaTable({
                         if (!schema.status) {
                             return <span className="text-muted">—</span>
                         }
+                        const openSyncsForSchema = (): void => {
+                            setSelectedSchemas([schema.name])
+                            router.actions.push(
+                                combineUrl(urls.dataWarehouseSource(prefixedSourceId, 'syncs'), {
+                                    schema: schema.name,
+                                }).url
+                            )
+                        }
                         const tagContent = (
-                            <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                            <LemonTag
+                                type={StatusTagSetting[schema.status] || 'default'}
+                                forceClickable
+                                onClick={openSyncsForSchema}
+                            >
+                                {schema.status}
+                            </LemonTag>
                         )
                         return schema.latest_error && schema.status === 'Failed' ? (
                             <Tooltip title={schema.latest_error} interactive>
@@ -365,11 +380,21 @@ function ManagedSchemaTable({
                         return (
                             <SourceEditorAction source={source}>
                                 <LemonSwitch
-                                    disabledReason={
-                                        schema.sync_type === null ? 'Set up the sync method first' : undefined
-                                    }
                                     checked={schema.should_sync}
                                     onChange={(active) => {
+                                        if (active && !schema.sync_type) {
+                                            // No sync method saved yet — send the user to set one up
+                                            // before the schema can be enabled.
+                                            router.actions.push(
+                                                urls.dataWarehouseSourceSchema(
+                                                    prefixedSourceId,
+                                                    schema.id,
+                                                    'configuration',
+                                                    'sync-method'
+                                                )
+                                            )
+                                            return
+                                        }
                                         if (!active && schema.sync_type === 'cdc') {
                                             LemonDialog.open({
                                                 title: 'Disable CDC table?',

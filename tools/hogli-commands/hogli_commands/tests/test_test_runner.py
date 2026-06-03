@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import click
+from click.testing import CliRunner
+from hogli.cli import cli
 from hogli_commands.test_runner import (
     _batch_find_rs_cfg_test,
     _detect_all,
@@ -20,6 +22,8 @@ from hogli_commands.test_runner import (
     detect_test_type,
 )
 from parameterized import parameterized
+
+runner = CliRunner()
 
 
 class TestDetectTestType:
@@ -70,6 +74,17 @@ class TestDetectTestType:
         config = detect_test_type(file_path)
         assert config.test_type == "jest"
         assert config.command == ["pnpm", f"--filter={expected_filter}", "exec", "jest", file_path]
+
+    @parameterized.expand(
+        [
+            "products/ai_observability/frontend/utils.test.ts",
+            "products/llm_analytics/frontend/scenes/Trace.test.tsx",
+        ]
+    )
+    def test_product_frontend_jest_routes_to_frontend(self, file_path: str) -> None:
+        config = detect_test_type(file_path)
+        assert config.test_type == "jest"
+        assert config.command == ["pnpm", "--filter=@posthog/frontend", "exec", "jest", file_path]
 
     def test_jest_node_id_adds_test_name_pattern(self) -> None:
         config = detect_test_type("frontend/src/lib/utils.test.ts::some test name")
@@ -477,6 +492,30 @@ class TestRunGrouped:
         assert "frontend/src/scenes/dashboard/Dashboard.test.tsx" in frontend_cmd
         assert "frontend/src/lib/utils.test.ts" in frontend_cmd
         assert "nodejs/tests/cdp/cdp-api.test.ts" in nodejs_cmd
+
+
+class TestCliPassthrough:
+    @patch("hogli_commands.test_runner._run")
+    def test_hogli_test_passes_unknown_options_to_runner(self, mock_run: MagicMock) -> None:
+        result = runner.invoke(
+            cli,
+            [
+                "test",
+                "tools/hogli-commands/hogli_commands/tests/test_commands.py",
+                "-k",
+                "cache",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        command = mock_run.call_args[0][0]
+        assert command == [
+            "pytest",
+            "-s",
+            "tools/hogli-commands/hogli_commands/tests/test_commands.py",
+            "-k",
+            "cache",
+        ]
 
 
 def _get_repo_root():

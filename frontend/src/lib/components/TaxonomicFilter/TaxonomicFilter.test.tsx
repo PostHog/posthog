@@ -19,7 +19,9 @@ import {
     mockGetEventDefinitions,
     mockGetPropertyDefinitions,
 } from '~/test/mocks'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
 
@@ -1190,5 +1192,220 @@ describe('TaxonomicFilter', () => {
                 parseInt(deploymentIdx.split('-').pop() as string)
             )
         })
+    })
+
+    describe('excludedOperators', () => {
+        const seedRecents = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 1,
+                item: { name: 'Power Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 1,
+                    operator: PropertyOperator.In,
+                    cohort_name: 'Power Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 2,
+                item: { name: 'Trial Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                    operator: PropertyOperator.NotIn,
+                    cohort_name: 'Trial Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$browser',
+                item: { name: '$browser' },
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                },
+            })
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/cohorts/': { results: [], next: null, count: 0 },
+                    '/api/projects/:team/actions': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+            localStorage.clear()
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.clearRecentFilters()
+            seedRecents()
+        })
+
+        it.each([
+            {
+                name: 'hides cohort recents whose operator is denylisted but keeps other recents',
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+                expectInRecent: ['User in Power Users', 'Browser = Chrome'],
+                expectNotInRecent: ['User not in Trial Users'],
+            },
+            {
+                name: 'keeps every recent when no operators are denylisted',
+                excludedOperators: undefined,
+                expectInRecent: ['User in Power Users', 'User not in Trial Users', 'Browser = Chrome'],
+                expectNotInRecent: [],
+            },
+        ])('$name', async ({ excludedOperators, expectInRecent, expectNotInRecent }) => {
+            render(
+                <Provider>
+                    <TaxonomicFilter
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.EventProperties,
+                        ]}
+                        excludedOperators={excludedOperators}
+                        onChange={onChangeMock}
+                        onClose={onCloseMock}
+                    />
+                </Provider>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            const recentRowText = (): string =>
+                Array.from(document.querySelectorAll('[data-attr^="prop-filter-recent_filters-"]'))
+                    .map((el) => el.textContent ?? '')
+                    .join('||')
+
+            await waitFor(() => {
+                for (const expected of expectInRecent) {
+                    expect(recentRowText()).toContain(expected)
+                }
+            })
+
+            const allText = recentRowText()
+            for (const forbidden of expectNotInRecent) {
+                expect(allText).not.toContain(forbidden)
+            }
+        })
+    })
+
+    describe('reveal barrier and recent matches in SuggestedFilters search', () => {
+        // These tests cover the SuggestedFilters tab's two-phase reveal: matching recents
+        // surface immediately while every non-meta group renders as a skeleton, then when
+        // either every remote group resolves or the 5s timer fires the barrier opens and
+        // real results replace the skeletons.
+        const seedRecentEvent = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'onboarding_completed_recent',
+                item: { id: 'recent-onboarding', name: 'onboarding_completed_recent' },
+            })
+        }
+
+        beforeEach(() => {
+            localStorage.clear()
+            // Slow the events endpoint so the barrier-closed state survives at least one paint
+            // — the default mock resolves synchronously, which collapses the close-then-open
+            // cycle inside a single React batch, making the transient skeleton state invisible
+            // to the DOM in CI. Production latency exceeds this comfortably.
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': async (req) => {
+                        await new Promise((resolve) => setTimeout(resolve, 100))
+                        return mockGetEventDefinitions(req)
+                    },
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/actions': { results: [mockActionDefinition] },
+                    '/api/environments/:team/persons/properties': [
+                        { id: 1, name: 'location', count: 1 },
+                        { id: 2, name: 'role', count: 2 },
+                        { id: 3, name: 'height', count: 3 },
+                    ],
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.clearRecentFilters()
+            seedRecentEvent()
+        })
+
+        const renderWithSuggested = (): void => {
+            render(
+                <Provider>
+                    <TaxonomicFilter
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.SuggestedFilters,
+                            TaxonomicFilterGroupType.Events,
+                            TaxonomicFilterGroupType.Actions,
+                        ]}
+                        onChange={onChangeMock}
+                        onClose={onCloseMock}
+                    />
+                </Provider>
+            )
+        }
+
+        const findSuggestedSkeleton = (): Element | null =>
+            document.querySelector('[data-attr^="prop-skeleton-suggested_filters-"]')
+
+        it('renders a skeleton row per non-meta group while the reveal barrier is closed, then replaces them with real results', async () => {
+            renderWithSuggested()
+
+            const searchField = await screen.findByTestId('taxonomic-filter-searchfield')
+            await userEvent.type(searchField, 'event')
+
+            await waitFor(() => {
+                if (!findSuggestedSkeleton()) {
+                    throw new Error('expected at least one suggested_filters skeleton row')
+                }
+            })
+
+            const testEventRows = await screen.findAllByText('test event', undefined, { timeout: 6000 })
+            expect(testEventRows.length).toBeGreaterThanOrEqual(1)
+
+            await waitFor(
+                () => {
+                    if (findSuggestedSkeleton()) {
+                        throw new Error('expected suggested_filters skeletons to be removed once the barrier opens')
+                    }
+                },
+                { timeout: 6000 }
+            )
+        }, 10000)
+
+        it('a recent that matches the search appears in the SuggestedFilters list even though the barrier gates other groups', async () => {
+            renderWithSuggested()
+
+            const searchField = await screen.findByTestId('taxonomic-filter-searchfield')
+            await userEvent.type(searchField, 'onboarding_completed_recent')
+
+            const matches = await screen.findAllByText('onboarding_completed_recent', undefined, { timeout: 6000 })
+            expect(matches.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
     })
 })

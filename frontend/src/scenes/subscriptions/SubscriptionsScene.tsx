@@ -5,7 +5,6 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -19,19 +18,25 @@ import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature } from '~/types'
 
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
-import { SubscriptionsLoadingSkeleton } from './components/SubscriptionsLoadingSkeleton'
-import { SubscriptionsTable, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
+import {
+    SubscriptionsTable,
+    isSubscriptionEnabled,
+    subscriptionEditHref,
+    subscriptionName,
+} from './components/SubscriptionsTable'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
-    const { deliveringSubscriptionId } = useValues(subscriptionsSceneLogic)
+    const { deleteSubscriptionSuccess, deliverSubscription, setSubscriptionEnabled } =
+        useActions(subscriptionsSceneLogic)
+    const { deliveringSubscriptionId, togglingEnabledId } = useValues(subscriptionsSceneLogic)
     const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
+    const isToggling = togglingEnabledId === sub.id
+    const enabled = isSubscriptionEnabled(sub)
 
     return (
         <LemonMenu
@@ -45,11 +50,21 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                       ]
                     : []),
                 {
-                    label: 'Test delivery',
-                    'data-attr': 'subscription-list-item-manual-deliver',
-                    disabledReason: isDelivering ? 'Sending test delivery…' : null,
-                    onClick: () => deliverSubscription(sub.id),
+                    label: enabled ? 'Disable subscription' : 'Enable subscription',
+                    'data-attr': 'subscription-list-item-toggle-enabled',
+                    disabledReason: isToggling ? 'Updating…' : null,
+                    onClick: () => setSubscriptionEnabled(sub.id, !enabled),
                 },
+                ...(enabled
+                    ? [
+                          {
+                              label: 'Test delivery',
+                              'data-attr': 'subscription-list-item-manual-deliver',
+                              disabledReason: isDelivering ? 'Sending test delivery…' : null,
+                              onClick: () => deliverSubscription(sub.id),
+                          },
+                      ]
+                    : []),
                 {
                     label: 'Delete',
                     status: 'danger' as const,
@@ -66,10 +81,10 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
             ]}
         >
             <LemonButton
-                icon={isDelivering ? <Spinner /> : <IconEllipsis />}
+                icon={isDelivering || isToggling ? <Spinner /> : <IconEllipsis />}
                 size="small"
                 aria-label="Subscription actions"
-                disabled={isDelivering}
+                disabled={isDelivering || isToggling}
             />
         </LemonMenu>
     )
@@ -117,54 +132,41 @@ export function SubscriptionsScene(): JSX.Element {
                 tabs={subscriptionTabs}
                 sceneInset
             />
-            <PayGateMini
-                feature={AvailableFeature.SUBSCRIPTIONS}
-                handleSubmit={() => undefined}
-                background={false}
-                className="py-8 flex-1 min-h-0 flex flex-col"
-                docsLink="https://posthog.com/docs/user-guides/subscriptions"
-                loadingSkeleton={
-                    <div className="py-8 flex-1 min-h-0 flex flex-col w-full">
-                        <SubscriptionsLoadingSkeleton />
-                    </div>
-                }
-            >
-                <div className="flex flex-col gap-4 max-w-full">
-                    {showProductIntroduction ? (
-                        <ProductIntroduction
-                            productName="Subscriptions"
-                            productKey={ProductKey.SUBSCRIPTIONS}
-                            thingName="subscription"
-                            titleOverride="No subscriptions yet"
-                            description="Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems."
-                            isEmpty
-                            customHog={DetectiveHog}
-                            hogLayout="responsive"
-                            useMainContentContainerQueries
-                            docsURL="https://posthog.com/docs/user-guides/subscriptions"
-                            actionElementOverride={
-                                <span className="italic">
-                                    Open a <Link to={urls.dashboards()}>dashboard</Link> or{' '}
-                                    <Link to={urls.insights()}>saved insight</Link>, open the side panel, and click{' '}
-                                    &quot;Subscribe&quot; to configure the options.
-                                </span>
-                            }
+            <div className="py-8 flex-1 min-h-0 flex flex-col gap-4 max-w-full">
+                {showProductIntroduction ? (
+                    <ProductIntroduction
+                        productName="Subscriptions"
+                        productKey={ProductKey.SUBSCRIPTIONS}
+                        thingName="subscription"
+                        titleOverride="No subscriptions yet"
+                        description="Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems."
+                        isEmpty
+                        customHog={DetectiveHog}
+                        hogLayout="responsive"
+                        useMainContentContainerQueries
+                        docsURL="https://posthog.com/docs/user-guides/subscriptions"
+                        actionElementOverride={
+                            <span className="italic">
+                                Open a <Link to={urls.dashboards()}>dashboard</Link> or{' '}
+                                <Link to={urls.insights()}>saved insight</Link>, open the side panel, and click{' '}
+                                &quot;Subscribe&quot; to configure the options.
+                            </span>
+                        }
+                    />
+                ) : (
+                    <>
+                        <SubscriptionsFiltersBar />
+                        <SubscriptionsTable
+                            dataSource={subscriptions}
+                            loading={subscriptionsLoading}
+                            pagination={pagination}
+                            sorting={subscriptionsSorting}
+                            onSort={setSubscriptionsSorting}
+                            renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
                         />
-                    ) : (
-                        <>
-                            <SubscriptionsFiltersBar />
-                            <SubscriptionsTable
-                                dataSource={subscriptions}
-                                loading={subscriptionsLoading}
-                                pagination={pagination}
-                                sorting={subscriptionsSorting}
-                                onSort={setSubscriptionsSorting}
-                                renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
-                            />
-                        </>
-                    )}
-                </div>
-            </PayGateMini>
+                    </>
+                )}
+            </div>
         </SceneContent>
     )
 }

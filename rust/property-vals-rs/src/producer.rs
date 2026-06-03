@@ -1,0 +1,141 @@
+use std::time::Duration;
+
+use async_trait::async_trait;
+use common_kafka::config::KafkaConfig;
+use common_kafka::kafka_producer::{
+    create_kafka_producer, send_keyed_iter_to_kafka, KafkaContext, KafkaProduceError,
+};
+use rdkafka::error::KafkaError;
+use rdkafka::producer::FutureProducer;
+use thiserror::Error;
+use tracing::warn;
+
+use crate::types::{PropertyType, TupleKey};
+
+fn str_is_empty(s: &&str) -> bool {
+    s.is_empty()
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct Outgoing<'a> {
+    pub team_id: i64,
+    pub property_type: PropertyType,
+    pub property_key: &'a str,
+    pub property_value: &'a str,
+    pub property_count: u64,
+    // Omitted when empty so flag-off (and person/group) messages are identical
+    // to before this field existed, letting the service ship ahead of the
+    // ClickHouse column that reads it.
+    #[serde(skip_serializing_if = "str_is_empty")]
+    pub event_name: &'a str,
+}
+
+#[derive(Debug, Error)]
+pub enum ProduceError {
+    #[error("kafka produce timed out after {0:?}")]
+    Timeout(Duration),
+    #[error("{failed}/{total} records failed delivery")]
+    PartialFailure { failed: usize, total: usize },
+}
+
+/// Produce the aggregated tuples to the output topic. At-least-once: each
+/// produce stands on its own and the caller stores the input consumer offsets
+/// only after this returns Ok. On failure the caller does not advance the
+/// stored offsets, so the next pod resumes from before these inputs and
+/// re-produces them; duplicates are absorbed by the storage table's existing
+/// aggregation semantics.
+#[async_trait]
+pub trait Producer: Send {
+    async fn produce(&self, items: Vec<(TupleKey, u64)>) -> Result<(), ProduceError>;
+}
+
+pub struct AggregatedProducer {
+    inner: FutureProducer<KafkaContext>,
+    output_topic: String,
+    produce_timeout: Duration,
+    serialize_event_name: bool,
+}
+
+impl AggregatedProducer {
+    pub async fn new<L>(
+        kafka_config: &KafkaConfig,
+        liveness: L,
+        output_topic: String,
+        produce_timeout: Duration,
+        serialize_event_name: bool,
+    ) -> Result<Self, KafkaError>
+    where
+        L: common_liveness::SyncLivenessReporter + Clone + 'static,
+    {
+        let inner = create_kafka_producer(kafka_config, liveness).await?;
+        Ok(Self {
+            inner,
+            output_topic,
+            produce_timeout,
+            serialize_event_name,
+        })
+    }
+}
+
+#[async_trait]
+impl Producer for AggregatedProducer {
+    async fn produce(&self, items: Vec<(TupleKey, u64)>) -> Result<(), ProduceError> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let total = items.len();
+
+        let messages: Vec<Outgoing> = items
+            .iter()
+            .map(|(tuple, count)| Outgoing {
+                team_id: tuple.team_id,
+                property_type: tuple.property_type,
+                property_key: &tuple.property_key,
+                property_value: &tuple.property_value,
+                property_count: *count,
+                event_name: if self.serialize_event_name {
+                    &tuple.event_name
+                } else {
+                    ""
+                },
+            })
+            .collect();
+
+        // Full-tuple partition key. The same (team, type, key, value) tuple
+        // from any pod always lands on the same partition, so the merger on
+        // the consuming side can merge the per-pod duplicates that the
+        // events/groups workers emit across replicas.
+        let send_fut = send_keyed_iter_to_kafka(
+            &self.inner,
+            &self.output_topic,
+            |m| {
+                Some(format!(
+                    "{}:{}:{}:{}",
+                    m.team_id,
+                    m.property_type.as_kafka_key_segment(),
+                    m.property_key,
+                    m.property_value,
+                ))
+            },
+            messages,
+        );
+
+        let results = match tokio::time::timeout(self.produce_timeout, send_fut).await {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("kafka produce timed out after {:?}", self.produce_timeout);
+                return Err(ProduceError::Timeout(self.produce_timeout));
+            }
+        };
+
+        let failed = results
+            .iter()
+            .filter(|r| matches!(r, Err(KafkaProduceError::KafkaProduceError { .. })))
+            .count();
+        if failed > 0 {
+            return Err(ProduceError::PartialFailure { failed, total });
+        }
+
+        Ok(())
+    }
+}

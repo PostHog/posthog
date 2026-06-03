@@ -11,13 +11,18 @@ from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
     CheckContext,
     FileFolderConflictsCheck,
+    OrphanedTestFilesCheck,
     PackageJsonScriptsCheck,
     ProductYamlCheck,
     ProductYamlOwnersCheck,
     _has_test_files,
     _is_noop_script,
+    _names_from_pattern,
     _parse_pytest_paths,
     has_legacy_interface_leaks,
+    validate_facade_alternation,
+    validate_interface_blocks,
+    validate_tach_references,
 )
 
 # ---------------------------------------------------------------------------
@@ -560,9 +565,8 @@ class TestProductYamlOwnersCheck:
         result = owners_check.run(ctx)
         assert not result.issues
 
-    def test_gh_unavailable_is_error_locally(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_gh_unavailable_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
-        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
         monkeypatch.setattr(gh_module, "_fetch_attempted", True)
         monkeypatch.setattr(gh_module, "_team_slugs", None)
         monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
@@ -570,27 +574,20 @@ class TestProductYamlOwnersCheck:
         assert result.issues
         assert any("gh CLI" in i for i in result.issues)
 
-    def test_gh_unavailable_skips_in_ci(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
-        monkeypatch.setenv("GITHUB_ACTIONS", "true")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", None)
-        monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
-        result = owners_check.run(ctx)
-        assert not result.issues
-
 
 # ---------------------------------------------------------------------------
 # FileFolderConflictsCheck — file vs package twin detection
 # ---------------------------------------------------------------------------
 
-# Structure mirrors product_structure.yaml: logic is a package, models can be
-# either a file or folder. Tests exercise both shapes plus a stray-twin case.
+# Structure mirrors product_structure.yaml: subdirs (logic/, tasks/, facade/)
+# are packages regardless of whether they declare an __init__.py in the
+# structure; models can be either a file or folder via can_be_folder.
 _CONFLICT_STRUCTURE = {
     "backend_files": {
         "models.py": {"can_be_folder": True},
         "logic/": {"__init__.py": {}},
-        "tasks/": {"__init__.py": {}},
+        "tasks/": {"tasks.py": {}},  # no __init__.py declared — namespace package
+        "facade/": {"api.py": {}, "contracts.py": {}},
     },
 }
 
@@ -649,6 +646,9 @@ class TestFileFolderConflictsCheck:
             # Pattern B also covers other canonical packages — stray tasks.py is a mistake
             (["tasks/__init__.py"], []),
             (["tasks.py", "tasks/__init__.py"], ["tasks.py"]),
+            # Namespace-package subdir (no __init__.py declared in structure) — stem still detected
+            (["facade/api.py"], []),
+            (["facade.py", "facade/api.py"], ["facade.py"]),
             # Multiple conflicts at once
             (["logic.py", "logic/", "models.py", "models/"], ["logic.py", "models.py"]),
         ],
@@ -662,3 +662,375 @@ class TestFileFolderConflictsCheck:
         assert len(result.issues) == len(expect_conflicts)
         for stem in expect_conflicts:
             assert any(f"backend/{stem}" in i and f"backend/{stem[:-3]}/" in i for i in result.issues), result.issues
+
+
+# ---------------------------------------------------------------------------
+# validate_facade_alternation — global tach.toml check
+# ---------------------------------------------------------------------------
+
+
+def _mkproduct(products_dir: Path, name: str, *, isolated: bool) -> None:
+    p = products_dir / name
+    (p / "backend").mkdir(parents=True)
+    (p / "__init__.py").write_text("")
+    (p / "backend" / "__init__.py").write_text("")
+    if isolated:
+        (p / "backend" / "facade").mkdir()
+        (p / "backend" / "facade" / "contracts.py").write_text("")
+
+
+_CANONICAL_BLOCK = """\
+[[interfaces]]
+expose = [
+    "backend\\\\.facade.*",
+    "backend\\\\.presentation\\\\.views.*",
+]
+from = [
+    "products\\\\.(alpha|beta)",
+]
+"""
+
+
+_LEGACY_ONLY_TACH = """\
+[[interfaces]]
+expose = ["backend\\\\.models.*"]
+from = ["products.alpha"]
+"""
+
+# Real tach.toml on disk uses literal `\\.` (two backslashes + dot).
+# `_CANONICAL_BLOCK` already encodes that form via escaped backslashes in
+# the Python source — `\\\\` in source is two literal backslashes at runtime.
+# This row uses a non-alternation single-name `from` so the parametrized
+# test additionally exercises that branch of `_names_from_pattern`.
+_CANONICAL_SINGLE_NAME_TACH = (
+    "[[interfaces]]\n"
+    'expose = [\n    "backend\\\\.facade.*",\n    "backend\\\\.presentation\\\\.views.*",\n]\n'
+    'from = [\n    "products\\\\.alpha",\n]\n'
+)
+
+
+class TestValidateFacadeAlternation:
+    @pytest.mark.parametrize(
+        "products, tach, expected_substrings",
+        [
+            # Empty tach — nothing to validate.
+            ([], "", []),
+            # Only a legacy-leak block — TachCheck handles per-product, this
+            # validator stays quiet.
+            ([("alpha", True)], _LEGACY_ONLY_TACH, []),
+            # Clean alternation: every listed product exists and is isolated.
+            ([("alpha", True), ("beta", True)], _CANONICAL_BLOCK, []),
+            # Stale entry: product listed but not on disk.
+            ([("alpha", True)], _CANONICAL_BLOCK, [("beta", "does not exist")]),
+            # Stale entry: product on disk but missing contracts.py.
+            (
+                [("alpha", True), ("beta", False)],
+                _CANONICAL_BLOCK,
+                [("beta", "contracts.py")],
+            ),
+            # On-disk single-name `from` (no alternation) parses.
+            ([("alpha", True)], _CANONICAL_SINGLE_NAME_TACH, []),
+            # Non-listed isolated products are tolerated — having
+            # facade/contracts.py is just scaffolding, not a commitment to
+            # canonical exposure.
+            (
+                [("alpha", True), ("beta", True), ("gamma", True)],
+                _CANONICAL_BLOCK,
+                [],
+            ),
+        ],
+        ids=[
+            "empty_tach",
+            "legacy_only_block_silent",
+            "clean_alternation",
+            "stale_entry_missing_on_disk",
+            "stale_entry_not_isolated",
+            "on_disk_single_name_form_parses",
+            "isolated_but_not_in_alternation_is_tolerated",
+        ],
+    )
+    def test_validate(
+        self,
+        tmp_path: Path,
+        products: list[tuple[str, bool]],
+        tach: str,
+        expected_substrings: list[tuple[str, ...]],
+    ) -> None:
+        for name, isolated in products:
+            _mkproduct(tmp_path, name, isolated=isolated)
+        issues = validate_facade_alternation(tach, tmp_path)
+        if not expected_substrings:
+            assert issues == []
+            return
+        for substrings in expected_substrings:
+            assert any(all(s in issue for s in substrings) for issue in issues), (
+                f"no issue matched all of {substrings!r}; got {issues!r}"
+            )
+
+
+class TestNamesFromPattern:
+    @pytest.mark.parametrize(
+        "pattern, expected",
+        [
+            ("products.experiments", {"experiments"}),
+            ("products\\.experiments", {"experiments"}),
+            ("products\\\\.experiments", {"experiments"}),
+            ("products\\.(a|b|c)", {"a", "b", "c"}),
+            ("products\\\\.(a|b|c)", {"a", "b", "c"}),
+            ("products\\.(experiments|mcp_store|tracing)", {"experiments", "mcp_store", "tracing"}),
+            ("posthog.api", set()),
+            ("products.something.deeper", set()),
+            ("", set()),
+        ],
+    )
+    def test_extraction(self, pattern: str, expected: set[str]) -> None:
+        assert _names_from_pattern(pattern) == expected
+
+
+# ---------------------------------------------------------------------------
+# validate_interface_blocks — per-block structural checks
+# ---------------------------------------------------------------------------
+
+
+def _iface(expose: list[str], frm: str = "products.x") -> str:
+    expose_str = ", ".join(f'"{e}"' for e in expose)
+    return f'[[interfaces]]\nexpose = [{expose_str}]\nfrom = ["{frm}"]\n'
+
+
+class TestValidateInterfaceBlocks:
+    @pytest.mark.parametrize(
+        "expose, expected_issue",
+        [
+            # Pure facade — clean.
+            (["backend\\\\.facade.*", "backend\\\\.presentation\\\\.views.*"], None),
+            # Pure legacy — clean.
+            (["backend\\\\.models.*", "backend\\\\.logic.*"], None),
+            # Mixed facade + internal — error.
+            (
+                ["backend\\\\.facade.*", "backend\\\\.models.*"],
+                "mixes facade/presentation",
+            ),
+            # Mixed presentation + internal — error.
+            (
+                ["backend\\\\.presentation\\\\.views.*", "backend\\\\.logic.*"],
+                "mixes facade/presentation",
+            ),
+            # Overly broad: backend.* (raw).
+            (["backend.*"], "overly broad"),
+            # Overly broad: backend\\..*  (tach regex form).
+            (["backend\\\\..*"], "overly broad"),
+            # Overly broad: backend.** (globstar).
+            (["backend\\\\.**"], "overly broad"),
+            # Specific submodule — not broad.
+            (["backend\\\\.models.*"], None),
+        ],
+        ids=[
+            "pure_facade",
+            "pure_legacy",
+            "mixed_facade_internal",
+            "mixed_presentation_internal",
+            "broad_raw",
+            "broad_tach_regex",
+            "broad_globstar",
+            "specific_submodule",
+        ],
+    )
+    def test_blocks(self, expose: list[str], expected_issue: str | None) -> None:
+        tach = _iface(expose)
+        issues = validate_interface_blocks(tach)
+        if expected_issue is None:
+            assert issues == [], f"unexpected issues: {issues}"
+        else:
+            assert any(expected_issue in i for i in issues), (
+                f"expected substring {expected_issue!r} in issues; got {issues!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# validate_tach_references — referential integrity
+# ---------------------------------------------------------------------------
+
+
+class TestValidateTachReferences:
+    @pytest.mark.parametrize(
+        "tach, expected_substrings",
+        [
+            # Clean: interface references existing module.
+            (
+                '[[modules]]\npath = "products.alpha"\ndepends_on = []\n\n'
+                '[[interfaces]]\nexpose = ["backend\\\\.models.*"]\nfrom = ["products.alpha"]\n',
+                [],
+            ),
+            # Dangling interface: references nonexistent module.
+            (
+                '[[modules]]\npath = "products.alpha"\ndepends_on = []\n\n'
+                '[[interfaces]]\nexpose = ["backend\\\\.models.*"]\nfrom = ["products.ghost"]\n',
+                [("products.ghost", "dangling interface")],
+            ),
+            # Dangling depends_on.
+            (
+                '[[modules]]\npath = "products.alpha"\ndepends_on = ["products.ghost"]\n',
+                [("products.ghost", "dangling dependency")],
+            ),
+            # Clean depends_on.
+            (
+                '[[modules]]\npath = "products.alpha"\ndepends_on = []\n\n'
+                '[[modules]]\npath = "products.beta"\ndepends_on = ["products.alpha"]\n',
+                [],
+            ),
+            # Both dangling.
+            (
+                '[[modules]]\npath = "products.a"\ndepends_on = ["products.missing_dep"]\n\n'
+                '[[interfaces]]\nexpose = ["backend\\\\.x.*"]\nfrom = ["products.missing_iface"]\n',
+                [("missing_dep", "dangling dependency"), ("missing_iface", "dangling interface")],
+            ),
+        ],
+        ids=[
+            "clean_interface",
+            "dangling_interface",
+            "dangling_depends_on",
+            "clean_depends_on",
+            "both_dangling",
+        ],
+    )
+    def test_references(self, tach: str, expected_substrings: list[tuple[str, str]]) -> None:
+        issues = validate_tach_references(tach)
+        if not expected_substrings:
+            assert issues == []
+            return
+        for substrings in expected_substrings:
+            assert any(all(s in issue for s in substrings) for issue in issues), (
+                f"no issue matched all of {substrings!r}; got {issues!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# validate_facade_alternation — alphabetical sort check
+# ---------------------------------------------------------------------------
+
+
+class TestAlternationSorting:
+    def test_sorted_passes(self, tmp_path: Path) -> None:
+        _mkproduct(tmp_path, "alpha", isolated=True)
+        _mkproduct(tmp_path, "beta", isolated=True)
+        tach = _iface(
+            ["backend\\\\.facade.*", "backend\\\\.presentation\\\\.views.*"],
+            "products\\\\.(alpha|beta)",
+        )
+        assert validate_facade_alternation(tach, tmp_path) == []
+
+    def test_unsorted_fails(self, tmp_path: Path) -> None:
+        _mkproduct(tmp_path, "alpha", isolated=True)
+        _mkproduct(tmp_path, "beta", isolated=True)
+        tach = _iface(
+            ["backend\\\\.facade.*", "backend\\\\.presentation\\\\.views.*"],
+            "products\\\\.(beta|alpha)",
+        )
+        issues = validate_facade_alternation(tach, tmp_path)
+        assert any("not sorted" in i for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# OrphanedTestFilesCheck — ensures every product test file is reachable by
+# either backend:test or a known external runner.
+# ---------------------------------------------------------------------------
+
+
+class TestOrphanedTestFilesCheck:
+    """Verifies the lint catches test files left behind by misconfigured scripts."""
+
+    _orphan_check = OrphanedTestFilesCheck()
+
+    def _ctx(self, tmp_path: Path, *, scripts: dict[str, str] | None = None, name: str = "my_product") -> CheckContext:
+        product_dir = tmp_path / name
+        product_dir.mkdir()
+        backend_dir = product_dir / "backend"
+        backend_dir.mkdir()
+        if scripts is not None:
+            (product_dir / "package.json").write_text(json.dumps({"scripts": scripts}))
+        return CheckContext(
+            name=name,
+            product_dir=product_dir,
+            backend_dir=backend_dir,
+            is_isolated=False,
+            structure={},
+            detailed=False,
+        )
+
+    def test_skip_when_no_test_files(self, tmp_path: Path) -> None:
+        ctx = self._ctx(tmp_path)
+        result = self._orphan_check.run(ctx)
+        assert result.skip is True
+
+    def test_orphan_flagged_when_backend_test_missing(self, tmp_path: Path) -> None:
+        ctx = self._ctx(tmp_path)
+        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
+        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert any("backend/api/test/test_thing.py" in line for line in result.lines)
+        assert result.issues
+
+    def test_no_orphans_when_backend_test_covers(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
+        )
+        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
+        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_specific_file_path_in_pytest_does_not_false_flag(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/test_max_tools.py -v"},
+        )
+        (ctx.backend_dir / "test_max_tools.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_directory_prefix_does_not_eat_unrelated_paths(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/api"},
+        )
+        (ctx.backend_dir / "api").mkdir()
+        (ctx.backend_dir / "api" / "test_covered.py").write_text("")
+        (ctx.backend_dir / "api_v2").mkdir()
+        (ctx.backend_dir / "api_v2" / "test_uncovered.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert any("api_v2/test_uncovered.py" in i for i in result.issues)
+        assert not any("api/test_covered.py" in i for i in result.issues)
+
+    def test_dags_tests_exempted_via_external_runner(self, tmp_path: Path) -> None:
+        # ci-dagster.yml runs `pytest products/**/dags`. The check should not
+        # flag test files under `dags/` even when backend:test doesn't cover them.
+        ctx = self._ctx(tmp_path, scripts={"backend:test": "pytest backend/"})
+        (ctx.product_dir / "dags" / "tests").mkdir(parents=True)
+        (ctx.product_dir / "dags" / "tests" / "test_thing.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_per_product_exemption_applied(self, tmp_path: Path) -> None:
+        # products/tasks/backend/temporal/ is covered by ci-backend.yml Temporal
+        # segment, not the product matrix.
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/tests backend/services"},
+            name="tasks",
+        )
+        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
+        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_per_product_exemption_does_not_apply_to_other_products(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/tests"},
+            name="not_tasks",
+        )
+        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
+        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)

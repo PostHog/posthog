@@ -392,4 +392,141 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(Array.isArray(result.results.results)).toBe(true)
         })
     })
+
+    describe('query-lifecycle-actors', () => {
+        const lifecycleSource = {
+            kind: 'LifecycleQuery',
+            series: [{ kind: 'EventsNode', event: '$pageview' }],
+            dateRange: { date_from: '-7d' },
+            interval: 'day',
+            lifecycleFilter: {},
+        }
+
+        it('rejects when day is missing', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
+            await expect(tool.handler(context, { source: lifecycleSource, status: 'dormant' })).rejects.toThrow()
+        })
+
+        it('rejects when status is missing', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
+            await expect(tool.handler(context, { source: lifecycleSource, day: '2026-03-25' })).rejects.toThrow()
+        })
+
+        it('rejects status values outside the lifecycle bucket enum', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
+            await expect(
+                tool.handler(context, { source: lifecycleSource, day: '2026-03-25', status: 'churned' })
+            ).rejects.toThrow()
+        })
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
+            const result = (await tool.handler(context, {
+                source: lifecycleSource,
+                day: '2026-03-25',
+                status: 'dormant',
+            })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('returns the persons projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
+            const result = (await tool.handler(context, {
+                source: lifecycleSource,
+                day: '2026-03-25',
+                status: 'new',
+            })) as any
+
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name'])
+        })
+
+        it('wraps the source query in an outer ActorsQuery with select=["actor"] and no orderBy', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
+            const result = (await tool.handler(context, {
+                source: lifecycleSource,
+                day: '2026-03-25',
+                status: 'returning',
+            })) as any
+
+            expect(result.query.kind).toBe('ActorsQuery')
+            expect(result.query.select).toEqual(['actor'])
+            expect(result.query.orderBy).toEqual([])
+            expect(result.query.source.kind).toBe('InsightActorsQuery')
+            expect(result.query.source.source.kind).toBe('LifecycleQuery')
+            expect(result.query.source.status).toBe('returning')
+        })
+    })
+
+    describe('query-paths-actors', () => {
+        const pathsSource = {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['$pageview'],
+                stepLimit: 5,
+            },
+            dateRange: { date_from: '-7d' },
+        }
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-paths-actors')
+            const result = (await tool.handler(context, { source: pathsSource })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('wraps the source in an outer ActorsQuery with the event-count projection and ordering', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-paths-actors')
+            const result = (await tool.handler(context, {
+                source: pathsSource,
+                includeRecordings: false,
+            })) as any
+
+            expect(result.query.kind).toBe('ActorsQuery')
+            expect(result.query.select).toEqual(['actor', 'event_count'])
+            expect(result.query.orderBy).toEqual(['event_count DESC', 'actor_id DESC'])
+            expect(result.query.source.kind).toBe('InsightActorsQuery')
+            expect(result.query.source.source.kind).toBe('PathsQuery')
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
+        })
+
+        it('appends matched_recordings to the projection when includeRecordings is true', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-paths-actors')
+            const result = (await tool.handler(context, {
+                source: pathsSource,
+                includeRecordings: true,
+            })) as any
+
+            expect(result.query.select).toEqual(['actor', 'event_count', 'matched_recordings'])
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count', 'recordings'])
+        })
+
+        it('forwards the point-level drilldown keys into source.source.pathsFilter', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-paths-actors')
+            const result = (await tool.handler(context, {
+                source: {
+                    ...pathsSource,
+                    pathsFilter: {
+                        ...pathsSource.pathsFilter,
+                        startPoint: 'https://posthog.com/',
+                        endPoint: 'https://us.posthog.com/',
+                        pathEndKey: '3_https://us.posthog.com',
+                    },
+                },
+            })) as any
+
+            const sourcePathsFilter = result.query.source.source.pathsFilter
+            expect(sourcePathsFilter.pathEndKey).toBe('3_https://us.posthog.com')
+            expect(sourcePathsFilter.startPoint).toBe('https://posthog.com/')
+            expect(sourcePathsFilter.endPoint).toBe('https://us.posthog.com/')
+        })
+    })
 })

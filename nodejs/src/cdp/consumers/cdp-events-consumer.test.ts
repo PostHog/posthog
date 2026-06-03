@@ -1,6 +1,5 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
-
-import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
 
@@ -15,42 +14,35 @@ import {
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
     createHogExecutionGlobals,
     createIncomingEvent,
-    createInternalEvent,
     createKafkaMessage,
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer } from './cdp-events.consumer'
-import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 jest.setTimeout(1000)
 
-/**
- * NOTE: The internal and normal events consumers are very similar so we can test them together
- */
-describe.each([
-    [CdpEventsConsumer.name, CdpEventsConsumer, 'destination' as const],
-    [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal_destination' as const],
-])('%s', (_name, Consumer, hogType) => {
-    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+describe('CdpEventsConsumer', () => {
+    let processor: CdpEventsConsumer
     let hub: Hub
     let team: Team
     let team2: Team
-    let mockQueueInvocations: jest.Mock
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const teamId = hogFunction.team_id ?? team.id
         const item = await _insertHogFunction(hub.postgres, teamId, {
             ...hogFunction,
-            type: hogType,
+            type: 'destination',
         })
         // Trigger the reload that django would do
         processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
@@ -70,7 +62,12 @@ describe.each([
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new Consumer(hub, createCdpConsumerDeps(hub))
+        const mockJobQueue = createMockJobQueue()
+
+        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: mockJobQueue,
+            hogflowQueue: mockJobQueue,
+        })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -79,13 +76,7 @@ describe.each([
             isHealthy: jest.fn(),
         } as any
 
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
-
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = mockJobQueue.queueInvocations
 
         await processor.start()
     })
@@ -109,16 +100,10 @@ describe.each([
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const events =
-                processor instanceof CdpInternalEventsConsumer
-                    ? [
-                          createKafkaMessage(createInternalEvent(team.id, {})),
-                          createKafkaMessage(createInternalEvent(team2.id, {})),
-                      ]
-                    : [
-                          createKafkaMessage(createIncomingEvent(team.id, {})),
-                          createKafkaMessage(createIncomingEvent(team2.id, {})),
-                      ]
+            const events = [
+                createKafkaMessage(createIncomingEvent(team.id, {})),
+                createKafkaMessage(createIncomingEvent(team2.id, {})),
+            ]
             const invocations = await processor._parseKafkaBatch(events)
             expect(invocations).toHaveLength(1)
             expect(invocations[0].project.id).toBe(team.id)
@@ -231,7 +216,7 @@ describe.each([
                 )
 
                 // Billing is per-event, not per-destination: 1 event → 2 destinations = 1 billable_invocation
-                if (hogType === 'destination') {
+                {
                     const billingMetrics = metrics.filter((m: any) => m.value.metric_name === 'billable_invocation')
                     expect(billingMetrics).toHaveLength(1)
                     expect(billingMetrics[0].value).toMatchObject({
@@ -287,24 +272,20 @@ describe.each([
                         },
                     },
                     // Billing is per-event: 1 event → 1 destination = 1 billable_invocation
-                    ...(hogType !== 'destination'
-                        ? []
-                        : [
-                              {
-                                  key: null,
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'hog_function',
-                                      app_source_id: '_event_trigger',
-                                      instance_id: globals.event.uuid,
-                                      count: 1,
-                                      metric_kind: 'billing',
-                                      metric_name: 'billable_invocation',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                          ]),
+                    {
+                        key: null,
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: '_event_trigger',
+                            instance_id: globals.event.uuid,
+                            count: 1,
+                            metric_kind: 'billing',
+                            metric_name: 'billable_invocation',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
                 ])
             })
 
@@ -343,7 +324,7 @@ describe.each([
                 ])
             })
 
-            if (hogType === 'destination') {
+            {
                 it('should bill once per event, not per destination (multiple events)', async () => {
                     // Create a second event with different UUID
                     const globals2 = createHogExecutionGlobals({
@@ -570,7 +551,7 @@ describe.each([
 })
 
 describe('hog flow processing', () => {
-    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+    let processor: CdpEventsConsumer
     let hub: Hub
     let team: Team
 
@@ -587,7 +568,12 @@ describe('hog flow processing', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
-        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub))
+        const mockQueue = createMockJobQueue()
+
+        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: mockQueue,
+            hogflowQueue: mockQueue,
+        })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -595,12 +581,6 @@ describe('hog flow processing', () => {
             disconnect: jest.fn(),
             isHealthy: jest.fn(),
         } as any
-
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
 
         await processor.start()
     })
@@ -639,7 +619,7 @@ describe('hog flow processing', () => {
             hogFlow.trigger = {} as any
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -656,7 +636,7 @@ describe('hog flow processing', () => {
                 .build()
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -673,7 +653,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const noInvocations = await processor['createHogFlowInvocations']([
+            const noInvocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([
                 {
                     ...globals,
                     event: {
@@ -685,7 +665,7 @@ describe('hog flow processing', () => {
 
             expect(noInvocations).toHaveLength(0)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({
                 functionId: hogFlow.id,
@@ -716,7 +696,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            await processor['createHogFlowInvocations']([globals])
+            await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             const producedMetrics =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
@@ -793,7 +773,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should have no invocations returned due to quota limiting
             expect(invocations).toHaveLength(0)
@@ -870,7 +850,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(0)
             expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
@@ -917,7 +897,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should process the workflow since it doesn't have email or destination actions
             expect(invocations).toHaveLength(1)
@@ -967,7 +947,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({
@@ -1008,31 +988,36 @@ describe('hog flow processing', () => {
                 { key: 'data_pipelines', name: 'Data Pipelines' },
                 { key: 'group_analytics', name: 'Group Analytics' },
             ])
-            // Clear cached team data so the new features are picked up
             hub.teamManager['lazyLoader'].clear()
-            processor['groupsManager'].clear()
 
-            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'company', 0)
-            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'project', 1)
+            const mockGroupRepo: GroupReadRepository = {
+                fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                    {
+                        team_id: team.id,
+                        group_type_index: 0,
+                        group_key: 'acme-inc',
+                        group_properties: { name: 'Acme Inc', industry: 'Tech' },
+                    },
+                    {
+                        team_id: team.id,
+                        group_type_index: 1,
+                        group_key: 'project-alpha',
+                        group_properties: { name: 'Project Alpha', status: 'active' },
+                    },
+                ]),
+                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
+                    const result: Record<string, { group_type: string; group_type_index: number }[]> = {}
+                    for (const id of teamIds) {
+                        result[id.toString()] = [
+                            { group_type: 'company', group_type_index: 0 },
+                            { group_type: 'project', group_type_index: 1 },
+                        ]
+                    }
+                    return Promise.resolve(result)
+                }),
+            }
 
-            await hub.groupRepository.insertGroup(
-                team.id,
-                0 as any,
-                'acme-inc',
-                { name: 'Acme Inc', industry: 'Tech' },
-                DateTime.now(),
-                {},
-                {}
-            )
-            await hub.groupRepository.insertGroup(
-                team.id,
-                1 as any,
-                'project-alpha',
-                { name: 'Project Alpha', status: 'active' },
-                DateTime.now(),
-                {},
-                {}
-            )
+            processor['groupsManager'] = new GroupsManagerService(hub.teamManager, mockGroupRepo)
         }
 
         beforeEach(() => {

@@ -52,12 +52,19 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
         values: [teamLogic, ['currentProjectId']],
     })),
     actions({
-        quarantineIdentifier: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+        quarantineIdentifier: (
+            reason: string,
+            identifiers: string[],
+            expiresAt: string | null,
+            sourceRunId: string | null = null
+        ) => ({
             reason,
             identifiers,
             expiresAt,
+            sourceRunId,
         }),
         unquarantineIdentifier: true,
+        unquarantineSibling: true,
     }),
     loaders(({ props, values }) => ({
         repo: [
@@ -103,10 +110,6 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                 },
             },
         ],
-        // Active quarantine entry for this (identifier, run_type), or
-        // null when none. The endpoint returns full history when an
-        // identifier filter is applied; we pick the still-active one
-        // (no expiry, or expiry in the future).
         quarantineEntry: [
             null as QuarantinedIdentifierEntryApi | null,
             {
@@ -126,6 +129,33 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                 },
             },
         ],
+        siblingQuarantineEntry: [
+            null as QuarantinedIdentifierEntryApi | null,
+            {
+                loadSiblingQuarantineEntry: async () => {
+                    const { theme } = detectTheme(props.identifier)
+                    if (!theme) {
+                        return null
+                    }
+                    const sibling = values.siblingIdentifier
+                    if (!sibling) {
+                        return null
+                    }
+                    const response = await visualReviewReposQuarantineList(
+                        String(values.currentProjectId),
+                        props.repoId,
+                        { identifier: sibling, run_type: props.runType }
+                    )
+                    const now = Date.now()
+                    return (
+                        response.results.find(
+                            (q: QuarantinedIdentifierEntryApi) =>
+                                !q.expires_at || new Date(q.expires_at).getTime() > now
+                        ) ?? null
+                    )
+                },
+            },
+        ],
     })),
     selectors({
         identifier: [() => [(_, p) => p.identifier], (identifier: string): string => identifier],
@@ -134,6 +164,16 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
         primaryTheme: [
             () => [(_, p) => p.identifier],
             (identifier: string): 'light' | 'dark' | null => detectTheme(identifier).theme,
+        ],
+        siblingIdentifier: [
+            () => [(_, p) => p.identifier],
+            (identifier: string): string | null => {
+                const { stem, theme } = detectTheme(identifier)
+                if (!theme) {
+                    return null
+                }
+                return `${stem}--${theme === 'light' ? 'dark' : 'light'}`
+            },
         ],
         // Pair entries by run_id so a single timeline row shows both themes.
         pairedHistory: [
@@ -172,7 +212,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        quarantineIdentifier: async ({ reason, identifiers, expiresAt }) => {
+        quarantineIdentifier: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
             try {
                 await Promise.all(
                     identifiers.map((identifier) =>
@@ -180,13 +220,21 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                             String(values.currentProjectId),
                             props.repoId,
                             props.runType,
-                            { identifier, reason, expires_at: expiresAt }
+                            {
+                                identifier,
+                                reason,
+                                expires_at: expiresAt,
+                                // Forward the prior source when extending — keeps the "view
+                                // the failing run" link intact across renewals.
+                                source_run_id: sourceRunId,
+                            }
                         )
                     )
                 )
                 const count = identifiers.length
                 lemonToast.success(`${count} identifier${count > 1 ? 's' : ''} quarantined`)
                 actions.loadQuarantineEntry()
+                actions.loadSiblingQuarantineEntry()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
             }
@@ -205,11 +253,30 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                 lemonToast.error(e?.detail || e?.message || 'Failed to unquarantine')
             }
         },
+        unquarantineSibling: async () => {
+            const sibling = values.siblingIdentifier
+            if (!sibling) {
+                return
+            }
+            try {
+                await visualReviewReposQuarantineExpireCreate(
+                    String(values.currentProjectId),
+                    props.repoId,
+                    props.runType,
+                    { identifier: sibling, reason: '' }
+                )
+                lemonToast.success('Sibling unquarantined — future runs will gate on it again')
+                actions.loadSiblingQuarantineEntry()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to unquarantine sibling')
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadRepo()
         actions.loadHistory()
         actions.loadPartnerHistory()
         actions.loadQuarantineEntry()
+        actions.loadSiblingQuarantineEntry()
     }),
 ])

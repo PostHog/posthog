@@ -15,10 +15,14 @@ const esmModules = [
     '@posthog/hedgehog-mode',
     'escape-string-regexp',
     '@tiptap',
+    '@mathjax',
     'marked',
     'lowlight',
     'devlop',
     'zwitch',
+    // posthog-js's rrweb subpath entries are shipped as ESM; the rest of posthog-js
+    // is CJS, so we scope the transform to just dist/rrweb* to avoid retranspiling main.js.
+    'posthog-js/dist/rrweb',
     // react-markdown and its ecosystem are all ESM-only
     'react-markdown',
     'remark-.*',
@@ -53,9 +57,12 @@ const esmModules = [
     'ccount',
     'longest-streak',
     'markdown-table',
+    '@mathjax/src',
+    // yaml's browser entry (used under the jsdom env) is ESM and re-exports its CJS dist
+    'yaml/browser',
 ]
 function rootDirectories(): string[] {
-    return ['<rootDir>/src', '<rootDir>/../products']
+    return ['<rootDir>/src', '<rootDir>/../products', '<rootDir>/../packages/quill/packages/charts/src']
 }
 
 const config: Config = {
@@ -136,8 +143,13 @@ const config: Config = {
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
+        '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
+        // @posthog/hogvm ships as ESM-only; map to the TS source so Jest (Sucrase) can handle it.
+        // Required for sidePanelNotificationsLogic.test.ts and other tests with a transitive
+        // import chain through src/lib/hog.ts.
+        '^@posthog/hogvm$': '<rootDir>/node_modules/@posthog/hogvm/src/index.ts',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
@@ -159,10 +171,13 @@ const config: Config = {
         '^common/(.*)$': '<rootDir>/../common/$1',
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',
+        '^@posthog/quill-charts/testing$': '<rootDir>/../packages/quill/packages/charts/src/testing/index.ts',
+        '^@posthog/quill-charts/story-helpers$': '<rootDir>/../packages/quill/packages/charts/src/story-helpers.tsx',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
-        '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
+        '^@mathjax/src/(.*)$': '<rootDir>/src/test/mocks/mathjaxMock.js',
     },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader
@@ -232,7 +247,7 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/'],
+    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/', '/products/visual_review/cli/'],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],
@@ -252,6 +267,7 @@ const config: Config = {
     // A map from regular expressions to paths to transformers
     transform: {
         '\\.[jt]sx?$': '@sucrase/jest-plugin',
+        '\\.yaml$': '<rootDir>/src/test/yamlRawTransformer.js',
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation

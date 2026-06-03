@@ -131,6 +131,12 @@ tools:
     alerts-update:
         operation: alerts_update
         enabled: false
+    insights-thresholds-list:
+        operation: insights_thresholds_list
+        enabled: false
+    insights-thresholds-retrieve:
+        operation: insights_thresholds_retrieve
+        enabled: false
     logs-alerts-create:
         operation: logs_alerts_create
         enabled: false

@@ -4,11 +4,12 @@ from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -23,7 +24,7 @@ class PrepareQueryableTableInputs:
     row_count: int
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWarehouseSavedQuery:
     saved_query = (
         DataWarehouseSavedQuery.objects.select_related("team", "table")
@@ -33,7 +34,7 @@ def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWare
     return saved_query
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):

@@ -7,7 +7,7 @@ import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -452,7 +452,14 @@ export const InfiniteListRow = ({
     }
 
     const itemGroup = getItemGroup(item, taxonomicGroups, group)
-    const itemValue = item ? itemGroup?.getValue?.(item) : null
+    // Recent items are stripped to { name, id? } — getValue on the source group
+    // (e.g. Persons expects distinct_ids) returns undefined. Use the canonical
+    // sourceValue recorded at first selection instead.
+    const itemValue = item
+        ? hasRecentContext(item)
+            ? (item._recentContext.sourceValue ?? itemGroup?.getValue?.(item))
+            : itemGroup?.getValue?.(item)
+        : null
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
@@ -643,12 +650,18 @@ export const InfiniteListRow = ({
 }
 
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
+    const { searchQuery, taxonomicGroupTypes, includeStaleEvents } = useValues(taxonomicFilterLogic)
+    const { setIncludeStaleEvents } = useActions(taxonomicFilterLogic)
 
-    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters } = useValues(infiniteListLogic)
+    const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
+        useValues(infiniteListLogic)
 
     const emptySearchQuery = searchQuery.trim().length === 0
     const suggestedFiltersBeforeSearching = isSuggestedFilters && emptySearchQuery
+    const canOfferStaleToggle =
+        !emptySearchQuery &&
+        !includeStaleEvents &&
+        (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
             {suggestedFiltersBeforeSearching ? (
@@ -680,6 +693,16 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
+                    {canOfferStaleToggle && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr="taxonomic-include-stale-events"
+                            onClick={() => setIncludeStaleEvents(true)}
+                        >
+                            Include stale events
+                        </LemonButton>
+                    )}
                 </>
             )}
         </div>

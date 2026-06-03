@@ -56,13 +56,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -109,6 +109,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -116,7 +117,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -180,13 +180,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -233,6 +233,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -240,7 +241,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -304,13 +304,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -357,6 +357,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -364,7 +365,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -438,13 +438,13 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -501,6 +501,7 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -508,7 +509,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -573,13 +573,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -627,6 +627,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -634,7 +635,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -708,13 +708,13 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -771,6 +771,7 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -778,7 +779,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -852,13 +852,13 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -915,6 +915,7 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -922,7 +923,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -996,13 +996,13 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1059,6 +1059,7 @@
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -1066,7 +1067,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1130,13 +1130,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1183,6 +1183,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -1190,7 +1191,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1254,13 +1254,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1307,6 +1307,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -1314,7 +1315,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1378,13 +1378,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1431,6 +1431,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -1438,7 +1439,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1502,13 +1502,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1555,6 +1555,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -1562,7 +1563,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1626,13 +1626,13 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
@@ -1679,6 +1679,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        load_balancing='in_order',
                        readonly=2,
                        max_execution_time=600,
@@ -1686,7 +1687,6 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=39728447488,
-                       enable_analyzer=1,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,

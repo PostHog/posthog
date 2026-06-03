@@ -7,14 +7,24 @@ import pytest
 
 import pytest_asyncio
 from asgiref.sync import async_to_sync, sync_to_async
-from temporalio.client import Client as TemporalClient
+from temporalio.client import (
+    Client as TemporalClient,
+    ScheduleActionStartWorkflow,
+)
 from temporalio.service import RPCError
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.client import sync_connect
 
-from products.data_warehouse.backend.data_load.service import _jitter_timedelta, get_sync_schedule
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.data_load.service import (
+    DISCOVER_SCHEMAS_INTERVAL,
+    _get_discover_schemas_schedule_id,
+    _jitter_timedelta,
+    get_discover_schemas_schedule,
+    get_sync_schedule,
+)
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = [
     pytest.mark.django_db,
@@ -199,6 +209,22 @@ async def test_get_sync_schedule(external_data_source, team, sync_frequency_inte
                 assert actual > expected - jitter
             else:
                 assert actual == expected
+
+
+class TestDiscoverSchemasSchedule:
+    @pytest.mark.asyncio
+    async def test_schedule_targets_discover_schemas_workflow(self, external_data_source) -> None:
+        schedule = get_discover_schemas_schedule(external_data_source)
+        action = schedule.action
+        assert isinstance(action, ScheduleActionStartWorkflow)
+        assert action.workflow == "discover-schemas"
+        assert action.id == _get_discover_schemas_schedule_id(str(external_data_source.id))
+        # Inputs are passed as a single positional dict matching SyncNewSchemasActivityInputs.
+        assert action.args[0] == {
+            "source_id": str(external_data_source.id),
+            "team_id": external_data_source.team_id,
+        }
+        assert schedule.spec.intervals[0].every == DISCOVER_SCHEMAS_INTERVAL
 
 
 def test_jitter_timedelta():

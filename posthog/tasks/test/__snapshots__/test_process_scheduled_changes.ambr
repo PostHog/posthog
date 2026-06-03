@@ -12,9 +12,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -50,9 +53,12 @@
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
          "posthog_filesystemshortcut"."order",
-         "posthog_filesystemshortcut"."created_at"
+         "posthog_filesystemshortcut"."created_at",
+         "posthog_filesystemshortcut"."surface"
   FROM "posthog_filesystemshortcut"
-  WHERE ("posthog_filesystemshortcut"."ref" = '0001'
+  WHERE (("posthog_filesystemshortcut"."surface" IS NULL
+          OR "posthog_filesystemshortcut"."surface" = 'web')
+         AND "posthog_filesystemshortcut"."ref" = '0001'
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'feature_flag'
          AND NOT ("posthog_filesystemshortcut"."path" = 'flag-1'
@@ -92,6 +98,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -145,7 +154,9 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
+         "posthog_taggeditem"."endpoint_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -161,7 +172,9 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
+         "posthog_taggeditem"."endpoint_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -205,6 +218,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -249,6 +263,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -303,6 +318,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -394,6 +412,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -503,6 +523,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
@@ -518,6 +539,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -580,6 +602,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -710,9 +734,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -729,9 +756,12 @@
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
          "posthog_filesystemshortcut"."order",
-         "posthog_filesystemshortcut"."created_at"
+         "posthog_filesystemshortcut"."created_at",
+         "posthog_filesystemshortcut"."surface"
   FROM "posthog_filesystemshortcut"
-  WHERE ("posthog_filesystemshortcut"."ref" = '0001'
+  WHERE (("posthog_filesystemshortcut"."surface" IS NULL
+          OR "posthog_filesystemshortcut"."surface" = 'web')
+         AND "posthog_filesystemshortcut"."ref" = '0001'
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'feature_flag'
          AND NOT ("posthog_filesystemshortcut"."path" = 'flag-1'
@@ -771,6 +801,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -853,7 +886,9 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
+         "posthog_taggeditem"."endpoint_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -869,7 +904,9 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
+         "posthog_taggeditem"."endpoint_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -913,6 +950,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -957,6 +995,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -1011,6 +1050,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1085,6 +1127,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -1324,6 +1368,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
@@ -1339,6 +1384,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1401,6 +1447,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -1531,9 +1579,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"

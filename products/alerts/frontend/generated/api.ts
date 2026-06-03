@@ -14,8 +14,11 @@ import type {
     AlertSimulateResponseApi,
     AlertsListParams,
     AlertsRetrieveParams,
+    InsightsThresholdsListParams,
     PaginatedAlertListApi,
+    PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
+    ThresholdWithAlertApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -132,7 +135,7 @@ export const getAlertsPartialUpdateUrl = (projectId: string, id: string) => {
 export const alertsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedAlertApi: NonReadonly<PatchedAlertApi>,
+    patchedAlertApi?: NonReadonly<PatchedAlertApi>,
     options?: RequestInit
 ): Promise<AlertApi> => {
     return apiMutator<AlertApi>(getAlertsPartialUpdateUrl(projectId, id), {
@@ -154,13 +157,13 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     })
 }
 
-/**
- * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
- */
 export const getAlertsSimulateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/alerts/simulate/`
 }
 
+/**
+ * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ */
 export const alertsSimulateCreate = async (
     projectId: string,
     alertSimulateApi: AlertSimulateApi,
@@ -171,5 +174,53 @@ export const alertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertSimulateApi),
+    })
+}
+
+export const getInsightsThresholdsListUrl = (
+    projectId: string,
+    insightId: number,
+    params?: InsightsThresholdsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${insightId}/thresholds/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${insightId}/thresholds/`
+}
+
+export const insightsThresholdsList = async (
+    projectId: string,
+    insightId: number,
+    params?: InsightsThresholdsListParams,
+    options?: RequestInit
+): Promise<PaginatedThresholdWithAlertListApi> => {
+    return apiMutator<PaginatedThresholdWithAlertListApi>(getInsightsThresholdsListUrl(projectId, insightId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsThresholdsRetrieveUrl = (projectId: string, insightId: number, id: string) => {
+    return `/api/projects/${projectId}/insights/${insightId}/thresholds/${id}/`
+}
+
+export const insightsThresholdsRetrieve = async (
+    projectId: string,
+    insightId: number,
+    id: string,
+    options?: RequestInit
+): Promise<ThresholdWithAlertApi> => {
+    return apiMutator<ThresholdWithAlertApi>(getInsightsThresholdsRetrieveUrl(projectId, insightId, id), {
+        ...options,
+        method: 'GET',
     })
 }

@@ -86,6 +86,86 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert len(db_results) == len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1
         assert "first_visit" not in [r["name"] for r in db_results]
 
+    def test_list_property_definitions_with_exclude_restricted(self):
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        # restrict "$browser" for the current user
+        prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        # without exclude_restricted, $browser should still appear
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "$browser" in [r["name"] for r in db_results]
+
+        # with exclude_restricted=true, $browser should be excluded
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "$browser" not in [r["name"] for r in db_results]
+
+    def test_list_property_definitions_exclude_restricted_does_not_affect_unrestricted(self):
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        # restrict "$browser" but not "plan"
+        prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "plan" in [r["name"] for r in db_results]
+        assert "$browser" not in [r["name"] for r in db_results]
+
+    def test_list_property_definitions_exclude_restricted_read_access_still_visible(self):
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        # set "$browser" to READ (not NONE) — should still be visible
+        prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.READ.value,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "$browser" in [r["name"] for r in db_results]
+
     def test_list_property_definitions_with_excluded_core_properties(self):
         # core property that doesn't start with $
         PropertyDefinition.objects.get_or_create(team=self.team, name="utm_medium")

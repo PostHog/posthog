@@ -25,7 +25,6 @@ lifecycle = { path = "../common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
-common-metrics = { path = "../common/metrics" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
@@ -57,6 +56,7 @@ aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
 lz-str = { workspace = true }
+lz4 = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
 sha2 = { workspace = true }

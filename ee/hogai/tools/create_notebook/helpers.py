@@ -4,12 +4,12 @@ from enum import Enum
 from posthog.models import Team, User
 
 from products.notebooks.backend.models import Notebook
+from products.posthog_ai.backend.models.assistant import AgentArtifact
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import StoredBlock, StoredNotebookArtifactContent, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
-from ee.models.assistant import AgentArtifact
 
 
 class ArtifactStatus(Enum):
@@ -78,7 +78,10 @@ async def save_notebook_to_db(
             if not query:
                 continue
             kind = query.get("kind", "")
-            if kind == "HogQLQuery" or "HogQL" in kind:
+            if kind == "DataVisualizationNode":
+                # Already a top-level SQL chart node, do not double-wrap.
+                notebook_query = query
+            elif kind == "HogQLQuery" or "HogQL" in kind:
                 notebook_query = {"kind": "DataVisualizationNode", "source": query}
             else:
                 notebook_query = {"kind": "InsightVizNode", "source": query}

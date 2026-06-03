@@ -1,17 +1,50 @@
 import { dayjs } from 'lib/dayjs'
 
+import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+
 import {
+    getDashboardTileDisplayName,
+    isWidgetTileVisibleOnPlacement,
     parseURLFilters,
     parseURLVariables,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
-    scheduleSharedDashboardStaleAutoForceIfEligible,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
 
-async function flushMicrotasks(): Promise<void> {
-    await new Promise<void>((resolve) => queueMicrotask(resolve))
-}
+describe('getDashboardTileDisplayName', () => {
+    it('uses widget header title when no custom name is set', () => {
+        const tile: DashboardTile<QueryBasedInsightModel> = {
+            id: 1,
+            widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
+            layouts: {},
+            color: null,
+        }
+
+        expect(getDashboardTileDisplayName(tile)).toBe('error_tracking_list')
+    })
+
+    it('uses custom widget name when set', () => {
+        const tile: DashboardTile<QueryBasedInsightModel> = {
+            id: 1,
+            widget: { id: '1', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
+            layouts: {},
+            color: null,
+        }
+
+        expect(getDashboardTileDisplayName(tile)).toBe('Critical errors')
+    })
+})
+
+describe('isWidgetTileVisibleOnPlacement', () => {
+    it.each([
+        [DashboardPlacement.Dashboard, true],
+        [DashboardPlacement.Public, false],
+        [DashboardPlacement.Export, false],
+    ])('placement=%s → %s', (placement, expected) => {
+        expect(isWidgetTileVisibleOnPlacement(placement)).toBe(expected)
+    })
+})
 
 describe('parseURLVariables', () => {
     it.each([
@@ -93,28 +126,5 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
-    })
-})
-
-describe('scheduleSharedDashboardStaleAutoForceIfEligible', () => {
-    it('does not invoke trigger when not stale', async () => {
-        const trigger = jest.fn()
-        scheduleSharedDashboardStaleAutoForceIfEligible({
-            effectiveLastRefresh: dayjs().subtract(15, 'minute'),
-            triggerDashboardRefresh: trigger,
-        })
-        await flushMicrotasks()
-        expect(trigger).not.toHaveBeenCalled()
-    })
-
-    it('invokes trigger on the next microtask when stale', async () => {
-        const trigger = jest.fn()
-        scheduleSharedDashboardStaleAutoForceIfEligible({
-            effectiveLastRefresh: dayjs().subtract(31, 'minute'),
-            triggerDashboardRefresh: trigger,
-        })
-        expect(trigger).not.toHaveBeenCalled()
-        await flushMicrotasks()
-        expect(trigger).toHaveBeenCalledTimes(1)
     })
 })

@@ -37,7 +37,10 @@ import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConve
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
-import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
+import {
+    ExperimentMetricOutlierHandling,
+    ExperimentRatioMetricOutlierHandling,
+} from './ExperimentMetricOutlierHandling'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -313,6 +316,7 @@ export function ExperimentMetricForm({
                             </>
                         )}
                         <Tooltip
+                            docLink="https://posthog.com/docs/experiments/exposures"
                             title={
                                 <div className="space-y-2">
                                     <p>
@@ -324,9 +328,6 @@ export function ExperimentMetricForm({
                                             ? 'The exposure event is shared across all metrics in this experiment.'
                                             : 'The exposure event will be configured at the experiment level and shared across all metrics.'}
                                     </p>
-                                    <Link to="https://posthog.com/docs/experiments/exposures">
-                                        Learn more in the docs
-                                    </Link>
                                 </div>
                             }
                         >
@@ -651,6 +652,12 @@ export function ExperimentMetricForm({
             {isExperimentMeanMetric(metric) && (
                 <>
                     <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
+            {isExperimentRatioMetric(metric) && (
+                <>
+                    <ExperimentRatioMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
                     <SceneDivider />
                 </>
             )}

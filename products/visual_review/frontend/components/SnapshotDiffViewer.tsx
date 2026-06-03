@@ -48,7 +48,7 @@ interface SnapshotDiffViewerProps {
     isApproving?: boolean
     onMarkTolerated?: () => void
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
-    onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null) => void
+    onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null, sourceRunId: string | null) => void
     onUnquarantine?: () => void
     commitSha?: string
     prNumber?: number | null
@@ -242,7 +242,7 @@ export function SnapshotDiffViewer({
                 </div>
 
                 {/* Right sidebar */}
-                <div className="w-52 shrink-0 border-l pl-4 space-y-4">
+                <div className="w-[250px] shrink-0 border-l pl-4 space-y-4">
                     {/* === Diff minimap === */}
                     {snapshot.diff_artifact?.download_url && (
                         <DiffMinimap

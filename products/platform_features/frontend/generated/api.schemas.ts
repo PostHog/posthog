@@ -7,193 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
-}
-
-export interface ApprovalPolicyApi {
-    readonly id: string
-    /** @maxLength 128 */
-    action_key: string
-    conditions?: unknown
-    approver_config: unknown
-    allow_self_approve?: boolean
-    bypass_org_membership_levels?: unknown
-    bypass_roles?: string[]
-    /** Auto-expire change requests after this duration */
-    expires_after?: string
-    enabled?: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedApprovalPolicyListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ApprovalPolicyApi[]
-}
-
-export interface PatchedApprovalPolicyApi {
-    readonly id?: string
-    /** @maxLength 128 */
-    action_key?: string
-    conditions?: unknown
-    approver_config?: unknown
-    allow_self_approve?: boolean
-    bypass_org_membership_levels?: unknown
-    bypass_roles?: string[]
-    /** Auto-expire change requests after this duration */
-    expires_after?: string
-    enabled?: boolean
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
-/**
- * * `valid` - Valid
- * `invalid` - Invalid
- * `expired` - Expired
- * `stale` - Stale (resource changed)
- */
-export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
-
-export const ValidationStatusEnumApi = {
-    Valid: 'valid',
-    Invalid: 'invalid',
-    Expired: 'expired',
-    Stale: 'stale',
-} as const
-
-/**
- * * `pending` - Pending
- * `approved` - Approved (awaiting application)
- * `applied` - Applied
- * `rejected` - Rejected
- * `expired` - Expired
- * `failed` - Failed to apply
- */
-export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
-
-export const ChangeRequestStateEnumApi = {
-    Pending: 'pending',
-    Approved: 'approved',
-    Applied: 'applied',
-    Rejected: 'rejected',
-    Expired: 'expired',
-    Failed: 'failed',
-} as const
-
-export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
-
-export interface ChangeRequestApi {
-    readonly id: string
-    readonly action_key: string
-    readonly action_version: number
-    readonly resource_type: string
-    /** @nullable */
-    readonly resource_id: string | null
-    readonly intent: unknown
-    readonly intent_display: unknown
-    readonly policy_snapshot: unknown
-    readonly validation_status: ValidationStatusEnumApi
-    readonly validation_errors: unknown | null
-    /** @nullable */
-    readonly validated_at: string | null
-    readonly state: ChangeRequestStateEnumApi
-    readonly created_by: UserBasicApi
-    readonly applied_by: UserBasicApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly expires_at: string
-    /** @nullable */
-    readonly applied_at: string | null
-    readonly apply_error: string
-    readonly result_data: unknown | null
-    readonly approvals: readonly ChangeRequestApiApprovalsItem[]
-    /** Check if current user can approve this change request. */
-    readonly can_approve: boolean
-    readonly can_cancel: boolean
-    /** Check if current user is the requester. */
-    readonly is_requester: boolean
-    /**
-     * Get the current user's approval decision if they have voted.
-     * @nullable
-     */
-    readonly user_decision: string | null
-}
-
-export interface PaginatedChangeRequestListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ChangeRequestApi[]
-}
-
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
@@ -230,6 +43,12 @@ export const DefaultExperimentStatsMethodEnumApi = {
     Frequentist: 'frequentist',
 } as const
 
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
@@ -246,7 +65,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -266,11 +85,28 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown: boolean | null
+    /** @nullable */
+    readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -320,7 +156,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -340,11 +176,28 @@ export interface PatchedOrganizationApi {
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked?: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown?: boolean | null
+    /** @nullable */
+    readonly is_hipaa?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -367,6 +220,55 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+}
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -539,6 +441,12 @@ export interface ActivityLogApi {
     user: UserBasicApi
     /** is the date of this log item newer than the user's bookmark */
     readonly unread: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    team_id?: number | null
     /** @nullable */
     organization_id?: string | null
     /** @nullable */
@@ -550,6 +458,8 @@ export interface ActivityLogApi {
      * @nullable
      */
     client?: string | null
+    /** @nullable */
+    ip_address?: string | null
     /** @maxLength 79 */
     activity: string
     /**
@@ -559,7 +469,7 @@ export interface ActivityLogApi {
     item_id?: string | null
     /** @maxLength 79 */
     scope: string
-    detail?: unknown | null
+    detail?: unknown
     created_at?: string
 }
 
@@ -603,6 +513,134 @@ export interface AvailableFiltersResponseApi {
     detail_fields: AvailableFiltersResponseApiDetailFields
 }
 
+export interface ApprovalPolicyApi {
+    readonly id: string
+    /** @maxLength 128 */
+    action_key: string
+    conditions?: unknown
+    approver_config: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedApprovalPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ApprovalPolicyApi[]
+}
+
+export interface PatchedApprovalPolicyApi {
+    readonly id?: string
+    /** @maxLength 128 */
+    action_key?: string
+    conditions?: unknown
+    approver_config?: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `valid` - Valid
+ * `invalid` - Invalid
+ * `expired` - Expired
+ * `stale` - Stale (resource changed)
+ */
+export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
+
+export const ValidationStatusEnumApi = {
+    Valid: 'valid',
+    Invalid: 'invalid',
+    Expired: 'expired',
+    Stale: 'stale',
+} as const
+
+/**
+ * * `pending` - Pending
+ * `approved` - Approved (awaiting application)
+ * `applied` - Applied
+ * `rejected` - Rejected
+ * `expired` - Expired
+ * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
+
+export const ChangeRequestStateEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
+
+export interface ChangeRequestApi {
+    readonly id: string
+    readonly action_key: string
+    readonly action_version: number
+    readonly resource_type: string
+    /** @nullable */
+    readonly resource_id: string | null
+    readonly intent: unknown
+    readonly intent_display: unknown
+    readonly policy_snapshot: unknown
+    readonly validation_status: ValidationStatusEnumApi
+    readonly validation_errors: unknown
+    /** @nullable */
+    readonly validated_at: string | null
+    readonly state: ChangeRequestStateEnumApi
+    readonly created_by: UserBasicApi
+    readonly applied_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly expires_at: string
+    /** @nullable */
+    readonly applied_at: string | null
+    readonly apply_error: string
+    readonly result_data: unknown
+    readonly approvals: readonly ChangeRequestApiApprovalsItem[]
+    /** Check if current user can approve this change request. */
+    readonly can_approve: boolean
+    readonly can_cancel: boolean
+    /** Check if current user is the requester. */
+    readonly is_requester: boolean
+    /**
+     * Get the current user's approval decision if they have voted.
+     * @nullable
+     */
+    readonly user_decision: string | null
+}
+
+export interface PaginatedChangeRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChangeRequestApi[]
+}
+
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -616,7 +654,7 @@ export interface CommentApi {
     readonly completed_by: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version: number
     readonly created_at: string
     /**
@@ -624,7 +662,7 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope: string
     /**
@@ -657,7 +695,7 @@ export interface PatchedCommentApi {
     readonly completed_by?: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version?: number
     readonly created_at?: string
     /**
@@ -665,7 +703,7 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope?: string
     /**
@@ -675,6 +713,14 @@ export interface PatchedCommentApi {
     readonly completed_at?: string | null
     /** @nullable */
     source_comment?: string | null
+}
+
+export interface PromotedProductIntentApi {
+    /**
+     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+     * @nullable
+     */
+    product_key: string | null
 }
 
 export interface PinnedSceneTabApi {
@@ -723,36 +769,6 @@ export interface PatchedPinnedSceneTabsApi {
     tabs?: PinnedSceneTabApi[]
     /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
     homepage?: PinnedSceneTabApi | null
-}
-
-export type ApprovalPoliciesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ChangeRequestsListParams = {
-    action_key?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    requester?: number
-    resource_id?: string
-    resource_type?: string
-    /**
-     * Multiple values may be separated by commas.
-     */
-    state?: string[]
 }
 
 export type ListParams = {
@@ -877,14 +893,17 @@ export type ActivityLogListParams = {
 * `AlertSubscription` - AlertSubscription
 * `ExternalDataSource` - ExternalDataSource
 * `ExternalDataSchema` - ExternalDataSchema
+* `Evaluation` - Evaluation
 * `LLMTrace` - LLMTrace
 * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
 * `CustomerProfileConfig` - CustomerProfileConfig
 * `Log` - Log
 * `LogsAlertConfiguration` - LogsAlertConfiguration
 * `LogsExclusionRule` - LogsExclusionRule
+* `DashboardWidget` - DashboardWidget
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
+* `InstanceSetting` - InstanceSetting
  * @minLength 1
  */
     scope?: ActivityLogListScope
@@ -951,14 +970,17 @@ export const ActivityLogListScope = {
     AlertSubscription: 'AlertSubscription',
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
+    Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    InstanceSetting: 'InstanceSetting',
 } as const
 
 /**
@@ -1012,14 +1034,17 @@ export const ActivityLogListScope = {
  * `AlertSubscription` - AlertSubscription
  * `ExternalDataSource` - ExternalDataSource
  * `ExternalDataSchema` - ExternalDataSchema
+ * `Evaluation` - Evaluation
  * `LLMTrace` - LLMTrace
  * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * `CustomerProfileConfig` - CustomerProfileConfig
  * `Log` - Log
  * `LogsAlertConfiguration` - LogsAlertConfiguration
  * `LogsExclusionRule` - LogsExclusionRule
+ * `DashboardWidget` - DashboardWidget
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
+ * `InstanceSetting` - InstanceSetting
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1074,26 +1099,52 @@ export const ActivityLogListScopesItem = {
     AlertSubscription: 'AlertSubscription',
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
+    Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    InstanceSetting: 'InstanceSetting',
 } as const
 
 export type AdvancedActivityLogsListParams = {
+    /**
+     * Filter by activity types (e.g. "created", "updated", "deleted").
+     */
     activities?: string[]
+    /**
+     * Filter by API clients that generated the activity (from x-posthog-client header).
+     */
     clients?: string[]
+    /**
+     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
+     */
     detail_filters?: string
+    /**
+     * Upper bound on `created_at` (inclusive), ISO-8601.
+     */
     end_date?: string
+    /**
+     * Reserved for future HogQL-based filtering.
+     */
     hogql_filter?: string
     /**
+     * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
+     */
+    ip_addresses?: string[]
+    /**
+     * When set, filters rows authored by the system (no user).
      * @nullable
      */
     is_system?: boolean | null
+    /**
+     * Filter by the `item_id` of the affected resource(s).
+     */
     item_ids?: string[]
     /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
@@ -1106,14 +1157,61 @@ export type AdvancedActivityLogsListParams = {
      * @maximum 1000
      */
     page_size?: number
+    /**
+     * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
+     */
     scopes?: string[]
+    /**
+     * Free-text search across the `detail` JSON column.
+     */
     search_text?: string
+    /**
+     * Lower bound on `created_at` (inclusive), ISO-8601.
+     */
     start_date?: string
+    /**
+     * Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.
+     */
+    team_ids?: number[]
+    /**
+     * Filter by users who performed the activity (user UUIDs).
+     */
     users?: string[]
     /**
+     * When set, filters rows where the actor was impersonating another user.
      * @nullable
      */
     was_impersonated?: boolean | null
+}
+
+export type ApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ChangeRequestsListParams = {
+    action_key?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    requester?: number
+    resource_id?: string
+    resource_type?: string
+    /**
+     * Multiple values may be separated by commas.
+     */
+    state?: string[]
 }
 
 export type CommentsListParams = {

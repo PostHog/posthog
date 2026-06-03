@@ -8,6 +8,11 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * @nullable
+ */
+export type BatchImportApiCreatedBy = { [key: string]: unknown } | null
+
+/**
  * * `completed` - Completed
  * `failed` - Failed
  * `paused` - Paused
@@ -23,11 +28,6 @@ export const BatchImportStatusEnumApi = {
 } as const
 
 /**
- * @nullable
- */
-export type BatchImportApiCreatedBy = { [key: string]: unknown } | null | null
-
-/**
  * Serializer for BatchImport model
  */
 export interface BatchImportApi {
@@ -35,7 +35,7 @@ export interface BatchImportApi {
     readonly team_id: number
     readonly created_at: string
     readonly updated_at: string
-    readonly state: unknown | null
+    readonly state: unknown
     /** @nullable */
     readonly created_by: BatchImportApiCreatedBy
     readonly status: BatchImportStatusEnumApi
@@ -44,19 +44,10 @@ export interface BatchImportApi {
     readonly import_config: unknown
 }
 
-export interface PaginatedBatchImportListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchImportApi[]
-}
-
 /**
  * @nullable
  */
-export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null
 
 /**
  * Serializer for BatchImport model
@@ -66,7 +57,7 @@ export interface PatchedBatchImportApi {
     readonly team_id?: number
     readonly created_at?: string
     readonly updated_at?: string
-    readonly state?: unknown | null
+    readonly state?: unknown
     /** @nullable */
     readonly created_by?: PatchedBatchImportApiCreatedBy
     readonly status?: BatchImportStatusEnumApi
@@ -74,38 +65,3 @@ export interface PatchedBatchImportApi {
     readonly display_status_message?: string | null
     readonly import_config?: unknown
 }
-
-export type ManagedMigrationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-    /**
-     * A search term.
-     */
-    search?: string
-    /**
-     * * `completed` - Completed
-     * `failed` - Failed
-     * `paused` - Paused
-     * `running` - Running
-     */
-    status?: ManagedMigrationsListStatus
-}
-
-export type ManagedMigrationsListStatus = (typeof ManagedMigrationsListStatus)[keyof typeof ManagedMigrationsListStatus]
-
-export const ManagedMigrationsListStatus = {
-    Completed: 'completed',
-    Failed: 'failed',
-    Paused: 'paused',
-    Running: 'running',
-} as const

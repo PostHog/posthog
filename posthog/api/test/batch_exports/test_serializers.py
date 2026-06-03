@@ -12,9 +12,10 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.batch_exports.http import BatchExportDestinationSerializer, BatchExportSerializer
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
+
+from products.batch_exports.backend.api.batch_export import BatchExportDestinationSerializer, BatchExportSerializer
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
@@ -146,7 +147,16 @@ class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
         foreign_integration = self._make_integration(foreign_team)
 
         serializer = BatchExportDestinationSerializer(
-            data={"type": "Databricks", "config": {}, field_name: foreign_integration.pk},
+            data={
+                "type": "Databricks",
+                "config": {
+                    "http_path": "/sql/1.0/warehouses/abc",
+                    "catalog": "main",
+                    "schema": "default",
+                    "table_name": "events",
+                },
+                field_name: foreign_integration.pk,
+            },
             context={"team_id": self.team.pk},
         )
         assert not serializer.is_valid()

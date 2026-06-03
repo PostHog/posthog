@@ -639,6 +639,11 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(dashboard.team, user.team)
         self.assertEqual(dashboard.tiles.count(), 6)
         self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(
+            dashboard.description,
+            "A starter view of how people use your app: how many visit, whether they come back, "
+            "where traffic comes from, and how they move through your pages.",
+        )
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -2115,7 +2120,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
 
@@ -2146,7 +2151,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # Create a separate organization with advanced permissions enabled
         organization = Organization.objects.create(name="Test Organization")
         organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         organization.save()
 
@@ -2178,7 +2183,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_invite_has_private_project_access(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         private_project = Team.objects.create(name="Private project", organization=self.organization)
@@ -2218,7 +2223,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         private_project = Team.objects.create(name="Private project", organization=self.organization)
@@ -2862,6 +2867,66 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
 
+    @parameterized.expand(
+        [
+            ("org_enforces_2fa", True, True),
+            ("org_does_not_enforce_2fa", False, False),
+        ]
+    )
+    def test_passkey_invite_signup_passkeys_enabled_for_2fa(
+        self, _name: str, org_enforce_2fa: bool, expected_passkeys_enabled_for_2fa: bool
+    ):
+        """
+        Passkey signups into orgs that enforce 2FA must auto-enable the passkey as the 2FA factor.
+        Otherwise the user lands behind the undismissable 2FA setup modal that only offers TOTP —
+        which platform passkeys (macOS/iOS) cannot accept.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        suffix = "enforced" if org_enforce_2fa else "unenforced"
+        target_email = f"passkey_invite_{suffix}@posthog.com"
+        self.organization.enforce_2fa = org_enforce_2fa
+        self.organization.save(update_fields=["enforce_2fa"])
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email=target_email, organization=self.organization
+        )
+
+        # APIBaseTest leaves self.client authenticated as self.user, which would push the flow
+        # down the "already authenticated" branch and skip new-user creation entirely.
+        self.client.logout()
+
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = target_email
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(f"cred-{suffix}".encode()),
+            "public_key": bytes_to_base64url(f"pk-{suffix}".encode()),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        self.client.cookies["sessionid"] = session.session_key or ""
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Passkey", "last_name": "Invite"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email=target_email)
+        self.assertEqual(WebauthnCredential.objects.filter(user=user, verified=True).count(), 1)
+        self.assertEqual(user.passkeys_enabled_for_2fa, expected_passkeys_enabled_for_2fa)
+
 
 class TestSignupPrecheckPendingInvite(APIBaseTest):
     def setUp(self):
@@ -2939,6 +3004,7 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
 
 class TestSignupResendInvite(APIBaseTest):
     def setUp(self):
+        cache.clear()
         super().setUp()
         self.client.logout()
 
@@ -2987,3 +3053,32 @@ class TestSignupResendInvite(APIBaseTest):
         # Status reflects that an invite exists, but no email goes out.
         self.assertEqual(response.json(), {"sent": True})
         mock_send.assert_not_called()
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_throttles_per_email_after_five_requests(self, _mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com")
+        for i in range(6):
+            response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+            if i < 5:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
+                )
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_throttle_is_per_email_not_global(self, _mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com")
+        self._create_invite("bob@acme.com")
+        # Exhaust alice's bucket
+        for _ in range(5):
+            self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        alice_blocked = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        self.assertEqual(alice_blocked.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # Bob still has a fresh bucket
+        bob_ok = self.client.post("/api/signup/resend-invite", {"email": "bob@acme.com"})
+        self.assertEqual(bob_ok.status_code, status.HTTP_200_OK)

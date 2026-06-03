@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from posthog.temporal.data_imports.sources.common.rest_source.exceptions import IgnoreResponseException
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, SinglePagePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient, RESTClientRetryableError
@@ -109,6 +110,21 @@ class TestRESTClient:
         )
 
         assert len(pages) == 0
+
+    # The auth's secret must be registered with the tracked session so it's masked from
+    # logs even when injected into a query param / custom header; no auth → nothing to redact.
+    @pytest.mark.parametrize(
+        "auth,expected_redact_values",
+        [
+            (APIKeyAuth(api_key="sk_live_x", name="key", location="query"), ("sk_live_x",)),
+            (None, ()),
+        ],
+    )
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_builds_session_with_credentials_for_redaction(self, MockSession, auth, expected_redact_values) -> None:
+        MockSession.return_value.headers = {}
+        RESTClient(base_url="https://api.example.com", auth=auth)
+        assert MockSession.call_args.kwargs["redact_values"] == expected_redact_values
 
     def test_join_url(self) -> None:
         client = RESTClient(base_url="https://api.example.com")
@@ -217,8 +233,9 @@ class TestRESTClient:
         prepared_request = mock_session.prepare_request.call_args.args[0]
         assert prepared_request.params == {"limit": 100, "name": "alice"}
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_429(self, MockSession) -> None:
+    def test_send_request_retries_on_429(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -235,8 +252,9 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_500(self, MockSession) -> None:
+    def test_send_request_retries_on_500(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -253,8 +271,9 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_raises_after_max_retries(self, MockSession) -> None:
+    def test_send_request_raises_after_max_retries(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -267,8 +286,9 @@ class TestRESTClient:
         with pytest.raises(RESTClientRetryableError):
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_respects_retry_after_header(self, MockSession) -> None:
+    def test_send_request_respects_retry_after_header(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -285,3 +305,4 @@ class TestRESTClient:
 
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
+        mock_sleep.assert_called_once_with(90.0)

@@ -35,8 +35,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models import Action, Filter, Team
-from posthog.models.action.util import format_action_filter
+from posthog.models import Filter, Team
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.dependencies import get_cohort_dependents
@@ -56,6 +55,9 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+
+from products.actions.backend.models.action import Action
+from products.actions.backend.models.util import format_action_filter
 
 if TYPE_CHECKING:
     from posthog.personhog_client import ReadConsistency
@@ -693,6 +695,15 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         raise
 
 
+def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+
+    # Clickhouse rejects a top-level SETTINGS clause when the SELECT is used as a subquery, so we trim it.
+    return sql[: sql.rfind("SETTINGS")], hogql_context
+
+
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
@@ -707,16 +718,8 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
-        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-        cohort_query, hogql_context = (
-            HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
-        )
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
         cohort_params = hogql_context.values
-
-        # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
-        # statement is used in a subquery. We remove it here.
-        cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
@@ -1066,21 +1069,13 @@ def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
 
 
 def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
-    from posthog.queries.cohort_query import CohortQuery
+    # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
+    # it's being populated for the first time, so we evaluate the criteria rather than reading the
+    # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
+    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
 
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
-    query_builder = CohortQuery(
-        Filter(
-            data={"properties": cohort.properties},
-            team=team,
-            hogql_context=context,
-        ),
-        team,
-        cohort_pk=cohort.pk,
-        persons_on_events_mode=team.person_on_events_mode,
-    )
-    base_query, params = query_builder.get_query()
-    return f"SELECT id AS actor_id FROM ({base_query})", params, context
+    # Params live on hogql_context.values, which the consumer already spreads — pass {} to avoid spreading twice.
+    return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
 
 
 def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
@@ -1449,9 +1444,7 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
         return 0
 
     def orm_fn() -> int:
-        qs = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            cohort_id=cohort_id, person__team_id=team_id
-        )
+        qs = CohortPeople.objects.filter(cohort_id=cohort_id)  # nosemgrep: no-direct-persons-db-orm
         if consistency == "strong":
             from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 

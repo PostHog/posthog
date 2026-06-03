@@ -8,12 +8,15 @@ still directly imports from service/models layers (violating product architectur
 This will be refactored incrementally in subsequent PRs to match the product architecture pattern.
 """
 
+import json
 import asyncio
 from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
+from django.utils.text import slugify
 
+import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
@@ -21,16 +24,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -38,8 +37,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
-# TODO: Route through facade instead of direct import
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
@@ -49,14 +48,71 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.presentation.serializers import (
     CopyExperimentToProjectSerializer,
+    CreateFromPromptInputSerializer,
     EndExperimentSerializer,
     ExperimentSerializer,
     ShipVariantSerializer,
 )
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+
+PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
+
+
+def _is_prompt_experiments_feature_enabled(user: User, team: Team) -> bool:
+    distinct_id = user.distinct_id or str(user.uuid)
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    return posthoganalytics.feature_enabled(
+        PROMPT_EXPERIMENTS_FEATURE_FLAG,
+        distinct_id,
+        groups={"organization": organization_id, "project": project_id},
+        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
+    """Build N feature flag variants from an ordered list of prompt versions.
+
+    First variant is keyed "control" (required by ExperimentService._validate_existing_flag
+    when the experiment is later launched). For the standard 2-variant case the second is
+    keyed "test", matching the rest of the codebase's defaults. For N >= 3 the trailing
+    variants are keyed "test-1", "test-2", … so each key stays unique.
+    The human-readable prompt version goes in the variant name so chart legends stay readable.
+    Splits are integers summing to 100; the last variant absorbs any remainder.
+    """
+    n = len(versions)
+    base = 100 // n
+    splits = [base] * n
+    splits[-1] += 100 - base * n
+    variants: list[dict[str, Any]] = []
+    for i, (version, split) in enumerate(zip(versions, splits)):
+        if i == 0:
+            key = "control"
+        elif n == 2:
+            key = "test"
+        else:
+            key = f"test-{i}"
+        variants.append({"key": key, "name": f"v{version}", "rollout_percentage": split})
+    return variants
+
+
+def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
+    """Slugify a feature flag name, adding a numeric suffix if the slug already exists for this team."""
+    base = slugify(name)[:200] or "experiment"
+    candidate = base
+    suffix = 2
+    while FeatureFlag.objects.filter(team_id=team_id, key=candidate).exists():
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
 
 
 @extend_schema_view(
@@ -119,6 +175,16 @@ from ee.clickhouse.queries.experiments.utils import requires_flag_warning
                 required=False,
             ),
             OpenApiParameter(
+                name="prompt_name",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                description=(
+                    "Filter to experiments created from an LLM prompt with this name. "
+                    "Matches experiments whose parameters.prompt_metadata.name equals the given value."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
                 name="order",
                 location=OpenApiParameter.QUERY,
                 type=str,
@@ -133,7 +199,6 @@ from ee.clickhouse.queries.experiments.utils import requires_flag_warning
     # DELETE /experiments/{id}/
     # Logic and API docs defined in posthog/api/forbid_destroy_model.py (hard delete not allowed)
 )
-@extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     # ApprovalHandlingMixin converts ApprovalRequired exceptions (raised by
     # FeatureFlagSerializer in ship_variant) into 409 HTTP responses. The
@@ -288,11 +353,14 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
     def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-        Ship a variant to 100% of users and (optionally) end the experiment.
+        Ship a variant and (optionally) end the experiment.
 
-        Rewrites the feature flag so that the selected variant is served to everyone.
-        Existing release conditions (flag groups) are preserved so the change can be
-        rolled back by deleting the auto-added release condition in the feature flag UI.
+        Updates the feature flag so the selected variant gets 100% of the variant
+        distribution. By default, existing release conditions on the flag are preserved
+        untouched — the variant is served only to users who already match them. Pass
+        ``release_to_everyone: true`` to also prepend a catch-all release condition
+        that rolls the variant out to 100% of users (overrides any existing release
+        conditions on the flag).
 
         Can be called on both running and stopped experiments. If the experiment is
         still running, it will also be ended (end_date set and status marked as stopped).
@@ -313,6 +381,7 @@ class EnterpriseExperimentsViewSet(
         shipped_experiment = service.ship_variant(
             experiment,
             variant_key=request_serializer.validated_data["variant_key"],
+            release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             request=request,
@@ -404,6 +473,114 @@ class EnterpriseExperimentsViewSet(
         return Response(
             ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
         )
+
+    @extend_schema(
+        request=CreateFromPromptInputSerializer,
+        responses=ExperimentSerializer,
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="create_from_prompt",
+        # Endpoint reads an LLMPrompt's name + versions to validate input, so the caller
+        # needs prompt-read scope in addition to experiment-write. Without llm_prompt:read,
+        # a token with experiment:write alone could enumerate existing prompts by guessing
+        # names.
+        required_scopes=["experiment:write", "llm_prompt:read"],
+    )
+    def create_from_prompt(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Create an experiment that compares N versions of an LLM prompt using a metric template.
+
+        The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+        (cost / latency / eval_pass_rate). The endpoint builds the matching variants
+        (control + test-N, each named after its prompt version) and attaches one
+        metric per selected template, each scoped to the prompt's $ai_prompt_name.
+        Resulting experiment is in draft state.
+        """
+        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
+            return Response({"detail": "Not found."}, status=404)
+
+        serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        prompt_name: str = data["prompt_name"]
+        versions: list[int] = data["versions"]
+        templates: list[str] = data["templates"]
+        versions_label = ", ".join(f"v{v}" for v in versions)
+        templates_label = ", ".join(templates)
+        name = data.get("name") or f"{prompt_name}: {versions_label} ({templates_label})"
+        feature_flag_key = data.get("feature_flag_key") or _slugify_feature_flag_key(name, team_id=self.team.id)
+
+        metrics: list[dict[str, Any]] = []
+        for template in templates:
+            metric_dict = build_template(template, prompt_name).model_dump(exclude_none=True)
+            metric_dict.setdefault("kind", "ExperimentMetric")
+            metrics.append(metric_dict)
+
+        variants = _build_prompt_variants(versions)
+        # Encode (prompt_name, prompt_version) as a JSON payload per variant so the SDK can
+        # read it via flags.get_flag_payload(...) instead of hard-coding a variant→version map.
+        feature_flag_payloads = {
+            variant["key"]: json.dumps({"prompt_name": prompt_name, "prompt_version": version})
+            for variant, version in zip(variants, versions)
+        }
+
+        service = ExperimentService(team=self.team, user=request.user)
+        experiment = service.create_experiment(
+            name=name,
+            feature_flag_key=feature_flag_key,
+            description=data.get("description", ""),
+            parameters={
+                "feature_flag_variants": variants,
+                "feature_flag_payloads": feature_flag_payloads,
+                "rollout_percentage": 100,
+                "prompt_metadata": {
+                    "name": prompt_name,
+                    "templates": templates,
+                    "versions": versions,
+                },
+            },
+            metrics=metrics,
+            serializer_context=self.get_serializer_context(),
+            allow_unknown_events=True,
+        )
+
+        return Response(
+            ExperimentSerializer(experiment, context=self.get_serializer_context()).data,
+            status=201,
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "label": {"type": "string"},
+                        "description": {"type": "string"},
+                    },
+                    "required": ["key", "label", "description"],
+                },
+            }
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="prompt_templates",
+        required_scopes=["experiment:read"],
+    )
+    def prompt_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the LLM metric templates that can be passed to `create_from_prompt`."""
+        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
+            return Response({"detail": "Not found."}, status=404)
+
+        return Response(list_templates())
 
     @extend_schema(
         request=CopyExperimentToProjectSerializer,
@@ -611,27 +788,3 @@ class EnterpriseExperimentsViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
-
-
-@mutable_receiver(model_activity_signal, sender=Experiment)
-def handle_experiment_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
-        ),
-    )

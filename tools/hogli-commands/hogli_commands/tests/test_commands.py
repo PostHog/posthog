@@ -8,7 +8,7 @@ import time
 import pytest
 from unittest.mock import patch
 
-from hogli_commands.commands import _infer_process_manager, _is_posthog_dev
+from hogli_commands.telemetry_props import _infer_process_manager, _is_posthog_dev
 
 
 class TestProcessManagerInference:
@@ -46,13 +46,13 @@ class TestIsPosthogDev:
         self._write_config(_config_dir, is_posthog_org_member=True, org_check_timestamp=time.time())
         assert _is_posthog_dev() is True
 
-    @patch("hogli_commands.commands._check_github_org_membership", return_value=True)
+    @patch("hogli_commands.telemetry_props._check_github_org_membership", return_value=True)
     def test_cache_miss_calls_gh_and_persists(self, _mock_gh, _config_dir):
         assert _is_posthog_dev() is True
         assert json.loads(_config_dir.read_text())["is_posthog_org_member"] is True
 
-    @patch("hogli_commands.commands._check_email_domain", return_value=True)
-    @patch("hogli_commands.commands._check_github_org_membership", return_value=None)
+    @patch("hogli_commands.telemetry_props._check_email_domain", return_value=True)
+    @patch("hogli_commands.telemetry_props._check_github_org_membership", return_value=None)
     def test_gh_unavailable_falls_back_to_email_and_caches(self, _mock_gh, mock_email, _config_dir):
         assert _is_posthog_dev() is True
         mock_email.assert_called_once()

@@ -23,7 +23,24 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai_observability.eval_reports.schedule import (
+    create_count_trigger_schedule,
+    create_eval_reports_schedule,
+)
+from posthog.temporal.ai_observability.evaluation_clustering.schedule import (
+    create_evaluation_clustering_schedule,
+    create_evaluation_sampler_schedule,
+)
+from posthog.temporal.ai_observability.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
+from posthog.temporal.ai_observability.trace_summarization.schedule import (
+    create_batch_generation_summarization_schedule,
+    create_batch_trace_summarization_schedule,
+)
 from posthog.temporal.alerts.schedule import (
+    create_cleanup_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_schedule_due_alert_checks_schedule,
 )
@@ -39,22 +56,6 @@ from posthog.temporal.experiments.schedule import (
 )
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
-from posthog.temporal.llm_analytics.eval_reports.schedule import (
-    create_count_trigger_schedule,
-    create_eval_reports_schedule,
-)
-from posthog.temporal.llm_analytics.evaluation_clustering.schedule import (
-    create_evaluation_clustering_schedule,
-    create_evaluation_sampler_schedule,
-)
-from posthog.temporal.llm_analytics.trace_clustering.schedule import (
-    create_generation_clustering_coordinator_schedule,
-    create_trace_clustering_coordinator_schedule,
-)
-from posthog.temporal.llm_analytics.trace_summarization.schedule import (
-    create_batch_generation_summarization_schedule,
-    create_batch_trace_summarization_schedule,
-)
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
@@ -69,12 +70,15 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
-from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -364,11 +368,12 @@ async def create_wa_weekly_digest_schedule(client: Client):
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Weekly at Monday 9 AM UTC",
-                    hour=[ScheduleRange(start=9, end=9)],
-                    day_of_week=[ScheduleRange(start=1, end=1)],
+                    comment="Weekly at Thursday 5 PM PT",
+                    hour=[ScheduleRange(start=17, end=17)],
+                    day_of_week=[ScheduleRange(start=4, end=4)],
                 )
-            ]
+            ],
+            time_zone_name="America/Los_Angeles",
         ),
     )
 
@@ -495,6 +500,47 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
             await a_delete_schedule(client, schedule_id)
 
 
+async def create_run_usage_reports_schedule(client: Client):
+    """Daily Temporal-based usage report run at 04:45 UTC.
+
+    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
+    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
+    side. The workflow writes per-org usage data to S3 and sends a single SQS
+    pointer to the billing service.
+    """
+    run_usage_reports_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-usage-reports",
+            # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
+            # `dataclasses.asdict` would TypeError on registration.
+            RunUsageReportsInputs().model_dump(mode="json"),
+            id="run-usage-reports-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 04:45 UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "run-usage-reports-schedule"):
+        await a_update_schedule(client, "run-usage-reports-schedule", run_usage_reports_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "run-usage-reports-schedule",
+            run_usage_reports_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -563,12 +609,16 @@ schedules = [
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
+    create_cleanup_alert_checks_schedule,
+    create_signals_scout_coordinator_schedule,
+    create_replay_vision_reconciler_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
     # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
     # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
     schedules.append(create_gemini_cleanup_sweep_schedule)
+    schedules.append(create_run_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

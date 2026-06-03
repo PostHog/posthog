@@ -12,7 +12,8 @@ from django.utils import timezone
 import structlog
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.insight import Insight
+
+from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -25,7 +26,7 @@ class SharingConfiguration(models.Model):
     # Relations
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
     recording = models.ForeignKey(
         "SessionRecording",
         related_name="sharing_configurations",
@@ -36,6 +37,13 @@ class SharingConfiguration(models.Model):
     )
     notebook = models.ForeignKey(
         "notebooks.Notebook",
+        related_name="sharing_configurations",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    interviewee_context = models.ForeignKey(
+        "user_interviews.IntervieweeContext",
         related_name="sharing_configurations",
         on_delete=models.CASCADE,
         null=True,
@@ -70,6 +78,7 @@ class SharingConfiguration(models.Model):
             insight=self.insight,
             recording=self.recording,
             notebook=self.notebook,
+            interviewee_context=self.interviewee_context,
             enabled=self.enabled,
             settings=self.settings,
             password_required=self.password_required,
@@ -126,7 +135,7 @@ class SharingConfiguration(models.Model):
         if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [self.insight, self.dashboard, self.recording, self.notebook]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
             if comparison and comparison == obj:
                 return True
 

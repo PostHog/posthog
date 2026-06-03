@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, formatDate, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView, formatDate } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { ActionView, type ActionData } from './ActionView'
 
@@ -29,12 +30,14 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
                         sortable: true,
                         render: (row): ReactNode =>
                             onActionClick ? (
-                                <button
+                                <Button
+                                    variant="link"
+                                    size="sm"
                                     onClick={() => handleClick(row)}
-                                    className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors"
+                                    className="h-auto px-0 text-left"
                                 >
                                     {row.name}
-                                </button>
+                                </Button>
                             ) : (
                                 row.name
                             ),
@@ -46,20 +49,18 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
                             row.tags?.length ? (
                                 <div className="flex gap-1 flex-wrap">
                                     {row.tags.map((tag) => (
-                                        <Badge key={tag} variant="neutral" size="sm">
-                                            {tag}
-                                        </Badge>
+                                        <Badge key={tag}>{tag}</Badge>
                                     ))}
                                 </div>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                     {
                         key: 'steps' as keyof ActionData,
                         header: 'Steps',
                         render: (row): ReactNode => (
-                            <span className="text-text-secondary">{row.steps?.length ?? 0}</span>
+                            <span className="text-muted-foreground">{row.steps?.length ?? 0}</span>
                         ),
                     },
                     {
@@ -68,18 +69,18 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
                         sortable: true,
                         render: (row): ReactNode =>
                             row.created_at ? (
-                                <span className="text-text-secondary">{formatDate(row.created_at)}</span>
+                                <span className="text-muted-foreground">{formatDate(row.created_at)}</span>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                 ]
 
                 return (
                     <div className="p-4">
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-text-secondary">
+                                <span className="text-sm text-muted-foreground">
                                     {data.results.length} action{data.results.length === 1 ? '' : 's'}
                                 </span>
                             </div>
@@ -90,7 +91,7 @@ export function ActionListView({ data, onActionClick }: ActionListViewProps): Re
                                 defaultSort={{ key: 'name', direction: 'asc' }}
                                 emptyMessage="No actions found"
                             />
-                        </Stack>
+                        </div>
                     </div>
                 )
             }}

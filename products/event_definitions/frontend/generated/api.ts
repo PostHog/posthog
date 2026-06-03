@@ -122,7 +122,7 @@ export const getEventDefinitionsPartialUpdateUrl = (projectId: string, id: strin
 export const eventDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEnterpriseEventDefinitionApi: NonReadonly<PatchedEnterpriseEventDefinitionApi>,
+    patchedEnterpriseEventDefinitionApi?: NonReadonly<PatchedEnterpriseEventDefinitionApi>,
     options?: RequestInit
 ): Promise<EnterpriseEventDefinitionApi> => {
     return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsPartialUpdateUrl(projectId, id), {
@@ -159,8 +159,20 @@ export const eventDefinitionsMetricsRetrieve = async (
     })
 }
 
+export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
+}
+
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -170,10 +182,6 @@ Actions:
 - "remove": Remove specific tags from each object
 - "set": Replace all tags on each object with the provided list
  */
-export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
-}
-
 export const eventDefinitionsBulkUpdateTagsCreate = async (
     projectId: string,
     bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
@@ -187,9 +195,6 @@ export const eventDefinitionsBulkUpdateTagsCreate = async (
     })
 }
 
-/**
- * Get event definition by exact name
- */
 export const getEventDefinitionsByNameRetrieveUrl = (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams
@@ -209,6 +214,9 @@ export const getEventDefinitionsByNameRetrieveUrl = (
         : `/api/projects/${projectId}/event_definitions/by_name/`
 }
 
+/**
+ * Get event definition by exact name
+ */
 export const eventDefinitionsByNameRetrieve = async (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams,
@@ -231,13 +239,6 @@ export const eventDefinitionsGolangRetrieve = async (projectId: string, options?
     })
 }
 
-/**
- * Resolve team-configured primary properties for event definitions.
-
-The response only contains entries where a non-null primary_property is set on the
-EventDefinition. Callers should fall back to the core taxonomy defaults client-side
-for names not present in the response.
- */
 export const getEventDefinitionsPrimaryPropertiesRetrieveUrl = (
     projectId: string,
     params?: EventDefinitionsPrimaryPropertiesRetrieveParams
@@ -257,6 +258,13 @@ export const getEventDefinitionsPrimaryPropertiesRetrieveUrl = (
         : `/api/projects/${projectId}/event_definitions/primary_properties/`
 }
 
+/**
+ * Resolve team-configured primary properties for event definitions.
+
+The response only contains entries where a non-null primary_property is set on the
+EventDefinition. Callers should fall back to the core taxonomy defaults client-side
+for names not present in the response.
+ */
 export const eventDefinitionsPrimaryPropertiesRetrieve = async (
     projectId: string,
     params?: EventDefinitionsPrimaryPropertiesRetrieveParams,

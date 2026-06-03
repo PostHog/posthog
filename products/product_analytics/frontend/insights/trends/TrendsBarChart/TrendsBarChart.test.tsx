@@ -1,0 +1,607 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+
+import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildAnnotation } from '~/test/insight-testing/test-data'
+import { AnnotationScope, ChartDisplayType } from '~/types'
+
+let cleanupJsdom: () => void
+let cleanupRaf: () => void
+
+beforeEach(() => {
+    cleanupJsdom = setupJsdom()
+    cleanupRaf = setupSyncRaf()
+})
+
+afterEach(() => {
+    personsModal.cleanupAll()
+    cleanupRaf()
+    cleanupJsdom()
+    cleanup()
+})
+
+const HOG_CHARTS_FLAG = {
+    [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true,
+}
+const trendsBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
+    buildTrendsQuery({
+        trendsFilter: { display: ChartDisplayType.ActionsBar },
+        ...extra,
+    })
+
+describe('TrendsBarChart (ActionsBar)', () => {
+    it.each([
+        {
+            name: 'one series for a single event',
+            query: trendsBar(),
+            expected: 1,
+        },
+        {
+            name: 'one series per breakdown value',
+            query: trendsBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'Napped',
+                        name: 'Napped',
+                    },
+                ],
+                breakdownFilter: {
+                    breakdown: 'hedgehog',
+                    breakdown_type: 'event',
+                },
+            }),
+            expected: 5,
+        },
+    ])('renders $name', async ({ query, expected }) => {
+        renderInsight({ query, featureFlags: HOG_CHARTS_FLAG })
+
+        await waitFor(
+            () => {
+                expect(
+                    screen.getByRole('img', {
+                        name: new RegExp(`chart with ${expected} data series`, 'i'),
+                    })
+                ).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('shows the series value in the tooltip on hover', async () => {
+        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        const tooltip = await chart.hoverTooltip(2)
+        expect(tooltip.row('Pageview')).toContain('134')
+    })
+
+    it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
+        // $pageview=134 and Napped=5 at index 2. Napped stacks on top of $pageview, so its
+        // cumulative top is 139 — the tooltip must report Napped's own 5, not the running total.
+        renderInsight({
+            query: trendsBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'Napped',
+                        name: 'Napped',
+                    },
+                ],
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        const tooltip = await chart.hoverTooltip(2)
+
+        expect(tooltip.row('Pageview')).toContain('134')
+        expect(tooltip.row('Napped')).toContain('5')
+        expect(tooltip.row('Napped')).not.toContain('139')
+    })
+
+    it('shows a date header in the tooltip', async () => {
+        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        const tooltip = await chart.hoverTooltip(2)
+        expect(tooltip.title()).toMatch(/Jun/)
+    })
+
+    it('opens the persons modal on click for a single series', async () => {
+        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        await chart.clickAtIndex(2)
+
+        await waitFor(
+            () => {
+                expect(personsModal.actorNames()).toEqual(['pageview-wed-a@example.com', 'pageview-wed-b@example.com'])
+            },
+            { timeout: 5000 }
+        )
+        expect(personsModal.title()).toMatch(/12 Jun/)
+    })
+
+    it('renders InsightEmptyState when all series are zero', async () => {
+        renderInsight({
+            query: trendsBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'NoActivity',
+                        name: 'NoActivity',
+                    },
+                ],
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+        expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+    })
+
+    it('shows current and previous period rows in compare mode', async () => {
+        renderInsight({
+            query: trendsBar({ compareFilter: { compare: true } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(
+            () => {
+                expect(
+                    screen.getByRole('img', {
+                        name: /chart with 2 data series/i,
+                    })
+                ).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+
+        const tooltip = await chart.hoverTooltip(2)
+
+        expect(tooltip.row('Current')).toBeTruthy()
+        expect(tooltip.row('Previous')).toBeTruthy()
+    })
+
+    it('formats values as percentages in percent stack view', async () => {
+        renderInsight({
+            query: trendsBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'Napped',
+                        name: 'Napped',
+                    },
+                ],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBar,
+                    showPercentStackView: true,
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        const tooltip = await chart.hoverTooltip(2)
+
+        expect(tooltip.row('Pageview')).toMatch(/%/)
+    })
+})
+
+describe('TrendsBarChart (ActionsBarValue)', () => {
+    const aggregatedBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
+        buildTrendsQuery({
+            trendsFilter: { display: ChartDisplayType.ActionsBarValue },
+            ...extra,
+        })
+
+    it('renders without crashing for a single event', async () => {
+        renderInsight({
+            query: aggregatedBar(),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('renders custom axis titles in horizontal aggregated mode', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBarValue,
+                    xAxisLabel: 'Total events',
+                    yAxisLabel: 'Series',
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        expect(getHogChart().xAxisLabel()).toBe('Total events')
+        expect(getHogChart().yAxisLabel()).toBe('Series')
+        expect(
+            getHogChart()
+                .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
+                ?.getAttribute('transform')
+        ).toContain('rotate(-90')
+    })
+
+    it('emits one series with a colored bar per breakdown value', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'Napped',
+                        name: 'Napped',
+                    },
+                ],
+                breakdownFilter: {
+                    breakdown: 'hedgehog',
+                    breakdown_type: 'event',
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands.
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+        await waitFor(
+            () => {
+                expect(getHogChart().yTicks()).toHaveLength(5)
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('colors each value-label pill by its own bar, not the first bar', async () => {
+        // Regression: the single collapsed series carries per-bar colors, so value labels must
+        // resolve `bars[dataIndex].color` — not the series-level color (which is just bars[0].color).
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsBarValue, showValuesOnSeries: true },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                expect(getHogChart().valueLabels().length).toBeGreaterThan(1)
+            },
+            { timeout: 5000 }
+        )
+        const pillColors = getHogChart()
+            .valueLabels()
+            .map((l) => l.color)
+        expect(new Set(pillColors).size).toBeGreaterThan(1)
+    })
+
+    it('labels each aggregated breakdown bar by its breakdown value, one band per value by default', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                const ticks = getHogChart().yTicks()
+                expect(ticks).toEqual(expect.arrayContaining(['Spike']))
+                expect(ticks).toHaveLength(5)
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('collapses breakdown bars onto one band when stackBreakdownValues is set', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsBarValue, stackBreakdownValues: true },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                expect(getHogChart().yTicks()).toHaveLength(1)
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('omits the header from the tooltip', async () => {
+        renderInsight({
+            query: aggregatedBar(),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        const tooltip = await chart.hoverTooltip(0)
+        expect(tooltip.title()).toBe('')
+    })
+
+    it('opens the persons modal on click without resolving a day', async () => {
+        renderInsight({
+            query: aggregatedBar(),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(
+            () => {
+                expect(personsModal.get()).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+        // Aggregated mode has no DateDisplay in the title.
+        expect(personsModal.title()).not.toMatch(/Wednesday/)
+    })
+
+    it('opens the persons modal on click in compare mode instead of pinning the tooltip', async () => {
+        renderInsight({
+            query: aggregatedBar({ compareFilter: { compare: true } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(
+            () => {
+                expect(personsModal.get()).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('fires context.onDataPointClick without a day argument', async () => {
+        // Per-band breakdown resolution is covered at the unit-handler level — the
+        // hog-charts hover/click helpers don't yet handle horizontal axis-orientation, so
+        // integration coverage stays at the single-bar level here.
+        const onDataPointClick = jest.fn()
+        renderInsight({
+            query: aggregatedBar(),
+            context: { onDataPointClick },
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(
+            () => {
+                expect(onDataPointClick).toHaveBeenCalledTimes(1)
+            },
+            { timeout: 5000 }
+        )
+        const [seriesArg] = onDataPointClick.mock.calls[0]
+        expect(seriesArg.day).toBeUndefined()
+    })
+
+    it('tooltip on a breakdown shows that breakdown row with its own value', async () => {
+        // Regression: aggregated tooltip used to read the visible series's value at
+        // ctx.dataIndex, a sparse-zero cell, so the row showed `0` (or the wrong row).
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+
+        // Spike has aggregated_value 11 — largest, so it's the topmost row in DESC layout.
+        const canvas = screen.getByRole('img', { name: /chart with/i })
+        const wrapper = canvas.parentElement!
+        fireEvent.mouseMove(wrapper, {
+            clientX: dimensions.plotLeft + 10,
+            clientY: dimensions.plotTop + 10,
+        })
+
+        const tooltip = chart.getTooltip()
+        expect(tooltip).not.toBeNull()
+        const rowText = tooltip!.textContent ?? ''
+        expect(rowText).toContain('Spike')
+        expect(rowText).toContain('11')
+    })
+
+    it('renders InsightEmptyState when every aggregated_value is zero', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'NoActivity',
+                        name: 'NoActivity',
+                    },
+                ],
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+})
+
+describe('TrendsBarChart (ActionsUnstackedBar)', () => {
+    const groupedBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
+        buildTrendsQuery({
+            trendsFilter: { display: ChartDisplayType.ActionsUnstackedBar },
+            ...extra,
+        })
+
+    it('routes grouped bar insights through the hog-charts adapter', async () => {
+        renderInsight({ query: groupedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    it('renders one band per series in grouped layout', async () => {
+        renderInsight({
+            query: groupedBar({
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'Napped',
+                        name: 'Napped',
+                    },
+                ],
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(
+            () => {
+                expect(
+                    screen.getByRole('img', {
+                        name: /chart with 2 data series/i,
+                    })
+                ).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+})
+
+describe('TrendsBarChart overlays', () => {
+    it('renders value labels when showValuesOnSeries is enabled', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBar,
+                    showValuesOnSeries: true,
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await waitFor(
+            () => {
+                expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
+            },
+            { timeout: 5000 }
+        )
+        const labels = getHogChart()
+            .valueLabels()
+            .map((l) => l.text)
+        // Pageview series peaks at 210 — it should appear among the rendered labels.
+        expect(labels).toContain('210')
+    })
+
+    it('renders an annotation badge when an annotation exists', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: { display: ChartDisplayType.ActionsBar },
+            }),
+            mocks: {
+                annotations: [
+                    buildAnnotation({
+                        scope: AnnotationScope.Project,
+                        content: 'Hedgehog spotted',
+                        date_marker: '2024-06-12T12:00:00Z',
+                    }),
+                ],
+            },
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await waitFor(
+            () => {
+                expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    // For ActionsBarValue (horizontal aggregated), axisOrientation='horizontal' flips the
+    // line geometry to a vertical stripe at the value-axis x-pixel.
+    it.each<{
+        display: ChartDisplayType
+        value: number
+        expectedOrientation: 'horizontal' | 'vertical'
+    }>([
+        {
+            display: ChartDisplayType.ActionsBar,
+            value: 150,
+            expectedOrientation: 'horizontal',
+        },
+        {
+            display: ChartDisplayType.ActionsBarValue,
+            value: 100,
+            expectedOrientation: 'vertical',
+        },
+    ])(
+        'renders a goal line with $expectedOrientation orientation for $display',
+        async ({ display, value, expectedOrientation }) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: {
+                        display,
+                        goalLines: [{ label: 'Target', value, displayIfCrossed: true }],
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+            const lines = getHogChart().referenceLines()
+            expect(lines.map((l) => l.label)).toEqual(['Target'])
+            expect(lines[0].orientation).toBe(expectedOrientation)
+        }
+    )
+})

@@ -13,12 +13,10 @@ from rest_framework import serializers
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.hog_flow.hog_flow import HogFlow
-from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
@@ -26,8 +24,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 
@@ -317,6 +318,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def calculate_product_activation(team_id: int, only_calc_if_days_since_last_checked: int = 1) -> None:
     """
     Calculate product activation for a team.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, LLM analytics, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
+The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, AI observability, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
 
 Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple "summarize signals" LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers. Reports that are immediately actionable can automatically start a Tasks coding run via the **autonomy** system.
 
@@ -21,6 +21,19 @@ Two additional Signals workflows also exist but are not part of the main report 
 
 - `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
 - `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
+
+### Activity decoration
+
+Every async Signals Temporal activity is decorated with `@scoped_temporal()` from `posthog/temporal/common/scoped.py` (not upstream `@posthoganalytics.scoped()`). It scopes `posthoganalytics.tag()` calls to the activity invocation and auto-captures uncaught exceptions into PostHog error tracking with the workflow's tags attached. The upstream decorator wraps `async def` in a sync wrapper, breaking Temporal's `iscoroutinefunction` dispatch — the worker returns the unawaited coroutine and crashes on JSON encoding. `scoped_temporal()` is the async-aware equivalent (sync helpers can keep using upstream `@posthoganalytics.scoped()`).
+
+```python
+from posthog.temporal.common.scoped import scoped_temporal
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def my_activity(input: ...) -> ...:
+    ...
+```
 
 ### Signal Ingestion Pipeline (v2)
 
@@ -430,7 +443,7 @@ Per-team configuration for which signal sources are enabled.
 
 ## ClickHouse Storage
 
-Signals are stored in the **`posthog_document_embeddings`** table, which is shared across products (error tracking, session replay, LLM analytics, etc.).
+Signals are stored in the **`posthog_document_embeddings`** table, which is shared across products (error tracking, session replay, AI observability, etc.).
 
 ### Table Schema
 
@@ -590,7 +603,7 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 | GET    | `signals/reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
 | DELETE | `signals/reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
 | POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
-| POST   | `signals/reports/{id}/reingest/`       | **Staff-only.** Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Returns `403` for non-staff users.                                                                                                  |
+| POST   | `signals/reports/{id}/reingest/`       | Delete a report and re-ingest its signals. Starts `SignalReportReingestionWorkflow`. On success returns `202`. If already running, returns `200 {"status": "already_running"}`. Same team access as other report endpoints; personal API keys need `task:write`.                                                                    |
 | GET    | `signals/reports/{id}/artefacts/`      | List **all** artefacts for a report, ordered by `-created_at`                                                                                                                                                                                                                                                                       |
 | GET    | `signals/reports/{id}/signals/`        | Fetch all signals for a report from ClickHouse, including full metadata                                                                                                                                                                                                                                                             |
 | GET    | `signals/reports/available_reviewers/` | List available suggested reviewers for the team                                                                                                                                                                                                                                                                                     |
@@ -801,7 +814,7 @@ python manage.py enable_signals_autonomy <team_id> <priority> <emails>
 
 ### Auto-Start Flow
 
-Runs inside `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py`, called after artefact persistence in `run_agentic_report_activity`.
+Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, called after artefact persistence in both `run_agentic_report_activity` (the signals pipeline) and `run_custom_signal_agent_activity` (custom agents).
 
 **Guard clause** — all must pass:
 
@@ -810,7 +823,7 @@ Runs inside `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py`
 - Report has suggested reviewers
 - No existing `SignalReportTask` with `relationship=implementation` for this report
 
-**User selection** via `_resolve_autostart_assignee()`:
+**User selection** via `_resolve_autostart_assignee()` in `backend/auto_start.py`:
 
 1. Map reviewer GitHub logins to PostHog user IDs via social auth (preserving reviewer relevance order)
 2. Single query: fetch `User` objects whose ID is in that list **and** who have a `SignalUserAutonomyConfig` row (joined via `select_related`)
@@ -834,11 +847,11 @@ Runs inside `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py`
 
 All report ↔ task relationships are tracked via `SignalReportTask`:
 
-| Relationship     | Created when                                          | Created where                                                        |
-| ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
-| `research`       | Immediately after the research sandbox session starts | `run_multi_turn_research()` in `report_generation/research.py`       |
-| `implementation` | After auto-starting a coding task                     | `_maybe_autostart_task_for_report()` in `temporal/agentic/report.py` |
-| `repo_selection` | Reserved for future use                               | Not yet created anywhere                                             |
+| Relationship     | Created when                                          | Created where                                                      |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `research`       | Immediately after the research sandbox session starts | `run_multi_turn_research()` in `report_generation/research.py`     |
+| `implementation` | After auto-starting a coding task                     | `maybe_autostart_implementation_task()` in `backend/auto_start.py` |
+| `repo_selection` | Reserved for future use                               | Not yet created anywhere                                           |
 
 Both `report` and `task` FKs cascade on delete — deleting a report or task cleans up the relationship rows automatically.
 

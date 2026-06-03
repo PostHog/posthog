@@ -8,6 +8,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
@@ -19,6 +20,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import { OverflowOutput } from '../common/outputs'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
@@ -34,6 +36,8 @@ import {
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
+import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
+import { preCymbalGroupKey } from './pre-cymbal-group-key'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -52,15 +56,22 @@ export interface ErrorTrackingConsumerOptions {
     statefulOverflowEnabled: boolean
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
+    /**
+     * When true, overflow redirects keep the original partition key. When
+     * false (default), the overflow producer emits with a null key. Applies
+     * to both restriction-driven force-overflow and rate-limit-to-overflow.
+     */
+    preservePartitionLocality: boolean
     pipeline: string
     rateLimiterEnabled: boolean
     rateLimiterReportingMode: boolean
     rateLimiterRedisHost: string
     rateLimiterRedisPort: number
     rateLimiterRedisTls: boolean
-    rateLimiterBucketSize: number
-    rateLimiterRefillRate: number
     rateLimiterTtlSeconds: number
+    perIssueGuardThreshold: number
+    perIssueGuardWindowTtlSeconds: number
+    perIssueGuardCooldownTtlSeconds: number
     /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
     fallbackRedisUrl?: string
     /** Pool sizing for the dedicated rate limiter Redis pool. */
@@ -86,8 +97,11 @@ export interface ErrorTrackingHogTransformer {
 export interface ErrorTrackingConsumerDeps {
     outputs: ErrorTrackingOutputs
     teamManager: TeamManager
+    /** Only required when the rate limiter is enabled; constructed alongside it. */
+    errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
+    cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
     personRepository: PersonRepository
 }
@@ -123,6 +137,7 @@ export class ErrorTrackingConsumer {
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
     protected rateLimiter?: KeyedRateLimiterService
+    protected perIssueGuardedRateLimiter?: PerIssueGuardedRateLimiterService
     protected rateLimiterAppMetricsAggregator?: AppMetricsAggregator
     protected rateLimiterRedis?: RedisV2
 
@@ -144,7 +159,7 @@ export class ErrorTrackingConsumer {
         this.promiseScheduler = new PromiseScheduler()
 
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
-            pipeline: 'error_tracking',
+            pipeline: 'errortracking',
         })
 
         // Create shared Redis repository for overflow redirect services
@@ -195,9 +210,19 @@ export class ErrorTrackingConsumer {
             this.rateLimiter = new KeyedRateLimiterService(
                 {
                     name: 'error-tracking-rate-limiter',
-                    bucketSize: config.rateLimiterBucketSize,
-                    refillRate: config.rateLimiterRefillRate,
+                    // bucketSize/refillRate are intentionally omitted — every request supplies
+                    // them via getBucketConfig (per-team), so service-level defaults are unused.
                     ttlSeconds: config.rateLimiterTtlSeconds,
+                },
+                this.rateLimiterRedis
+            )
+            this.perIssueGuardedRateLimiter = new PerIssueGuardedRateLimiterService(
+                {
+                    name: 'error-tracking-rate-limiter',
+                    threshold: config.perIssueGuardThreshold,
+                    windowTtlSeconds: config.perIssueGuardWindowTtlSeconds,
+                    cooldownTtlSeconds: config.perIssueGuardCooldownTtlSeconds,
+                    bucketTtlSeconds: config.rateLimiterTtlSeconds,
                 },
                 this.rateLimiterRedis
             )
@@ -256,75 +281,86 @@ export class ErrorTrackingConsumer {
             hogTransformer: this.deps.hogTransformer,
             cymbalClient: this.cymbalClient,
             groupTypeManager: this.deps.groupTypeManager,
+            cookielessManager: this.deps.cookielessManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.config.overflowEnabled,
+            preservePartitionLocality: this.config.preservePartitionLocality,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
+            errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)
     }
 
-    /**
-     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
-     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
-     */
+    /** Per-issue spec uses the guarded service; team-global spec uses the base service. */
     private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
-        if (!this.rateLimiter) {
+        if (!this.rateLimiter || !this.perIssueGuardedRateLimiter) {
             return []
         }
 
-        const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
+        return [
+            // Per-issue cap runs before the team-global cap so a runaway issue
+            // gets dropped against its own bucket instead of draining the
+            // team-global budget on its way out.
+            {
+                rateLimiter: this.perIssueGuardedRateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                getKey: (input) => {
+                    if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
+                        return null
+                    }
+                    const scopeKey = preCymbalGroupKey(input.event)
+                    return scopeKey ? `${input.team.id}:exceptions:issue:${scopeKey}` : null
+                },
+                // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
+                // single app_metrics2 row per team rather than one row per issue.
+                getAppSourceId: (input) => `${input.team.id}:exceptions:per_issue`,
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:per_issue',
+                getBucketConfig: (input) => {
+                    const settings = input.errorTrackingSettings!
+                    const value = settings.perIssueRateLimitValue!
+                    const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
+                    return {
+                        bucketSize: value,
+                        refillRate: value / (minutes * 60),
+                    }
+                },
+            },
             // Team-global cap: every $exception event for a team consumes one token
             // from a per-team bucket.
             {
                 rateLimiter: this.rateLimiter,
                 appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
                 appSource: 'exceptions',
-                getKey: (input) => `${input.team.id}:exceptions:global`,
+                // Skip rate limiting when the team hasn't opted in (no row or null value).
+                // Returning null makes the rate-limiter step pass the input through as `ok()`.
+                // The serializer enforces min_value=1, so a non-null value is always positive.
+                getKey: (input) =>
+                    input.errorTrackingSettings?.projectRateLimitValue == null
+                        ? null
+                        : `${input.team.id}:exceptions:global`,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:team_global',
-                // TODO: Read per-team bucket overrides from a Team Extension model
-                // (e.g. ErrorTrackingTeamSettings.rate_limit_bucket_size /
-                // .rate_limit_refill_rate). When those columns are nullable and unset,
-                // fall back to the env-configured defaults baked into `this.rateLimiter`.
-                // Wiring would look like:
-                //   getBucketConfig: (input) => {
-                //       const settings = (input as { team: TeamWithErrorTrackingSettings }).team
-                //           .error_tracking_settings
-                //       return {
-                //           bucketSize: settings?.rate_limit_bucket_size ?? undefined,
-                //           refillRate: settings?.rate_limit_refill_rate ?? undefined,
-                //       }
-                //   },
+                getBucketConfig: (input) => {
+                    // User model: "N events per M minutes".
+                    // Token bucket: bucketSize=N (max burst), refillRate=N/(M*60) per second.
+                    const settings = input.errorTrackingSettings!
+                    const value = settings.projectRateLimitValue!
+                    const minutes = settings.projectRateLimitBucketSizeMinutes ?? 60
+                    return {
+                        bucketSize: value,
+                        refillRate: value / (minutes * 60),
+                    }
+                },
             },
-            // TODO: Per-exception-hash limit using a coarse pre-Cymbal fingerprint
-            // (Cymbal's proper fingerprint is post-symbolication, so we accept a
-            // weaker-but-cheaper bucket here). Wiring would look like:
-            // {
-            //     rateLimiter: this.rateLimiter,
-            //     appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
-            //     appSource: 'exceptions',
-            //     getKey: (input) => {
-            //         const first = input.event.properties?.$exception_list?.[0]
-            //         if (!first?.type && !first?.value) return null
-            //         const hash = createHash('sha1')
-            //             .update(`${first?.type ?? ''}|${first?.value ?? ''}`)
-            //             .digest('hex')
-            //             .slice(0, 16)
-            //         return `${input.team.id}:exceptions:hash:${hash}`
-            //     },
-            //     getTeamId: (input) => input.team.id,
-            //     reportingMode: this.config.rateLimiterReportingMode,
-            //     dropReason: 'rate_limited:per_hash',
-            //     // getBucketConfig: ... (see TODO above)
-            // },
         ]
-
-        return specs
     }
 
     public async stop(): Promise<void> {

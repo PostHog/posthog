@@ -24,7 +24,12 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
         return ExternalDataSourceType.DOIT
 
     def get_schemas(
-        self, config: DoItSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: DoItSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 
@@ -43,6 +48,11 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "Report no longer exists": "The DoIt report no longer exists. It may have been deleted or renamed in DoIt. Please reconnect the source or select a different report.",
+        }
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return doit_source(

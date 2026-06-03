@@ -665,8 +665,9 @@
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
     --z-scene-layout-content-panel: 770;
     --z-scene-layout-content-panel-under: 769;
-    --z-layout-panel: 760;
-    --z-layout-panel-under: 759;
+    --z-layout-panel: 761;
+    --z-layout-panel-under: 760;
+    --z-layout-panel-over-nav: 759; // mobile dim sitting above the nav (756), below the panel (761)
     --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
     --z-layout-navbar-under: 755;
@@ -1084,6 +1085,18 @@
     --data-color-5: #f0474f;
     --data-color-6: #b36114;
     --data-color-10: #6576b3;
+
+    // Rainbow brand gradient (dark mode) — lighter shades so the gradient stays
+    // readable inside toasts and command blocks. See light-mode definition below.
+    --rainbow-gradient: linear-gradient(
+        90deg,
+        #5b8def 0%,
+        #7aa6ff 24%,
+        #ff7a59 47%,
+        #ffa170 66%,
+        #ffc55c 83%,
+        #5b8def 100%
+    );
 }
 
 @layer base {
@@ -1991,22 +2004,6 @@
         animation: fade-in 0.4s ease-out forwards;
     }
 
-    /* Overlay fade in/out transitions */
-    .overlay-fade {
-        opacity: 1;
-        transition: opacity 0.2s ease-out;
-
-        /* Exit animation - opacity controlled by utility class */
-        &.opacity-0 {
-            opacity: 0;
-        }
-
-        /* Entry animation - fade in from 0 */
-        @starting-style {
-            opacity: 0;
-        }
-    }
-
     /* stylelint-disable-next-line keyframes-name-pattern */
     @keyframes shimmer {
         0% {
@@ -2072,5 +2069,65 @@
         outline: 3px solid var(--color-accent);
         outline-offset: 2px;
         box-shadow: 0 0 24px 8px var(--color-accent);
+    }
+}
+
+// Rainbow brand gradient — animated horizontal scroll of PostHog brand colors.
+// Apply via `background-image: var(--rainbow-gradient)` or via the helper
+// classes below. The text variants use `background-clip: text` so the gradient
+// fills the glyphs; `*-fading` additionally plays a one-shot fade-in on mount,
+// useful for elements that swap content via a key change.
+// Dark mode override lives in the consolidated `[theme='dark']` block above.
+:root {
+    --rainbow-gradient: linear-gradient(
+        90deg,
+        #0143cb 0%,
+        #2b6ff4 24%,
+        #d23401 47%,
+        #ff651f 66%,
+        #fba000 83%,
+        #0143cb 100%
+    );
+}
+
+.rainbow-text,
+.rainbow-text-fading {
+    color: transparent;
+    background-image: var(--rainbow-gradient);
+    background-clip: text;
+    background-size: 200% 100%;
+}
+
+.rainbow-text.rainbow-text-animating {
+    animation: rainbow-scroll 3s linear infinite;
+}
+
+.rainbow-text-fading.rainbow-text-animating {
+    animation:
+        rainbow-scroll 3s linear infinite,
+        rainbow-fade-in 300ms ease-out;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes rainbow-scroll {
+    0% {
+        background-position-x: 0%;
+    }
+
+    100% {
+        background-position-x: 200%;
+    }
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes rainbow-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }

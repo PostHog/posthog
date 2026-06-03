@@ -57,6 +57,7 @@ function getViewData(
             ...(visibility && { visibility }),
             columns: props.query.select,
             filters: props.query.properties,
+            order_by: props.query.orderBy ?? [],
         }
     }
     const event: EventSyntheticMarker = {
@@ -77,6 +78,7 @@ function getViewData(
         ...(visibility && { visibility }),
         columns: props.query.select,
         filters: [...(props.query.properties || []), event, events],
+        order_by: props.query.orderBy ?? [],
     }
 }
 
@@ -92,11 +94,14 @@ function getQueryFromView(
     query: TableViewSupportedQueryType,
     view: ColumnConfigurationApi
 ): TableViewSupportedQueryType {
+    const orderByOverride = view.order_by != null ? { orderBy: view.order_by } : {}
+
     if (!isEventsQuery(query)) {
         return {
             ...query,
             select: view.columns || [],
             properties: view.filters || [],
+            ...orderByOverride,
         } as TableViewSupportedQueryType
     }
 
@@ -114,6 +119,7 @@ function getQueryFromView(
         properties,
         event,
         events,
+        ...orderByOverride,
     } as EventsQuery
 }
 

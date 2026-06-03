@@ -34,9 +34,9 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
-from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
@@ -481,6 +481,10 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
         help_text='Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines.',
     )
     count = serializers.IntegerField()
+    bytes_uncompressed = serializers.IntegerField(
+        required=False,
+        help_text="Sum of uncompressed bytes for the bucket.",
+    )
 
 
 class _LogsSparklineResponseSerializer(serializers.Serializer):
@@ -592,7 +596,6 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["logs"])
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer

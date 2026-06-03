@@ -336,11 +336,14 @@ const config = {
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
         '../../products/**/mcp/apps/**/*.{ts,tsx}',
-        '../../common/mosaic/src/**/*.{ts,tsx}',
+        '../../services/mcp/src/ui-apps/lib/**/*.{ts,tsx}',
         // @posthog/quill ships BEM CSS for component look, but uses Tailwind
         // utilities for layout/spacing in its compiled JS. Scan dist here so
         // those utilities get compiled into this pre-built Tailwind bundle.
         '../../packages/quill/packages/quill/dist/**/*.{js,cjs}',
+        // @posthog/quill-charts is consumed from source; its overlays, legends and
+        // blocks use Tailwind utilities, so scan its src or those classes get purged.
+        '../../packages/quill/packages/charts/src/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],

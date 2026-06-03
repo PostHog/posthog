@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
-from hogli.cli import cli
 
 from . import hints
 
@@ -103,7 +102,7 @@ class CleanupResult:
     deleted_anything: bool = False
 
 
-@cli.command(
+@click.command(
     name="doctor:disk",
     help="Interactive disk space cleanup for common PostHog dev bloat",
 )
@@ -982,7 +981,7 @@ class DevProcess:
     manager: str = ""  # e.g. "phrocs (PID 1234)" for managed processes
 
 
-@cli.command(
+@click.command(
     name="doctor:zombies",
     help="Find and kill orphaned PostHog dev processes",
 )
@@ -1718,7 +1717,7 @@ def _print_check_result(result: CheckResult) -> None:
         click.echo(f"{'':>30}{result.remediation}")
 
 
-@cli.command(name="doctor", help="Quick health check for your dev environment")
+@click.command(name="doctor", help="Quick health check for your dev environment")
 def doctor() -> None:
     """Run non-destructive checks and print a status summary."""
     from hogli.manifest import REPO_ROOT

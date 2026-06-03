@@ -5,6 +5,8 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.experiments.backend.models.web_experiment import WebExperiment
 
 
@@ -32,7 +34,7 @@ class TestWebExperiment(APIBaseTest):
             format="json",
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_can_create_basic_web_experiment(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()
@@ -430,6 +432,62 @@ class TestWebExperiment(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
         assert "iframe" in str(response_data).lower()
+
+    def test_web_experiment_activity_log_on_create_and_update(self):
+        response = self._create_web_experiment()
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        experiment_id = response_data["id"]
+
+        creation_logs = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment_id), activity="created")
+        assert len(creation_logs) == 1
+
+        # Update the experiment variants
+        self.client.patch(
+            f"/api/projects/{self.team.id}/web_experiments/{experiment_id}/",
+            data={
+                "variants": {
+                    "control": {
+                        "transforms": [
+                            {"html": "", "text": "Updated control", "selector": "#page > #body > .header h1"}
+                        ],
+                        "rollout_percentage": 70,
+                    },
+                    "test": {
+                        "transforms": [{"html": "", "text": "Updated test", "selector": "#page > #body > .header h1"}],
+                        "rollout_percentage": 30,
+                    },
+                },
+            },
+            format="json",
+        )
+
+        update_logs = list(
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment_id), activity="updated").order_by(
+                "-created_at"
+            )
+        )
+        assert len(update_logs) >= 1
+
+        # Find the log entry that has variant changes (the web experiment update, not the feature flag sync)
+        experiment_update_log = next(
+            (
+                log
+                for log in update_logs
+                if log.detail is not None and any(c["field"] == "variants" for c in log.detail["changes"])
+            ),
+            update_logs[0],
+        )
+
+        # The parameters field should be excluded from changes for web experiments
+        assert experiment_update_log.detail is not None
+        changes = experiment_update_log.detail["changes"]
+        parameter_changes = [c for c in changes if c["field"] == "parameters"]
+        assert parameter_changes == []
+
+        # But variants changes should be present
+        variant_changes = [c for c in changes if c["field"] == "variants"]
+        assert len(variant_changes) == 1
 
     def test_accepts_safe_html_with_formatting(self):
         """Test that safe HTML with complex formatting is accepted and preserved"""
