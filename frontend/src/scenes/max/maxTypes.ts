@@ -176,7 +176,7 @@ export const createMaxContextHelpers = {
         type: MaxContextType.DASHBOARD,
         data: {
             ...dashboard,
-            tiles: dashboard.tiles.map((tile) => ({
+            tiles: (dashboard.tiles ?? []).map((tile) => ({
                 ...tile,
                 insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
             })),

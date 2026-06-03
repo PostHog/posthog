@@ -174,7 +174,9 @@ export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>
         id: dashboard.id,
         name: dashboard.name,
         description: dashboard.description,
-        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        insights: (dashboard.tiles ?? [])
+            .filter((tile) => tile.insight)
+            .map((tile) => insightToMaxContext(tile.insight!)),
         filters: dashboard.filters,
     }
 }
