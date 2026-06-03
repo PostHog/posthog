@@ -58,7 +58,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -87,6 +87,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -106,7 +110,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -26595,7 +26599,7 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -26624,6 +26628,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -26643,7 +26651,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;

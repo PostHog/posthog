@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { fullName } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +27,8 @@ function getPreview(notebook: AccountNotebookApi): string {
 const LINK_ICONS: Record<string, JSX.Element> = {
     organization: <IconPeople />,
     revenue: <IconPiggyBank />,
+    'usage-dashboard': <IconGraph />,
+    slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
 }
 

@@ -13,6 +13,7 @@ import type { accountLinksLogicType } from './accountLinksLogicType'
 const ORGANIZATION_GROUP_TYPE_INDEX = 0
 const REVENUE_DASHBOARD_ID = 259114
 const BILLING_ADMIN_ORIGIN = 'https://billing.posthog.com'
+const SLACK_ARCHIVES_ORIGIN = 'https://posthog.slack.com/archives'
 
 export interface AccountLinksLogicProps {
     accountId: string
@@ -58,6 +59,8 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
             (account: AccountApi | null): AccountLink[] => {
                 const externalId = account?.external_id ?? null
                 const billingId = account?.properties?.billing_id ?? null
+                const slackChannelId = account?.properties?.slack_channel_id ?? null
+                const usageDashboardLink = account?.properties?.usage_dashboard_link ?? null
                 const links: AccountLink[] = []
                 if (externalId) {
                     links.push({
@@ -71,6 +74,22 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         label: 'Revenue',
                         to: revenueDashboardUrl(externalId, billingId),
                         targetBlank: false,
+                    })
+                }
+                if (usageDashboardLink) {
+                    links.push({
+                        key: 'usage-dashboard',
+                        label: 'Usage dashboard',
+                        to: usageDashboardLink,
+                        targetBlank: true,
+                    })
+                }
+                if (slackChannelId) {
+                    links.push({
+                        key: 'slack',
+                        label: 'Slack channel',
+                        to: `${SLACK_ARCHIVES_ORIGIN}/${slackChannelId}`,
+                        targetBlank: true,
                     })
                 }
                 if (billingId) {
