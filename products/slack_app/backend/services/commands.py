@@ -59,12 +59,12 @@ def _handle_rules_add(
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
 
-    all_repos = _get_full_repo_names(integration)
+    all_repos = _get_full_repo_names(integration, user_id=user_id)
     if not all_repos:
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="No connected GitHub repositories found for this project.",
+            text="No connected GitHub repositories found for your account.",
         )
         return
 

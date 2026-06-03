@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
@@ -107,6 +108,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         self.factory = RequestFactory()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="dev@example.com", distinct_id="user-1")
         self.posthog_code_integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -197,6 +199,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
                 channel="C001",
                 thread_ts="1234.5678",
                 slack_user_id="U123",
+                user_id=self.user.id,
                 workflow_id="posthog-code-mention-T12345:pending",
                 context_token="ctx-1",
                 message_ts="1234.7777",
@@ -591,6 +594,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
                 channel="C001",
                 thread_ts="1234.5678",
                 slack_user_id="U123",
+                user_id=self.user.id,
                 workflow_id="posthog-code-mention-T12345:pending",
                 context_token="ctx-1",
                 message_ts="1234.7777",
