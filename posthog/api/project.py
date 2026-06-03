@@ -309,6 +309,8 @@ def team_experiments_config_view(team: Team, request: request.Request) -> respon
                 "default_cuped_enabled",
                 "default_cuped_lookback_days",
                 "default_minimum_detectable_effect",
+                "default_sequential_testing_enabled",
+                "default_sequential_tuning_parameter",
             ]
 
     config = get_or_create_team_extension(team, TeamExperimentsConfig)
