@@ -174,9 +174,8 @@ class ClickHousePrinter(BasePrinter):
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if func_meta.overloads:
-            # Look through aliases: an alias's declared type can be stale after a
-            # transform (e.g. the property-type swapper) rewrites its inner
-            # expression, so resolve the overload against the real expression.
+            # Prefer concrete fields/calls: transforms can leave a call's
+            # recorded arg_types stale after fields are rewritten.
             first_arg = node.args[0] if len(node.args) > 0 else None
             first_arg_was_alias = False
             while isinstance(first_arg, ast.Alias):
@@ -186,13 +185,13 @@ class ClickHousePrinter(BasePrinter):
             if (
                 first_arg is not None
                 and first_arg.type is not None
-                and (first_arg_was_alias or isinstance(first_arg, ast.Call))
+                and (
+                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                )
             ):
                 first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
             elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
                 first_arg_constant_type = node.type.arg_types[0]
-            elif first_arg is not None and first_arg.type is not None:
-                first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
 
             if first_arg_constant_type is not None:
                 for (
