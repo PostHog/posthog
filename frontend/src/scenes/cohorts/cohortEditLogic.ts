@@ -635,9 +635,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
-                        const newCohort = await api.cohorts.get(cohort.id)
-                        breakpoint()
-                        actions.checkIfFinishedCalculating(newCohort)
+                        try {
+                            const newCohort = await api.cohorts.get(cohort.id)
+                            // breakpoint() throws to abort once the logic unmounts. Because this runs
+                            // in a detached setTimeout callback (not the listener body), that throw
+                            // would otherwise surface as an unhandled rejection — keep it contained.
+                            breakpoint()
+                            actions.checkIfFinishedCalculating(newCohort)
+                        } catch {
+                            // Poll superseded or logic unmounted — stop quietly.
+                        }
                     }, 1000)
                 )
             } else {

@@ -160,9 +160,10 @@ describe('featureFlagLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
-        logic = featureFlagLogic({ id: 1 })
-        logic.mount()
 
+        // Register handlers before mounting: mounting immediately fires loadFeatureFlag/status, and
+        // an unhandled request now hangs (the jsdom fetch stub never resolves) rather than failing
+        // fast, which would stall toFinishAllListeners.
         useMocks({
             get: {
                 [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
@@ -175,6 +176,9 @@ describe('featureFlagLogic', () => {
                 ],
             },
         })
+
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
     })
@@ -620,9 +624,6 @@ describe('featureFlagLogic', () => {
                 experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name }],
             }
 
-            const experimentLogic = featureFlagLogic({ id: 2 })
-            experimentLogic.mount()
-
             useMocks({
                 get: {
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithExperiment.id}/`]: () => [
@@ -640,10 +641,16 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            const experimentLogic = featureFlagLogic({ id: 2 })
+            experimentLogic.mount()
+
             await expectLogic(experimentLogic, () => {
                 experimentLogic.actions.loadFeatureFlag()
             })
-                .toDispatchActions(['loadFeatureFlagSuccess', 'loadExperimentSuccess'])
+                // loadFeatureFlag's loader fetches the linked experiment and dispatches
+                // loadExperimentSuccess inline, before it returns (which triggers
+                // loadFeatureFlagSuccess) — so the experiment success comes first.
+                .toDispatchActions(['loadExperimentSuccess', 'loadFeatureFlagSuccess'])
                 .toMatchValues({
                     featureFlag: partial({
                         id: flagWithExperiment.id,

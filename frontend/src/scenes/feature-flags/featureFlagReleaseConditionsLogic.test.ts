@@ -43,6 +43,15 @@ describe('the feature flag release conditions logic', () => {
             return uuid
         })
 
+        // Register the blast-radius handler before mounting: mounting immediately fires a
+        // calculateBlastRadius request, and an unhandled request now hangs (the jsdom fetch stub
+        // never resolves) instead of failing fast, which would stall toFinishAllListeners.
+        useMocks({
+            post: {
+                '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 120, total: 2000 }],
+            },
+        })
+
         logic = featureFlagReleaseConditionsLogic({
             id: '1234',
             filters: generateFeatureFlagFilters([
@@ -55,12 +64,6 @@ describe('the feature flag release conditions logic', () => {
             ]),
         })
         logic.mount()
-
-        useMocks({
-            post: {
-                '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 120, total: 2000 }],
-            },
-        })
     })
 
     describe('computing blast radius', () => {

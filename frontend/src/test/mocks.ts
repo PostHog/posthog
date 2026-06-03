@@ -268,8 +268,19 @@ export const mockSlackChannels: SlackChannelType[] = [
 ]
 
 export const mockGetEventDefinitions = ({ request }: { request: Request }): [number, Record<string, any>] => {
-    const search = new URL(request.url).searchParams.get('search') ?? ''
-    const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : mockEventDefinitions
+    const params = new URL(request.url).searchParams
+    const search = params.get('search') ?? ''
+    // Mirror the real endpoint: drop any names listed in the `excluded_properties` JSON array so
+    // tests exercising excludedProperties see them filtered out (the server does this, not the client).
+    let excluded: string[] = []
+    try {
+        excluded = JSON.parse(params.get('excluded_properties') ?? '[]')
+    } catch {
+        excluded = []
+    }
+    const results = mockEventDefinitions
+        .filter((e) => (search ? e.name.includes(search) : true))
+        .filter((e) => !excluded.includes(e.name))
     return [200, { results, count: results.length }]
 }
 

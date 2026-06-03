@@ -16,6 +16,8 @@ const jestOnlyDefaultHandlers = mocksToHandlers({
         '/api/environments/:team_id/integrations/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
         '/api/environments/:team_id/taggers/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/event_definitions/primary_properties/': { primary_properties: {} },
+        '/api/environments/:team_id/default_release_conditions/': { default_groups: [], enabled: false },
     },
 })
 
