@@ -1,8 +1,43 @@
 # Design — runtime `spec.mcps[]` support
 
-**Status:** PRs 1-6 landed (#61014); PR 7 in progress as a single PR with three
-commits (schema → dispatcher → prod resolver + concierge unblock). **Owner:**
-dylan. **Tracking:** [`_ROADMAP.md`](_ROADMAP.md) §C.2.
+**Status:** ✅ shipped, then simplified — see "Post-ship simplification" below.
+The plan as a whole landed (PRs 1-7); the `kind: 'agent'` agent-to-agent
+variant was subsequently ripped out because nothing consumed it. The current
+spec shape is a single flat `McpRef` (`{ id, url, auth, secrets, tools[] }`);
+agent-to-agent composability re-adds when
+[`agent-as-mcp-server.md`](agent-as-mcp-server.md) has a concrete consumer.
+**Owner:** dylan. **Tracking:** [`_ROADMAP.md`](_ROADMAP.md) §C.2.
+
+## Post-ship simplification
+
+After PR 7 landed and the concierge example proved the dispatcher worked
+end-to-end with the `kind: 'external'` variant, an audit found that **no
+bundle consumed the `kind: 'agent'` variant** — not the concierge, not the
+SRE bot, not the wake-me-up. The runtime resolver, ~250 LOC of branching,
+the `agent_mcp_resolver` config wiring (`AGENT_INGRESS_BASE_URL` +
+`INTERNAL_SECRET`), and the schema discriminator were all pure orphan code.
+
+The variant was ripped in a single follow-up. Concretely removed:
+
+- `services/agent-runner/src/resolvers/agent-mcp-resolver.{ts,test.ts}`
+- `kind: 'agent'` branches in `mcp-clients.ts` / `mcp-tool-lookup.ts` /
+  `build-agent-tools.ts` / `workers/worker.ts` / `services/agent-runner/src/index.ts`
+- Config knobs `AGENT_INGRESS_BASE_URL` + `INTERNAL_SECRET` from
+  `services/agent-runner/src/config.ts`
+- `AgentMcpResolver` + `AgentMcpResolverContext` exports
+- Harness `agentMcpResolver` option in `services/agent-tests/src/harness/cluster.ts`
+- Test fixtures across `spec.test.ts`, `mcp-clients.test.ts`,
+  `mcp-tool-lookup.test.ts`, `build-agent-tools.test.ts`,
+  `services/agent-tests/src/cases/mcp-tools.test.ts`
+- Django mirror in `products/agent_platform/backend/spec_schema.py` (the
+  `oneOf` collapsed to a single object item)
+- Console UI branching in `ConfigPanel.tsx` and `ConnectionsTab.tsx`
+- The discriminator in `services/agent-console/src/types/mcp.ts`
+
+The historical design content below describes both variants for context.
+Anything tied to `kind: 'agent'` is **not in current code** — read it as
+the design we'd return to if/when `agent-as-mcp-server.md` ships a real
+consumer.
 
 ## Problem
 

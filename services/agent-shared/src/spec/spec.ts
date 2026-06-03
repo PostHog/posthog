@@ -254,92 +254,70 @@ export const McpToolEntrySchema = z.union([
  * pi-ai (name-prefixed `<id>__<toolName>`), and routes dispatch back through
  * the open client. See `docs/agent-platform/plans/runtime-mcps.md`.
  *
- * Two variants:
- *   - `agent` — points at another PostHog agent's MCP server (`spec.triggers`
- *     of type `mcp` on the target). Auth piggybacks on `posthog_internal`;
- *     the runner resolves the route from the local revision store. Acts as
- *     the in-platform composability shortcut (see
- *     `docs/agent-platform/plans/agent-as-mcp-server.md` §9). Uses `slug` as
- *     the tool-name prefix. No per-tool gating: the target agent owns its
- *     own approval policy via its own `spec.tools[]`, so re-gating at the
- *     caller side would be redundant.
- *   - `external` — a third-party MCP server reachable over HTTP. `auth.integration`
- *     plugs into PostHog's integrations registry (OAuth-style); `secrets[]`
- *     is the simpler per-MCP token case, resolved through the same
- *     encrypted-env path the agent's main `spec.secrets` uses. Uses `id` as
- *     the tool-name prefix. `tools[]` selects + gates: bare string = inclusion
- *     only; object form adds `requires_approval` + `approval_policy`.
+ * Single shape today: a third-party MCP server reachable over HTTP.
+ * `auth.integration` plugs into PostHog's integrations registry (OAuth-style);
+ * `secrets[]` is the simpler per-MCP token case, resolved through the same
+ * encrypted-env path the agent's main `spec.secrets` uses. `id` is the tool-
+ * name prefix. `tools[]` selects + gates: bare string = inclusion only; object
+ * form adds `requires_approval` + `approval_policy`.
  *
- * **Future migration (not blocking):** the runtime-mcps plan describes a
- * flatter shape `{ id, endpoint, tools[], secrets[] }` with no discriminator,
- * mirrored by the concierge example bundle. We're holding the union for now
- * because the console + spec tests already depend on the `kind` discriminator
- * — flattening would be a multi-PR migration with no functional payoff. When
- * we revisit (likely tied to v2 of the runtime-mcp surface), the `agent`
- * variant becomes `{ id: slug, endpoint: '<internal-url>', ... }` and the
- * discriminator disappears.
+ * The `kind: 'agent'` variant (agent-to-agent MCP composability) was removed
+ * in favour of a single flat shape — `agent-as-mcp-server.md` will re-add it
+ * when a concrete consumer lands.
  */
-export const McpRefSchema = z.discriminatedUnion('kind', [
-    z.object({
-        kind: z.literal('agent'),
-        /** Target agent slug. Doubles as the tool-name prefix at runtime. */
-        slug: z.string(),
-    }),
-    z.object({
-        kind: z.literal('external'),
-        /**
-         * Stable id within the spec. Tool-name prefix at runtime —
-         * `<id>__<toolName>` is what the model sees so it can tell which MCP
-         * a tool came from. Must be unique across `spec.mcps[]`.
-         */
-        id: z.string().min(1),
-        url: z.string().url(),
-        auth: z
-            .object({
-                integration: z.string().optional(),
-            })
-            .optional(),
-        /**
-         * Per-MCP secret names. Resolved at session start through the same
-         * encrypted-env path as the agent's main `spec.secrets`. The runner
-         * substitutes `${name}` placeholders in the URL + auth headers before
-         * opening the client; the plaintext never leaves the runner process.
-         */
-        secrets: z.array(z.string()).default([]),
-        /**
-         * Per-tool selection AND approval gating. Bare string is a passthrough
-         * (gates inclusion, no approval); object form carries
-         * `requires_approval` + `approval_policy`. Omitted / empty = expose
-         * every tool the server lists. Replaces the earlier `allowlist[]`
-         * field (PR 7 hard-break — no production specs used it).
-         *
-         * Names must be unique within the array. A duplicate would be a
-         * silent first-match-wins footgun — e.g. an author who appends a
-         * gated copy of an already-listed bare-string entry would see the
-         * gated version ignored. Better to reject at parse time.
-         */
-        tools: z
-            .array(McpToolEntrySchema)
-            .optional()
-            .refine(
-                (entries) => {
-                    if (!entries) {
-                        return true
-                    }
-                    const seen = new Set<string>()
-                    for (const e of entries) {
-                        const name = typeof e === 'string' ? e : e.name
-                        if (seen.has(name)) {
-                            return false
-                        }
-                        seen.add(name)
-                    }
+export const McpRefSchema = z.object({
+    /**
+     * Stable id within the spec. Tool-name prefix at runtime —
+     * `<id>__<toolName>` is what the model sees so it can tell which MCP
+     * a tool came from. Must be unique across `spec.mcps[]`.
+     */
+    id: z.string().min(1),
+    url: z.string().url(),
+    auth: z
+        .object({
+            integration: z.string().optional(),
+        })
+        .optional(),
+    /**
+     * Per-MCP secret names. Resolved at session start through the same
+     * encrypted-env path as the agent's main `spec.secrets`. The runner
+     * substitutes `${name}` placeholders in the URL + auth headers before
+     * opening the client; the plaintext never leaves the runner process.
+     */
+    secrets: z.array(z.string()).default([]),
+    /**
+     * Per-tool selection AND approval gating. Bare string is a passthrough
+     * (gates inclusion, no approval); object form carries
+     * `requires_approval` + `approval_policy`. Omitted / empty = expose
+     * every tool the server lists. Replaces the earlier `allowlist[]`
+     * field (PR 7 hard-break — no production specs used it).
+     *
+     * Names must be unique within the array. A duplicate would be a
+     * silent first-match-wins footgun — e.g. an author who appends a
+     * gated copy of an already-listed bare-string entry would see the
+     * gated version ignored. Better to reject at parse time.
+     */
+    tools: z
+        .array(McpToolEntrySchema)
+        .optional()
+        .refine(
+            (entries) => {
+                if (!entries) {
                     return true
-                },
-                { message: 'mcps[].tools[] entries must have unique names' }
-            ),
-    }),
-])
+                }
+                const seen = new Set<string>()
+                for (const e of entries) {
+                    const name = typeof e === 'string' ? e : e.name
+                    if (seen.has(name)) {
+                        return false
+                    }
+                    seen.add(name)
+                }
+                return true
+            },
+            { message: 'mcps[].tools[] entries must have unique names' }
+        ),
+})
 
 export const SkillRefSchema = z.object({
     id: z.string(),

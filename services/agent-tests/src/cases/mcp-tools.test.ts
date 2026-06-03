@@ -103,7 +103,7 @@ describe('runtime MCPs: real e2e', () => {
         await c.deployAgent({
             slug: 'mcp-echo',
             spec: {
-                mcps: [{ kind: 'external', id: 'demo', url: 'https://example.com/demo' }],
+                mcps: [{ id: 'demo', url: 'https://example.com/demo' }],
             },
         })
         const res = await request(c.ingress).post('/agents/mcp-echo/run').send({ message: 'go' })
@@ -134,7 +134,6 @@ describe('runtime MCPs: real e2e', () => {
             spec: {
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'linear',
                         url: 'https://example.com/linear',
                         tools: ['list-issues'],
@@ -169,7 +168,6 @@ describe('runtime MCPs: real e2e', () => {
                 secrets: ['TENANT'],
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'tenant',
                         url: 'https://example.com/${TENANT}/mcp',
                         secrets: ['TENANT'],
@@ -199,7 +197,7 @@ describe('runtime MCPs: real e2e', () => {
         c.setScript([fauxCallTool('demo__boom', {}), fauxText('Recovered after error.')])
         await c.deployAgent({
             slug: 'mcp-error',
-            spec: { mcps: [{ kind: 'external', id: 'demo', url: 'https://example.com/demo' }] },
+            spec: { mcps: [{ id: 'demo', url: 'https://example.com/demo' }] },
         })
         const res = await request(c.ingress).post('/agents/mcp-error/run').send({ message: 'try' })
         await c.drain()
@@ -213,46 +211,6 @@ describe('runtime MCPs: real e2e', () => {
         // Error text carries the remote's message so debugging is possible.
         const errText = toolResult?.content?.[0]?.text
         expect(errText).toContain('remote_blew_up')
-    })
-
-    it('routes a kind: agent ref through the supplied resolver and uses slug as the prefix', async () => {
-        const { factory, targets, captured } = buildFactory({
-            ask: {
-                description: 'd',
-                inputSchema: { topic: z.string() },
-                handler: () => ({ answered: true }),
-            },
-        })
-        c = await buildCluster({
-            mcpTransportFactory: factory,
-            agentMcpResolver: async (slug, ctx) => ({
-                // ctx.teamId is the load-bearing isolation lever — the prod
-                // resolver uses it to scope the revision lookup. Tests just
-                // assert it was forwarded.
-                url: `https://ingress.local/teams/${ctx.teamId}/agents/${slug}/mcp`,
-                headers: { 'X-PostHog-Internal': 'yes' },
-            }),
-        })
-        c.setScript([fauxCallTool('weekly-digest__ask', { topic: 'kpi' }), fauxText('done')])
-        await c.deployAgent({
-            slug: 'mcp-agent-variant',
-            spec: { mcps: [{ kind: 'agent', slug: 'weekly-digest' }] },
-        })
-        const res = await request(c.ingress).post('/agents/mcp-agent-variant/run').send({ message: 'ask' })
-        await c.drain()
-        const session = await c.queue.get(res.body.session_id)
-        expect(session!.state).toBe('completed')
-        // The harness resolver was consulted with the runner's teamId — proves
-        // the runner doesn't short-circuit kind:'agent' refs and proves the
-        // caller-context plumbing fires correctly.
-        expect(targets[0].url).toBe('https://ingress.local/teams/1/agents/weekly-digest/mcp')
-        expect(captured).toEqual([
-            {
-                name: 'ask',
-                args: { topic: 'kpi' },
-                target: { url: 'https://ingress.local/teams/1/agents/weekly-digest/mcp' },
-            },
-        ])
     })
 
     it('a gated MCP tool queues an approval row instead of calling the remote', async () => {
@@ -283,7 +241,6 @@ describe('runtime MCPs: real e2e', () => {
             spec: {
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
                         tools: [
@@ -360,7 +317,6 @@ describe('runtime MCPs: real e2e', () => {
             spec: {
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
                         tools: [
@@ -387,21 +343,5 @@ describe('runtime MCPs: real e2e', () => {
         )
         // ONE row, not two — the unique index collapsed the duplicate.
         expect(rows).toHaveLength(1)
-    })
-
-    it('fails fast when a kind: agent ref is declared but no resolver is wired', async () => {
-        // Default cluster has no `agentMcpResolver`. The session should fail
-        // at MCP-open, not silently degrade. This is the contract the prod
-        // boot relies on — if the resolver is unset (e.g. config drift) the
-        // failure is loud, not "the agent silently lacks tools."
-        c = await buildCluster()
-        await c.deployAgent({
-            slug: 'mcp-agent-missing-resolver',
-            spec: { mcps: [{ kind: 'agent', slug: 'weekly-digest' }] },
-        })
-        const res = await request(c.ingress).post('/agents/mcp-agent-missing-resolver/run').send({ message: 'ask' })
-        await c.drain()
-        const session = await c.queue.get(res.body.session_id)
-        expect(session!.state).toBe('failed')
     })
 })

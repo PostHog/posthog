@@ -2,24 +2,17 @@
  * Open MCP clients for an agent's `spec.mcps[]` at session start. Each opened
  * client carries:
  *   - `prefix` — the model-visible name prefix (`<prefix>__<remoteToolName>`).
- *   - `listTools()` — list of remote tools (used by `buildAgentTools` in PR 3
- *     to emit one `AgentTool` per remote tool).
+ *   - `listTools()` — list of remote tools (used by `buildAgentTools` to emit
+ *     one `AgentTool` per remote tool).
  *   - `callTool(name, args)` — invoke; result is the raw MCP `CallToolResult`.
- *     PR 3 owns the translation into `AgentToolResult`; here we surface the
- *     SDK result as-is so the caller can inspect `isError`/`content` itself.
+ *     `buildAgentTools` owns the translation into `AgentToolResult`.
  *   - `close()` — best-effort transport shutdown.
  *
- * Auth resolution per variant — see `docs/agent-platform/plans/runtime-mcps.md`
- * "Auth resolution":
- *   - `external.auth.integration` → `integrations[ref].access_token` →
+ * Auth resolution — see `docs/agent-platform/plans/runtime-mcps.md`:
+ *   - `auth.integration` → `integrations[ref].access_token` →
  *     `Authorization: Bearer <token>`.
- *   - `external.secrets[]` → resolve each name via `secrets[NAME]`; substitute
+ *   - `secrets[]` → resolve each name via `secrets[NAME]`; substitute
  *     `${NAME}` placeholders in the URL before opening the transport.
- *   - `kind: 'agent'` → defers to `deps.agentMcpResolver(slug)`. The resolver
- *     is wired in PR 6 (it walks the local revision store + mints
- *     `posthog_internal` auth); when unset, opening an `agent` ref throws
- *     `agent_mcp_resolver_not_wired` so the failure is visible during the
- *     PR 2-5 staging window rather than silently degrading.
  *
  * Failure during open: any single ref's open is wrapped in `Promise.allSettled`
  * so a partial-open doesn't leak clients. The first error is re-thrown after
@@ -61,38 +54,12 @@ export interface OpenedMcp {
     /** Tool-name prefix at runtime: `<prefix>__<remoteToolName>`. */
     prefix: string
     /** The original spec ref this client was opened for. Handy for logging
-     *  and for the caller to inspect `kind` / `tools[]` per tool. */
+     *  and for the caller to inspect `tools[]` per tool. */
     ref: McpRef
     listTools(): Promise<RemoteMcpTool[]>
     callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult>
     close(): Promise<void>
 }
-
-/**
- * Caller context passed to `AgentMcpResolver`. Production resolvers need this
- * to enforce team isolation — slug alone is ambiguous across teams, and the
- * "agent A in team 1 reaches into agent B in team 2 because they share a
- * slug" hole would otherwise be open by default.
- */
-export interface AgentMcpResolverContext {
-    teamId: number
-    sessionId: string
-}
-
-/**
- * Resolves a `kind: 'agent'` ref into a transport target. Production wires a
- * default that looks up the target by `(teamId, slug)` in the local revision
- * store, builds the ingress URL (`/agents/<slug>/mcp` in path mode,
- * `<slug>.agents.posthog.com/mcp` in domain mode), and mints a
- * `posthog_internal` bearer. Tests inject a synthetic resolver that just
- * fabricates a URL — see `cases/mcp-tools.test.ts`. When unset, opening an
- * `agent` ref throws `agent_mcp_resolver_not_wired` so the gap is loud
- * rather than silent.
- */
-export type AgentMcpResolver = (
-    slug: string,
-    ctx: AgentMcpResolverContext
-) => Promise<{ url: string; headers: Record<string, string> }>
 
 /**
  * Factory for the underlying SDK transport. Defaults to
@@ -122,13 +89,6 @@ export interface OpenMcpClientsDeps {
      *  already threads through). Only the names listed on a given ref's
      *  `secrets[]` are substituted into that ref's URL. */
     secrets: Record<string, string>
-    /**
-     * Forwarded to `agentMcpResolver` for every `kind: 'agent'` ref. Required
-     * iff at least one ref is `kind: 'agent'` — `external` refs ignore it.
-     * The caller (worker) populates this from the session being run.
-     */
-    callerContext?: AgentMcpResolverContext
-    agentMcpResolver?: AgentMcpResolver
     transportFactory?: McpTransportFactory
     log?: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
     /** Identity sent during the MCP `initialize` handshake. Defaults to the
@@ -226,7 +186,7 @@ async function openOne(ref: McpRef, deps: OpenOneDeps): Promise<OpenedMcp> {
     const client = new Client(deps.clientInfo, { capabilities: {} })
     await client.connect(transport)
 
-    const prefix = ref.kind === 'agent' ? ref.slug : ref.id
+    const prefix = ref.id
     return {
         prefix,
         ref,
@@ -253,26 +213,12 @@ async function resolveTarget(
     ref: McpRef,
     deps: OpenMcpClientsDeps
 ): Promise<{ url: string; headers: Record<string, string> }> {
-    if (ref.kind === 'agent') {
-        if (!deps.agentMcpResolver) {
-            throw new Error('agent_mcp_resolver_not_wired')
-        }
-        if (!deps.callerContext) {
-            // The resolver needs `(teamId, sessionId)` to enforce isolation; a
-            // missing context here means the worker forgot to forward session
-            // info. Surface loudly rather than letting the resolver decide what
-            // to do with `undefined`.
-            throw new Error('agent_mcp_caller_context_missing')
-        }
-        return deps.agentMcpResolver(ref.slug, deps.callerContext)
-    }
-    // `external` variant. SSRF protection is handled at the infra layer by
-    // smokescreen (see charts/shared/agent-platform/common.yaml
-    // `httpProxy.enabled: true`). Author chose the URL; smokescreen denies
-    // RFC1918 / loopback / link-local / cloud-IMDS + closes the DNS-rebinding
-    // gap via per-IP resolution at connect time. The runner only handles the
-    // logical-binding check (integration → host allowlist), which smokescreen
-    // can't do.
+    // SSRF protection is handled at the infra layer by smokescreen (see
+    // charts/shared/agent-platform/common.yaml `httpProxy.enabled: true`).
+    // Author chose the URL; smokescreen denies RFC1918 / loopback /
+    // link-local / cloud-IMDS + closes the DNS-rebinding gap via per-IP
+    // resolution at connect time. The runner only handles the logical-binding
+    // check (integration → host allowlist), which smokescreen can't do.
     const url = substituteSecrets(ref.url, ref.secrets, deps.secrets)
     const headers: Record<string, string> = {}
     if (ref.auth?.integration) {

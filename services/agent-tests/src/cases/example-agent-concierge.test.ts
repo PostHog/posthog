@@ -1,14 +1,14 @@
 /**
  * Example bundle wiring check — `services/agent-tests/src/examples/agent-concierge/`.
  *
- * Post-PR-7: the concierge spec now uses the platform's discriminated
- * `McpRefSchema` shape (`kind: 'external'`, `tools[]` carrying inline
- * `requires_approval` + `approval_policy`). `seed.py` no longer strips
- * `mcps[]`, so the bundle deploys end-to-end. This case still pins the
- * wiring net (skill paths exist, MCP tools match the authoring MCP
- * catalog, approval gating intact on destructive tools) — drift here
- * means the bundle is broken regardless of platform readiness, so it's
- * worth catching before review.
+ * The concierge spec uses the flat `McpRefSchema` shape — one external
+ * MCP entry (the local PostHog MCP) with a `tools[]` array carrying
+ * inline `requires_approval` + `approval_policy` for destructive tools.
+ * `seed.py` no longer strips `mcps[]`, so the bundle deploys end-to-end.
+ * This case pins the wiring net (skill paths exist, MCP tools match the
+ * authoring MCP catalog, approval gating intact on destructive tools) —
+ * drift here means the bundle is broken regardless of platform
+ * readiness, so it's worth catching before review.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
@@ -29,15 +29,12 @@ type ConciergeMcpToolEntry =
           approval_policy?: { approvers: string[]; ttl_ms?: number }
       }
 
-type ConciergeMcpRef =
-    | { kind: 'agent'; slug: string }
-    | {
-          kind: 'external'
-          id: string
-          url: string
-          secrets?: string[]
-          tools?: ConciergeMcpToolEntry[]
-      }
+interface ConciergeMcpRef {
+    id: string
+    url: string
+    secrets?: string[]
+    tools?: ConciergeMcpToolEntry[]
+}
 
 interface ConciergeSpec {
     model: string
@@ -111,9 +108,7 @@ describe('example: agent-concierge bundle', () => {
     it('every MCP tool the concierge declares matches the authoring MCP catalog', async () => {
         const { spec } = await loadBundle()
         const catalog = await loadAgentPlatformToolIds()
-        const posthog = spec.mcps.find((m): m is Extract<ConciergeMcpRef, { kind: 'external' }> => {
-            return m.kind === 'external' && m.id === 'posthog'
-        })
+        const posthog = spec.mcps.find((m) => m.id === 'posthog')
         expect(posthog).toBeTruthy()
         for (const entry of posthog!.tools ?? []) {
             expect(catalog.has(toolEntryName(entry))).toBe(true)
@@ -178,9 +173,7 @@ describe('example: agent-concierge bundle', () => {
         // Promote / set-env / destroy are gated at the platform layer, not just
         // in the prompt. Post-PR-7 the gating lives inline on `tools[]` object
         // entries with `requires_approval: true` + `approval_policy.approvers`.
-        const posthog = spec.mcps.find((m): m is Extract<ConciergeMcpRef, { kind: 'external' }> => {
-            return m.kind === 'external' && m.id === 'posthog'
-        })
+        const posthog = spec.mcps.find((m) => m.id === 'posthog')
         expect(posthog).toBeTruthy()
         const gatedNames = new Set(
             (posthog!.tools ?? [])
@@ -228,20 +221,14 @@ describe('example: agent-concierge bundle', () => {
     })
 
     it('the spec parses through AgentSpecSchema — runner accepts it as-is', async () => {
-        // The runner reads `revision.spec` via zod. Before PR 7 the
-        // concierge spec couldn't be deployed because `seed.py` had to
-        // strip `mcps[]` (the flat shape pre-dated the runtime-mcps
-        // schema). After PR 7 the spec uses `kind: 'external'` +
-        // `tools[]` and parses cleanly — this assertion pins that contract
-        // so a future schema tightening doesn't silently re-break the
-        // bundle.
+        // The runner reads `revision.spec` via zod. The concierge spec uses
+        // the flat `McpRefSchema` shape (one `{ id, url, tools[] }` entry
+        // for the local PostHog MCP). This assertion pins that contract so
+        // a future schema tightening doesn't silently re-break the bundle.
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         expect(parsed.mcps).toHaveLength(1)
         const posthog = parsed.mcps[0]
-        if (posthog.kind !== 'external') {
-            throw new Error('expected external posthog mcp')
-        }
         // Spot-check that the destructive entries arrived as object form
         // with their approval policy populated.
         const promote = posthog.tools?.find(

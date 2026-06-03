@@ -187,7 +187,7 @@ describe('Worker', () => {
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
                 model: 'faux/test',
-                mcps: [{ kind: 'external', id: 'echo', url: 'https://example.com/echo' }],
+                mcps: [{ id: 'echo', url: 'https://example.com/echo' }],
             }),
         })
         await bundle.write(rev.id, 'agent.md', 'you are a bot')
@@ -198,6 +198,8 @@ describe('Worker', () => {
             revision_id: rev.id,
             team_id: 1,
             external_key: null,
+            idempotency_key: null,
+            trigger_metadata: null,
             state: 'queued',
             conversation: [{ role: 'user', content: 'say hi', timestamp: Date.now() }],
             pending_inputs: [],

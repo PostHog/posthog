@@ -101,19 +101,6 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'forcePathStyle for the S3 client. Default true (SeaweedFS + MinIO both need it; real S3 accepts it).'
         ),
-    agentIngressBaseUrl: z
-        .string()
-        .url()
-        .optional()
-        .describe(
-            'Base URL the prod `agentMcpResolver` mints for `kind: agent` MCP refs (e.g. `https://app.posthog.com`). The resolver appends `/agents/<slug>/mcp`. Unset → no resolver wired; any `kind: agent` ref fails the session loudly (see PR 7).'
-        ),
-    internalSecret: z
-        .string()
-        .optional()
-        .describe(
-            'Mirrors the janitor `INTERNAL_SECRET`. Stamped as the `x-posthog-internal` header on `kind: agent` MCP requests so the target ingress accepts them (see services/agent-ingress/src/enqueue/auth.ts `posthog_internal`).'
-        ),
     bundleS3Endpoint: z
         .string()
         .url()
@@ -183,8 +170,6 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_MEMORY_S3_ACCESS_KEY_ID: 'memoryS3AccessKeyId',
     AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'memoryS3SecretAccessKey',
     AGENT_MEMORY_S3_FORCE_PATH_STYLE: 'memoryS3ForcePathStyle',
-    AGENT_INGRESS_BASE_URL: 'agentIngressBaseUrl',
-    INTERNAL_SECRET: 'internalSecret',
     AGENT_BUNDLE_S3_ENDPOINT: 'bundleS3Endpoint',
     AGENT_BUNDLE_S3_REGION: 'bundleS3Region',
     AGENT_BUNDLE_S3_BUCKET: 'bundleS3Bucket',

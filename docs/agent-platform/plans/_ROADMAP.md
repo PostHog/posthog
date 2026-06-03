@@ -217,21 +217,13 @@ agents need strict principal enforcement).
 
 `spec.mcps[]` runtime support for agents that consume third-party
 MCP servers (TODO C6). Independent of **C.1**; can ship in parallel.
-**PRs 1-6 ✅ shipped: schema (PR 1), MCP client wrapper (PR 2),
-`buildAgentTools` integration (PR 3), worker lifecycle (PR 4), e2e
-harness (PR 5), `kind: 'agent'` resolver contract (PR 6). PR 7 (prod
-default resolver + concierge bundle unblock) pending.**
-
-**Unresolved cross-cut with B.2 — per-MCP-tool approval gating.** The
-runtime path opens MCP clients and surfaces remote tools, but the
-dispatcher's approval gate keys off `ToolRef.requires_approval`, which
-MCP tools don't have. Two design options (A and C) sketched in
-[`runtime-mcps.md`](runtime-mcps.md) "Open design"; Option A is the
-planned PR 7 path. The concierge bundle is the blocking customer;
-adding it forces the choice. See [`_TODO.md`](_TODO.md) entry "MCP
-tool approval gating — unresolved schema alignment" for the full
-context. Couples with B.2's deferred `session_principal` approver
-scope, which PR 7 needs to pull forward.
+**✅ shipped** — flat `McpRefSchema` (`{ id, url, auth, secrets, tools }`),
+MCP client wrapper, `buildAgentTools` integration, worker lifecycle,
+e2e harness coverage, per-MCP-tool approval gating via `tools[]`
+object form, prod-ready dispatcher + integration-host validator. The
+old `kind: 'agent'` agent-to-agent variant was ripped out as orphan
+code; re-adds when [`agent-as-mcp-server.md`](agent-as-mcp-server.md)
+has a concrete consumer.
 
 ### C.3 [`skill-templates.md`](skill-templates.md) — **Danilo** (library UI **Ben**)
 

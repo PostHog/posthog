@@ -219,86 +219,75 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         "mcps": {
             "default": [],
             "type": "array",
+            # Single flat shape — third-party MCP server reachable over HTTP.
+            # The `kind: 'agent'` agent-to-agent variant was removed; see
+            # `docs/agent-platform/plans/agent-as-mcp-server.md` for re-add.
             "items": {
-                "oneOf": [
-                    {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "url": {"type": "string", "format": "uri"},
+                    "auth": {
                         "type": "object",
-                        "properties": {
-                            "kind": {"type": "string", "const": "agent"},
-                            "slug": {"type": "string"},
-                        },
-                        "required": ["kind", "slug"],
+                        "properties": {"integration": {"type": "string"}},
                         "additionalProperties": False,
                     },
-                    {
-                        "type": "object",
-                        "properties": {
-                            "kind": {"type": "string", "const": "external"},
-                            "id": {"type": "string", "minLength": 1},
-                            "url": {"type": "string", "format": "uri"},
-                            "auth": {
-                                "type": "object",
-                                "properties": {"integration": {"type": "string"}},
-                                "additionalProperties": False,
-                            },
-                            "secrets": {
-                                "default": [],
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                            # Per-tool selection + approval gating. Bare string
-                            # = inclusion only (was allowlist[] pre-PR-7);
-                            # object form adds requires_approval +
-                            # approval_policy. See `McpToolEntrySchema` in
-                            # services/agent-shared/src/spec/spec.ts.
-                            "tools": {
-                                "type": "array",
-                                "items": {
-                                    "oneOf": [
-                                        {"type": "string", "minLength": 1},
-                                        {
+                    "secrets": {
+                        "default": [],
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    # Per-tool selection + approval gating. Bare string
+                    # = inclusion only (was allowlist[] pre-PR-7);
+                    # object form adds requires_approval +
+                    # approval_policy. See `McpToolEntrySchema` in
+                    # services/agent-shared/src/spec/spec.ts.
+                    "tools": {
+                        "type": "array",
+                        "items": {
+                            "oneOf": [
+                                {"type": "string", "minLength": 1},
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string", "minLength": 1},
+                                        "requires_approval": {"type": "boolean", "default": False},
+                                        "approval_policy": {
                                             "type": "object",
                                             "properties": {
-                                                "name": {"type": "string", "minLength": 1},
-                                                "requires_approval": {"type": "boolean", "default": False},
-                                                "approval_policy": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "approvers": {
-                                                            "type": "array",
-                                                            "minItems": 1,
-                                                            "items": {
-                                                                "type": "string",
-                                                                "enum": ["team_admins", "session_principal"],
-                                                            },
-                                                            "default": ["team_admins"],
-                                                        },
-                                                        "allow_edit": {"type": "boolean", "default": False},
-                                                        "ttl_ms": {
-                                                            "type": "integer",
-                                                            "minimum": 60000,
-                                                            "maximum": 7 * 24 * 60 * 60 * 1000,
-                                                            "default": 24 * 60 * 60 * 1000,
-                                                        },
-                                                        "allow_agent_approver": {
-                                                            "type": "boolean",
-                                                            "default": False,
-                                                        },
+                                                "approvers": {
+                                                    "type": "array",
+                                                    "minItems": 1,
+                                                    "items": {
+                                                        "type": "string",
+                                                        "enum": ["team_admins", "session_principal"],
                                                     },
-                                                    "additionalProperties": False,
+                                                    "default": ["team_admins"],
+                                                },
+                                                "allow_edit": {"type": "boolean", "default": False},
+                                                "ttl_ms": {
+                                                    "type": "integer",
+                                                    "minimum": 60000,
+                                                    "maximum": 7 * 24 * 60 * 60 * 1000,
+                                                    "default": 24 * 60 * 60 * 1000,
+                                                },
+                                                "allow_agent_approver": {
+                                                    "type": "boolean",
+                                                    "default": False,
                                                 },
                                             },
-                                            "required": ["name"],
                                             "additionalProperties": False,
                                         },
-                                    ],
+                                    },
+                                    "required": ["name"],
+                                    "additionalProperties": False,
                                 },
-                            },
+                            ],
                         },
-                        "required": ["kind", "id", "url"],
-                        "additionalProperties": False,
                     },
-                ]
+                },
+                "required": ["id", "url"],
+                "additionalProperties": False,
             },
         },
         "skills": {

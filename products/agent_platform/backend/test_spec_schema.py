@@ -88,7 +88,6 @@ def _with_auth(spec: dict) -> dict:
                 "model": "x",
                 "mcps": [
                     {
-                        "kind": "external",
                         "id": "linear",
                         "url": "https://mcp.linear.app/sse",
                         "tools": ["list-issues", {"name": "create-issue", "requires_approval": True}],
@@ -179,7 +178,6 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
                 "model": "x",
                 "mcps": [
                     {
-                        "kind": "external",
                         "id": "linear",
                         "url": "https://mcp.linear.app/sse",
                         "tools": ["create-issue", "create-issue"],
@@ -196,7 +194,6 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
                 "model": "x",
                 "mcps": [
                     {
-                        "kind": "external",
                         "id": "linear",
                         "url": "https://mcp.linear.app/sse",
                         "tools": ["create-issue", {"name": "create-issue", "requires_approval": True}],

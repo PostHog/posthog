@@ -226,7 +226,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             // `mcp-tool-lookup.ts` (added in commit B). Omitted/empty `tools`
             // still means "expose every tool the server lists."
             const includedNames =
-                client.ref.kind === 'external' && client.ref.tools && client.ref.tools.length > 0
+                client.ref.tools && client.ref.tools.length > 0
                     ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
                     : null
             for (const remote of remoteTools) {

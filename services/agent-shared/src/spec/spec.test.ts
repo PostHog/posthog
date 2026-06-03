@@ -21,7 +21,7 @@ describe('AgentSpecSchema', () => {
                 { kind: 'native', id: '@posthog/query' },
                 { kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' },
             ],
-            mcps: [{ kind: 'agent', slug: 'weekly-digest' }],
+            mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
             integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
@@ -30,7 +30,7 @@ describe('AgentSpecSchema', () => {
         })
         expect(spec.triggers).toHaveLength(2)
         expect(spec.tools).toHaveLength(2)
-        expect(spec.mcps[0]).toEqual({ kind: 'agent', slug: 'weekly-digest' })
+        expect(spec.mcps[0]).toMatchObject({ id: 'posthog', url: 'https://app.posthog.com/api/mcp' })
     })
 
     it('rejects unknown trigger type', () => {
@@ -349,7 +349,6 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
                         auth: { integration: 'linear:T01' },
@@ -359,9 +358,6 @@ describe('AgentSpecSchema', () => {
                 ],
             })
             const m = spec.mcps[0]
-            if (m.kind !== 'external') {
-                throw new Error('expected external mcp')
-            }
             expect(m.id).toBe('linear')
             expect(m.url).toBe('https://mcp.linear.app/sse')
             expect(m.auth?.integration).toBe('linear:T01')
@@ -374,7 +370,6 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'posthog',
                         url: 'https://app.posthog.com/api/mcp',
                         tools: [
@@ -389,9 +384,6 @@ describe('AgentSpecSchema', () => {
                 ],
             })
             const m = spec.mcps[0]
-            if (m.kind !== 'external') {
-                throw new Error('expected external mcp')
-            }
             expect(m.tools?.[0]).toBe('agent-applications-list')
             const gated = m.tools?.[1]
             if (typeof gated === 'string' || gated === undefined) {
@@ -415,7 +407,6 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
                         tools: [{ name: 'create-issue' }],
@@ -423,9 +414,6 @@ describe('AgentSpecSchema', () => {
                 ],
             })
             const m = spec.mcps[0]
-            if (m.kind !== 'external') {
-                throw new Error('expected external mcp')
-            }
             const entry = m.tools?.[0]
             if (typeof entry === 'string' || entry === undefined) {
                 throw new Error('expected object-form tool entry')
@@ -436,28 +424,24 @@ describe('AgentSpecSchema', () => {
         it('defaults secrets to [] and tools to undefined when omitted on external', () => {
             const spec = AgentSpecSchema.parse({
                 model: 'x',
-                mcps: [{ kind: 'external', id: 'linear', url: 'https://mcp.linear.app/sse' }],
+                mcps: [{ id: 'linear', url: 'https://mcp.linear.app/sse' }],
             })
             const m = spec.mcps[0]
-            if (m.kind !== 'external') {
-                throw new Error('expected external mcp')
-            }
             expect(m.secrets).toEqual([])
             expect(m.tools).toBeUndefined()
         })
 
         it.each([
-            { label: 'missing id', mcp: { kind: 'external', url: 'https://mcp.linear.app/sse' } },
-            { label: 'empty id', mcp: { kind: 'external', id: '', url: 'https://mcp.linear.app/sse' } },
-            { label: 'non-URL endpoint', mcp: { kind: 'external', id: 'linear', url: 'not-a-url' } },
+            { label: 'missing id', mcp: { url: 'https://mcp.linear.app/sse' } },
+            { label: 'empty id', mcp: { id: '', url: 'https://mcp.linear.app/sse' } },
+            { label: 'non-URL endpoint', mcp: { id: 'linear', url: 'not-a-url' } },
             {
                 label: 'tools entry with empty name string',
-                mcp: { kind: 'external', id: 'linear', url: 'https://mcp.linear.app/sse', tools: [''] },
+                mcp: { id: 'linear', url: 'https://mcp.linear.app/sse', tools: [''] },
             },
             {
                 label: 'tools object with empty name',
                 mcp: {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: '' }],
@@ -466,7 +450,6 @@ describe('AgentSpecSchema', () => {
             {
                 label: 'duplicate bare-string entries',
                 mcp: {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['create-issue', 'create-issue'],
@@ -475,7 +458,6 @@ describe('AgentSpecSchema', () => {
             {
                 label: 'a bare-string entry duplicating an object entry name',
                 mcp: {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['create-issue', { name: 'create-issue', requires_approval: true }],
@@ -496,7 +478,6 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
-                        kind: 'external',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
                         allowlist: ['create-issue'],
@@ -504,19 +485,8 @@ describe('AgentSpecSchema', () => {
                 ],
             })
             const m = spec.mcps[0]
-            if (m.kind !== 'external') {
-                throw new Error('expected external mcp')
-            }
             expect(m.tools).toBeUndefined()
             expect((m as unknown as { allowlist?: string[] }).allowlist).toBeUndefined()
-        })
-
-        it('still parses the agent variant with just a slug', () => {
-            const spec = AgentSpecSchema.parse({
-                model: 'x',
-                mcps: [{ kind: 'agent', slug: 'weekly-digest' }],
-            })
-            expect(spec.mcps[0]).toEqual({ kind: 'agent', slug: 'weekly-digest' })
         })
     })
 

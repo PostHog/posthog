@@ -122,7 +122,7 @@ describe('openMcpClients', () => {
 
     it('opens an external ref and lists+calls remote tools', async () => {
         const { factory, calls, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ kind: 'external', id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
 
         const { clients, close } = await openMcpClients(refs, {
             integrations: {},
@@ -152,8 +152,8 @@ describe('openMcpClients', () => {
     it('preserves the prefix as the entry id for external refs', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] },
-            { kind: 'external', id: 'github', url: 'https://example.com/github', secrets: [] },
+            { id: 'linear', url: 'https://example.com/linear', secrets: [] },
+            { id: 'github', url: 'https://example.com/github', secrets: [] },
         ]
         const { clients, close } = await openMcpClients(refs, {
             integrations: {},
@@ -168,8 +168,8 @@ describe('openMcpClients', () => {
     it('rejects duplicate prefixes across refs', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'external', id: 'dup', url: 'https://example.com/a', secrets: [] },
-            { kind: 'external', id: 'dup', url: 'https://example.com/b', secrets: [] },
+            { id: 'dup', url: 'https://example.com/a', secrets: [] },
+            { id: 'dup', url: 'https://example.com/b', secrets: [] },
         ]
         await expect(
             openMcpClients(refs, { integrations: {}, secrets: {}, transportFactory: factory })
@@ -183,7 +183,6 @@ describe('openMcpClients', () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
-                kind: 'external',
                 id: 'tenant',
                 url: 'https://example.com/${TENANT}/mcp',
                 secrets: ['TENANT'],
@@ -204,7 +203,6 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
-                kind: 'external',
                 id: 'tenant',
                 url: 'https://example.com/${TENANT}/mcp',
                 secrets: ['TENANT'],
@@ -220,7 +218,6 @@ describe('openMcpClients', () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
-                kind: 'external',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
@@ -248,7 +245,6 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
-                kind: 'external',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
@@ -269,7 +265,6 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
-                kind: 'external',
                 id: 'linear',
                 url: 'https://evil.example.com/linear',
                 secrets: [],
@@ -298,7 +293,6 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
-                kind: 'external',
                 id: 'linear',
                 url: 'http://mcp.linear.app/linear',
                 secrets: [],
@@ -321,7 +315,6 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
-                kind: 'external',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
@@ -334,72 +327,14 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
-    it('throws agent_mcp_resolver_not_wired for kind: agent without a resolver', async () => {
-        const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ kind: 'agent', slug: 'weekly-digest' }]
-        await expect(
-            openMcpClients(refs, {
-                integrations: {},
-                secrets: {},
-                transportFactory: factory,
-                callerContext: { teamId: 1, sessionId: 's1' },
-            })
-        ).rejects.toThrow(/agent_mcp_resolver_not_wired/)
-        await closePairs(pairs)
-    })
-
-    it('throws agent_mcp_caller_context_missing when an agent ref needs but lacks ctx', async () => {
-        const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ kind: 'agent', slug: 'weekly-digest' }]
-        await expect(
-            openMcpClients(refs, {
-                integrations: {},
-                secrets: {},
-                transportFactory: factory,
-                agentMcpResolver: async (slug) => ({ url: `https://ingress/${slug}`, headers: {} }),
-                // callerContext deliberately omitted — proves the runner
-                // protects the resolver from a missing-isolation case rather
-                // than letting it silently see `undefined`.
-            })
-        ).rejects.toThrow(/agent_mcp_caller_context_missing/)
-        await closePairs(pairs)
-    })
-
-    it('delegates kind: agent to the supplied resolver, passing slug + caller ctx', async () => {
-        const { factory, pairs, targets } = await buildEchoFactory()
-        const refs: McpRef[] = [{ kind: 'agent', slug: 'weekly-digest' }]
-        const seenCtx: Array<{ slug: string; teamId: number; sessionId: string }> = []
-        const { clients, close } = await openMcpClients(refs, {
-            integrations: {},
-            secrets: {},
-            transportFactory: factory,
-            callerContext: { teamId: 42, sessionId: 'sess-abc' },
-            agentMcpResolver: async (slug, ctx) => {
-                seenCtx.push({ slug, ...ctx })
-                return {
-                    url: `https://ingress.local/teams/${ctx.teamId}/agents/${slug}/mcp`,
-                    headers: { 'X-PostHog-Internal': 'yes', 'X-Session-Id': ctx.sessionId },
-                }
-            },
-        })
-        expect(clients[0].prefix).toBe('weekly-digest')
-        expect(seenCtx).toEqual([{ slug: 'weekly-digest', teamId: 42, sessionId: 'sess-abc' }])
-        expect(targets[0].url).toBe('https://ingress.local/teams/42/agents/weekly-digest/mcp')
-        expect(targets[0].headers['X-PostHog-Internal']).toBe('yes')
-        expect(targets[0].headers['X-Session-Id']).toBe('sess-abc')
-        await close()
-        await closePairs(pairs)
-    })
-
     it('on partial-open failure: closes successful clients and rethrows', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         // First ref opens cleanly; second ref fails during target resolution
         // (missing integration) — the cleanup path should close the first
         // client without leaving pending writes on the in-memory pair.
         const refs: McpRef[] = [
-            { kind: 'external', id: 'ok', url: 'https://example.com/a', secrets: [] },
+            { id: 'ok', url: 'https://example.com/a', secrets: [] },
             {
-                kind: 'external',
                 id: 'broken',
                 url: 'https://example.com/b',
                 secrets: [],
@@ -425,7 +360,7 @@ describe('openMcpClients', () => {
 
     it('surfaces remote tool errors as isError on the McpCallResult', async () => {
         const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ kind: 'external', id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
         const { clients, close } = await openMcpClients(refs, {
             integrations: {},
             secrets: {},
@@ -461,7 +396,7 @@ describe('openMcpClients', () => {
                 },
             }) as Transport
         }
-        const refs: McpRef[] = [{ kind: 'external', id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
         const { clients, close } = await openMcpClients(refs, {
             integrations: {},
             secrets: {},
@@ -483,15 +418,12 @@ describe('openMcpClients', () => {
     describe('devMcpBearerToken (dev-only auth fallback)', () => {
         it('attaches Authorization: Bearer when ref has no auth and a dev bearer is configured', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
-            const { close } = await openMcpClients(
-                [{ kind: 'external', id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }],
-                {
-                    integrations: {},
-                    secrets: {},
-                    transportFactory: factory,
-                    devMcpBearerToken: 'phx_dev_token',
-                }
-            )
+            const { close } = await openMcpClients([{ id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }], {
+                integrations: {},
+                secrets: {},
+                transportFactory: factory,
+                devMcpBearerToken: 'phx_dev_token',
+            })
             expect(targets[0].headers.Authorization).toBe('Bearer phx_dev_token')
             await close()
             await closePairs(pairs)
@@ -500,7 +432,6 @@ describe('openMcpClients', () => {
         it('does NOT attach the dev bearer when ref.auth.integration is set (integration wins)', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
             const ref: McpRef = {
-                kind: 'external',
                 id: 'x',
                 url: 'https://mcp.example.com/sse',
                 secrets: [],
@@ -520,10 +451,11 @@ describe('openMcpClients', () => {
 
         it('omits Authorization entirely when neither auth.integration nor a dev bearer is set', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
-            const { close } = await openMcpClients(
-                [{ kind: 'external', id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }],
-                { integrations: {}, secrets: {}, transportFactory: factory }
-            )
+            const { close } = await openMcpClients([{ id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }], {
+                integrations: {},
+                secrets: {},
+                transportFactory: factory,
+            })
             expect(targets[0].headers.Authorization).toBeUndefined()
             await close()
             await closePairs(pairs)

@@ -409,15 +409,6 @@ function ToolRow({
 }
 
 function McpRow({ mcp }: { mcp: McpRef }): React.ReactElement {
-    if (mcp.kind === 'agent') {
-        return (
-            <RefRow
-                kind="agent"
-                primary={<code className="font-mono text-[0.6875rem]">{mcp.slug}</code>}
-                secondary="in-platform agent MCP"
-            />
-        )
-    }
     return (
         <RefRow
             kind="external"

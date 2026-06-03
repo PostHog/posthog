@@ -257,40 +257,37 @@ export type AgentRevisionApiSpecToolsItem =
           timeout_ms?: number
       }
 
-export type AgentRevisionApiSpecMcpsItem =
+export type AgentRevisionApiSpecMcpsItemAuth = {
+    integration?: string
+}
+
+export type AgentRevisionApiSpecMcpsItemToolsItem =
+    | string
     | {
-          kind: 'agent'
-          slug: string
-      }
-    | {
-          kind: 'external'
           /** @minLength 1 */
-          id: string
-          url: string
-          auth?: {
-              integration?: string
+          name: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
           }
-          secrets?: string[]
-          tools?: (
-              | string
-              | {
-                    /** @minLength 1 */
-                    name: string
-                    requires_approval?: boolean
-                    approval_policy?: {
-                        /** @minItems 1 */
-                        approvers?: ('team_admins' | 'session_principal')[]
-                        allow_edit?: boolean
-                        /**
-                         * @minimum 60000
-                         * @maximum 604800000
-                         */
-                        ttl_ms?: number
-                        allow_agent_approver?: boolean
-                    }
-                }
-          )[]
       }
+
+export type AgentRevisionApiSpecMcpsItem = {
+    /** @minLength 1 */
+    id: string
+    url: string
+    auth?: AgentRevisionApiSpecMcpsItemAuth
+    secrets?: string[]
+    tools?: AgentRevisionApiSpecMcpsItemToolsItem[]
+}
 
 export type AgentRevisionApiSpecSkillsItem = {
     id: string
@@ -472,40 +469,37 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           timeout_ms?: number
       }
 
-export type PatchedAgentRevisionApiSpecMcpsItem =
+export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
+    integration?: string
+}
+
+export type PatchedAgentRevisionApiSpecMcpsItemToolsItem =
+    | string
     | {
-          kind: 'agent'
-          slug: string
-      }
-    | {
-          kind: 'external'
           /** @minLength 1 */
-          id: string
-          url: string
-          auth?: {
-              integration?: string
+          name: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
           }
-          secrets?: string[]
-          tools?: (
-              | string
-              | {
-                    /** @minLength 1 */
-                    name: string
-                    requires_approval?: boolean
-                    approval_policy?: {
-                        /** @minItems 1 */
-                        approvers?: ('team_admins' | 'session_principal')[]
-                        allow_edit?: boolean
-                        /**
-                         * @minimum 60000
-                         * @maximum 604800000
-                         */
-                        ttl_ms?: number
-                        allow_agent_approver?: boolean
-                    }
-                }
-          )[]
       }
+
+export type PatchedAgentRevisionApiSpecMcpsItem = {
+    /** @minLength 1 */
+    id: string
+    url: string
+    auth?: PatchedAgentRevisionApiSpecMcpsItemAuth
+    secrets?: string[]
+    tools?: PatchedAgentRevisionApiSpecMcpsItemToolsItem[]
+}
 
 export type PatchedAgentRevisionApiSpecSkillsItem = {
     id: string

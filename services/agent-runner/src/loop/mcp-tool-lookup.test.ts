@@ -16,7 +16,6 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'posthog',
                     url: 'https://app.posthog.com/api/mcp',
                     tools: [
@@ -40,7 +39,6 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['create-issue'],
@@ -54,7 +52,6 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue', requires_approval: true }],
@@ -68,7 +65,6 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue' /* requires_approval defaults to false */ }],
@@ -83,18 +79,10 @@ describe('lookupMcpToolApproval', () => {
         expect(result?.requires_approval).toBe(false)
     })
 
-    it('returns null for kind:agent refs (target agent owns its own gating — decision A1)', () => {
-        const spec = buildSpec({
-            mcps: [{ kind: 'agent', slug: 'weekly-digest' }],
-        })
-        expect(lookupMcpToolApproval('weekly-digest__publish', spec)).toBeNull()
-    })
-
     it('returns null when no mcp prefix matches', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue', requires_approval: true }],
@@ -117,7 +105,6 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue', requires_approval: true }],
@@ -135,7 +122,6 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'service',
                     url: 'https://example.com/mcp',
                     tools: [{ name: 'parent__child', requires_approval: true }],
@@ -155,7 +141,6 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['list-issues', { name: 'create-issue', requires_approval: true }],
@@ -182,7 +167,6 @@ describe('lookupMcpToolApproval', () => {
             ],
             mcps: [
                 {
-                    kind: 'external',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['list-issues'], // no `create-issue` entry → no MCP-side gating

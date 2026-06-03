@@ -7714,19 +7714,11 @@ export namespace Schemas {
       timeout_ms?: number;
     };
 
-    export type AgentRevisionSpecMcpsItem = {
-      kind: 'agent';
-      slug: string;
-    } | {
-      kind: 'external';
-      /** @minLength 1 */
-      id: string;
-      url: string;
-      auth?: {
+    export type AgentRevisionSpecMcpsItemAuth = {
       integration?: string;
     };
-      secrets?: string[];
-      tools?: (string | {
+
+    export type AgentRevisionSpecMcpsItemToolsItem = string | {
       /** @minLength 1 */
       name: string;
       requires_approval?: boolean;
@@ -7741,7 +7733,15 @@ export namespace Schemas {
       ttl_ms?: number;
       allow_agent_approver?: boolean;
     };
-    })[];
+    };
+
+    export type AgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: AgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      tools?: AgentRevisionSpecMcpsItemToolsItem[];
     };
 
     export type AgentRevisionSpecSkillsItem = {
@@ -28037,19 +28037,11 @@ export namespace Schemas {
       timeout_ms?: number;
     };
 
-    export type PatchedAgentRevisionSpecMcpsItem = {
-      kind: 'agent';
-      slug: string;
-    } | {
-      kind: 'external';
-      /** @minLength 1 */
-      id: string;
-      url: string;
-      auth?: {
+    export type PatchedAgentRevisionSpecMcpsItemAuth = {
       integration?: string;
     };
-      secrets?: string[];
-      tools?: (string | {
+
+    export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
       /** @minLength 1 */
       name: string;
       requires_approval?: boolean;
@@ -28064,7 +28056,15 @@ export namespace Schemas {
       ttl_ms?: number;
       allow_agent_approver?: boolean;
     };
-    })[];
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: PatchedAgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      tools?: PatchedAgentRevisionSpecMcpsItemToolsItem[];
     };
 
     export type PatchedAgentRevisionSpecSkillsItem = {

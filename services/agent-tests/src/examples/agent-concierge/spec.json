@@ -161,7 +161,6 @@
     ],
     "mcps": [
         {
-            "kind": "external",
             "id": "posthog",
             "url": "https://app.posthog.com/api/mcp",
             "secrets": [],

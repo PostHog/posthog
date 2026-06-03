@@ -257,7 +257,7 @@ describe('buildAgentTools', () => {
 
     describe('mcp tools', () => {
         it('emits one AgentTool per remote tool, name-prefixed with the client prefix', async () => {
-            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'Open a new Linear issue.', handler: async () => ({}) },
                 'list-issues': { description: 'List recent Linear issues.', handler: async () => ({}) },
@@ -275,7 +275,6 @@ describe('buildAgentTools', () => {
             // count toward inclusion via their `name` field — covered in the
             // approval-wrap suite (commit B).
             const ref: McpRef = {
-                kind: 'external',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
@@ -292,18 +291,8 @@ describe('buildAgentTools', () => {
             expect(names).not.toContain('linear__create-issue')
         })
 
-        it('uses the slug as the prefix for kind: agent', async () => {
-            const ref: McpRef = { kind: 'agent', slug: 'weekly-digest' }
-            const mcp = makeFakeMcp('weekly-digest', ref, {
-                ask: { description: 'Ask the weekly-digest agent.', handler: async () => ({}) },
-            })
-            const rev = makeRev([], [], [ref])
-            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
-            expect(built.tools.map((t) => t.label)).toContain('weekly-digest__ask')
-        })
-
         it('execute dispatches through the open client and surfaces structured output', async () => {
-            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': {
                     description: 'Open a new Linear issue.',
@@ -323,7 +312,7 @@ describe('buildAgentTools', () => {
         })
 
         it('execute throws when the remote returns isError so the loop renders an error tool_result', async () => {
-            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': {
                     description: 'Open a new Linear issue.',
@@ -342,7 +331,7 @@ describe('buildAgentTools', () => {
             // `create-issue` would collapse to the same exposed id. We keep
             // the first one (the custom tool) and silently skip the duplicate
             // — matches the dup-id semantics of spec.tools[].
-            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'Open a Linear issue.', handler: async () => ({}) },
             })
@@ -361,13 +350,11 @@ describe('buildAgentTools', () => {
 
         it('walks multiple opened clients and surfaces all their tools', async () => {
             const linearRef: McpRef = {
-                kind: 'external',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
             }
             const githubRef: McpRef = {
-                kind: 'external',
                 id: 'github',
                 url: 'https://example.com/github',
                 secrets: [],
@@ -386,7 +373,7 @@ describe('buildAgentTools', () => {
         })
 
         it('keeps the provider-safe name map keyed by the prefixed id', async () => {
-            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'd', handler: async () => ({}) },
             })
@@ -402,7 +389,7 @@ describe('buildAgentTools', () => {
             // Without the wrapping, an SDK-internal error string would surface
             // as the session-failure reason — making it hard to attribute the
             // outage to a specific MCP at triage time.
-            const ref: McpRef = { kind: 'external', id: 'flaky', url: 'https://example.com/flaky', secrets: [] }
+            const ref: McpRef = { id: 'flaky', url: 'https://example.com/flaky', secrets: [] }
             const brokenClient: OpenedMcp = {
                 prefix: 'flaky',
                 ref,

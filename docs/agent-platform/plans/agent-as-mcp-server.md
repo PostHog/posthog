@@ -2,6 +2,15 @@
 
 **Status:** v0 shipped (incl. v0.1 fix to scoping — see §3); v1 (`spec.mcp.tools[]`) pending. **Owner:** ben.
 
+> **Runtime consumer side parked.** Agents exposing an MCP server still
+> works (§9 of this plan). What's gone is the symmetric runtime path that
+> let one agent declare _another_ agent's MCP in its own `spec.mcps[]`
+> via `kind: 'agent'`. That runtime variant was ripped from
+> [`runtime-mcps.md`](runtime-mcps.md) when an audit found no bundle
+> consumed it — see that plan's "Post-ship simplification". Re-add this
+> runtime path when a concrete agent-to-agent composability use case
+> shows up; the server-side `/mcp` endpoint is still there waiting for it.
+
 > Distinct from [`runtime-mcps.md`](runtime-mcps.md), which is about the
 > runner _consuming_ third-party MCPs as tools. This plan is the inverse:
 > the agent itself _exposes_ an MCP server that clients (Claude Code,

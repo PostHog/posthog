@@ -42,7 +42,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { runSession } from '../loop/driver'
-import { AgentMcpResolver, IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
+import { IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
 import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
 import { resolveModelCached } from '../models/pi-client'
 
@@ -165,16 +165,6 @@ export interface WorkerDeps {
      * instead of queueing. Omit to keep the always-queue default.
      */
     isAskerInApproverScope?: IsAskerInApproverScope
-    /**
-     * Resolves `spec.mcps[{ kind: 'agent' }]` refs to a transport target.
-     * PR 6 of the runtime-mcps rollout wires the real resolver (look the
-     * target agent up in the local revision store, build the ingress URL,
-     * mint `posthog_internal`). When unset, opening an `agent` ref throws
-     * `agent_mcp_resolver_not_wired` — the session is marked failed
-     * (same path as a sandbox-acquire failure). External MCPs work
-     * regardless. See `docs/agent-platform/plans/runtime-mcps.md`.
-     */
-    agentMcpResolver?: AgentMcpResolver
     /**
      * Override the MCP transport factory. Defaults to
      * `StreamableHTTPClientTransport`. The e2e harness substitutes an
@@ -368,11 +358,9 @@ export class Worker {
                 const opened = await openMcpClients(rev.spec.mcps, {
                     integrations,
                     secrets,
-                    agentMcpResolver: this.deps.agentMcpResolver,
                     transportFactory: this.deps.mcpTransportFactory,
                     integrationHostValidator: this.deps.integrationHostValidator,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
-                    callerContext: { teamId: session.team_id, sessionId: session.id },
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                 })
                 openedMcpClients = opened.clients

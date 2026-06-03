@@ -36,10 +36,8 @@ export interface McpToolApprovalConfig {
  *   - the name doesn't carry the `__` separator (caller is asking about a
  *     native / custom / client tool),
  *   - no `spec.mcps[]` entry matches the prefix,
- *   - the matched entry is `kind: 'agent'` (no per-tool gating by design —
- *     decision A1: target agent owns its own gating),
- *   - the matched `external` entry has no `tools[]`, no matching name, or
- *     the matching entry is a bare string (inclusion only, no policy).
+ *   - the matched entry has no `tools[]`, no matching name, or the matching
+ *     entry is a bare string (inclusion only, no policy).
  *
  * Returning null is the "no MCP-side gating" signal — the driver falls
  * through to whatever the native/custom lookup said (typically: no gating).
@@ -52,7 +50,7 @@ export function lookupMcpToolApproval(exposedName: string, spec: AgentSpec): Mcp
     const prefix = exposedName.slice(0, sep)
     const remoteName = exposedName.slice(sep + PREFIX_SEPARATOR.length)
     const ref = findMcpRefByPrefix(spec.mcps, prefix)
-    if (!ref || ref.kind !== 'external' || !ref.tools) {
+    if (!ref || !ref.tools) {
         return null
     }
     for (const entry of ref.tools) {
@@ -73,14 +71,12 @@ export function lookupMcpToolApproval(exposedName: string, spec: AgentSpec): Mcp
 
 /**
  * Resolve the `McpRef` whose runtime prefix matches. Mirrors the prefix
- * derivation in `mcp-clients.ts` (`slug` for `agent`, `id` for `external`)
- * — keeping the two in sync is load-bearing for the lookup to find the
- * declaring entry.
+ * derivation in `mcp-clients.ts` (`id`) — keeping the two in sync is
+ * load-bearing for the lookup to find the declaring entry.
  */
 function findMcpRefByPrefix(mcps: ReadonlyArray<McpRef>, prefix: string): McpRef | null {
     for (const ref of mcps) {
-        const p = ref.kind === 'agent' ? ref.slug : ref.id
-        if (p === prefix) {
+        if (ref.id === prefix) {
             return ref
         }
     }

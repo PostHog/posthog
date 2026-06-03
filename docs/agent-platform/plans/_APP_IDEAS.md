@@ -46,15 +46,17 @@ Cross-cutting status (refreshed against current code):
   [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
   Every weekly / monthly app below assumes cron and is
   currently blocked on this — but it's a small piece of work.
-- 📋 **Runtime MCP support (external endpoints)** —
-  `McpRefSchema` accepts `{ kind: 'external', url }`, but the
-  runner doesn't open external MCP clients at session start.
-  Agent-to-agent MCP (`kind: 'agent'`) resolves through the
-  ingress because the receiving agent's `/mcp` trigger exists.
-  Plan: [`runtime-mcps.md`](runtime-mcps.md). Anything wanting
-  GitHub / Stripe / Grafana / k8s / Warpstream is blocked here
-  until this lands — but most of those have MCP servers, so it
-  unblocks several apps at once.
+- ✅ **Runtime MCP support (external endpoints)** —
+  `McpRefSchema` is a flat `{ id, url, auth, secrets, tools }`
+  shape; the runner opens MCP clients at session start, exposes
+  remote tools as name-prefixed `AgentTool`s, and routes dispatch
+  back through the open client. Public MCPs (Sentry, GitHub-public,
+  Linear) work today; private MCPs (Grafana, k8s) need a public
+  hostname, e.g. via Cloudflare Tunnel. Plan:
+  [`runtime-mcps.md`](runtime-mcps.md). Agent-to-agent MCP
+  composability (the old `kind: 'agent'` variant) was removed in
+  favour of the single shape — re-adds when a concrete consumer
+  lands; see [`agent-as-mcp-server.md`](agent-as-mcp-server.md).
 - ⚠️ **Document / corpus ingestion + retrieval** — multiple apps
   want a curated, periodically-refreshed corpus to ground
   against. `web-fetch` + `web-search` cover ad-hoc retrieval;

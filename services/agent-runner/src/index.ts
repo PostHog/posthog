@@ -52,11 +52,9 @@ import {
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
-import type { AgentMcpResolver } from './loop/mcp-clients'
 import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
-import { makeAgentMcpResolver } from './resolvers/agent-mcp-resolver'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
 import { makeIntegrationHostValidator } from './resolvers/integration-host-registry'
 import { Worker } from './workers/worker'
@@ -214,7 +212,11 @@ async function main(): Promise<void> {
             bucket: config.memoryS3Bucket,
             bucketPrefix: config.memoryS3Prefix,
         })
-        tabularStore = new S3JsonlTabularStore({ client: s3, bucket: config.memoryS3Bucket, bucketPrefix: 'agent_tables' })
+        tabularStore = new S3JsonlTabularStore({
+            client: s3,
+            bucket: config.memoryS3Bucket,
+            bucketPrefix: 'agent_tables',
+        })
         log.info(
             { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
             'memory.s3.enabled'
@@ -230,36 +232,6 @@ async function main(): Promise<void> {
     const credentialBroker = new PgCredentialBroker(agentDb, {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
-
-    // Resolver for `kind: agent` MCP refs (PR 7). Both envs unset is the
-    // dev / CI default — boot quietly, log a warn so the gap is visible,
-    // and any spec that declares an `agent` ref fails at session start
-    // with `agent_mcp_resolver_not_wired` (loudly, not silently). Partial
-    // config (one set, the other empty) is an operator misconfig — fail
-    // fast at boot rather than silently degrading every `kind: agent` ref
-    // at session-open, which looks identical to "the resolver was
-    // supposed to be off." See review #5.
-    let agentMcpResolver: AgentMcpResolver | undefined
-    if (config.agentIngressBaseUrl && config.internalSecret) {
-        agentMcpResolver = makeAgentMcpResolver({
-            revisions,
-            ingressBaseUrl: config.agentIngressBaseUrl,
-            internalSecret: config.internalSecret,
-        })
-    } else if (config.agentIngressBaseUrl || config.internalSecret) {
-        throw new Error(
-            'agent_mcp_resolver_partial_config: AGENT_INGRESS_BASE_URL and INTERNAL_SECRET must be set together (got base_url=' +
-                (config.agentIngressBaseUrl ? 'set' : 'unset') +
-                ', secret=' +
-                (config.internalSecret ? 'set' : 'unset') +
-                ')'
-        )
-    } else {
-        log.warn(
-            {},
-            'agent_mcp_resolver_disabled — set AGENT_INGRESS_BASE_URL + INTERNAL_SECRET to enable kind: agent MCP refs'
-        )
-    }
 
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
@@ -307,7 +279,6 @@ async function main(): Promise<void> {
         memoryStore,
         tabularStore,
         isAskerInApproverScope,
-        agentMcpResolver,
         devMcpBearerToken: config.devMcpBearerToken,
         // Per-integration-kind host allowlist. Without this, any external MCP
         // ref with `auth.integration` fails closed at open with
