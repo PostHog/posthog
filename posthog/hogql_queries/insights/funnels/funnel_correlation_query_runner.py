@@ -399,7 +399,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         query = parse_select(
             f"""
             WITH
-                funnel_actors AS MATERIALIZED (
+                funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
                 {{date_from}} AS date_from,
