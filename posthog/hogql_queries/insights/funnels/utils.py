@@ -54,6 +54,10 @@ def get_breakdown_expr(
         else:
             return ast.Field(chain=[*properties_column.split("."), breakdown])
 
+    # Fail loudly rather than silently skipping cleaning if a caller forgets the team
+    if path_cleaning and team is None:
+        raise ValueError("get_breakdown_expr: path_cleaning=True requires a team")
+
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
             name="ifNull",
