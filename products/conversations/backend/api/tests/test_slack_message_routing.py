@@ -1,9 +1,17 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
-from products.conversations.backend.slack import handle_support_mention, handle_support_message, handle_support_reaction
+from products.conversations.backend.slack import (
+    handle_member_joined_channel,
+    handle_member_left_channel,
+    handle_support_mention,
+    handle_support_message,
+    handle_support_reaction,
+)
 
 MODULE = "products.conversations.backend.slack"
 
@@ -208,3 +216,74 @@ class TestSlackMessageRouting(BaseTest):
         )
 
         mock_create_or_update.assert_not_called()
+
+
+class TestSlackMemberAlerts(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {
+            "slack_enabled": True,
+            "slack_notify_on_join": True,
+            "slack_notify_on_leave": True,
+            "slack_alert_channel_id": "C_ALERTS",
+        }
+        self.team.save()
+
+    @parameterized.expand(
+        [
+            ("join", handle_member_joined_channel, "joined"),
+            ("leave", handle_member_left_channel, "left"),
+        ]
+    )
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_posts_alert(self, _name, handler, verb, mock_get_client, _mock_bot_id):
+        handler(
+            {"user": "U123", "channel": "C_SUPPORT"},
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.chat_postMessage.assert_called_once()
+        kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
+        assert kwargs["channel"] == "C_ALERTS"
+        assert kwargs["text"] == f"<@U123> {verb} <#C_SUPPORT>"
+
+    @parameterized.expand(
+        [
+            ("join", handle_member_joined_channel, "slack_notify_on_join"),
+            ("leave", handle_member_left_channel, "slack_notify_on_leave"),
+        ]
+    )
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_no_op_when_toggle_off(self, _name, handler, toggle_key, mock_get_client, _mock_bot_id):
+        self.team.conversations_settings[toggle_key] = False
+        self.team.save()
+
+        handler({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_no_op_without_alert_channel(self, mock_get_client):
+        self.team.conversations_settings["slack_alert_channel_id"] = None
+        self.team.save()
+
+        handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_skips_own_bot(self, mock_get_client, _mock_bot_id):
+        handle_member_joined_channel({"user": "U_OWN_BOT", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_skips_malformed_ids(self, mock_get_client, _mock_bot_id):
+        handle_member_joined_channel({"user": "not-a-user", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()

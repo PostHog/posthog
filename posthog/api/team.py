@@ -1105,6 +1105,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
+        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave"):
+            if toggle_key in value:
+                value[toggle_key] = bool(value[toggle_key])
+        if "slack_alert_channel_id" in value:
+            alert_channel = value.get("slack_alert_channel_id")
+            if alert_channel is None:
+                value["slack_alert_channel_id"] = None
+            elif isinstance(alert_channel, str):
+                value["slack_alert_channel_id"] = alert_channel.strip() or None
+            else:
+                raise serializers.ValidationError({"slack_alert_channel_id": "Must be a string."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
