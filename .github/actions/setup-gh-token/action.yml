@@ -1,0 +1,34 @@
+name: Mint setup-action GitHub token
+description: |
+    Mint a short-lived GitHub App token so actions/setup-* resolve their version manifest off a
+    dedicated rate-limit bucket instead of the shared per-repo GITHUB_TOKEN.
+    Fails open: when the app secrets are absent (forks, or before the app is provisioned), minting
+    is skipped and the empty `token` output lets callers fall back to github.token. Gate the caller
+    step with `if: github.event_name != 'pull_request' || head.repo.full_name == github.repository`
+    and consume it as `token: ${{ steps.<id>.outputs.token || github.token }}`.
+
+inputs:
+    client-id:
+        description: GitHub App client ID (the GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID secret).
+        required: false
+    private-key:
+        description: GitHub App private key (the GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY secret).
+        required: false
+
+outputs:
+    token:
+        description: Minted installation token; empty string when minting was skipped or failed.
+        value: ${{ steps.mint.outputs.token }}
+
+runs:
+    using: composite
+    steps:
+        # continue-on-error keeps a missing/empty secret from failing the job — the empty output
+        # then drives the caller's `|| github.token` fallback.
+        - name: Mint token
+          id: mint
+          continue-on-error: true
+          uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+          with:
+              client-id: ${{ inputs.client-id }}
+              private-key: ${{ inputs.private-key }}
