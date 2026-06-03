@@ -1,6 +1,6 @@
 import { initKeaTests } from '~/test/init'
 
-import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { computeExitOnNoMatch, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -465,34 +465,134 @@ describe('hogFlowEditorLogic', () => {
             expect(branchEdge1?.data?.label).toBe('If cohort #2 matches')
         })
 
-        it('should target exit node when no match continue edge points to exit', () => {
-            const mockFlow = createMockHogFlow()
-            logic.actions.resetFlowFromHogFlow(mockFlow)
+        it.each([
+            {
+                name: 'continue edge points directly to exit',
+                edges: undefined,
+                expectedTarget: 'exit',
+                expectedLabel: 'No match',
+            },
+            {
+                name: 'continue edge points to an intermediate node',
+                edges: [
+                    { from: 'trigger', to: 'branch', type: 'continue' as const },
+                    { from: 'branch', to: 'exit', type: 'branch' as const, index: 0 },
+                    { from: 'branch', to: 'email', type: 'continue' as const },
+                    { from: 'email', to: 'exit', type: 'continue' as const },
+                ],
+                expectedTarget: 'email',
+                expectedLabel: 'No match',
+            },
+        ])(
+            'should render continue edge targeting $expectedTarget when $name',
+            ({ edges, expectedTarget, expectedLabel }) => {
+                const mockFlow = createMockHogFlow()
+                if (edges) {
+                    mockFlow.edges = edges
+                }
 
-            const continueEdge = logic.values.edges.find(
-                (e) => e.source === 'branch' && e.sourceHandle?.includes('continue_branch')
-            )
+                logic.actions.resetFlowFromHogFlow(mockFlow)
 
-            expect(continueEdge?.target).toBe('exit')
-            expect(continueEdge?.data?.label).toBe('No match')
+                const continueEdge = logic.values.edges.find(
+                    (e) => e.source === 'branch' && e.sourceHandle?.includes('continue_branch')
+                )
+
+                expect(continueEdge?.target).toBe(expectedTarget)
+                expect(continueEdge?.data?.label).toBe(expectedLabel)
+            }
+        )
+    })
+
+    describe('computeExitOnNoMatch', () => {
+        const act = (
+            actions: HogFlow['actions'],
+            edges: HogFlow['edges'],
+            actionId = 'branch'
+        ): ReturnType<typeof computeExitOnNoMatch> => computeExitOnNoMatch(actions, edges, actionId, 'exit')
+
+        it('returns null when no continue edge exists for the action', () => {
+            const edges: HogFlow['edges'] = [{ from: 'branch', to: 'exit', type: 'branch', index: 0 }]
+            expect(act([], edges)).toBeNull()
         })
 
-        it('should target intermediate node when no match continue edge does not point to exit', () => {
-            const mockFlow = createMockHogFlow()
-            mockFlow.edges = [
-                { from: 'trigger', to: 'branch', type: 'continue' },
+        it.each([
+            {
+                name: 'single intermediate node',
+                actions: [{ id: 'email' } as HogFlowAction],
+                edges: [
+                    { from: 'branch', to: 'email', type: 'continue' as const },
+                    { from: 'branch', to: 'exit', type: 'branch' as const, index: 0 },
+                    { from: 'email', to: 'exit', type: 'continue' as const },
+                ],
+                expectedEdges: [
+                    { from: 'branch', to: 'exit', type: 'continue' },
+                    { from: 'branch', to: 'exit', type: 'branch', index: 0 },
+                ],
+                expectedActionIds: [] as string[],
+            },
+            {
+                name: 'multi-hop no-match path',
+                actions: [{ id: 'A' } as HogFlowAction, { id: 'B' } as HogFlowAction],
+                edges: [
+                    { from: 'branch', to: 'A', type: 'continue' as const },
+                    { from: 'branch', to: 'exit', type: 'branch' as const, index: 0 },
+                    { from: 'A', to: 'B', type: 'continue' as const },
+                    { from: 'B', to: 'exit', type: 'continue' as const },
+                ],
+                expectedEdges: [
+                    { from: 'branch', to: 'exit', type: 'continue' },
+                    { from: 'branch', to: 'exit', type: 'branch', index: 0 },
+                ],
+                expectedActionIds: [] as string[],
+            },
+            {
+                name: 'continue already points to exit (nothing to delete)',
+                actions: [] as HogFlowAction[],
+                edges: [
+                    { from: 'branch', to: 'exit', type: 'continue' as const },
+                    { from: 'branch', to: 'exit', type: 'branch' as const, index: 0 },
+                ],
+                expectedEdges: [
+                    { from: 'branch', to: 'exit', type: 'continue' },
+                    { from: 'branch', to: 'exit', type: 'branch', index: 0 },
+                ],
+                expectedActionIds: [] as string[],
+            },
+        ])(
+            'deletes reachable nodes and redirects continue edge — $name',
+            ({ actions, edges, expectedEdges, expectedActionIds }) => {
+                const result = act(actions, edges)
+                expect(result).not.toBeNull()
+                expect(result?.edges).toEqual(expect.arrayContaining(expectedEdges))
+                expect(result?.edges).toHaveLength(expectedEdges.length)
+                expect(result?.actions.map((a) => a.id)).toEqual(expectedActionIds)
+            }
+        )
+
+        it('preserves shared join node reached by another branch', () => {
+            const actions: HogFlowAction[] = [{ id: 'email' } as HogFlowAction, { id: 'join' } as HogFlowAction]
+            const edges: HogFlow['edges'] = [
                 { from: 'branch', to: 'exit', type: 'branch', index: 0 },
                 { from: 'branch', to: 'email', type: 'continue' },
-                { from: 'email', to: 'exit', type: 'continue' },
+                { from: 'email', to: 'join', type: 'continue' },
+                // 'join' also has an incoming edge from a node outside the no-match set
+                { from: 'other', to: 'join', type: 'continue' },
+                { from: 'join', to: 'exit', type: 'continue' },
             ]
 
-            logic.actions.resetFlowFromHogFlow(mockFlow)
+            const result = act(actions, edges)
 
-            const continueEdge = logic.values.edges.find(
-                (e) => e.source === 'branch' && e.sourceHandle?.includes('continue_branch')
-            )
-
-            expect(continueEdge?.target).toBe('email')
+            expect(result).not.toBeNull()
+            // 'email' is deleted (reachable only from the no-match path)
+            expect(result?.actions.map((a) => a.id)).not.toContain('email')
+            // 'join' is preserved (has external incoming edge from 'other')
+            expect(result?.actions.map((a) => a.id)).toContain('join')
+            // continue edge is redirected to exit
+            const continueEdge = result?.edges.find((e) => e.from === 'branch' && e.type === 'continue')
+            expect(continueEdge?.to).toBe('exit')
+            // edges into/from 'email' are removed; join's edges are intact
+            expect(result?.edges.find((e) => e.from === 'email' || e.to === 'email')).toBeUndefined()
+            expect(result?.edges.find((e) => e.from === 'join')).not.toBeUndefined()
         })
     })
 

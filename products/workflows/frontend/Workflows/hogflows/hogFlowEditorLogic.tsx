@@ -132,6 +132,58 @@ export function computeMoveEdges(
     return newEdges
 }
 
+/**
+ * Computes the result of "exit on no match" for a conditional branch node.
+ * BFS-traverses the no-match path, drops nodes reachable only from that path,
+ * and redirects the continue edge to the exit node.
+ * Extracted into pure function to be easier to test.
+ */
+export function computeExitOnNoMatch(
+    actions: HogFlowAction[],
+    edges: HogFlow['edges'],
+    actionId: string,
+    exitNodeId: string
+): { actions: HogFlowAction[]; edges: HogFlow['edges'] } | null {
+    const continueEdge = edges.find((e) => e.from === actionId && e.type === 'continue')
+    if (!continueEdge) {
+        return null
+    }
+
+    const noMatchTargetId = continueEdge.to
+    const toDelete = new Set<string>()
+    const queue = [noMatchTargetId]
+    while (queue.length > 0) {
+        const id = queue.shift()!
+        if (!id || id === exitNodeId || toDelete.has(id)) {
+            continue
+        }
+        toDelete.add(id)
+        edges.forEach((e) => {
+            if (e.from === id) {
+                queue.push(e.to)
+            }
+        })
+    }
+
+    // Exclude shared join nodes: any node with an incoming edge from outside toDelete,
+    // ignoring the continue edge from actionId (that edge is being redirected to exitNodeId).
+    for (const id of toDelete) {
+        const hasExternalIncoming = edges.some(
+            (e) => e.to === id && !toDelete.has(e.from) && !(e.from === actionId && e.type === 'continue')
+        )
+        if (hasExternalIncoming) {
+            toDelete.delete(id)
+        }
+    }
+
+    const updatedEdges = edges
+        .map((e) => (e.from === actionId && e.type === 'continue' ? { ...e, to: exitNodeId } : e))
+        .filter((e) => !toDelete.has(e.to) && !toDelete.has(e.from))
+    const updatedActions = actions.filter((a) => !toDelete.has(a.id))
+
+    return { actions: updatedActions, edges: updatedEdges }
+}
+
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export type HogFlowEditorActionMetrics = {

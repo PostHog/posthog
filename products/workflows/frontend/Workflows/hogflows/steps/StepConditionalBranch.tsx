@@ -13,7 +13,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { EXIT_NODE_ID } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { computeExitOnNoMatch, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { getBranchRemovalDisabledReason, removeBranchEdge, useDebouncedNameInputs } from './utils'
@@ -86,37 +86,10 @@ export function StepConditionalBranchConfiguration({
     }
 
     const exitOnNoMatch = (): void => {
-        if (!continueEdge) {
-            return
+        const result = computeExitOnNoMatch(workflow.actions, workflow.edges, action.id, EXIT_NODE_ID)
+        if (result) {
+            setWorkflowInfo(result)
         }
-
-        // Find the target of the continue edge (where "no match" leads)
-        const noMatchTargetId = continueEdge.to
-
-        // Collect all node IDs reachable from noMatchTargetId (excluding EXIT)
-        const toDelete = new Set<string>()
-        const queue = [noMatchTargetId]
-        while (queue.length > 0) {
-            const id = queue.shift()!
-            if (!id || id === EXIT_NODE_ID || toDelete.has(id)) {
-                continue
-            }
-            toDelete.add(id)
-            workflow.edges.forEach((edge: HogFlow['edges'][number]) => {
-                if (edge.from === id) {
-                    queue.push(edge.to)
-                }
-            })
-        }
-
-        // Update edges: redirect continue edge to EXIT and remove all edges to deleted nodes
-        const updatedEdges = workflow.edges
-            .map((edge: HogFlow['edges'][number]) =>
-                edge.from === action.id && edge.type === 'continue' ? { ...edge, to: EXIT_NODE_ID } : edge
-            )
-            .filter((edge: HogFlow['edges'][number]) => !toDelete.has(edge.to) && !toDelete.has(edge.from))
-        const updatedActions = workflow.actions.filter((a: HogFlowAction) => !toDelete.has(a.id))
-        setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
     }
 
     return (
