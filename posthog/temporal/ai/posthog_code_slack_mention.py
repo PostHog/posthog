@@ -270,10 +270,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # case (see products/slack_app/backend/api.py); this is the defense in
             # depth that also covers replays, manual workflow starts, and the race
             # where the webhook saw "not limited" but Redis flipped before we got
-            # here. The patch marker is preserved via `deprecate_patch` so any
-            # straggler workflow that recorded the pre-patch path on its first
-            # task can still replay deterministically on the post-deprecation
-            # worker. Drop the `deprecate_patch` call once the next drain completes.
+            # here.
             blocked = await _execute_posthog_code_activity(
                 enforce_posthog_code_billing_quota_activity,
                 inputs,
