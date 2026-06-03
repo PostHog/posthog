@@ -2,7 +2,10 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 
-from django_display_ids import DisplayIDModel
+# Import from the submodule rather than the package root: the package exposes
+# DisplayIDModel via a lazy module __getattr__, which static type checkers can't
+# resolve as a class (mypy: "not valid as a type" / "invalid base class").
+from django_display_ids.models import DisplayIDModel
 
 from posthog.models.utils import UUIDTModel
 
