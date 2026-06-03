@@ -129,6 +129,16 @@ Recipe: keep the shim (`--ours` on `__init__.py`), diff the merge base against t
 When a module carrying a `ready()`-wired receiver moves, re-point the wiring to its new product's `AppConfig.ready()` and keep any heavy import deferred.
 The same shape bites whenever one side moves or renames a module the other side references at module scope — a text-clean merge that breaks on import.
 
+**Removing an eager import chain unmasks latent circular imports.**
+The eager router imported a large chain when `posthog/urls.py` loaded, _before_ urls.py reached its own product imports.
+That chain often imported some module fully and early, accidentally papering over a circular import elsewhere that only ever worked because of that import order.
+Make the router lazy and the accidental pre-import disappears, so the next process to import the URLconf hits the cycle head-on.
+The real example: `slack_app.backend.api` imports workflow classes from `posthog_code_slack_mention`, which imported a helper straight back from `slack_app.backend.api` at module scope (placed late with `# noqa: E402` — a tell that someone already fought the ordering).
+With the pre-import gone, Django's system checks (`check_custom_error_handlers` imports the URLconf, e.g. during `ensure_migration_defaults`) raised `cannot import name ... from partially initialized module`.
+Two things make this nasty: it surfaces far from the change (a migration-defaults step in one CI job, not the lazy-router files), and the buggy code is not yours — so it is tempting to blame master.
+Do not assume: the decisive test is `django.setup()` then `import_module("posthog.urls")` in a clean subprocess, run on a detached `origin/master` worktree _and_ the branch.
+If only the branch fails, you unmasked it and you own the fix — break the cycle by deferring the back-reference to its call sites.
+
 **Regenerating a shared snapshot on top of a bad merge.**
 Query-count snapshot files (`.ambr`) are generated.
 When both branches change one, neither side's version is correct for the merged code — regenerate against the merged branch rather than picking a side.
