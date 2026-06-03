@@ -79,8 +79,21 @@ const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
     '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
 }
 
+// Map hostname to the region-specific status page path (incident.io sub-pages)
+const REGION_PATH_MAP: Record<string, string> = {
+    'us.posthog.com': '/us',
+    'eu.posthog.com': '/eu',
+    localhost: '/us', // Default to US for local dev
+    '127.0.0.1': '/us', // Storybook CI runs at 127.0.0.1:6006
+}
+
 function getRelevantGroupName(): string | null {
     return RELEVANT_GROUP_NAME_MAP[window.location.hostname] || null
+}
+
+// Region-specific status page URL, falling back to the root page for unknown (self-hosted) hosts
+export function getStatusPageUrl(): string {
+    return `${STATUS_PAGE_BASE}${REGION_PATH_MAP[window.location.hostname] ?? ''}`
 }
 
 function hasRelevantComponents(affectedComponents: AffectedComponent[]): boolean {
@@ -180,6 +193,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
     })),
 
     selectors({
+        statusPageUrl: [() => [], (): string => getStatusPageUrl()],
         rawStatus: [
             (s) => [s.summary],
             (summary: Summary | null): NormalizedStatus => {

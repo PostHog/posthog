@@ -176,6 +176,7 @@ mod tests {
                 dlq_reason: None,
                 dlq_step: None,
                 dlq_timestamp: None,
+                content_encoding: None,
             }
         }
         fn partition_key(&self, _ctx: &Context, buf: &mut String) {
