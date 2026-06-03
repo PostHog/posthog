@@ -209,9 +209,6 @@ def _extract_person_property_filters(cohort: Cohort) -> str:
     Returns a hash string that can be used for comparison to detect changes.
     This captures both the individual conditions AND their logical structure.
     """
-    import json
-    import hashlib
-
     if not cohort.filters:
         return ""
 
