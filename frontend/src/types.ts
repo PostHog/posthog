@@ -4669,6 +4669,8 @@ export interface Experiment {
         }
         frequentist?: {
             alpha?: number
+            sequential_testing_enabled?: boolean
+            sequential_tuning_parameter?: number
         }
         cuped?: {
             enabled?: boolean

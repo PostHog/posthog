@@ -6553,7 +6553,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         )
 
     def test_create_with_survey_write_only_logs_warning(self):
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_survey()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         events = self._warning_events(mock_logger)
@@ -6569,7 +6569,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     def test_create_with_feature_flag_write_does_not_log(self):
         self.key.scopes = ["survey:write", "feature_flag:write"]
         self.key.save()
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_survey()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
@@ -6577,7 +6577,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     def test_create_with_wildcard_scope_does_not_log(self):
         self.key.scopes = ["*"]
         self.key.save()
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_survey()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
@@ -6589,7 +6589,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["survey:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/surveys/{survey_id}/",
                 data={"name": "renamed"},
@@ -6606,7 +6606,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["survey:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/surveys/{survey_id}/",
                 data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 75}]}},
@@ -6628,7 +6628,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["survey:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/surveys/{survey_id}/",
                 data={"remove_targeting_flag": True},
@@ -6652,7 +6652,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["survey:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.delete(
                 f"/api/projects/{self.team.id}/surveys/{survey_id}/",
                 headers=self.auth_headers,
@@ -6668,7 +6668,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert survey.targeting_flag_id is None
         assert survey.internal_targeting_flag_id is not None
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.delete(
                 f"/api/projects/{self.team.id}/surveys/{survey_id}/",
                 headers=self.auth_headers,
@@ -6686,7 +6686,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             type="popover",
             questions=[{"type": "open", "question": "Q?"}],
         )
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.delete(
                 f"/api/projects/{self.team.id}/surveys/{survey.id}/",
                 headers=self.auth_headers,
@@ -6696,7 +6696,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
 
     def test_session_auth_does_not_log(self):
         self.client.force_login(self.user)
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/surveys/",
                 data=self.SURVEY_PAYLOAD,

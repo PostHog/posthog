@@ -112,7 +112,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
     scanner_config: zod
         .unknown()
         .describe(
-            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
+            'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
         ),
     query: zod
         .unknown()
@@ -200,7 +200,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
+            'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
         ),
     query: zod
         .unknown()
