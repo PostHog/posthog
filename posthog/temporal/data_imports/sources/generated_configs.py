@@ -306,7 +306,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DripSourceConfig(config.Config):
-    pass
+    api_token: str
+    account_id: str
 
 
 @config.config
