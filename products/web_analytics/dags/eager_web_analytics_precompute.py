@@ -125,12 +125,6 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     return team_ids, "ok", diag
 
 
-def get_eager_team_ids() -> list[int]:
-    """Thin wrapper kept for external callers and tests."""
-    team_ids, _, _ = _resolve_eager_audience()
-    return team_ids
-
-
 def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> tuple[int, int]:
     """Run the full tile matrix for one team. Returns (warmed, failed).
 

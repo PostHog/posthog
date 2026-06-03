@@ -13,7 +13,6 @@ from products.web_analytics.dags.eager_web_analytics_precompute import (
     EAGER_BASELINE_TEAM_IDS,
     _resolve_eager_audience,
     _warm_baseline_for_team,
-    get_eager_team_ids,
     warm_eager_baseline_op,
     web_analytics_eager_baseline_warming_job,
 )
@@ -41,16 +40,6 @@ class TestResolveEagerAudience:
         team_ids, reason, _diag = _resolve_eager_audience()
         assert team_ids == []
         assert reason == "no_teams_configured"
-
-
-@patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
-class TestGetEagerTeamIds:
-    def test_returns_hardcoded_list_on_cloud(self, _is_cloud):
-        assert get_eager_team_ids() == list(EAGER_BASELINE_TEAM_IDS)
-
-    def test_returns_empty_on_self_hosted(self, _is_cloud):
-        _is_cloud.return_value = False
-        assert get_eager_team_ids() == []
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
