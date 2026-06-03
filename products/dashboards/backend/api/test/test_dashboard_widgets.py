@@ -6,6 +6,7 @@ from unittest.mock import ANY, patch
 
 from django.test import override_settings
 
+from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -19,6 +20,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
 
 
 class TestDashboardWidgets(APIBaseTest):
@@ -224,7 +226,7 @@ class TestDashboardWidgets(APIBaseTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
         tile = dashboard_json["tiles"][0]
-        tile["widget"]["widget_type"] = "not_a_real_widget_type"
+        tile["widget"]["widget_type"] = "session_replay_list"
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
@@ -881,8 +883,7 @@ class TestDashboardWidgetOpenApiSchema(APIBaseTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
         self._widgets_flag_patchers = [
-            patch("products.dashboards.backend.api.dashboard.dashboard_widgets_enabled", return_value=True),
-            patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True),
+            patch(target, return_value=True) for target in TestDashboardWidgets._WIDGETS_FLAG_PATCH_TARGETS
         ]
         for patcher in self._widgets_flag_patchers:
             patcher.start()
@@ -893,16 +894,11 @@ class TestDashboardWidgetOpenApiSchema(APIBaseTest):
         super().tearDown()
 
     def test_add_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
-        from drf_spectacular.generators import SchemaGenerator
-
         schema = SchemaGenerator().get_schema(request=None, public=True)
         component = schema["components"]["schemas"]["AddDashboardWidgetRequest"]
 
         assert component["discriminator"]["propertyName"] == "widget_type"
-        assert set(component["discriminator"]["mapping"].keys()) == {
-            "error_tracking_list",
-            "session_replay_list",
-        }
+        assert set(component["discriminator"]["mapping"].keys()) == set(EXPECTED_WIDGET_TYPES)
 
     def test_batch_add_rejects_unknown_widget_type(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
