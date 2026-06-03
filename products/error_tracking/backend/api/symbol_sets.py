@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -200,6 +201,10 @@ class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Exact symbol set reference to filter by.",
     )
+    search = serializers.CharField(
+        required=False,
+        help_text="Case-insensitive substring search across reference, release version, release project, and release commit SHA.",
+    )
     status = serializers.ChoiceField(
         required=False,
         default="all",
@@ -253,11 +258,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         params = self._get_list_params(self.request)
         ref = params.get("ref")
+        search = params.get("search")
         symbol_set_status = params.get("status")
         order_by = params.get("order_by")
 
         if ref:
             queryset = queryset.filter(ref=ref)
+
+        if search:
+            queryset = queryset.filter(
+                Q(ref__icontains=search)
+                | Q(release__version__icontains=search)
+                | Q(release__project__icontains=search)
+                | Q(release__metadata__git__commit_id__icontains=search)
+            )
 
         if symbol_set_status == "valid":
             queryset = queryset.filter(storage_ptr__isnull=False)
