@@ -243,24 +243,20 @@ describe('action.conditional_branch', () => {
             },
         })
 
-        it('matches the branch when the org group on the event carries billing_plan', async () => {
-            invocation.filterGlobals = await filterGlobalsForEvent({ $groups: { organization: ORG_KEY } })
+        it.each([
+            [
+                'matches the branch when the org group on the event carries billing_plan',
+                { $groups: { organization: ORG_KEY } },
+                () => ({ nextAction: findActionById(invocation.hogFlow, 'condition_1') }),
+            ],
+            ['does not match when the event has no $groups (no org id on the event)', {}, () => ({})],
+        ] as const)('%s', async (_, eventProps, expected) => {
+            invocation.filterGlobals = await filterGlobalsForEvent(eventProps)
             action.config.conditions = [billingPlanCondition()]
 
             const result = await checkConditions(invocation, action)
 
-            expect(result).toEqual({
-                nextAction: findActionById(invocation.hogFlow, 'condition_1'),
-            })
-        })
-
-        it('does not match when the event has no $groups (no org id on the event)', async () => {
-            invocation.filterGlobals = await filterGlobalsForEvent({})
-            action.config.conditions = [billingPlanCondition()]
-
-            const result = await checkConditions(invocation, action)
-
-            expect(result).toEqual({})
+            expect(result).toEqual(expected())
         })
 
         it('does not match when the org id is on the event but the group has no billing_plan', async () => {

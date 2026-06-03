@@ -160,8 +160,8 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 Promise.resolve(
                     mockGroups.filter((g) =>
                         teamIds.some(
-                            (_t, i) =>
-                                teamIds[i] === g.team_id &&
+                            (teamId, i) =>
+                                teamId === g.team_id &&
                                 groupIndexes[i] === g.group_type_index &&
                                 groupKeys[i] === g.group_key
                         )
