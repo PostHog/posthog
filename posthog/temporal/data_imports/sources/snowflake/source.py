@@ -170,8 +170,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             ),
         )
 
-    def source_non_retryable_errors(self) -> dict[str, str | None]:
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **super().get_non_retryable_errors(),
             "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",

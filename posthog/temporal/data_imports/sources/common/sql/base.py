@@ -64,10 +64,10 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     def default_non_retryable_errors(cls) -> dict[str, str | None]:
         """Non-retryable error patterns shared by every SQL source.
 
-        Applied automatically by `get_non_retryable_errors`, which merges
-        these under each source's own `source_non_retryable_errors`. All
-        are raised in shared pipeline/delta code, so they can occur for
-        any SQL source and the fix is always a reset + re-sync:
+        Returned by the base `get_non_retryable_errors`; subclasses merge
+        these back in via `{**super().get_non_retryable_errors(), ...}`.
+        All are raised in shared pipeline/delta code, so they can occur
+        for any SQL source and the fix is always a reset + re-sync:
 
         - "Source column type changed" — an integer column was widened
           upstream past its stored type
@@ -97,16 +97,13 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        """Shared SQL defaults merged under this source's own errors.
+        """The shared SQL non-retryable errors.
 
-        Subclasses override `source_non_retryable_errors` to add their own
-        patterns; on key collision the source's entry wins.
+        Subclasses add their own by overriding and merging the shared set
+        back in: `return {**super().get_non_retryable_errors(), ...}`.
+        On key collision the source's own entry wins.
         """
-        return {**self.default_non_retryable_errors(), **self.source_non_retryable_errors()}
-
-    def source_non_retryable_errors(self) -> dict[str, str | None]:
-        """Source-specific non-retryable errors. Override in subclasses."""
-        return {}
+        return self.default_non_retryable_errors()
 
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
         """Fallback: use `id` when the driver didn't detect a PK but one is present.

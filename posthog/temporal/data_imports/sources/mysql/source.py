@@ -110,8 +110,9 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             ),
         )
 
-    def source_non_retryable_errors(self) -> dict[str, str | None]:
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **super().get_non_retryable_errors(),
             "Can't connect to MySQL server on": None,
             "No primary key defined for table": None,
             "Access denied for user": None,

@@ -147,8 +147,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             featured=True,
         )
 
-    def source_non_retryable_errors(self) -> dict[str, str | None]:
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **super().get_non_retryable_errors(),
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "Tenant or user not found connection to server": None,
