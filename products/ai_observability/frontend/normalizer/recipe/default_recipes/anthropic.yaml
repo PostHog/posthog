@@ -82,7 +82,6 @@ rules:
               where: { type: tool_use }
       followups:
           - role: $.role
-            content: ''
             toolCalls: $.tool_calls
 
     - on:

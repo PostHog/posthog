@@ -11,6 +11,17 @@ name: Monitor GitHub Rate Limit
 #
 # Alerting belongs downstream in PostHog (windowed thresholds, attribution by
 # repo) — not in the workflow itself. Keep this file focused on emission.
+#
+# A burn-rate alert is wired up downstream in PostHog (DevEx project, id 347861) —
+# these are live PostHog resources, not config in this repo:
+#   - Insight "GitHub core rate-limit — early-window peak utilization" (short id
+#     iGGXQ1mF): per hour, the peak `core` utilization among samples with >30 min
+#     left in the reset window (reset_in_seconds > 1800), which filters out the
+#     harmless pre-reset sawtooth peak.
+#   - A PostHog alert on that insight fires when it exceeds 0.8 (80%) — i.e. the
+#     bucket is burning early, not just spiking right before its hourly reset.
+#   - A Slack destination relays the firing alert to #alerts-devex (and email).
+# To change the threshold/window, edit the insight + alert in PostHog, not here.
 
 on:
     pull_request:
