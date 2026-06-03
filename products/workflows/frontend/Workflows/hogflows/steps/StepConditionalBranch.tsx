@@ -5,10 +5,12 @@ import { useMemo } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
+import { EXIT_NODE_ID } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
@@ -56,6 +58,7 @@ export function StepConditionalBranchConfiguration({
     }, [nodeEdges, action.id])
 
     const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
+    const isExitOnNoMatch = continueEdge?.to === EXIT_NODE_ID
 
     const addCondition = (): void => {
         if (!continueEdge) {
@@ -123,6 +126,21 @@ export function StepConditionalBranchConfiguration({
             <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCondition()} className="mt-2">
                 Add condition
             </LemonButton>
+            <div className="flex flex-col gap-2 p-2 rounded border mt-2">
+                <LemonLabel>No match</LemonLabel>
+                <LemonCheckbox
+                    checked={isExitOnNoMatch}
+                    onChange={(checked) => {
+                        if (checked && continueEdge) {
+                            setWorkflowActionEdges(action.id, [...branchEdges, { ...continueEdge, to: EXIT_NODE_ID }])
+                        }
+                    }}
+                    disabledReason={
+                        isExitOnNoMatch ? 'To reconnect, drag a step onto the "No match" edge in the canvas' : undefined
+                    }
+                    label="Exit workflow immediately"
+                />
+            </div>
         </>
     )
 }

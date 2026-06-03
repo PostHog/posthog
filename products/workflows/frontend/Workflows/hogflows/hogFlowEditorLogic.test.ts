@@ -464,6 +464,36 @@ describe('hogFlowEditorLogic', () => {
             expect(branchEdge0?.data?.label).toBe('If cohort #1 matches')
             expect(branchEdge1?.data?.label).toBe('If cohort #2 matches')
         })
+
+        it('should target exit node when no match continue edge points to exit', () => {
+            const mockFlow = createMockHogFlow()
+            logic.actions.resetFlowFromHogFlow(mockFlow)
+
+            const continueEdge = logic.values.edges.find(
+                (e) => e.source === 'branch' && e.sourceHandle?.includes('continue_branch')
+            )
+
+            expect(continueEdge?.target).toBe('exit')
+            expect(continueEdge?.data?.label).toBe('No match')
+        })
+
+        it('should target intermediate node when no match continue edge does not point to exit', () => {
+            const mockFlow = createMockHogFlow()
+            mockFlow.edges = [
+                { from: 'trigger', to: 'branch', type: 'continue' },
+                { from: 'branch', to: 'exit', type: 'branch', index: 0 },
+                { from: 'branch', to: 'email', type: 'continue' },
+                { from: 'email', to: 'exit', type: 'continue' },
+            ]
+
+            logic.actions.resetFlowFromHogFlow(mockFlow)
+
+            const continueEdge = logic.values.edges.find(
+                (e) => e.source === 'branch' && e.sourceHandle?.includes('continue_branch')
+            )
+
+            expect(continueEdge?.target).toBe('email')
+        })
     })
 
     describe('showDropzones branch-join placement', () => {
