@@ -45,33 +45,25 @@ querying-posthog-data skill, `models-heatmaps`):
 Use `aggregation: "unique_visitors"` when you care about how many people (not how many clicks); `total_count`
 exaggerates a few heavy clickers.
 
-### Step 2b: Above the fold — clicks vs viewport height (SQL only)
+### Step 2b: Above the fold — read the `fold` summary
 
-`heatmaps-list` returns `pointer_y` (absolute px down the page) but **not** the viewport height, so it can't
-tell you whether a click was even on-screen at load. The raw `heatmaps` table can: it stores both `y` and
-`viewport_height` in the same scaled units, so `y > viewport_height` means the interaction happened **below
-the user's initial viewport** — they had to scroll to reach it. This is one of the highest-value findings:
-content people actively click that sits below the fold is a prime candidate to move up.
+For the click types, `heatmaps-list` returns a `fold` object alongside `results`:
 
-```sql
--- Share of clicks that required scrolling (below the initial viewport),
--- excluding fixed-position elements (always on screen).
-SELECT
-    countIf(y > viewport_height AND NOT pointer_target_fixed) AS below_fold,
-    count() AS total,
-    round(100 * below_fold / total, 1) AS pct_below_fold
-FROM heatmaps
-WHERE current_url = 'https://example.com/pricing'
-  AND type = 'click'
-  AND timestamp >= now() - INTERVAL 7 DAY
-```
+- `pct_below_fold` — share of non-fixed interactions that landed **below the user's initial viewport** (they
+  had to scroll to reach them). This is one of the highest-value findings: content people actively click that
+  sits below the fold is a prime candidate to move up.
+- `below_fold_count` / `total_count` — the raw counts behind the percentage (fixed-position elements are
+  excluded, since they're always on screen).
+- `median_viewport_height` — the typical fold line in CSS pixels, to recommend against.
 
-Comparing each interaction to _its own_ `viewport_height` handles mixed device sizes automatically. For the
-"where is the fold" line to recommend against, use a representative viewport —
-e.g. `quantile(0.5)(viewport_height * scale_factor)` for the median fold in CSS pixels — and report it next to
-the click distribution: "viewport is ~600px tall for most visitors, but 35% of clicks land below 600px, so
-users scroll before interacting; that content is a candidate for the first screen." Segment by device with
-`viewport_width_min`/`viewport_width_max` first — desktop and mobile have very different folds.
+Report it concretely, e.g. "the fold is ~600px for most visitors, yet 35% of clicks land below it, so users
+scroll before interacting — that content is a candidate for the first screen." **Segment by device** with
+`viewport_width_min`/`viewport_width_max` (desktop and mobile have very different folds) and read `fold` per
+band rather than blending them.
+
+Need a distribution rather than a single percentage (e.g. clicks bucketed by how far below the fold)? Drop to
+SQL on the raw `heatmaps` table, which has `y` and `viewport_height` in the same scaled units — see the
+querying-posthog-data skill, `models-heatmaps`.
 
 ### Step 3: Name the hot elements (autocapture overlap)
 

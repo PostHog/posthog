@@ -18256,6 +18256,20 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface HeatmapFoldSummary {
+      /** Number of non-fixed interactions of this type on the page in the window (the population the above/below-the-fold split applies to; fixed-position elements are excluded since they're always on screen). */
+      total_count: number;
+      /** How many of those interactions happened below the user's initial viewport — i.e. they had to scroll to reach them. */
+      below_fold_count: number;
+      /** Percentage of non-fixed interactions that were below the initial viewport (0-100). A high value means engaged content sits off the first screen and is a candidate to move up. */
+      pct_below_fold: number;
+      /**
+         * Median viewport height in CSS pixels across the matched interactions — the typical fold line to recommend against. Null when there are no interactions.
+         * @nullable
+         */
+      median_viewport_height: number | null;
+    }
+
     export interface HeatmapResponseItem {
       count: number;
       pointer_y: number;
@@ -18351,6 +18365,8 @@ export namespace Schemas {
 
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
+      /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
+      fold?: HeatmapFoldSummary | null;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];

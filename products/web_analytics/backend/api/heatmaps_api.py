@@ -119,6 +119,19 @@ LIMIT {limit}
 OFFSET {offset}
 """
 
+# Above/below-the-fold summary for positional (non-scrolldepth) interactions. Fixed-position
+# elements move with the viewport so they're never "below the fold" — excluded from both the
+# numerator and the denominator. `y` and `viewport_height` are stored in the same scaled units,
+# so `y > viewport_height` means the interaction sat below the user's initial viewport.
+FOLD_SUMMARY_QUERY = """
+SELECT
+    countIf(NOT pointer_target_fixed) AS total,
+    countIf(y > viewport_height AND NOT pointer_target_fixed) AS below_fold,
+    round(quantile(0.5)(viewport_height * scale_factor)) AS median_viewport_height
+FROM heatmaps
+WHERE {predicates}
+"""
+
 
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(
@@ -271,8 +284,34 @@ class HeatmapResponseItemSerializer(serializers.Serializer):
     pointer_target_fixed = serializers.BooleanField(required=True)
 
 
+class HeatmapFoldSummarySerializer(serializers.Serializer):
+    total_count = serializers.IntegerField(
+        help_text="Number of non-fixed interactions of this type on the page in the window (the population the "
+        "above/below-the-fold split applies to; fixed-position elements are excluded since they're always on screen)."
+    )
+    below_fold_count = serializers.IntegerField(
+        help_text="How many of those interactions happened below the user's initial viewport — i.e. they had to "
+        "scroll to reach them."
+    )
+    pct_below_fold = serializers.FloatField(
+        help_text="Percentage of non-fixed interactions that were below the initial viewport (0-100). A high value "
+        "means engaged content sits off the first screen and is a candidate to move up."
+    )
+    median_viewport_height = serializers.IntegerField(
+        allow_null=True,
+        help_text="Median viewport height in CSS pixels across the matched interactions — the typical fold line to "
+        "recommend against. Null when there are no interactions.",
+    )
+
+
 class HeatmapsResponseSerializer(serializers.Serializer):
     results = HeatmapResponseItemSerializer(many=True)
+    fold = HeatmapFoldSummarySerializer(
+        required=False,
+        allow_null=True,
+        help_text="Above/below-the-fold summary for the returned interactions. Present for "
+        "click/rageclick/mousemove; omitted for scrolldepth.",
+    )
 
 
 class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
@@ -377,8 +416,26 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if is_scrolldepth_query:
             return self._return_scroll_depth_response(results)
-        else:
-            return self._return_heatmap_coordinates_response(results)
+
+        fold = self._compute_fold_summary(exprs)
+        return self._return_heatmap_coordinates_response(results, fold)
+
+    def _compute_fold_summary(self, exprs: List[ast.Expr]) -> dict[str, Any]:  # noqa: UP006
+        stmt = parse_select(FOLD_SUMMARY_QUERY, {"predicates": ast.And(exprs=exprs)})
+        context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        result = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
+        row = result.results[0] if result.results else None
+        total = int(row[0]) if row else 0
+        below = int(row[1]) if row else 0
+        # quantile over an empty set returns NaN (which is != itself); coerce to None.
+        raw_median = row[2] if row else None
+        median = int(raw_median) if raw_median is not None and raw_median == raw_median else None
+        return {
+            "total_count": total,
+            "below_fold_count": below,
+            "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
+            "median_viewport_height": median,
+        }
 
     def _choose_aggregation(self, aggregation, is_scrolldepth_query):
         aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"
@@ -464,7 +521,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return predicate_expressions
 
     @staticmethod
-    def _return_heatmap_coordinates_response(query_response: HogQLQueryResponse) -> response.Response:
+    def _return_heatmap_coordinates_response(
+        query_response: HogQLQueryResponse, fold: dict[str, Any]
+    ) -> response.Response:
         data = [
             {
                 "pointer_target_fixed": item[0],
@@ -475,7 +534,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for item in query_response.results or []
         ]
 
-        response_serializer = HeatmapsResponseSerializer(data={"results": data})
+        response_serializer = HeatmapsResponseSerializer(data={"results": data, "fold": fold})
         response_serializer.is_valid(raise_exception=True)
 
         resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
