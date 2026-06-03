@@ -131,7 +131,7 @@ function AuthRoutedShell({ children }: { children: React.ReactNode }): React.Rea
  * toggle.
  */
 function ShellBody({ children }: { children: React.ReactNode }): React.ReactElement {
-    const { layout, setFloating, setVisible } = useDockLayout()
+    const { layout, setFloating, setVisible, embedSlot } = useDockLayout()
 
     // Callback refs feed React state so a re-render fires when the
     // active dock slot mounts. Without state we'd portal into stale refs.
@@ -143,30 +143,41 @@ function ShellBody({ children }: { children: React.ReactNode }): React.ReactElem
     const floatingSlotRef = useCallback((node: HTMLDivElement | null) => setFloatingSlot(node), [])
     const parkingSlotRef = useCallback((node: HTMLDivElement | null) => setParkingSlot(node), [])
 
-    // Always pick a non-null target so React never sees `<Portal>` go
-    // away — `<Dock />` stays mounted even mid-toggle.
-    const dockTarget =
-        layout.visible && layout.mode === 'rail'
-            ? railSlot
-            : layout.visible && layout.mode === 'floating'
-              ? floatingSlot
-              : parkingSlot
+    // An embed slot (registered by the active page) wins over the rail /
+    // floating chrome — used by the overview to put the chat front-and-
+    // centre. Always pick a non-null target so React never sees the
+    // `<Portal>` go away.
+    const dockTarget = embedSlot
+        ? embedSlot
+        : layout.visible && layout.mode === 'rail'
+          ? railSlot
+          : layout.visible && layout.mode === 'floating'
+            ? floatingSlot
+            : parkingSlot
 
     const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
     const shortcutHint = isMac ? DOCK_TOGGLE_KEY_HINT : DOCK_TOGGLE_KEY_HINT_PC
 
+    // When an embed slot is active the side / floating chrome should
+    // not render at all — the chat lives on the page itself, so a
+    // pinned side panel would just duplicate the surface.
+    const railChromeVisible = !embedSlot && layout.mode === 'rail' && layout.visible
+    const floatingChromeVisible = !embedSlot && layout.mode === 'floating' && layout.visible
+    const showAffordanceVisible = !embedSlot && !layout.visible
+
     return (
         <>
             {/* Main + rail chrome. The rail slot only renders when the user
-             *  is in rail mode AND the dock is visible — otherwise the
-             *  whole panel + handle collapse so main takes the full width. */}
+             *  is in rail mode AND the dock is visible AND no embed slot
+             *  has taken over — otherwise the whole panel + handle
+             *  collapse so main takes the full width. */}
             <ResizablePanelGroup orientation="horizontal" defaultLayout={{ main: 70, dock: 30 }} className="flex-1">
                 <ResizablePanel id="main" minSize="520px">
                     <main className="h-full overflow-y-auto">
                         <SessionGate>{children}</SessionGate>
                     </main>
                 </ResizablePanel>
-                {layout.mode === 'rail' && layout.visible ? (
+                {railChromeVisible ? (
                     <>
                         <ResizableHandle withHandle />
                         <ResizablePanel id="dock" minSize="360px" maxSize="720px">
@@ -178,7 +189,7 @@ function ShellBody({ children }: { children: React.ReactNode }): React.ReactElem
 
             {/* Floating chrome. Same idea — only renders when active so the
              *  rail layout isn't fighting a phantom overlay. */}
-            {layout.mode === 'floating' && layout.visible ? (
+            {floatingChromeVisible ? (
                 <FloatingDockPanel floating={layout.floating} setFloating={setFloating}>
                     <div ref={floatingSlotRef} className="h-full" />
                 </FloatingDockPanel>
@@ -188,8 +199,9 @@ function ShellBody({ children }: { children: React.ReactNode }): React.ReactElem
              *  Off-screen, but kept in the DOM so React keeps the runner mounted. */}
             <div ref={parkingSlotRef} className="sr-only" aria-hidden />
 
-            {/* Show-dock affordance — only when hidden. */}
-            {!layout.visible ? (
+            {/* Show-dock affordance — only when hidden AND no embed is
+             *  hosting the dock. */}
+            {showAffordanceVisible ? (
                 <DockShowAffordance layout={layout} onShow={() => setVisible(true)} shortcutHint={shortcutHint} />
             ) : null}
 
@@ -202,7 +214,8 @@ function ShellBody({ children }: { children: React.ReactNode }): React.ReactElem
 
 function Sidebar(): React.ReactElement {
     const pathname = usePathname() ?? '/'
-    const isAgents = pathname === '/' || pathname.startsWith('/agents')
+    const isHome = pathname === '/'
+    const isAgents = pathname.startsWith('/agents')
     const isRegistry = pathname.startsWith('/registry')
     const isBilling = pathname.startsWith('/billing')
     const posthogBaseUrl = usePosthogBaseUrl()
@@ -212,11 +225,16 @@ function Sidebar(): React.ReactElement {
             className="flex h-full w-14 shrink-0 flex-col items-center gap-2 border-r border-border py-3"
             aria-label="Primary"
         >
-            <SidebarTooltip label="PostHog agent console">
+            <SidebarTooltip label={isHome ? 'PostHog agent console' : 'Home'}>
                 <Link
                     href="/"
-                    aria-label="PostHog agent console"
-                    className="inline-flex h-9 w-9 cursor-pointer items-center justify-center"
+                    aria-label="Home"
+                    aria-current={isHome ? 'page' : undefined}
+                    className={
+                        isHome
+                            ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md bg-accent text-foreground'
+                            : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }
                 >
                     <PostHogMark className="h-6 w-6" />
                 </Link>
@@ -226,7 +244,7 @@ function Sidebar(): React.ReactElement {
 
             <SidebarTooltip label="Agents">
                 <Link
-                    href="/"
+                    href="/agents"
                     aria-label="Agents"
                     aria-current={isAgents ? 'page' : undefined}
                     className={

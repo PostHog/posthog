@@ -464,8 +464,12 @@ function PlaygroundDock({
     })
     const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
     const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
-    const { layout, setMode, setVisible } = useDockLayout()
+    const { layout, setMode, setVisible, embedSlot } = useDockLayout()
     const renderToolSummary = useToolSummaryRenderer()
+    // When the dock is hosted by an embed slot (the overview page),
+    // rail/floating mode and the hide-dock control don't apply — the
+    // chat lives on the page itself, not in a side panel.
+    const isEmbedded = embedSlot != null
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
 
@@ -495,8 +499,8 @@ function PlaygroundDock({
                     onRenderMarkdownChange={setRenderMarkdown}
                     sessionId={runner.session.id !== 'pending' ? runner.session.id : undefined}
                     dockMode={layout.mode}
-                    onChangeDockMode={setMode}
-                    onHideDock={() => setVisible(false)}
+                    onChangeDockMode={isEmbedded ? undefined : setMode}
+                    onHideDock={isEmbedded ? undefined : () => setVisible(false)}
                     hideShortcutHint={DOCK_HIDE_HINT}
                 />
             }
@@ -689,8 +693,9 @@ function RealConciergeDock({
     }, [conciergeSeed, hasActiveTurns])
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
-    const { layout, setMode, setVisible } = useDockLayout()
+    const { layout, setMode, setVisible, embedSlot } = useDockLayout()
     const renderToolSummary = useToolSummaryRenderer()
+    const isEmbedded = embedSlot != null
 
     // Dialog handlers — "start fresh" promotes the seed to confirmed
     // (the effect above picks it up); "continue" appends without
@@ -730,8 +735,8 @@ function RealConciergeDock({
                         onRenderMarkdownChange={setRenderMarkdown}
                         sessionId={runner.session.id !== 'pending' ? runner.session.id : undefined}
                         dockMode={layout.mode}
-                        onChangeDockMode={setMode}
-                        onHideDock={() => setVisible(false)}
+                        onChangeDockMode={isEmbedded ? undefined : setMode}
+                        onHideDock={isEmbedded ? undefined : () => setVisible(false)}
                         hideShortcutHint={DOCK_HIDE_HINT}
                     />
                 }
@@ -764,8 +769,9 @@ function FixtureConciergeDock(): React.ReactElement {
     })
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
-    const { layout, setMode, setVisible } = useDockLayout()
+    const { layout, setMode, setVisible, embedSlot } = useDockLayout()
     const renderToolSummary = useToolSummaryRenderer()
+    const isEmbedded = embedSlot != null
 
     return (
         <AgentChat
@@ -783,8 +789,8 @@ function FixtureConciergeDock(): React.ReactElement {
                     renderMarkdown={renderMarkdown}
                     onRenderMarkdownChange={setRenderMarkdown}
                     dockMode={layout.mode}
-                    onChangeDockMode={setMode}
-                    onHideDock={() => setVisible(false)}
+                    onChangeDockMode={isEmbedded ? undefined : setMode}
+                    onHideDock={isEmbedded ? undefined : () => setVisible(false)}
                     hideShortcutHint={DOCK_HIDE_HINT}
                 />
             }

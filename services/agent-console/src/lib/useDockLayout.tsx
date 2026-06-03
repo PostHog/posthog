@@ -68,6 +68,16 @@ export interface UseDockLayout {
     setFloating: (next: FloatingGeometry | ((prev: FloatingGeometry) => FloatingGeometry)) => void
     setVisible: (next: boolean) => void
     toggleVisible: () => void
+    /**
+     * Currently-registered embed target. When non-null, the AppShell
+     * portals the Dock into this node instead of the rail / floating
+     * chrome — used by the overview page to put the chat front-and-
+     * centre on landing instead of pinned to the side. Pages register
+     * their slot via `useDockEmbedSlot()` and the registration clears
+     * on unmount.
+     */
+    embedSlot: HTMLDivElement | null
+    setEmbedSlot: (node: HTMLDivElement | null) => void
 }
 
 /** Sensible defaults if storage is empty. First float starts pinned right;
@@ -85,6 +95,8 @@ const DEFAULT_STORE: UseDockLayout = {
     setFloating: () => {},
     setVisible: () => {},
     toggleVisible: () => {},
+    embedSlot: null,
+    setEmbedSlot: () => {},
 }
 
 /**
@@ -111,6 +123,7 @@ const DockLayoutContext = createContext<UseDockLayout>(DEFAULT_STORE)
 
 export function DockLayoutProvider({ children }: { children: React.ReactNode }): React.ReactElement {
     const [layout, setLayout] = useState<DockLayout>(DEFAULT_LAYOUT)
+    const [embedSlot, setEmbedSlotState] = useState<HTMLDivElement | null>(null)
 
     // Hydrate from storage on mount. SSR renders with the default; the
     // first paint after mount swaps to the persisted layout.
@@ -168,15 +181,31 @@ export function DockLayoutProvider({ children }: { children: React.ReactNode }):
         return () => window.removeEventListener('keydown', onKeyDown)
     }, [toggleVisible])
 
+    // Stable setter — pages call this from a callback ref, so it must
+    // never change identity (otherwise the ref would re-fire and clear
+    // itself each render).
+    const setEmbedSlot = useCallback((node: HTMLDivElement | null) => setEmbedSlotState(node), [])
+
     const value = useMemo<UseDockLayout>(
-        () => ({ layout, setMode, setFloating, setVisible, toggleVisible }),
-        [layout, setMode, setFloating, setVisible, toggleVisible]
+        () => ({ layout, setMode, setFloating, setVisible, toggleVisible, embedSlot, setEmbedSlot }),
+        [layout, setMode, setFloating, setVisible, toggleVisible, embedSlot, setEmbedSlot]
     )
     return <DockLayoutContext.Provider value={value}>{children}</DockLayoutContext.Provider>
 }
 
 export function useDockLayout(): UseDockLayout {
     return useContext(DockLayoutContext)
+}
+
+/**
+ * Register a DOM node as the active dock embed target. Returns the
+ * callback ref the page attaches to the container that should host
+ * the dock. Cleared on unmount so the dock falls back to the rail /
+ * floating chrome when the user navigates away.
+ */
+export function useDockEmbedSlot(): (node: HTMLDivElement | null) => void {
+    const { setEmbedSlot } = useDockLayout()
+    return setEmbedSlot
 }
 
 /* ── Storage helpers ────────────────────────────────────────────── */
