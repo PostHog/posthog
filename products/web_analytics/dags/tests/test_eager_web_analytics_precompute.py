@@ -209,10 +209,18 @@ class TestGetEagerTeamIds(APIBaseTest):
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
+@patch("products.web_analytics.dags.eager_web_analytics_precompute.posthoganalytics.load_feature_flags")
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.posthoganalytics.feature_flag_definitions")
 class TestWarmEagerBaselineOp(APIBaseTest):
     """Integration-shaped tests for the op. Query runners are patched so
     no ClickHouse traffic is needed — we assert orchestration semantics."""
+
+    @staticmethod
+    def _op_context() -> dagster.OpExecutionContext:
+        # The op declares the `posthoganalytics` resource so Dagster can
+        # initialize `personal_api_key` before the body runs; supply a
+        # mock for direct invocation.
+        return dagster.build_op_context(resources={"posthoganalytics": Mock()})
 
     def _enroll_org(self, *, name: str) -> tuple[Team, str]:
         org = Organization.objects.create(name=name)
@@ -220,7 +228,9 @@ class TestWarmEagerBaselineOp(APIBaseTest):
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    def test_one_team_failure_does_not_poison_other_teams(self, get_runner, tag_queries_mock, defs, _is_cloud):
+    def test_one_team_failure_does_not_poison_other_teams(
+        self, get_runner, tag_queries_mock, defs, _load_flags, _is_cloud
+    ):
         t1, org_a = self._enroll_org(name="A")
         t2, org_b = self._enroll_org(name="B")
         defs.return_value = [_flag(groups=[_org_id_group(org_a), _org_id_group(org_b)])]
@@ -235,7 +245,7 @@ class TestWarmEagerBaselineOp(APIBaseTest):
 
         get_runner.side_effect = runner_factory
 
-        context = dagster.build_op_context()
+        context = self._op_context()
         result = warm_eager_baseline_op(context)
 
         assert result["teams"] == 2
@@ -256,12 +266,28 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         assert tag_queries_mock.call_count == _QUERIES_PER_TEAM * 2
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    def test_returns_zeroed_metadata_when_no_teams_enrolled(self, get_runner, defs, _is_cloud):
+    def test_returns_zeroed_metadata_when_no_teams_enrolled(self, get_runner, defs, _load_flags, _is_cloud):
         defs.return_value = []
-        context = dagster.build_op_context()
+        context = self._op_context()
         result = warm_eager_baseline_op(context)
         assert result == {"teams": 0, "warmed": 0, "failed": 0, "skipped": 0}
         get_runner.assert_not_called()
+
+    def test_forces_synchronous_flag_load_before_resolving_audience(self, defs, load_flags, _is_cloud):
+        # The SDK's background poller runs on a 90s interval; this op
+        # subprocess finishes in seconds, so we must force a sync load
+        # or `feature_flag_definitions()` returns empty.
+        defs.return_value = []
+        warm_eager_baseline_op(self._op_context())
+        load_flags.assert_called_once_with()
+
+    def test_load_failure_does_not_abort_the_run(self, defs, load_flags, _is_cloud):
+        # A flaky local-evaluation endpoint should not crash the op —
+        # the run continues with whatever the SDK already has cached.
+        load_flags.side_effect = RuntimeError("network blip")
+        defs.return_value = []
+        result = warm_eager_baseline_op(self._op_context())
+        assert result == {"teams": 0, "warmed": 0, "failed": 0, "skipped": 0}
 
 
 class TestWarmBaselineForTeam(APIBaseTest):
