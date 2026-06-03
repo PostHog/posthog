@@ -28,14 +28,14 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -103,14 +103,14 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -169,15 +169,15 @@
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library_state
      FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.`mat_$exception_types` AS `mat_$exception_types`,
-               events.`mat_$exception_values` AS `mat_$exception_values`
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp,
+               e.`mat_$exception_types` AS `mat_$exception_types`,
+               e.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -240,11 +240,11 @@
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM
-    (SELECT events.event AS event,
-            events.properties AS properties,
-            toTimeZone(events.timestamp, 'UTC') AS timestamp
-     FROM events
-     WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+    (SELECT e.event AS event,
+            e.properties AS properties,
+            toTimeZone(e.timestamp, 'UTC') AS timestamp
+     FROM events AS e
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
   LEFT OUTER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
             toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
@@ -288,11 +288,11 @@
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM
-    (SELECT events.event AS event,
-            events.properties AS properties,
-            toTimeZone(events.timestamp, 'UTC') AS timestamp
-     FROM events
-     WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+    (SELECT e.event AS event,
+            e.properties AS properties,
+            toTimeZone(e.timestamp, 'UTC') AS timestamp
+     FROM events AS e
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
   LEFT OUTER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
             toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
@@ -546,13 +546,13 @@
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library_state
      FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -615,11 +615,11 @@
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
          argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
   FROM
-    (SELECT events.event AS event,
-            events.properties AS properties,
-            toTimeZone(events.timestamp, 'UTC') AS timestamp
-     FROM events
-     WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+    (SELECT e.event AS event,
+            e.properties AS properties,
+            toTimeZone(e.timestamp, 'UTC') AS timestamp
+     FROM events AS e
+     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
   LEFT OUTER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
             toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
@@ -678,14 +678,14 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -906,14 +906,14 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -972,13 +972,13 @@
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library_state
      FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1037,15 +1037,15 @@
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source_state,
             argMaxState(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library_state
      FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.`mat_$exception_types` AS `mat_$exception_types`,
-               events.`mat_$exception_values` AS `mat_$exception_values`
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp,
+               e.`mat_$exception_types` AS `mat_$exception_types`,
+               e.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1123,16 +1123,16 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.`mat_$exception_types` AS `mat_$exception_types`,
-               events.`mat_$exception_values` AS `mat_$exception_values`
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp,
+               e.`mat_$exception_types` AS `mat_$exception_types`,
+               e.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1211,16 +1211,16 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.`mat_$exception_types` AS `mat_$exception_types`,
-               events.`mat_$exception_values` AS `mat_$exception_values`
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp,
+               e.`mat_$exception_types` AS `mat_$exception_types`,
+               e.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1299,14 +1299,14 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1374,14 +1374,14 @@
             uniqState(nullIf(e.`$session_id`, '')) AS sessions_state,
             uniqState(coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users_state
      FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
+       (SELECT e.`$session_id` AS `$session_id`,
+               e.distinct_id AS distinct_id,
+               e.event AS event,
+               e.person_id AS person_id,
+               e.properties AS properties,
+               toTimeZone(e.timestamp, 'UTC') AS timestamp
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id

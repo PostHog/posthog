@@ -75,16 +75,14 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
-    def test_aliased_events_pushdown_does_not_reference_outer_alias_in_subquery(self):
+    def test_aliased_events_pushdown_subquery_defines_its_own_alias(self):
         # Regression for the aliased-events pushdown bug.
         #
-        # When the events table is aliased (FROM events AS e), the predicate pushed into
-        # the wrapping subquery must be scoped to the inner `events` table, not to the
-        # outer subquery alias `e`. The alias `e` only exists in the outer query's scope;
-        # inside `FROM events` it is an unknown identifier, so a leaked reference like
-        # `e.timestamp` produces SQL that ClickHouse rejects at runtime ("Unknown
-        # identifier e.timestamp"). The printer renders a field from its resolved type,
-        # not its chain, so stripping the chain prefix alone is not enough.
+        # When the events table is aliased (FROM events AS e), the pushed predicate keeps referencing `e`.
+        # Rather than rewrite every reference to the inner table (fragile: the printer renders a field from
+        # its resolved type, not its chain, so a materialized property still leaked `e.mat_*`), the inner
+        # subquery keeps the same alias on its own FROM (`FROM events AS e`). The alias is therefore defined
+        # in the subquery's scope, so `e.timestamp` resolves there.
         printed = self._print_select(
             "SELECT e.event, session.$session_duration FROM events AS e WHERE e.timestamp >= '2024-01-01'"
         )
@@ -93,14 +91,13 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         assert "FROM (" in printed and ") AS e LEFT JOIN" in printed, printed
         events_subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
 
-        # The timestamp predicate was pushed into this subquery; it must reference the
-        # inner `events` table, never the outer alias `e`.
-        assert "e.timestamp" not in events_subquery, (
-            "predicate pushdown leaked the outer table alias `e` into the events subquery "
-            "(`e` is out of scope inside `FROM events`):\n" + events_subquery
+        # The subquery aliases its own events scan as `e`, so the pushed `e.timestamp` predicate resolves
+        # against it (rather than the out-of-scope outer alias).
+        assert "FROM events AS e" in events_subquery, (
+            "expected the inner subquery to alias events as `e` so pushed `e.*` predicates resolve:\n" + events_subquery
         )
-        assert "events.timestamp" in events_subquery, (
-            "expected the pushed-down predicate to reference the inner `events` table:\n" + events_subquery
+        assert "e.timestamp" in events_subquery, (
+            "expected the pushed-down predicate to reference the inner `e`-aliased events table:\n" + events_subquery
         )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -875,9 +872,9 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         )
         printed = self._print_pushdown_sql(select)
         assert ") AS e LEFT JOIN" in printed, "expected property filter pushed into an events subquery:\n" + printed
-        # the property predicate must reference the inner events table, never the outer alias `e`
+        # the subquery aliases its own events scan as `e`, so the pushed `e.properties.*` predicate resolves
         events_subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
-        assert "e.properties" not in events_subquery, "leaked outer alias into property predicate:\n" + events_subquery
+        assert "FROM events AS e" in events_subquery, "expected the subquery to define alias `e`:\n" + events_subquery
         assert printed == self.snapshot
         self._assert_pushdown_equivalent(select, expected_rows=2)
 
@@ -1179,6 +1176,28 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             assert "JSONExtract" not in subquery, (
                 f"materialized column should avoid the JSONExtract blob path:\n{printed}"
             )
+            self._assert_equivalent(select, expected_rows=2)
+
+    def test_exec_aliased_materialized_property_filter_pushed_uses_inner_table(self):
+        # Regression for the aliased-events materialized-property leak (caught by the error-tracking suite):
+        # when the events table is aliased (FROM events AS e) and a *materialized* property is in the pushed
+        # predicate, the printer renders `e.mat_tier` from the property's type. The inner subquery keeps the
+        # `e` alias on its own events scan, so `e.mat_tier` resolves there instead of being an unknown
+        # identifier (the previous rewrite-to-inner-table approach missed the materialized property path).
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            select = (
+                "SELECT e.event, session.$session_duration FROM events AS e "
+                "WHERE e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-08' AND e.properties.tier = 'pro' "
+                "ORDER BY e.timestamp"
+            )
+            printed = self._print_pushdown_sql(select)
+            assert ") AS e LEFT JOIN" in printed, (
+                f"expected the materialized property filter pushed into a subquery:\n{printed}"
+            )
+            subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
+            assert mat_col.name in subquery, f"expected the materialized column in the pushed predicate:\n{printed}"
+            assert "FROM events AS e" in subquery, f"expected the subquery to define alias `e`:\n{subquery}"
             self._assert_equivalent(select, expected_rows=2)
 
     def test_exec_materialized_property_not_referenced_outside_predicate(self):

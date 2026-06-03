@@ -34,31 +34,12 @@ def apply_events_predicate_pushdown(
     return node
 
 
-class TableAliasPrefixRemover(CloningVisitor):
-    """
-    Clones an expression and removes table alias prefixes from field chains.
-
-    When pushing predicates into a subquery, fields like ['e', 'timestamp'] need to become
-    ['timestamp'] because the inner subquery doesn't have the alias 'e' - it's just 'events'.
-    """
-
-    def __init__(self, alias_to_remove: str | None):
-        super().__init__(clear_types=False)
-        self.alias_to_remove = alias_to_remove
-
-    def visit_field(self, node: ast.Field):
-        new_chain = node.chain.copy()
-        if self.alias_to_remove and len(new_chain) > 1 and new_chain[0] == self.alias_to_remove:
-            new_chain = new_chain[1:]
-        return ast.Field(chain=new_chain, type=node.type)
-
-
 class SelectAliasInliner(CloningVisitor):
     """Replaces references to SELECT-list aliases with the alias's own expression.
 
     A pushed predicate referencing a SELECT alias (e.g. `WHERE c > 0` with `lower(events.event) AS c`) must
-    carry the full expression into the subquery; otherwise TypeRewriter re-binds the bare name to the raw
-    column and drops the wrapper, changing results.
+    carry the full expression into the subquery; otherwise the bare name would re-bind to the raw column and
+    drop the wrapper, changing results.
 
     Known limitation: a self-referential `toTimeZone(timestamp, 'UTC') AS timestamp` filter keeps a
     field-side `toTimeZone` in the subquery (weaker partition pruning, identical results; ClickHouse still
@@ -344,46 +325,6 @@ class EventsFieldCollector(TraversingVisitor):
         return table_type is self.target_table or unwrapped is target  # identity fallback
 
 
-class TypeRewriter(CloningVisitor):
-    """Rewrites field types in an expression to reference a new table type.
-
-    Used when building the inner subquery to update WHERE clause field types
-    to reference the inner events table instead of the outer query's table.
-    """
-
-    def __init__(self, table_type: ast.TableType, columns_in_scope: dict[str, ast.Type]):
-        super().__init__(clear_types=False)
-        self.table_type = table_type
-        self.columns_in_scope = columns_in_scope
-
-    def visit_field(self, node: ast.Field):
-        # Property access (events.properties.x): re-point the base column's type to the inner table so the
-        # post-pushdown PropertySwapper resolves the property inside the subquery instead of the outer alias.
-        if isinstance(node.type, ast.PropertyType) and isinstance(node.type.field_type, ast.FieldType):
-            base_name = node.type.field_type.name
-            if base_name in self.columns_in_scope:
-                return ast.Field(
-                    chain=node.chain.copy(),
-                    type=ast.PropertyType(
-                        chain=list(node.type.chain),
-                        field_type=ast.FieldType(name=base_name, table_type=self.table_type),
-                    ),
-                )
-
-        # Field name is the last chain element (['events', 'timestamp'] -> 'timestamp'); longer chains untouched.
-        if len(node.chain) == 1:
-            field_name = str(node.chain[0])
-        elif len(node.chain) == 2:
-            field_name = str(node.chain[1])
-        else:
-            return ast.Field(chain=node.chain.copy(), type=node.type)
-
-        if field_name in self.columns_in_scope:
-            return ast.Field(chain=[field_name], type=ast.FieldType(name=field_name, table_type=self.table_type))
-
-        return ast.Field(chain=node.chain.copy(), type=node.type)  # not in scope: keep original type
-
-
 class EventsPredicatePushdownTransform(TraversingVisitor):
     """Pushes events WHERE/PREWHERE predicates into a pre-filtering subquery:
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
@@ -425,9 +366,9 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
             return "from_not_table_type"
 
-        # Collect needed columns BEFORE extracting/mutating predicates: captures columns used only in a
-        # pushable predicate (so TypeRewriter re-points them; no `e.timestamp`/`e.properties` leak) and lets
-        # us bail before touching node.where, so pushable predicates are never dropped.
+        # Collect needed columns BEFORE extracting/mutating predicates: captures the columns the outer query
+        # reads through the subquery alias, and lets us bail before touching node.where so pushable predicates
+        # are never dropped.
         collector = self._collect_needed_columns(node, events_table_type)
         if collector is None or (not collector.collected_fields and not collector.materialized_columns):
             return "no_collectable_columns"
@@ -465,18 +406,20 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
 
         # Prepare each pushed clause independently and keep WHERE vs PREWHERE separate so a pushed PREWHERE
         # stays a PREWHERE on the inner events scan.
-        table_alias = node.select_from.alias  # e.g. 'e' from 'FROM events AS e'
-        inner_where = self._prepare_inner_predicate(inner_from_where, select_aliases, table_alias)
-        inner_prewhere = self._prepare_inner_predicate(inner_from_prewhere, select_aliases, table_alias)
+        inner_where = self._prepare_inner_predicate(inner_from_where, select_aliases)
+        inner_prewhere = self._prepare_inner_predicate(inner_from_prewhere, select_aliases)
 
         # Build the subquery with explicit types (not resolve_types, which would re-resolve lazy joins). The
-        # per-table team_id guard is injected later by the printer.
+        # inner events table keeps the outer query's alias (e.g. `FROM events AS e`) so the pushed predicates,
+        # which still reference that alias, resolve against it unchanged. The per-table team_id guard is
+        # injected later by the printer.
         events_subquery = self._build_typed_subquery(
             collector.collected_fields,
             collector.materialized_columns,
             events_table_type,
             inner_where,
             inner_prewhere,
+            alias=node.select_from.alias,
         )
         if events_subquery is None:
             return "subquery_build_failed"  # fail-safe: leave the query unchanged rather than emit broken SQL
@@ -569,19 +512,17 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
 
         return collector
 
-    def _prepare_inner_predicate(
-        self, expr: ast.Expr | None, select_aliases: dict[str, ast.Expr], table_alias: str | None
-    ) -> ast.Expr | None:
+    def _prepare_inner_predicate(self, expr: ast.Expr | None, select_aliases: dict[str, ast.Expr]) -> ast.Expr | None:
         """Ready a pushed predicate for the inner subquery, or None if there is none.
 
         Inlines SELECT-alias references so the full expression is carried (not just the alias name, which
-        TypeRewriter would re-bind to the raw column, dropping the wrapper), then strips the outer table-alias
-        prefix (`['e', 'timestamp']` -> `['timestamp']`) so chains resolve against the inner `events` table.
+        would re-bind to the raw column and drop the wrapper). The predicate is otherwise moved unchanged:
+        the inner subquery keeps the outer events alias, so references like `e.timestamp` / `e.properties.x`
+        resolve against it as-is. A fresh clone keeps the subquery's copy independent of the outer query.
         """
         if expr is None:
             return None
         expr = SelectAliasInliner(select_aliases).visit(expr)
-        expr = TableAliasPrefixRemover(alias_to_remove=table_alias).visit(expr)
         return clone_expr(expr)
 
     def _build_typed_subquery(
@@ -591,11 +532,16 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         events_table_type: ast.TableType | ast.TableAliasType,
         where_clause: ast.Expr | None,
         prewhere_clause: ast.Expr | None = None,
+        alias: str | None = None,
     ) -> ast.SelectQuery | None:
         """Build a subquery using the already-resolved types from the outer query.
 
         Uses the collected FieldTypes to build the subquery, avoiding the need to
         call resolve_types which might resolve HogQL abstract columns to lazy joins.
+
+        When the outer query aliased events (`FROM events AS e`), the inner table keeps that alias so the
+        pushed predicates resolve against it unchanged. The projection and scope reference the same aliased
+        type, so the SELECT list prints `e.<col>` to match the aliased inner FROM.
         """
         # The subquery reads from the same physical events table the outer query did.
         base_table_type: ast.Type = events_table_type
@@ -605,6 +551,11 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             return None  # shouldn't happen for valid events queries; bail rather than raise (pure optimization)
 
         inner_table_type = self._inner_table_type_with_materialized_columns(base_table_type, materialized_columns)
+        # Field references (projection + scope) point at the aliased table when there is an alias, so they
+        # print `e.<col>` against the aliased inner FROM; otherwise they print `events.<col>`.
+        ref_table_type: ast.TableType | ast.TableAliasType = (
+            ast.TableAliasType(alias=alias, table_type=inner_table_type) if alias else inner_table_type
+        )
 
         # One aliased Field per column, so the names survive even if PropertySwapper rewrites the inner expr.
         select_fields: list[ast.Expr] = []
@@ -616,13 +567,13 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             if isinstance(original_field_type.table_type, ast.VirtualTableType):
                 # Recreate the VirtualTableType wrapping the inner table, keeping the HogQL field name.
                 virtual_table_type = ast.VirtualTableType(
-                    table_type=inner_table_type,
+                    table_type=ref_table_type,
                     field=original_field_type.table_type.field,
                     virtual_table=original_field_type.table_type.virtual_table,
                 )
                 field_type = ast.FieldType(name=original_field_type.name, table_type=virtual_table_type)
             else:
-                field_type = ast.FieldType(name=col_name, table_type=inner_table_type)
+                field_type = ast.FieldType(name=col_name, table_type=ref_table_type)
 
             field_node = ast.Field(chain=[col_name], type=field_type)
             alias_node = ast.Alias(alias=col_name, expr=field_node, type=field_type)
@@ -630,30 +581,25 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             columns_in_scope[col_name] = field_type
 
         # Expose the raw physical mat/dmat/group columns so the printer's outer references (e.g.
-        # `events.mat_tier`, `has(events.properties_group_*, ...)`) resolve against the subquery alias; the
+        # `e.mat_tier`, `has(e.properties_group_*, ...)`) resolve against the subquery alias; the
         # outer query re-applies the property semantics.
         for col_name in sorted(materialized_columns):
             if col_name in columns_in_scope:
                 continue
-            field_type = ast.FieldType(name=col_name, table_type=inner_table_type)
+            field_type = ast.FieldType(name=col_name, table_type=ref_table_type)
             field_node = ast.Field(chain=[col_name], type=field_type)
             select_fields.append(ast.Alias(alias=col_name, expr=field_node, type=field_type))
             columns_in_scope[col_name] = field_type
 
         events_field = ast.Field(chain=["events"], type=inner_table_type)
-        select_from = ast.JoinExpr(table=events_field, type=inner_table_type)
-        select_query_type = ast.SelectQueryType(columns=columns_in_scope, tables={"events": inner_table_type})
-
-        # Re-type the WHERE/PREWHERE fields to reference the inner table.
-        rewriter = TypeRewriter(inner_table_type, columns_in_scope)
-        typed_where = rewriter.visit(where_clause) if where_clause is not None else None
-        typed_prewhere = rewriter.visit(prewhere_clause) if prewhere_clause is not None else None
+        select_from = ast.JoinExpr(table=events_field, alias=alias, type=ref_table_type)
+        select_query_type = ast.SelectQueryType(columns=columns_in_scope, tables={alias or "events": ref_table_type})
 
         return ast.SelectQuery(
             select=select_fields,
             select_from=select_from,
-            where=typed_where,
-            prewhere=typed_prewhere,
+            where=where_clause,
+            prewhere=prewhere_clause,
             type=select_query_type,
         )
 

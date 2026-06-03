@@ -22,13 +22,13 @@
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
                if(equals(e.event, 'step three'), 1, 0) AS step_2
         FROM
-          (SELECT events.distinct_id AS distinct_id,
-                  events.event AS event,
-                  events.person_id AS person_id,
-                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  events.uuid AS uuid
-           FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('step one', 'step three', 'step two')))) AS e
+          (SELECT e.distinct_id AS distinct_id,
+                  e.event AS event,
+                  e.person_id AS person_id,
+                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.uuid AS uuid
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -81,13 +81,13 @@
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
                if(equals(e.event, 'step three'), 1, 0) AS step_2
         FROM
-          (SELECT events.distinct_id AS distinct_id,
-                  events.event AS event,
-                  events.person_id AS person_id,
-                  toTimeZone(events.timestamp, 'US/Pacific') AS timestamp,
-                  events.uuid AS uuid
-           FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), in(events.event, tuple('step one', 'step three', 'step two')))) AS e
+          (SELECT e.distinct_id AS distinct_id,
+                  e.event AS event,
+                  e.person_id AS person_id,
+                  toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
+                  e.uuid AS uuid
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -140,13 +140,13 @@
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
                if(equals(e.event, 'step three'), 1, 0) AS step_2
         FROM
-          (SELECT events.distinct_id AS distinct_id,
-                  events.event AS event,
-                  events.person_id AS person_id,
-                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  events.uuid AS uuid
-           FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('step one', 'step three', 'step two')))) AS e
+          (SELECT e.distinct_id AS distinct_id,
+                  e.event AS event,
+                  e.person_id AS person_id,
+                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.uuid AS uuid
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -199,13 +199,13 @@
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2
            FROM
-             (SELECT events.distinct_id AS distinct_id,
-                     events.event AS event,
-                     events.person_id AS person_id,
-                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     events.uuid AS uuid
-              FROM events
-              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('step one', 'step three', 'step two')))) AS e
+             (SELECT e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
