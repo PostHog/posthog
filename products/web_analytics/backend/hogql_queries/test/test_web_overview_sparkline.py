@@ -1,97 +1,80 @@
-from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
-from posthog.schema import DateRange, HogQLQueryModifiers, WebOverviewQuery
+from posthog.schema import CustomEventConversionGoal, DateRange, WebOverviewQuery
 
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.utils import uuid7
-from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL
-
-from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
-    WebAnalyticsPreAggregatedTestBase,
-)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import rows_to_sparkline_series
 
-PREAGG_MODIFIERS = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
+LAZY_MODULE = "products.web_analytics.backend.hogql_queries.web_overview"
 
 
-class TestWebOverviewSparkline(WebAnalyticsPreAggregatedTestBase):
-    def _setup_test_data(self):
-        with freeze_time("2024-01-01T09:00:00Z"):
-            for distinct_id in ["d1_a", "d1_b", "d2_a"]:
-                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-
-        # Day 1: two sessions, two visitors, three pageviews (one of them a single-page bounce)
-        s1, s2 = str(uuid7("2024-01-01")), str(uuid7("2024-01-01"))
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="d1_a",
-            timestamp="2024-01-01T10:00:00Z",
-            properties={"$session_id": s1},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="d1_a",
-            timestamp="2024-01-01T10:05:00Z",
-            properties={"$session_id": s1},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="d1_b",
-            timestamp="2024-01-01T11:00:00Z",
-            properties={"$session_id": s2},
-        )
-
-        # Day 2: one session, one visitor, one pageview
-        s3 = str(uuid7("2024-01-02"))
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="d2_a",
-            timestamp="2024-01-02T10:00:00Z",
-            properties={"$session_id": s3},
-        )
-
-        flush_persons_and_events()
-        self._populate_bounces_table()
-
-    def _populate_bounces_table(self):
-        select_sql = WEB_BOUNCES_INSERT_SQL(
-            date_start="2024-01-01", date_end="2024-01-03", team_ids=[self.team.pk], select_only=True
-        )
-        sync_execute(f"INSERT INTO web_pre_aggregated_bounces\n{select_sql}")
-
-    def _run(self, *, include_sparkline: bool, modifiers: HogQLQueryModifiers = PREAGG_MODIFIERS):
+class TestWebOverviewSparkline(ClickhouseTestMixin, APIBaseTest):
+    def _runner(self, *, include_sparkline=True, conversion_goal=None):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-03"),
             properties=[],
-            compareFilter=None,
             includeSparkline=include_sparkline,
+            conversionGoal=conversion_goal,
         )
-        runner = WebOverviewQueryRunner(query=query, team=self.team, modifiers=modifiers)
-        return {item.key: item for item in runner.calculate().results}
+        return WebOverviewQueryRunner(team=self.team, query=query)
 
-    def test_preaggregated_path_returns_per_day_series(self):
-        items = self._run(include_sparkline=True)
+    def test_rows_to_sparkline_series_maps_columns_and_transforms(self):
+        # Rows: [bucket, visitors, views, sessions, session_duration, bounce_rate], two daily buckets.
+        rows = [
+            ["2024-01-01", 2, 3, 2, 120.0, 0.5],
+            ["2024-01-02", 1, 1, 1, 60.0, 1.0],
+        ]
+        series = rows_to_sparkline_series(rows, unsample=lambda x: x)
 
-        # Two day buckets in the range, oldest → newest.
-        assert items["visitors"].series == [2, 1]
-        assert items["views"].series == [3, 1]
-        assert items["sessions"].series == [2, 1]
-        # Bounce rate is surfaced as a percentage to match the headline value.
-        assert items["bounce rate"].series == [50.0, 100.0]
-        assert len(items["session duration"].series or []) == 2
+        assert series["visitors"] == [2, 1]
+        assert series["views"] == [3, 1]
+        assert series["sessions"] == [2, 1]
+        assert series["session duration"] == [120.0, 60.0]
+        # Bounce rate is surfaced as a percentage.
+        assert series["bounce rate"] == [50.0, 100.0]
 
-    def test_no_series_when_sparkline_not_requested(self):
-        items = self._run(include_sparkline=False)
-        assert all(item.series is None for item in items.values())
+    def test_rows_to_sparkline_series_unsamples_counts_only(self):
+        rows = [["2024-01-01", 5, 10, 5, 30.0, 0.2]]
+        series = rows_to_sparkline_series(rows, unsample=lambda x: x * 10)
 
-    def test_no_series_when_preaggregated_tables_disabled(self):
-        # Raw-events path: sparkline is precompute-only, so the frontend falls back to a trends query.
-        items = self._run(
-            include_sparkline=True, modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False)
-        )
-        assert all(item.series is None for item in items.values())
+        assert series["visitors"] == [50]
+        assert series["views"] == [100]
+        assert series["sessions"] == [50]
+        # Averages are not unsampled.
+        assert series["session duration"] == [30.0]
+        assert series["bounce rate"] == [20.0]
+
+    def test_no_sparkline_when_not_requested(self):
+        assert self._runner(include_sparkline=False).get_lazy_precomputed_sparkline() is None
+
+    def test_no_sparkline_for_conversion_goal(self):
+        runner = self._runner(conversion_goal=CustomEventConversionGoal(customEventName="signup"))
+        assert runner.get_lazy_precomputed_sparkline() is None
+
+    def test_no_sparkline_when_lazy_not_eligible(self):
+        runner = self._runner()
+        with patch(f"{LAZY_MODULE}.can_use_lazy_precompute", return_value=False):
+            assert runner.get_lazy_precomputed_sparkline() is None
+
+    def test_sparkline_read_when_lazy_eligible(self):
+        runner = self._runner()
+        fake_series = {"visitors": [2, 1], "views": [3, 1], "sessions": [2, 1]}
+        with (
+            patch(f"{LAZY_MODULE}.can_use_lazy_precompute", return_value=True),
+            patch(f"{LAZY_MODULE}.execute_lazy_precomputed_sparkline", return_value=fake_series) as mock_read,
+        ):
+            assert runner.get_lazy_precomputed_sparkline() == fake_series
+            mock_read.assert_called_once_with(runner)
+
+    def test_attach_sparkline_sets_series_on_matching_items(self):
+        runner = self._runner()
+        results = [
+            {"key": "visitors", "kind": "unit", "value": 3},
+            {"key": "views", "kind": "unit", "value": 4},
+        ]
+        with patch.object(runner, "get_lazy_precomputed_sparkline", return_value={"visitors": [2, 1]}):
+            attached = runner._attach_sparkline(results)
+
+        assert attached[0]["series"] == [2, 1]
+        assert "series" not in attached[1]

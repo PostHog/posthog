@@ -196,6 +196,110 @@ def execute_read_query(
     )
 
 
+# Per-day series for the current period, grouped from the same hourly state buckets the scalar
+# read merges. One row per UTC day, oldest → newest, restricted to the resolved job_ids.
+_SPARKLINE_READ_SQL = f"""
+SELECT
+    toStartOfDay(time_window_start) AS bucket,
+    uniqMerge(uniq_users_state) AS visitors,
+    sumMerge(sum_pageviews_state) AS views,
+    uniqMerge(uniq_sessions_state) AS sessions,
+    avgMerge(avg_duration_state) AS session_duration,
+    avgMerge(avg_bounce_state) AS bounce_rate
+FROM {DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE()}
+WHERE team_id = %(team_id)s
+    AND job_id IN %(job_ids)s
+    AND time_window_start >= %(cur_start)s
+    AND time_window_start < %(cur_end)s
+GROUP BY bucket
+ORDER BY bucket ASC
+"""
+
+
+def execute_sparkline_read_query(
+    *,
+    team_id: int,
+    job_ids: list[str],
+    current_start_utc: datetime,
+    current_end_utc: datetime,
+) -> list:
+    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type="web_overview_lazy_sparkline_query")
+    return sync_execute(
+        _SPARKLINE_READ_SQL,
+        {
+            "team_id": team_id,
+            "job_ids": tuple(str(jid) for jid in job_ids),
+            "cur_start": current_start_utc,
+            "cur_end": current_end_utc,
+        },
+        settings=_READ_SETTINGS,
+        team_id=team_id,
+    )
+
+
+def rows_to_sparkline_series(rows: list, unsample) -> dict[str, list[float]]:
+    """Map per-day read rows (bucket, visitors, views, sessions, duration, bounce) to a series per
+    overview key. Counts are unsampled to match the headline value; bounce rate is surfaced as a
+    percentage (the read returns a 0..1 fraction)."""
+    return {
+        "visitors": [unsample(r[1]) for r in rows],
+        "views": [unsample(r[2]) for r in rows],
+        "sessions": [unsample(r[3]) for r in rows],
+        "session duration": [r[4] for r in rows],
+        "bounce rate": [(r[5] or 0) * 100 for r in rows],
+    }
+
+
+def execute_lazy_precomputed_sparkline(
+    runner: "WebOverviewQueryRunner",
+) -> Optional[dict[str, list[float]]]:
+    """Per-day series for each metric, read from the lazy precompute table. Ensures the current
+    period (idempotent — the scalar read already warmed it) and reads the daily-grouped series.
+    Returns None on any failure so the caller leaves the sparkline empty (frontend falls back to a
+    raw trends query). Current period only — sparklines never show the comparison period."""
+    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
+    team_id = runner.team.pk
+    try:
+        date_from = runner.query_date_range.date_from()
+        date_to = runner.query_date_range.date_to()
+        assert date_from is not None and date_to is not None
+
+        current_start_utc = date_from.astimezone(UTC)
+        current_end_utc = date_to.astimezone(UTC)
+
+        time_range_start = floor_utc_day(current_start_utc)
+        time_range_end = ceil_utc_day(current_end_utc)
+        if time_range_start >= time_range_end:
+            return None
+
+        result = ensure_web_overview_precomputed(
+            runner=runner,
+            time_range_start=time_range_start,
+            time_range_end=time_range_end,
+        )
+        if not result.job_ids or not result.ready:
+            return None
+
+        rows = execute_sparkline_read_query(
+            team_id=team_id,
+            job_ids=[str(jid) for jid in result.job_ids],
+            current_start_utc=current_start_utc,
+            current_end_utc=current_end_utc,
+        )
+        if not rows:
+            return None
+
+        return rows_to_sparkline_series(rows, runner._unsample)
+    except Exception as exc:
+        WEB_OVERVIEW_LAZY_FAILED.labels(error_type=type(exc).__name__).inc()
+        logger.exception(
+            "web_overview_lazy_precompute_sparkline_failed",
+            team_id=team_id,
+            error_type=type(exc).__name__,
+        )
+        return None
+
+
 def _empty_response_row() -> list:
     # 5 metric pairs (current, previous) — previous slots are None and discarded
     # downstream when compareFilter.compare is False. When compare is True, the
