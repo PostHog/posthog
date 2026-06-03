@@ -3,10 +3,10 @@ import { useMemo } from 'react'
 
 import { IconBolt } from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { MetricCard } from '@posthog/quill'
 import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { Metric } from 'lib/hog-charts/blocks/Metric/Metric'
 import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -94,7 +94,7 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                     <LemonSkeleton className="h-7 w-20" />
                 </div>
             ) : (
-                <Metric
+                <MetricCard
                     className="text-primary"
                     title={tile.label}
                     value={metric.value}

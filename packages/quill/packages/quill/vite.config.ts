@@ -10,18 +10,20 @@ import dts from 'vite-plugin-dts'
  * primitives + components + blocks together.
  *
  * IMPORTANT: `@posthog/quill-primitives`, `@posthog/quill-components`,
- * and `@posthog/quill-blocks` are **not** externalized. They are
- * `private: true` workspace packages that never ship to npm, so the
- * aggregate has to inline their code at build time — otherwise the
- * published dist would have `import from '@posthog/quill-primitives'`
- * statements pointing at a package that does not exist in the registry
- * and consumers would get ERR_MODULE_NOT_FOUND on first import.
+ * `@posthog/quill-blocks`, and `@posthog/quill-charts` are **not**
+ * externalized. They are `private: true` workspace packages that never
+ * ship to npm, so the aggregate has to inline their code at build time —
+ * otherwise the published dist would have `import from
+ * '@posthog/quill-primitives'` statements pointing at a package that does
+ * not exist in the registry and consumers would get ERR_MODULE_NOT_FOUND
+ * on first import.
  *
  * `@posthog/quill-tokens` stays external because it is independently
- * published. Actual runtime deps (@base-ui/react, lucide-react, etc.)
- * are kept external too — they are redeclared as real
- * `dependencies` on the aggregate's package.json so pnpm/npm pulls
- * them into the consumer's node_modules automatically.
+ * published. Actual runtime deps (@base-ui/react, lucide-react, the d3
+ * family and dayjs pulled in via charts, etc.) are kept external too —
+ * they are redeclared as real `dependencies` on the aggregate's
+ * package.json so pnpm/npm pulls them into the consumer's node_modules
+ * automatically.
  */
 export default defineConfig({
     plugins: [
@@ -36,7 +38,12 @@ export default defineConfig({
             // api-extractor to follow and inline their .d.ts trees
             // instead of treating them as externals.
             rollupTypes: true,
-            bundledPackages: ['@posthog/quill-primitives', '@posthog/quill-components', '@posthog/quill-blocks'],
+            bundledPackages: [
+                '@posthog/quill-primitives',
+                '@posthog/quill-components',
+                '@posthog/quill-blocks',
+                '@posthog/quill-charts',
+            ],
         }),
     ],
     build: {
@@ -59,6 +66,15 @@ export default defineConfig({
                 'react-resizable-panels',
                 'tailwind-merge',
                 'vaul',
+                // Pulled in transitively via @posthog/quill-charts.
+                '@floating-ui/react',
+                'd3-array',
+                'd3-color',
+                'd3-scale',
+                'd3-shape',
+                'dayjs',
+                /^dayjs\//,
+                'simple-statistics',
             ],
         },
         // scripts/build-css.ts writes dist/{tokens,base,tailwind,color-system}.css

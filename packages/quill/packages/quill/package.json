@@ -45,14 +45,22 @@
     },
     "dependencies": {
         "@base-ui/react": "catalog:",
+        "@floating-ui/react": "^0.27.19",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "d3-array": "^3.2.4",
+        "d3-color": "^3.1.0",
+        "d3-scale": "^4.0.2",
+        "d3-shape": "^3.2.0",
+        "dayjs": "1.11.11",
         "lucide-react": "^0.577.0",
         "react-resizable-panels": "^4.7.1",
+        "simple-statistics": "^7.8.3",
         "tailwind-merge": "^2.2.2"
     },
     "devDependencies": {
         "@posthog/quill-blocks": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "@posthog/quill-tokens": "workspace:*",
