@@ -121,6 +121,7 @@ rules:
                               |Evaluation
                               |Experiment
                               |ExperimentHoldout
+                              |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
@@ -359,6 +360,7 @@ rules:
                         |Evaluation
                         |Experiment
                         |ExperimentHoldout
+                        |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
                         |ExportedAsset
                         |ExportedRecording
