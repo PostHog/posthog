@@ -154,7 +154,18 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
 
             if (panelHash) {
                 const [panel, ...panelOptions] = panelHash.split(':')
-                const options = sanitizeUrlRestoredPanelOptions(panel, panelOptions.join(':'))
+                const rawOptions = panelOptions.join(':')
+
+                if (
+                    panel &&
+                    panel === values.selectedTab &&
+                    values.sidePanelOpen &&
+                    rawOptions === values.selectedTabOptions
+                ) {
+                    return
+                }
+
+                const options = sanitizeUrlRestoredPanelOptions(panel, rawOptions)
 
                 if (
                     panel &&

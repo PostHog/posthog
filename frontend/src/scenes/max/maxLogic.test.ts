@@ -221,10 +221,10 @@ describe('maxLogic', () => {
             featureFlagLogic.unmount()
         })
 
-        it('restores mode=research:!Question as a draft from side panel state', async () => {
+        it('restores mode=research:!Question as a draft from URL state', async () => {
             sidePanelStateLogic.mount()
             await expectLogic(sidePanelStateLogic, () => {
-                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=research:!Question')
+                router.actions.push('', {}, { panel: 'max:mode=research:!Question' })
             }).toDispatchActions(['openSidePanel'])
 
             logic = maxLogic({ tabId: 'sidepanel' })
@@ -273,10 +273,10 @@ describe('maxLogic', () => {
             })
         })
 
-        it('restores mode=sql:!Write a query as a draft from side panel state', async () => {
+        it('restores mode=sql:!Write a query as a draft from URL state', async () => {
             sidePanelStateLogic.mount()
             await expectLogic(sidePanelStateLogic, () => {
-                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=sql:!Write a query')
+                router.actions.push('', {}, { panel: 'max:mode=sql:!Write a query' })
             }).toDispatchActions(['openSidePanel'])
 
             logic = maxLogic({ tabId: 'sidepanel' })
@@ -357,10 +357,10 @@ describe('maxLogic', () => {
             })
         })
 
-        it('restores mode=invalid_mode:!Question as a draft and ignores invalid mode', async () => {
+        it('restores mode=invalid_mode:!Question from URL state as a draft and ignores invalid mode', async () => {
             sidePanelStateLogic.mount()
             await expectLogic(sidePanelStateLogic, () => {
-                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=invalid_mode:!Question')
+                router.actions.push('', {}, { panel: 'max:mode=invalid_mode:!Question' })
             }).toDispatchActions(['openSidePanel'])
 
             logic = maxLogic({ tabId: 'sidepanel' })
