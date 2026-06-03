@@ -36,7 +36,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
-from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import BillingProvider
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 
@@ -349,6 +348,10 @@ class VercelIntegration:
         license = get_cached_instance_license()
         if license:
             try:
+                # Deferred: BillingManager pulls the billing stack (stripe SDK, requests). This module
+                # is imported at AppConfig.ready() to wire the Vercel receivers, so keep that path light.
+                from ee.billing.billing_manager import BillingManager  # noqa: PLC0415
+
                 billing_manager = BillingManager(license)
                 billing_manager.authorize(organization, billing_provider=BillingProvider.VERCEL)
                 logger.info(
@@ -422,6 +425,8 @@ class VercelIntegration:
             raise RuntimeError(
                 f"No admin or owner found for organization {organization.id} — cannot deauthorize billing"
             )
+
+        from ee.billing.billing_manager import BillingManager  # noqa: PLC0415
 
         billing_manager = BillingManager(license, user=org_membership.user)
         billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
