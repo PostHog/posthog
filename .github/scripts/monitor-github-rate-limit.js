@@ -10,6 +10,7 @@
 
 const POSTHOG_HOST = 'https://us.i.posthog.com'
 const EVENT_NAME = 'github_rate_limit_observed'
+const DEFAULT_SOURCE = 'github_token'
 
 async function captureEvent({ fetchImpl, posthogToken, event, distinctId, properties, timestamp }) {
     const res = await fetchImpl(`${POSTHOG_HOST}/capture/`, {
@@ -56,7 +57,7 @@ function buildTrigger(context) {
 // per-repo default GITHUB_TOKEN, or a dedicated GitHub App installation bucket
 // (e.g. posthog-devex-general, the setup-action offload bucket). The two are
 // separate 15k buckets, so downstream they're a per-bucket time series.
-function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source = 'github_token' }) {
+function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source = DEFAULT_SOURCE }) {
     const used = typeof snapshot.used === 'number' ? snapshot.used : snapshot.limit - snapshot.remaining
     const utilization = snapshot.limit > 0 ? used / snapshot.limit : 0
     return {
@@ -76,7 +77,7 @@ function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, re
 }
 
 module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, source: _source } = {}) => {
-    const source = _source || 'github_token'
+    const source = _source || DEFAULT_SOURCE
     const fetchImpl = _fetch || fetch
     const observedAtDate = _now ? _now() : new Date()
     const observedAt = observedAtDate.toISOString()
