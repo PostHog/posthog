@@ -20,15 +20,15 @@ export interface TrendsResultLike {
 }
 
 export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> {
-    // A `ChartDisplayType` value, typed as string so this module stays dependency-clean
-    // (no `~/types` import). Only `'ActionsAreaGraph'` changes behaviour here.
-    display?: string
+    // A `ChartDisplayType` value. Kept as a string union (not the `~/types` enum) so this module
+    // stays dependency-clean; only `'ActionsAreaGraph'` changes behaviour here.
+    display?: 'ActionsAreaGraph' | (string & {})
     showMultipleYAxes?: boolean
     // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
     isStickiness?: boolean
     getColor: (r: R, index: number) => string
-    // Defaults to `r.label`. MCP passes its own labeller (action name / "Series N" fallback).
+    // MCP passes its own labeller (action name / "Series N" fallback).
     getLabel?: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M

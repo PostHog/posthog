@@ -10,7 +10,6 @@ export interface ChartConfig {
     showTrendLine: boolean
     showMovingAverage: boolean
     showValueLabels: boolean
-    /** Line / area only. */
     showConfidenceIntervals: boolean
     /** Line / area only — render as a 100% stacked view. */
     percentStack: boolean
@@ -45,7 +44,12 @@ export function loadChartConfig(): ChartConfig {
             return DEFAULT_CHART_CONFIG
         }
         const parsed = JSON.parse(raw) as Partial<ChartConfig>
-        return { ...DEFAULT_CHART_CONFIG, ...parsed }
+        const merged = { ...DEFAULT_CHART_CONFIG, ...parsed }
+        // Guard against stale/tampered storage feeding an invalid unit into the y-axis format.
+        if (!Y_UNIT_OPTIONS.some((o) => o.value === merged.yUnit)) {
+            merged.yUnit = DEFAULT_CHART_CONFIG.yUnit
+        }
+        return merged
     } catch {
         // Sandboxed iframes may refuse localStorage access — fall back to defaults.
         return DEFAULT_CHART_CONFIG
@@ -181,7 +185,9 @@ function Toggle({
     disabled?: boolean
 }): ReactElement {
     return (
-        <label className={`inline-flex items-center gap-2 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+        <label
+            className={`inline-flex items-center gap-2 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+        >
             <input
                 type="checkbox"
                 checked={checked && !disabled}

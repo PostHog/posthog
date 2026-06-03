@@ -1,22 +1,21 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useMemo } from 'react'
 
+import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { Series, TimeSeriesLineChartConfig, XAxisConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import {
     buildDerivedConfigs,
     buildTrendsSeries,
 } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsSeriesTransforms'
 
-import { buildMcpChartTheme } from './charts/shared'
+import { buildMcpChartTheme, buildMcpXAxis, buildMcpYAxis, mcpSeriesColor } from './charts/shared'
 import type { YUnit } from './ChartSettings'
 import type { TrendsInterval, TrendsResultItem } from './types'
-import { formatDate, getSeriesLabel } from './utils'
+import { getSeriesLabel } from './utils'
 
 const MOVING_AVERAGE_WINDOW = 7
 // The shared transforms expect the confidence level as a 0–100 percentage.
 const CONFIDENCE_LEVEL = 95
-const DEFAULT_CURRENCY = 'USD'
 
 export interface McpTrendsLineChartProps {
     results: TrendsResultItem[]
@@ -43,44 +42,53 @@ export function McpTrendsLineChart({
     percentStack = false,
     yUnit = 'numeric',
 }: McpTrendsLineChartProps): ReactElement | null {
+    const theme = useMemo(() => buildMcpChartTheme(), [])
+    const labels = results[0]?.days ?? results[0]?.labels ?? []
+    const mappedResults = useMemo(
+        () => results.map((item, index) => ({ ...item, id: index, data: item.data ?? [] })),
+        [results]
+    )
+
+    const series: Series[] = useMemo(
+        () =>
+            buildTrendsSeries(mappedResults, {
+                getColor: (_, index) => mcpSeriesColor(theme, index),
+                getLabel: getSeriesLabel,
+                ...(fillArea ? { display: 'ActionsAreaGraph' } : {}),
+            }),
+        [mappedResults, theme, fillArea]
+    )
+
+    const config: TimeSeriesLineChartConfig = useMemo(
+        () => ({
+            ...buildDerivedConfigs(mappedResults, {
+                showTrendLines: showTrendLine,
+                showMovingAverage,
+                movingAverageIntervals: MOVING_AVERAGE_WINDOW,
+                showConfidenceIntervals,
+                confidenceLevel: CONFIDENCE_LEVEL,
+            }),
+            xAxis: buildMcpXAxis(interval, timezone),
+            yAxis: buildMcpYAxis(yUnit),
+            valueLabels: showValueLabels,
+            ...(percentStack ? { percentStackView: true } : {}),
+            showCrosshair: true,
+        }),
+        [
+            mappedResults,
+            showTrendLine,
+            showMovingAverage,
+            showConfidenceIntervals,
+            interval,
+            timezone,
+            yUnit,
+            showValueLabels,
+            percentStack,
+        ]
+    )
+
     if (results.length === 0) {
         return null
-    }
-
-    const theme = buildMcpChartTheme()
-    const labels = results[0]?.days ?? results[0]?.labels ?? []
-    const mappedResults = results.map((item, index) => ({ ...item, id: index, data: item.data ?? [] }))
-
-    const series: Series[] = buildTrendsSeries(mappedResults, {
-        getColor: (_, index) => theme.colors[index % theme.colors.length] ?? theme.colors[0] ?? '#1d4aff',
-        getLabel: getSeriesLabel,
-        ...(fillArea ? { display: 'ActionsAreaGraph' } : {}),
-    })
-
-    const derived = buildDerivedConfigs(mappedResults, {
-        showTrendLines: showTrendLine,
-        showMovingAverage,
-        movingAverageIntervals: MOVING_AVERAGE_WINDOW,
-        showConfidenceIntervals,
-        confidenceLevel: CONFIDENCE_LEVEL,
-    })
-
-    const xAxis: XAxisConfig =
-        interval && timezone ? { interval, timezone } : { tickFormatter: (label) => formatDate(label) }
-
-    const yAxis: YAxisConfig = {
-        format: yUnit,
-        ...(yUnit === 'currency' ? { currency: DEFAULT_CURRENCY } : {}),
-        showGrid: true,
-    }
-
-    const config: TimeSeriesLineChartConfig = {
-        ...derived,
-        xAxis,
-        yAxis,
-        valueLabels: showValueLabels,
-        ...(percentStack ? { percentStackView: true } : {}),
-        showCrosshair: true,
     }
 
     return <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />

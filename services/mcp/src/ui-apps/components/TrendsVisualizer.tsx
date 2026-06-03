@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useState } from 'react'
+import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
@@ -49,9 +49,10 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState<ChartConfig>(loadChartConfig)
 
-    useEffect(() => {
-        saveChartConfig(chartConfig)
-    }, [chartConfig])
+    const handleConfigChange = (next: ChartConfig): void => {
+        setChartConfig(next)
+        saveChartConfig(next)
+    }
 
     if (!results || results.length === 0) {
         return (
@@ -87,7 +88,7 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
                     <ChartSettings
                         chartMode={chartFamily}
                         config={chartConfig}
-                        onChange={setChartConfig}
+                        onChange={handleConfigChange}
                         derivedSeriesDisabled={derivedSeriesDisabled}
                     />
                 </div>

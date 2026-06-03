@@ -1,21 +1,15 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useMemo } from 'react'
 
-import {
-    type Series,
-    TimeSeriesBarChart,
-    type TimeSeriesBarChartConfig,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '@posthog/quill-charts'
+import { type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
-import { buildMcpChartTheme } from './charts/shared'
+import { buildTrendsSeries } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsSeriesTransforms'
+
+import { buildMcpChartTheme, buildMcpXAxis, buildMcpYAxis, mcpSeriesColor } from './charts/shared'
 import type { YUnit } from './ChartSettings'
 import type { TrendsInterval, TrendsResultItem } from './types'
-import { formatDate, getSeriesLabel } from './utils'
+import { getSeriesLabel } from './utils'
 
-const DEFAULT_CURRENCY = 'USD'
-
-export type BarLayout = 'grouped' | 'stacked' | 'percent'
+export type BarLayout = 'grouped' | 'stacked'
 
 export interface McpTrendsBarChartProps {
     results: TrendsResultItem[]
@@ -34,35 +28,30 @@ export function McpTrendsBarChart({
     showValueLabels = false,
     yUnit = 'numeric',
 }: McpTrendsBarChartProps): ReactElement | null {
-    if (results.length === 0) {
-        return null
-    }
-
-    const theme = buildMcpChartTheme()
-    const palette = theme.colors
-    const series: Series[] = results.map((item, index) => ({
-        key: String(index),
-        label: getSeriesLabel(item, index),
-        data: item.data ?? [],
-        color: palette[index % palette.length],
-    }))
-
+    const theme = useMemo(() => buildMcpChartTheme(), [])
     const labels = results[0]?.days ?? results[0]?.labels ?? []
 
-    const xAxis: XAxisConfig =
-        interval && timezone ? { interval, timezone } : { tickFormatter: (label) => formatDate(label) }
+    const series: Series[] = useMemo(
+        () =>
+            buildTrendsSeries(
+                results.map((item, index) => ({ ...item, id: index, data: item.data ?? [] })),
+                { getColor: (_, index) => mcpSeriesColor(theme, index), getLabel: getSeriesLabel }
+            ),
+        [results, theme]
+    )
 
-    const yAxis: YAxisConfig = {
-        format: yUnit,
-        ...(yUnit === 'currency' ? { currency: DEFAULT_CURRENCY } : {}),
-        showGrid: true,
-    }
+    const config: TimeSeriesBarChartConfig = useMemo(
+        () => ({
+            barLayout,
+            xAxis: buildMcpXAxis(interval, timezone),
+            yAxis: buildMcpYAxis(yUnit),
+            ...(showValueLabels ? { valueLabels: true } : {}),
+        }),
+        [barLayout, interval, timezone, yUnit, showValueLabels]
+    )
 
-    const config: TimeSeriesBarChartConfig = {
-        barLayout,
-        xAxis,
-        yAxis,
-        ...(showValueLabels ? { valueLabels: true } : {}),
+    if (results.length === 0) {
+        return null
     }
 
     return <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={config} />

@@ -1,3 +1,5 @@
+import type { TimeInterval } from '@posthog/quill-charts'
+
 import type { AnalyticsMetadata } from '../types'
 
 // Base payload that all tool results share
@@ -29,7 +31,8 @@ export interface TrendsFilter {
     aggregationAxisFormat?: 'numeric' | 'duration' | 'duration_ms' | 'percentage'
 }
 
-export type TrendsInterval = 'minute' | 'hour' | 'day' | 'week' | 'month'
+// Subset of quill-charts' interval set — trends never bucket by second.
+export type TrendsInterval = Exclude<TimeInterval, 'second'>
 
 export interface TrendsQuery {
     kind: 'TrendsQuery'

@@ -2,7 +2,7 @@ import { type ReactElement, useMemo } from 'react'
 
 import { TimeSeriesBarChart, type Series as ChartSeries, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
-import { formatDate, formatNumber } from '../utils'
+import { formatDate } from '../utils'
 import { buildMcpChartTheme, ChartFrame } from './shared'
 
 export interface DataPoint {
@@ -19,8 +19,6 @@ export interface Series {
 export interface BarChartProps {
     series: Series[]
     labels: string[]
-    // Kept for call-site compatibility; the chart derives the y-axis domain from the data.
-    maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
 }
@@ -43,7 +41,7 @@ export function BarChart({ series, labels, showLegend = true, yAxisLabel }: BarC
             barLayout: 'grouped',
             barCornerRadius: 2,
             xAxis: { tickFormatter: formatDate },
-            yAxis: { tickFormatter: formatNumber, showGrid: true, ...(yAxisLabel ? { label: yAxisLabel } : {}) },
+            yAxis: { format: 'short', showGrid: true, ...(yAxisLabel ? { label: yAxisLabel } : {}) },
         }),
         [yAxisLabel]
     )

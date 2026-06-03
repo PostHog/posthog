@@ -2,7 +2,7 @@ import { type ReactElement, useMemo } from 'react'
 
 import { TimeSeriesLineChart, type Series as ChartSeries, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
-import { formatDate, formatNumber } from '../utils'
+import { formatDate } from '../utils'
 import { buildMcpChartTheme, ChartFrame } from './shared'
 
 export interface DataPoint {
@@ -19,8 +19,6 @@ export interface Series {
 export interface LineChartProps {
     series: Series[]
     labels: string[]
-    // Kept for call-site compatibility; the chart derives the y-axis domain from the data.
-    maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
 }
@@ -42,7 +40,7 @@ export function LineChart({ series, labels, showLegend = true, yAxisLabel }: Lin
     const config = useMemo<TimeSeriesLineChartConfig>(
         () => ({
             xAxis: { tickFormatter: formatDate },
-            yAxis: { tickFormatter: formatNumber, showGrid: true, ...(yAxisLabel ? { label: yAxisLabel } : {}) },
+            yAxis: { format: 'short', showGrid: true, ...(yAxisLabel ? { label: yAxisLabel } : {}) },
         }),
         [yAxisLabel]
     )
