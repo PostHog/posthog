@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { Stage, useReactiveTheme } from '../../story-helpers'
+import { Stage, useReactiveTheme } from '@posthog/quill-charts/story-helpers'
+
 import { Metric } from './Metric'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

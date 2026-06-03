@@ -107,6 +107,7 @@
         "libsodium-wrappers": "^0.7.15",
         "liquidjs": "^10.27.0",
         "lodash": "^4.18.1",
+        "lz4": "^0.6.5",
         "lru-cache": "^11.0.0",
         "luxon": "^3.4.4",
         "node-fetch": "^2.6.1",
