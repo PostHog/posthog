@@ -16,9 +16,9 @@ class ProductConfig:
     allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
     allow_api_keys: bool = True
-    # Tag emitted $ai_generation events with $ai_billable=true so the usage reporter
-    # (posthog/tasks/usage_report.py) rolls them into the customer team's credit bucket
-    # for this product's ai_product (e.g. PostHog AI credits, or signals credits).
+    # Tag emitted $ai_generation events with $ai_billable=true so the PHAI
+    # daily aggregator (posthog/tasks/usage_report.py) rolls them into the
+    # customer team's AI credits bucket.
     billable: bool = False
 
 
@@ -141,9 +141,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "signals": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
-        allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
-        allow_api_keys=True,
-        billable=False,
+        allow_api_keys=False,
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,

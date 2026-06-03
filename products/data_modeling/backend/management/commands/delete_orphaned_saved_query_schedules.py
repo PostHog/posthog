@@ -188,7 +188,7 @@ class Command(BaseCommand):
 
         from posthog.temporal.common.codec import EncryptionCodec
 
-        codec = EncryptionCodec.from_settings(settings=settings)
+        codec = EncryptionCodec(settings=settings)
         payload_converter = temporalio.converter.default().payload_converter
         semaphore = asyncio.Semaphore(concurrency)
         results: dict[str, int | None] = {}

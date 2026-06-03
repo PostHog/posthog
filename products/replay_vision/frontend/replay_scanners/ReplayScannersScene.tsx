@@ -199,7 +199,7 @@ export function ReplayScannersScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Replay vision"
-                description="Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event."
+                description="Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events."
                 resourceType={{ type: 'replay_vision' }}
             />
 
@@ -209,8 +209,8 @@ export function ReplayScannersScene(): JSX.Element {
                 productName="Replay vision"
                 productKey={ProductKey.REPLAY_VISION}
                 thingName="scanner"
-                description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
-                secondaryDescription="Start from a template or build a fully custom scanner."
+                description="Replay vision runs scanners over completed sessions on a schedule or on demand, using session recordings and events to do anything you can describe — categorize sessions, monitor user behavior, surface frustration or confusion, flag bugs, score intent, or detect any custom pattern. Results land as queryable events you can build insights, alerts, and cohorts on."
+                secondaryDescription="You can get started using a template, or create a fully custom scanner yourself."
                 customHog={XRayHog}
                 action={() => push(urls.replayVisionTemplates())}
             />

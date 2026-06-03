@@ -13,8 +13,6 @@ from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import (
     ConversationEvent,
@@ -27,6 +25,7 @@ from ee.hogai.stream.redis_stream import (
     get_conversation_stream_key,
 )
 from ee.hogai.utils.types.base import AssistantOutput
+from ee.models.assistant import Conversation
 
 
 class TestAgentExecutor(BaseTest):

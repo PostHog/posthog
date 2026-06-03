@@ -29002,7 +29002,6 @@
                 "task_created",
                 "toolbar_launched",
                 "vercel_integration",
-                "endpoints_viewed",
                 "endpoint_created",
                 "endpoint_created_from_insight",
                 "endpoint_created_from_sql_editor",

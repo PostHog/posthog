@@ -57,17 +57,24 @@ def _make_config(**overrides: Any) -> SignalSourceTableConfig:
     return SignalSourceTableConfig(**(defaults | overrides))
 
 
-def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> MagicMock:
-    """Build a mock Anthropic Messages response (None content => no text blocks)."""
+def _make_llm_response(text: str | None, thought: str | None = None) -> MagicMock:
+    """Build a mock Gemini response with optional thought parts."""
     response = MagicMock()
-    if content is None:
-        response.content = []
-    else:
-        block = MagicMock()
-        block.type = "text"
-        block.text = content
-        response.content = [block]
-    response.stop_reason = stop_reason
+    response.text = text
+    parts = []
+    if thought is not None:
+        thought_part = MagicMock()
+        thought_part.text = thought
+        thought_part.thought = True
+        parts.append(thought_part)
+    if text is not None:
+        answer_part = MagicMock()
+        answer_part.text = text
+        answer_part.thought = False
+        parts.append(answer_part)
+    candidate = MagicMock()
+    candidate.content.parts = parts
+    response.candidates = [candidate]
     return response
 
 
@@ -265,79 +272,74 @@ class TestCheckActionability:
     )
     async def test_classifies_based_on_llm_response(self, llm_response, expected):
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(llm_response))
+        mock_client.models.generate_content = AsyncMock(return_value=_make_llm_response(llm_response))
 
         output = _make_output(description="test ticket")
-        is_actionable = await _check_actionability(mock_client, 1, output, "Is this actionable? {description}")
+        is_actionable, _thoughts = await _check_actionability(mock_client, output, "Is this actionable? {description}")
 
         assert is_actionable is expected
 
     @pytest.mark.asyncio
+    async def test_returns_thoughts_from_response(self):
+        mock_client = MagicMock()
+        mock_client.models.generate_content = AsyncMock(
+            return_value=_make_llm_response("NOT_ACTIONABLE", thought="Just a billing question, not a bug.")
+        )
+
+        _is_actionable, thoughts = await _check_actionability(
+            mock_client, _make_output(), "Is this actionable? {description}"
+        )
+
+        assert thoughts == "Just a billing question, not a bug."
+
+    @pytest.mark.asyncio
     async def test_assumes_actionable_after_retries_exhausted(self):
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
+        mock_client.models.generate_content = AsyncMock(side_effect=Exception("API error"))
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
-
-        assert is_actionable is True
-        assert mock_client.messages.create.call_count == LLM_MAX_ATTEMPTS
-
-    @pytest.mark.asyncio
-    async def test_returns_true_on_none_response_content(self):
-        mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(None))
-
-        is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+        is_actionable, thoughts = await _check_actionability(mock_client, _make_output(), "prompt {description}")
 
         assert is_actionable is True
+        assert thoughts is None
+        assert mock_client.models.generate_content.call_count == LLM_MAX_ATTEMPTS
 
     @pytest.mark.asyncio
-    async def test_passes_team_attribution_headers(self):
+    async def test_returns_true_on_none_response_text(self):
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.models.generate_content = AsyncMock(return_value=_make_llm_response(None))
 
-        output = _make_output(source_id="42")
-        await _check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+        is_actionable, _thoughts = await _check_actionability(mock_client, _make_output(), "prompt {description}")
 
-        call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert call_kwargs["metadata"]["user_id"] == "team-7"
-        headers = call_kwargs["extra_headers"]
-        assert headers["x-posthog-property-ai_stage"] == "actionability"
-        assert headers["x-posthog-property-source_product"] == output.source_product
-        assert headers["x-posthog-property-source_type"] == output.source_type
-        # ai_product and $ai_billable are owned by the gateway product config, not headers
-        assert "x-posthog-property-ai_product" not in headers
-        assert "x-posthog-property-$ai_billable" not in headers
+        assert is_actionable is True
 
 
 class TestFilterActionable:
     @pytest.mark.asyncio
     async def test_filters_non_actionable_outputs(self):
         outputs = [_make_output(source_id="1"), _make_output(source_id="2"), _make_output(source_id="3")]
-        team = MagicMock(id=1)
 
         mock_client = MagicMock()
         responses = [
             _make_llm_response("ACTIONABLE"),
-            _make_llm_response("NOT_ACTIONABLE"),
+            _make_llm_response("NOT_ACTIONABLE", thought="This is just a billing question."),
             _make_llm_response("ACTIONABLE"),
         ]
         call_count = 0
 
-        async def mock_create(*args, **kwargs):
+        async def mock_generate(*args, **kwargs):
             nonlocal call_count
             resp = responses[call_count]
             call_count += 1
             return resp
 
-        mock_client.messages.create = mock_create
+        mock_client.models.generate_content = mock_generate
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_client),
+            patch(f"{PIPELINE_MODULE_PATH}.genai") as mock_genai,
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
-            result = await filter_actionable(team, outputs, "prompt {description}", extra={})
+            mock_genai.AsyncClient.return_value = mock_client
+            result = await filter_actionable(outputs, "prompt {description}", extra={})
 
         assert [o.source_id for o in result] == ["1", "3"]
 
@@ -348,7 +350,16 @@ class TestSummarizeDescription:
 
     def _mock_client(self, responses: Sequence[str | None]) -> MagicMock:
         client = MagicMock()
-        client.messages.create = AsyncMock(side_effect=[_make_llm_response(r) for r in responses])
+        call_idx = 0
+
+        async def generate(*args, **kwargs):
+            nonlocal call_idx
+            resp = MagicMock()
+            resp.text = responses[call_idx]
+            call_idx += 1
+            return resp
+
+        client.models.generate_content = generate
         return client
 
     @pytest.mark.asyncio
@@ -356,7 +367,7 @@ class TestSummarizeDescription:
         client = self._mock_client(["Short summary."])
         output = _make_output(description="x" * 500)
 
-        result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
+        result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
 
         assert result.description == "Short summary."
 
@@ -365,8 +376,7 @@ class TestSummarizeDescription:
         client = self._mock_client(["a" * 300, "Concise."])
         output = _make_output(description="x" * 500)
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
+        result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
 
         assert result.description == "Concise."
 
@@ -377,7 +387,7 @@ class TestSummarizeDescription:
         output = _make_output(description=original)
 
         with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
+            result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
 
         assert result.description == original[: self.THRESHOLD]
 
@@ -393,28 +403,13 @@ class TestSummarizeDescription:
             extra={"html_url": "https://example.com"},
         )
 
-        result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
+        result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
 
         assert result.source_product == "github"
         assert result.source_type == "issue"
         assert result.source_id == "42"
         assert result.weight == 0.8
         assert result.extra == {"html_url": "https://example.com"}
-
-    @pytest.mark.asyncio
-    async def test_passes_team_attribution_headers(self):
-        client = self._mock_client(["Short summary."])
-        output = _make_output(description="x" * 500)
-
-        await _summarize_description(client, 42, output, self.PROMPT, self.THRESHOLD)
-
-        call_kwargs = client.messages.create.call_args.kwargs
-        assert call_kwargs["metadata"]["user_id"] == "team-42"
-        headers = call_kwargs["extra_headers"]
-        assert headers["x-posthog-property-ai_stage"] == "summarization"
-        # ai_product and $ai_billable are owned by the gateway product config, not headers
-        assert "x-posthog-property-ai_product" not in headers
-        assert "x-posthog-property-$ai_billable" not in headers
 
 
 class TestSummarizeLongDescriptions:
@@ -425,16 +420,18 @@ class TestSummarizeLongDescriptions:
     async def test_only_summarizes_descriptions_above_threshold(self):
         short = _make_output(source_id="1", description="short")
         long = _make_output(source_id="2", description="x" * 200)
-        team = MagicMock(id=1)
 
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("Summarized."))
+        mock_response = MagicMock()
+        mock_response.text = "Summarized."
+        mock_client.models.generate_content = AsyncMock(return_value=mock_response)
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_client),
+            patch(f"{PIPELINE_MODULE_PATH}.genai") as mock_genai,
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
-            result = await summarize_long_descriptions(team, [short, long], self.PROMPT, self.THRESHOLD, extra={})
+            mock_genai.AsyncClient.return_value = mock_client
+            result = await summarize_long_descriptions([short, long], self.PROMPT, self.THRESHOLD, extra={})
 
         assert result[0].description == "short"
         assert result[1].description == "Summarized."
@@ -442,9 +439,8 @@ class TestSummarizeLongDescriptions:
     @pytest.mark.asyncio
     async def test_returns_unchanged_when_all_under_threshold(self):
         outputs = [_make_output(source_id="1", description="short"), _make_output(source_id="2", description="also")]
-        team = MagicMock(id=1)
 
-        result = await summarize_long_descriptions(team, outputs, self.PROMPT, self.THRESHOLD, extra={})
+        result = await summarize_long_descriptions(outputs, self.PROMPT, self.THRESHOLD, extra={})
 
         assert result == outputs
 
@@ -577,23 +573,27 @@ class TestPipelineStageTelemetry:
 
         mock_llm_client = MagicMock()
 
-        async def create(*args, **kwargs):
-            messages = kwargs.get("messages") or []
-            prompt_text = messages[0]["content"] if messages else ""
+        async def generate_content(*args, **kwargs):
+            contents = kwargs.get("contents") or (args[1] if len(args) > 1 else None)
+            prompt_text = ""
+            if contents:
+                first = contents[0]
+                prompt_text = first.text if hasattr(first, "text") else first
             if "Summarize" in prompt_text:
                 return _make_llm_response("Summarized ticket body.")
             if "not actionable" in prompt_text:
                 return _make_llm_response("NOT_ACTIONABLE")
             return _make_llm_response("ACTIONABLE")
 
-        mock_llm_client.messages.create = create
+        mock_llm_client.models.generate_content = generate_content
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_llm_client),
+            patch(f"{PIPELINE_MODULE_PATH}.genai") as mock_genai,
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
+            mock_genai.AsyncClient.return_value = mock_llm_client
             await run_signal_pipeline(team=team, config=config, records=records, extra={})
 
         events_by_source_id: dict[str, list[str]] = {}

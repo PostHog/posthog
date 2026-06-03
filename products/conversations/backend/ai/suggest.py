@@ -17,7 +17,8 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_by_distinct_ids
 
 from products.conversations.backend.ai.runner import SupportAgentRunner
-from products.posthog_ai.backend.models.assistant import Conversation
+
+from ee.models import Conversation
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from unittest import mock
 
+from django.conf import settings
 from django.test import override_settings
 from django.test.client import Client as HttpClient
 
@@ -21,6 +22,7 @@ from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.temporal.common.codec import EncryptionCodec
 
 from products.batch_exports.backend.models.batch_export import BatchExport
 
@@ -34,9 +36,7 @@ pytestmark = [
 # tests live alongside in `test_create_<destination>.py`.
 
 
-def test_create_batch_export_with_interval_schedule(
-    client: HttpClient, temporal, encryption_codec, organization, team, user
-):
+def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal, organization, team, user):
     """Test creating a BatchExport.
 
     When creating a BatchExport, we should create a corresponding Schedule in
@@ -92,13 +92,14 @@ def test_create_batch_export_with_interval_schedule(
     }
 
     # validate the underlying temporal schedule has been created
+    codec = EncryptionCodec(settings=settings)
     schedule = describe_schedule(temporal, data["id"])
 
     batch_export = BatchExport.objects.get(id=data["id"])
     assert schedule.schedule.spec.intervals[0].every == batch_export.interval_time_delta
     assert schedule.schedule.spec.jitter == batch_export.jitter
 
-    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
 
     # Common inputs
@@ -414,9 +415,7 @@ FROM events
 """
 
 
-def test_create_batch_export_with_custom_schema(
-    client: HttpClient, temporal, encryption_codec, organization, team, user
-):
+def test_create_batch_export_with_custom_schema(client: HttpClient, temporal, organization, team, user):
     """Test creating a BatchExport with a custom schema expressed as a HogQL Query.
 
     When creating a BatchExport, we should create a corresponding Schedule in
@@ -457,11 +456,12 @@ def test_create_batch_export_with_custom_schema(
     expected_hogql_query = " ".join(TEST_HOGQL_QUERY.split())  # Don't care about whitespace
     assert data["schema"]["hogql_query"] == expected_hogql_query
 
+    codec = EncryptionCodec(settings=settings)
     schedule = describe_schedule(temporal, data["id"])
 
     batch_export = BatchExport.objects.get(id=data["id"])
 
-    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
 
     expected_fields = [

@@ -691,7 +691,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Replay vision',
         projectBased: true,
         description:
-            'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
+            'Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events.',
         iconType: 'replay_vision',
         layout: 'app-container',
     },

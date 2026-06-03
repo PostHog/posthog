@@ -45,7 +45,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from products.posthog_ai.backend.models.assistant import Conversation
+from ee.models import Conversation
 
 
 class ArtifactRefMessage(BaseAssistantMessage):

@@ -102,9 +102,6 @@ Respond with valid JSON only:
 @dataclass
 class SafetyFilterInput:
     description: str
-    # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
-    # field existed must still deserialize on a new worker; missing => gateway key owner's team.
-    team_id: int | None = None
 
 
 @dataclass
@@ -114,18 +111,16 @@ class SafetyFilterOutput:
     explanation: Optional[str]
 
 
-async def safety_filter(team_id: int | None, description: str) -> SafetyFilterJudgeResponse:
+async def safety_filter(description: str) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
         return SafetyFilterJudgeResponse.model_validate(data)
 
     try:
         return await call_llm(
-            team_id=team_id,
             system_prompt=SAFETY_FILTER_PROMPT,
             user_prompt=description,
             validate=validate,
-            stage="safety_filter",
         )
     except EmptyLLMResponseError:
         return SafetyFilterJudgeResponse(
@@ -140,7 +135,7 @@ async def safety_filter(team_id: int | None, description: str) -> SafetyFilterJu
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:
-        result = await safety_filter(input.team_id, input.description)
+        result = await safety_filter(input.description)
     except Exception:
         logger.exception("Failed to run safety filter")
         raise

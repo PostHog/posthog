@@ -16,7 +16,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.utils import get_instance_region
 
-from products.posthog_ai.backend.models.assistant import Conversation
+from ee.models.assistant import Conversation
 
 # Default free tier limit in credits
 DEFAULT_FREE_TIER_CREDITS = 2000

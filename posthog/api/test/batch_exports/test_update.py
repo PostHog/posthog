@@ -4,6 +4,7 @@ import datetime as dt
 
 import pytest
 
+from django.conf import settings
 from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
@@ -21,6 +22,7 @@ from posthog.api.test.batch_exports.operations import (
     put_batch_export,
 )
 from posthog.models.integration import Integration
+from posthog.temporal.common.codec import EncryptionCodec
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.service import sync_batch_export
@@ -48,7 +50,7 @@ def bigquery_integration(team, user):
     )
 
 
-def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user):
+def test_can_put_config(client: HttpClient, temporal, organization, team, user):
     destination_data: dict[str, t.Any] = {
         "type": "S3",
         "config": {
@@ -109,20 +111,21 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
     assert batch_export["offset_hour"] == 0
 
     # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export["id"])
     assert_is_daily_schedule(new_schedule, 0)
     assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.UTC)
     assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.UTC)
     assert new_schedule.schedule.spec.time_zone_name == "UTC"  # UTC is the default timezone if not provided
 
-    decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
     assert args["aws_secret_access_key"] == "new-secret"
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
-def test_can_patch_config(client: HttpClient, interval, temporal, encryption_codec, organization, team, user):
+def test_can_patch_config(client: HttpClient, interval, temporal, organization, team, user):
     timezone = "Europe/Berlin"
     # use offset of 1 hour for daily exports and None for hourly exports (these don't support offsets)
     offset_hour = None if interval == "hour" else 1
@@ -192,6 +195,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
     # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export["id"])
     if interval == "day":
         expected_hour = offset_hour if offset_hour is not None else 0
@@ -200,7 +204,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     else:
         assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
         assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
-    decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
     assert new_schedule.schedule.spec.time_zone_name == timezone
@@ -476,9 +480,7 @@ def test_can_patch_schedule_configuration(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"])
-def test_can_patch_config_with_invalid_old_values(
-    client: HttpClient, encryption_codec, interval, temporal, organization, team, user
-):
+def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, temporal, organization, team, user):
     destination_data = {
         "type": "S3",
         "config": {
@@ -534,8 +536,9 @@ def test_can_patch_config_with_invalid_old_values(
     assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
     # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export_data["id"])
-    decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
     assert args.get("invalid_key", None) is None
@@ -643,7 +646,7 @@ def test_put_rejects_destination_type_change(
     assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
-def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, organization, team, user):
+def test_can_patch_hogql_query(client: HttpClient, temporal, organization, team, user):
     """Test we can patch a schema with a HogQL query."""
     destination_data = {
         "type": "S3",
@@ -702,9 +705,10 @@ def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, o
     }
 
     # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export["id"])
     assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
-    decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-production-s3-bucket"
     assert args["interval"] == "hour"
@@ -798,7 +802,6 @@ def databricks_integration_2(team, user):
 def test_can_update_batch_export_with_integration(
     client: HttpClient,
     temporal,
-    encryption_codec,
     organization,
     team,
     user,
@@ -860,9 +863,10 @@ def test_can_update_batch_export_with_integration(
     }
 
     # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export["id"])
     assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
-    decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["integration_id"] == databricks_integration_2.id
 

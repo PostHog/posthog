@@ -153,6 +153,8 @@
       event AS event_name
   FROM
       cte
+  GROUP BY
+      event
   LIMIT 50000
   '''
 # ---

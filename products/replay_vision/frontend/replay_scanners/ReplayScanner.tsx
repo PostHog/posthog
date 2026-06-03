@@ -233,16 +233,16 @@ function QuotaBanner(): JSX.Element | null {
     if (quota.exhausted) {
         return (
             <LemonBanner type="warning">
-                Monthly observation quota reached ({quota.usage_this_month.toLocaleString()} /{' '}
-                {quota.monthly_quota.toLocaleString()}). New observations are paused until {resetsOn}.
+                Monthly Vision quota reached ({quota.usage_this_month.toLocaleString()} /{' '}
+                {quota.monthly_quota.toLocaleString()}). Scheduled scans are paused until {resetsOn}.
             </LemonBanner>
         )
     }
     if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
         return (
             <LemonBanner type="warning">
-                {quota.usage_this_month.toLocaleString()} of {quota.monthly_quota.toLocaleString()} monthly observations
-                used. New observations will pause once you hit the cap; the quota resets on {resetsOn}.
+                Approaching monthly Vision quota: {quota.usage_this_month.toLocaleString()} of{' '}
+                {quota.monthly_quota.toLocaleString()} used. Schedules will pause once the cap is reached on {resetsOn}.
             </LemonBanner>
         )
     }

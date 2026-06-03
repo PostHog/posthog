@@ -337,29 +337,6 @@ def analyze_variables_for_materialization(
                 continue
             downstream = _downstream_ctes(graph, var.cte_name)
             propagating = downstream | {var.cte_name}
-
-            # Propagation adds a column + GROUP BY to propagating CTEs, breaking any
-            # top-level scalar usage of them (`WHERE x = (SELECT col FROM cte)` ends up
-            # returning N rows × 2 cols). No correct rewrite exists — ClickHouse doesn't
-            # support correlated subqueries. Hide the outer WITH so the finder doesn't
-            # treat propagating CTEs as shadowed by their own definitions.
-            original_ctes = ast_node.ctes
-            ast_node.ctes = None
-            try:
-                has_unsafe_reference = _body_has_non_top_from_propagating_reference(ast_node, propagating)
-            finally:
-                ast_node.ctes = original_ctes
-            if has_unsafe_reference:
-                return (
-                    False,
-                    (
-                        "Scalar subquery in top-level query references a CTE downstream of "
-                        "the variable-carrying CTE; the transformer cannot rewrite it to "
-                        "carry the variable column. Move the reference to the top-level FROM."
-                    ),
-                    [],
-                )
-
             plans: dict[str, DownstreamCTEPlan] = {}
             for d_cte_name in _topological_order(graph, downstream):
                 d_cte = ast_node.ctes[d_cte_name]
@@ -1251,7 +1228,7 @@ class MaterializationTransformer(CloningVisitor):
         else:
             node.select = select_additions
 
-        if node.group_by is not None or self._has_aggregate_functions(node):
+        if node.group_by is not None or self._current_cte_name is None:
             self._add_group_by(node, vars_for_context)
 
         if node.where:

@@ -170,7 +170,6 @@ class Command(BaseCommand):
             )
             cluster_signals = asyncio.run(
                 generate_canonical_signals(
-                    team_id=team.id,
                     system_prompt=SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                     temperature=options["temperature"],

@@ -352,7 +352,6 @@ const errorTrackingSymbolSetsList = (): ToolBase<
                 offset: params.offset,
                 order_by: params.order_by,
                 ref: params.ref,
-                search: params.search,
                 status: params.status,
             },
         })

@@ -6,13 +6,13 @@ from posthog.schema import AssistantMessage, FailureMessage, HumanMessage
 from posthog.models import Team, User
 
 from products.conversations.backend.ai.graph import SupportAgentGraph
-from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.stream_processor import BaseStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName, ContextMessage
 from ee.hogai.utils.types.composed import MaxNodeName
+from ee.models import Conversation
 
 SUPPORT_TRIGGER_MESSAGE = "Generate a suggested reply for this support ticket."
 

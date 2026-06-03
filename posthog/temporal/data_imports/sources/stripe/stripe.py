@@ -71,21 +71,15 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Invoke a Stripe SDK list method and rewrite any StripeError it raises with a cleaned
     message — primarily collapsing the long asterisk run from redacted restricted keys.
 
-    Re-raises the same exception instance (so framework-level non-retryable error matching on
+    Re-raises the same exception class (so framework-level non-retryable error matching on
     `"PermissionError"` etc. continues to work) but with a shorter, frontend-friendly message
     that still preserves the actionable detail Stripe surfaces (which scope is missing).
-
-    The message is mutated in place rather than reconstructed: StripeError subclasses have
-    differing constructor signatures (e.g. InvalidRequestError requires a positional `param`),
-    so `type(e)(message=...)` would itself raise a TypeError and mask the original error.
     """
     try:
         return method(*args, **kwargs)
     except stripe_lib.StripeError as e:
-        cleaned = _clean_stripe_error_message(e._message or "")
-        e._message = cleaned
-        e.args = (cleaned,)
-        raise
+        cleaned = _clean_stripe_error_message(str(e))
+        raise type(e)(message=cleaned) from e
 
 
 def _stripe_base_addresses() -> BaseAddresses:
@@ -152,10 +146,7 @@ def _build_resources(
                 "status": "all",
                 # Expand discount objects so coupon details (amount_off, percent_off, duration) are inline.
                 # Without expansion Stripe returns only discount IDs, which prevents revenue projection.
-                # Key must be "expand" (not "expand[]") for a list value: the SDK encodes it as
-                # expand[0]=…&expand[1]=…, whereas "expand[]" + a list yields expand[][0]=… (doubled
-                # brackets), which Stripe rejects with "Invalid string: {...}".
-                "expand": ["data.discounts", "data.items.data.discounts"],
+                "expand[]": ["data.discounts", "data.items.data.discounts"],
             },
         ),
         CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),

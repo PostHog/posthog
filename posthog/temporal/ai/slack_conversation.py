@@ -182,9 +182,8 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     from posthog.models import Team, User
     from posthog.models.integration import Integration
 
-    from products.posthog_ai.backend.models.assistant import Conversation
-
     from ee.hogai.chat_agent.runner import ChatAgentRunner
+    from ee.models import Conversation
 
     team = await Team.objects.aget(id=inputs.team_id)
     integration = await Integration.objects.aget(id=inputs.integration_id)

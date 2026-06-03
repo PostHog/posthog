@@ -32,8 +32,8 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
                     <span className="text-danger">Sampling is 0%. This scanner will not produce any observations.</span>
                 ) : oneInN === 1 ? (
                     <>
-                        Every matching recording produces one observation. Each one counts against your monthly
-                        observation quota.
+                        Every matching recording produces one observation. Each observation counts against your monthly
+                        Vision quota.
                     </>
                 ) : (
                     <>

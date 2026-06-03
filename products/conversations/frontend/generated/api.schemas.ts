@@ -544,29 +544,6 @@ export interface SuggestReplyErrorApi {
     error_type?: string
 }
 
-export interface BulkUpdateStatusRequestApi {
-    /**
-     * List of ticket UUIDs to update.
-     * @maxItems 500
-     */
-    ids: string[]
-    /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
-
-  * `new` - New
-  * `open` - Open
-  * `pending` - Pending
-  * `on_hold` - On hold
-  * `resolved` - Resolved */
-    status: TicketStatusEnumApi
-}
-
-export interface BulkUpdateStatusResponseApi {
-    /** Number of tickets whose status actually changed. */
-    updated: number
-    /** UUIDs of the tickets whose status changed. */
-    ids: string[]
-}
-
 /**
  * * `add` - add
  * `remove` - remove

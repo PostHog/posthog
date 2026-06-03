@@ -5,7 +5,6 @@ import pytest
 from unittest import mock
 
 import stripe as stripe_lib
-from stripe._http_client import HTTPClient
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -26,7 +25,6 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeResumeConfig,
     StripeValidationError,
     _build_resources,
-    _call_stripe,
     _clean_stripe_error_message,
     check_endpoint_permissions,
     get_rows,
@@ -312,10 +310,7 @@ def test_subscription_list_uses_expand_for_discounts():
     mock_client.subscriptions.list.assert_called_once()
     call_params = mock_client.subscriptions.list.call_args.kwargs["params"]
     assert call_params["status"] == "all"
-    # Key must be "expand" (not "expand[]"): a list under "expand[]" encodes to expand[][0]=…
-    # (doubled brackets) which Stripe rejects. See _build_resources for the full explanation.
-    assert call_params["expand"] == ["data.discounts", "data.items.data.discounts"]
-    assert "expand[]" not in call_params
+    assert call_params["expand[]"] == ["data.discounts", "data.items.data.discounts"]
 
 
 @pytest.mark.parametrize("endpoint", WEBHOOK_ONLY_ENDPOINTS)
@@ -564,70 +559,6 @@ def test_clean_stripe_error_message_passthrough_when_no_redaction():
     """No redacted run in the message → return unchanged."""
     msg = "Request req_xxx: Some non-permission error without redaction."
     assert _clean_stripe_error_message(msg) == msg
-
-
-def test_subscription_expand_encodes_as_array_not_object():
-    """End-to-end encoding regression: the discount expand must reach Stripe as
-    expand[0]=…&expand[1]=… (a real array), not expand[][0]=… which Stripe parses as an
-    array-of-one-object and rejects with "Invalid string: {...}". The mock-based test above
-    can't catch this because it intercepts above the SDK's query-string encoding."""
-    captured: dict[str, str] = {}
-
-    class RecordingHTTPClient(HTTPClient):
-        name = "recording"
-
-        def request_with_retries(self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None):
-            captured["url"] = url
-            body = '{"object":"list","data":[],"has_more":false,"url":"/v1/subscriptions"}'
-            return body, 200, {"request-id": "req_test"}
-
-        def request_stream_with_retries(
-            self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None
-        ):
-            raise NotImplementedError
-
-    client = stripe_lib.StripeClient("sk_test_x", http_client=RecordingHTTPClient())
-    resources = _build_resources(client)
-    subscription = resources[SUBSCRIPTION_RESOURCE_NAME]
-    subscription.method(params=subscription.params)
-
-    url = captured["url"]
-    assert "expand[0]=data.discounts" in url
-    assert "expand[1]=data.items.data.discounts" in url
-    # The doubled-bracket form is the bug — Stripe rejects it.
-    assert "expand[][0]" not in url
-
-
-@pytest.mark.parametrize(
-    "error_factory",
-    [
-        # InvalidRequestError requires a positional `param` — the regression that broke imports.
-        lambda msg: stripe_lib.InvalidRequestError(msg, "expand[]"),
-        lambda msg: stripe_lib.PermissionError(msg),
-        lambda msg: stripe_lib.AuthenticationError(msg),
-        lambda msg: stripe_lib.APIConnectionError(msg),
-    ],
-)
-def test_call_stripe_cleans_message_and_preserves_error_type(error_factory):
-    """_call_stripe must re-raise the same StripeError subclass with a cleaned message.
-    Reconstructing via `type(e)(message=...)` broke for subclasses with extra required
-    args (e.g. InvalidRequestError's `param`), so we mutate the message in place instead."""
-    raw = "The provided key 'rk_live_" + ("*" * 80) + "gbeftZ' is invalid"
-
-    def boom():
-        raise error_factory(raw)
-
-    with pytest.raises(stripe_lib.StripeError) as exc_info:
-        _call_stripe(boom)
-
-    raised = exc_info.value
-    assert type(raised) is type(error_factory(raw))
-    assert "*" * 80 not in str(raised)
-    assert "rk_live_***gbeftZ" in str(raised)
-
-
-def test_call_stripe_passes_through_successful_result():
-    assert _call_stripe(lambda x: x + 1, 41) == 42
 
 
 def test_validate_credentials_nested_resources_have_registered_parents():

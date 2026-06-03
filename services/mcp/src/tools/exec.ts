@@ -6,7 +6,6 @@ import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -14,10 +13,6 @@ import {
     type Tool,
     type ZodObjectAny,
 } from './types'
-
-/** Upper bound on a `search` regex pattern — keeps a pathological pattern from
- *  forcing catastrophic backtracking against tool metadata. */
-const MAX_SEARCH_PATTERN_LENGTH = 200
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -127,8 +122,7 @@ export function createExecTool(
     toolDescription: string,
     commandReference: string,
     mcpConsumer: string | undefined,
-    trackInnerCall?: ExecInnerCallTracker,
-    scopeGatedTools: ScopeGatedTool[] = []
+    trackInnerCall?: ExecInnerCallTracker
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
 
@@ -156,13 +150,6 @@ export function createExecTool(
                     if (!rest) {
                         throw new Error('Usage: search <regex_pattern>')
                     }
-                    // Bound the user-supplied pattern length to limit the blast
-                    // radius of a pathological (catastrophic-backtracking) regex.
-                    if (rest.length > MAX_SEARCH_PATTERN_LENGTH) {
-                        throw new Error(
-                            `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
-                        )
-                    }
                     let regex: RegExp
                     try {
                         regex = new RegExp(rest, 'i')
@@ -172,22 +159,6 @@ export function createExecTool(
                     const matches = allTools
                         .filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
                         .map((t) => t.name)
-                    const gatedMatches = scopeGatedTools.filter(
-                        (t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description)
-                    )
-                    if (gatedMatches.length > 0) {
-                        const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
-                        return JSON.stringify({
-                            matches,
-                            scope_gated_matches: gatedMatches.map((t) => ({
-                                name: t.name,
-                                missing_scopes: t.missingScopes,
-                            })),
-                            hint:
-                                `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
-                        })
-                    }
                     if (matches.length === 0) {
                         return JSON.stringify({
                             matches: [],

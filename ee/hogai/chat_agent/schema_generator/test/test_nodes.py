@@ -19,8 +19,6 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
-
 from ee.hogai.chat_agent.schema_generator.nodes import (
     RETRIES_ALLOWED,
     SchemaGenerationException,
@@ -31,6 +29,7 @@ from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserExc
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, IntermediateStep
+from ee.models import AgentArtifact, Conversation
 
 DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 

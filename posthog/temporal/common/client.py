@@ -39,7 +39,7 @@ async def connect(
     if settings is not None:
         data_converter = dataclasses.replace(
             data_converter,
-            payload_codec=EncryptionCodec.from_settings(settings=settings),
+            payload_codec=EncryptionCodec(settings=settings),
         )
 
     client = await Client.connect(

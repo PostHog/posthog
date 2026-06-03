@@ -20,7 +20,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
-from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
@@ -39,6 +38,7 @@ from ee.hogai.sandbox.types import (
 )
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
+from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 

@@ -5274,42 +5274,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
 
-    def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
-        feature_flag = FeatureFlag.objects.create(
-            team=self.team,
-            name="Web experiment activity logging flag",
-            key="web-experiment-activity-logging",
-            filters={},
-        )
-        experiment = Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Web experiment activity logging",
-            description="Original description",
-            type=Experiment.ExperimentType.WEB,
-            parameters={},
-            feature_flag=feature_flag,
-        )
-
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
-            {
-                "description": "Updated through the main experiments endpoint",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-
-        activity_log = ActivityLog.objects.filter(
-            scope="Experiment", item_id=str(experiment.id), activity="updated"
-        ).latest("created_at")
-        assert activity_log.detail is not None
-
-        change_fields = [change["field"] for change in activity_log.detail["changes"]]
-        self.assertIn("description", change_fields)
-        self.assertNotIn("parameters", change_fields)
-
     def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
 

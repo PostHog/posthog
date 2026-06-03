@@ -10,7 +10,7 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
 
 
-def generate_short_id() -> str:
+def generate_short_id():
     """Generate securely random 4 characters long alphanumeric ID.
 
     With team-scoped uniqueness, 4 characters (62^4 = 14.7M combinations)
@@ -33,7 +33,6 @@ class Conversation(UUIDTModel, DeletedMetaFields):
                 condition=models.Q(slack_thread_key__isnull=False),
             )
         ]
-        db_table = "ee_conversation"
 
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
@@ -121,7 +120,6 @@ class ConversationCheckpoint(UUIDTModel):
                 name="unique_checkpoint",
             )
         ]
-        db_table = "ee_conversationcheckpoint"
 
 
 class ConversationCheckpointBlob(UUIDTModel):
@@ -148,7 +146,6 @@ class ConversationCheckpointBlob(UUIDTModel):
                 name="unique_checkpoint_blob",
             )
         ]
-        db_table = "ee_conversationcheckpointblob"
 
 
 class ConversationCheckpointWrite(UUIDTModel):
@@ -170,7 +167,6 @@ class ConversationCheckpointWrite(UUIDTModel):
                 name="unique_checkpoint_write",
             )
         ]
-        db_table = "ee_conversationcheckpointwrite"
 
 
 MAX_ONBOARDING_QUESTIONS = 3
@@ -193,15 +189,12 @@ class CoreMemory(UUIDTModel):
     scraping_status = models.CharField(max_length=20, choices=ScrapingStatus, blank=True, null=True)
     scraping_started_at = models.DateTimeField(null=True)
 
-    class Meta:
-        db_table = "ee_corememory"
-
-    async def achange_status_to_pending(self) -> None:
+    async def achange_status_to_pending(self):
         self.scraping_started_at = timezone.now()
         self.scraping_status = CoreMemory.ScrapingStatus.PENDING
         await self.asave()
 
-    async def achange_status_to_skipped(self) -> None:
+    async def achange_status_to_skipped(self):
         self.scraping_status = CoreMemory.ScrapingStatus.SKIPPED
         await self.asave()
 
@@ -219,24 +212,24 @@ class CoreMemory(UUIDTModel):
             CoreMemory.ScrapingStatus.SKIPPED,
         ]
 
-    async def aappend_question_to_initial_text(self, text: str) -> None:
+    async def aappend_question_to_initial_text(self, text: str):
         if self.initial_text != "":
             self.initial_text += "\n"
         self.initial_text += "Question: " + text + "\nAnswer:"
         self.initial_text = self.initial_text.strip()
         await self.asave()
 
-    async def aappend_answer_to_initial_text(self, text: str) -> None:
+    async def aappend_answer_to_initial_text(self, text: str):
         self.initial_text += " " + text
         self.initial_text = self.initial_text.strip()
         await self.asave()
 
-    async def aset_core_memory(self, text: str) -> None:
+    async def aset_core_memory(self, text: str):
         self.text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         await self.asave()
 
-    async def aappend_core_memory(self, text: str) -> None:
+    async def aappend_core_memory(self, text: str):
         new_text = text if self.text == "" else self.text + "\n" + text
         if len(new_text) > CORE_MEMORY_MAX_CHARACTERS:
             raise ValueError(
@@ -246,7 +239,7 @@ class CoreMemory(UUIDTModel):
         self.text = new_text
         await self.asave()
 
-    async def areplace_core_memory(self, original_fragment: str, new_fragment: str) -> None:
+    async def areplace_core_memory(self, original_fragment: str, new_fragment: str):
         if original_fragment not in self.text:
             raise ValueError(f"Original fragment {original_fragment} not found in core memory")
         new_text = self.text.replace(original_fragment, new_fragment)
@@ -294,9 +287,8 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
         constraints = [
             models.UniqueConstraint(fields=["team", "short_id"], name="unique_team_short_id"),
         ]
-        db_table = "ee_agentartifact"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args, **kwargs):
         max_retries = 5
         for attempt in range(max_retries):
             try:

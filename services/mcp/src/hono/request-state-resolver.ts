@@ -3,7 +3,7 @@ import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import { type EvaluatedFlags, evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
-import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
+import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
@@ -28,7 +28,6 @@ export interface ResolvedState {
     requestContext: MCPRequestContext
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
-    scopeGatedTools: ScopeGatedTool[]
     distinctId: string
 }
 
@@ -138,19 +137,16 @@ export class RequestStateResolver {
             excludeTools.push('switch-organization')
         }
 
-        const filterOptions = {
+        const allTools = this.catalog.getFilteredTools({
             features,
             tools,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
+            scopes: apiKeyScopes,
             scopedTeams: apiKeyScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
-        }
-        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
-        // Scope-gated hints are only consumed by the exec `search` command, which
-        // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        })
 
         return {
             reqCtx,
@@ -162,7 +158,6 @@ export class RequestStateResolver {
             requestContext,
             sessionContext,
             allTools,
-            scopeGatedTools,
             distinctId,
         }
     }

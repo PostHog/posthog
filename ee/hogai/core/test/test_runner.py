@@ -12,10 +12,9 @@ from parameterized import parameterized
 
 from posthog.schema import AssistantEventType, FailureMessage
 
-from products.posthog_ai.backend.models.assistant import Conversation
-
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.utils.types.base import AssistantState, ConversationTitleAction, PartialAssistantState
+from ee.models.assistant import Conversation
 
 
 @asynccontextmanager
