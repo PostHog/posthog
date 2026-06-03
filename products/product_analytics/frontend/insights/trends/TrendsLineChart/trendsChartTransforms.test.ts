@@ -1,5 +1,5 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { TooltipConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import type { TooltipConfig } from '@posthog/quill-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'

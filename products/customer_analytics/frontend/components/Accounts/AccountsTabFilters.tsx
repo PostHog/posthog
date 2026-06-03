@@ -11,11 +11,11 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchQuery, tagsFilter, allRolesUnassigned, csmFilter, accountExecutiveFilter, accountOwnerFilter } =
+    const { searchInput, tagsFilter, allRolesUnassigned, csmFilter, accountExecutiveFilter, accountOwnerFilter } =
         useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
-        setSearchQuery,
+        setSearchInput,
         setTagsFilter,
         setAllRolesUnassigned,
         setCsmFilter,
@@ -33,8 +33,8 @@ export function AccountsTabFilters(): JSX.Element {
             <LemonInput
                 type="search"
                 placeholder="Search by name or ID..."
-                value={searchQuery}
-                onChange={setSearchQuery}
+                value={searchInput}
+                onChange={setSearchInput}
                 size="small"
                 className="min-w-64"
                 data-attr="accounts-search"

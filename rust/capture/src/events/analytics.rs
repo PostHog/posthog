@@ -2210,7 +2210,7 @@ mod tests {
         );
 
         let original_captured: CapturedEvent =
-            serde_json::from_str(&original.payload).expect("payload should be a CapturedEvent");
+            serde_json::from_slice(&original.payload).expect("payload should be a CapturedEvent");
         let original_raw: RawEvent = serde_json::from_str(&original_captured.data)
             .expect("data field should be a serialized RawEvent");
         assert!(
@@ -2245,7 +2245,7 @@ mod tests {
         );
 
         let redirect_captured: CapturedEvent =
-            serde_json::from_str(&redirect.payload).expect("payload should be a CapturedEvent");
+            serde_json::from_slice(&redirect.payload).expect("payload should be a CapturedEvent");
         assert_eq!(redirect_captured.event, "$$heatmap");
         let redirect_raw: RawEvent = serde_json::from_str(&redirect_captured.data)
             .expect("data field should be a serialized RawEvent");
