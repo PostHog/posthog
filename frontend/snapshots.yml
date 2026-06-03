@@ -5822,6 +5822,10 @@ snapshots:
         hash: v1.k794b7964.a96bf879923bbc50e0c0a8a5fd4c51247ba600a88be9f6f59ffc0cc3355a49d2.FaiZyTP77YnTIxNb61oBpo64DxT9q-nm8jKgEviq08M
     scenes-app-promoted-product--intent-with-product--light:
         hash: v1.k794b7964.a520d81ca3c66ae61e8fa10602ed5f40da3d97bee4efd9daf03009c238a8b0dc.Ruf-wJ_f_UjycVlKd7vE_z2t-r_SY8cC5bO-NSR0Ao4
+    scenes-app-replay-vision--scanners-list--dark:
+        hash: v1.k794b7964.8baa79fe6754700e3ffe6e0255bad618354a151b8526390dbff69e5034ad084e.FxzD_jSM8T4J2AdyvY-9g-ZlWhfcilBLO7YrVhG3LLY
+    scenes-app-replay-vision--scanners-list--light:
+        hash: v1.k794b7964.26853e2ab68d17ea6e87fd9dbf9a258b2c060707b13061a4b7e569b6a91e222f.1Co_SpKKDI3nFlxi2xzqGDUTgwhn7Fg5V8njstAuFy0
     scenes-app-revenue-analytics--revenue-analytics-dashboard--dark:
         hash: v1.k794b7964.7c2a90fe3c3a969c054186bb666664efa891d65d411a546539a968518938ea71.OoOKh-Mc_IiPWTgIV4QNPtACZXPPktfU7bjGk-q-uLE
     scenes-app-revenue-analytics--revenue-analytics-dashboard--light:
