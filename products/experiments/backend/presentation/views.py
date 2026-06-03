@@ -800,7 +800,7 @@ def handle_experiment_change(
 ):
     # WebExperiment is a proxy model — normalize scope to "Experiment" for consistent activity logs
     scope = "Experiment"
-    is_web_experiment = sender is WebExperiment
+    is_web_experiment = after_update.type == Experiment.ExperimentType.WEB
 
     if before_update and after_update:
         before_deleted = getattr(before_update, "deleted", None)
