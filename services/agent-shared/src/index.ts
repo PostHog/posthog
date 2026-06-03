@@ -38,6 +38,7 @@ export * from './sandbox/sandbox-docker'
 export * from './sandbox/sandbox-modal'
 export * from './sandbox/sandbox-selector'
 export * from './sandbox/sandbox-instance-store'
+export * from './sandbox/sandbox-terminator'
 export * from './sandbox/secret-broker'
 
 export * from './runtime/analytics-sink'

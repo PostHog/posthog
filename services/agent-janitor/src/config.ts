@@ -79,6 +79,17 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .positive()
         .default(30 * 1000)
         .describe('How often the in-process sweep timer fires.'),
+    sandboxStaleMs: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(10 * ONE_MINUTE_MS)
+        .describe(
+            'Age past which a `provisioning`/`ready` `agent_sandbox_instance` row is considered ' +
+                'orphaned; the sweep terminates the underlying compute (Modal sandbox, etc.) via the ' +
+                'provider SDK and marks the row terminated. Default 10 minutes = 2x stuck-running ' +
+                'threshold, so a healthy session re-queue + resume cycle doesnt race the reaper.'
+        ),
     memoryS3Endpoint: z
         .string()
         .url()
@@ -162,6 +173,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     MAX_RETRIES: 'maxRetries',
     IDEMPOTENCY_KEY_TTL_MS: 'idempotencyKeyTtlMs',
     SWEEP_INTERVAL_MS: 'sweepIntervalMs',
+    SANDBOX_STALE_MS: 'sandboxStaleMs',
     AGENT_MEMORY_S3_ENDPOINT: 'memoryS3Endpoint',
     AGENT_MEMORY_S3_REGION: 'memoryS3Region',
     AGENT_MEMORY_S3_BUCKET: 'memoryS3Bucket',

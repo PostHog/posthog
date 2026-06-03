@@ -53,6 +53,11 @@ class InProcessSandbox implements Sandbox {
         this.tools = new Map(opts.tools.map((t) => [t.id, this.loadTool(t)]))
     }
 
+    /** No provider-side handle; reuse sessionId so the row column is non-empty. */
+    get providerSandboxId(): string {
+        return this.sessionId
+    }
+
     private loadTool(load: SandboxToolLoad): LoadedTool {
         const sandbox: Record<string, unknown> = {
             module: { exports: {} },

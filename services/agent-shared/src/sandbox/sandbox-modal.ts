@@ -166,6 +166,11 @@ class ModalSandbox implements Sandbox {
         this.sessionId = state.sessionId
     }
 
+    /** Modal's `ap-...` sandbox id — what `client.sandboxes.fromId()` consumes. */
+    get providerSandboxId(): string {
+        return this.state.handle.sandboxId
+    }
+
     async invoke(req: InvokeRequest): Promise<InvokeResponse> {
         if (!this.alive) {
             return { ok: false, error: { code: 'sandbox_released', message: 'sandbox already released' } }

@@ -54,6 +54,11 @@ class DockerSandbox implements Sandbox {
         return this.state.sessionId
     }
 
+    /** Container id — `docker rm -f <containerId>` is the reaper command. */
+    get providerSandboxId(): string {
+        return this.state.containerId
+    }
+
     async invoke(req: InvokeRequest): Promise<InvokeResponse> {
         if (!this.alive) {
             return { ok: false, error: { code: 'sandbox_released', message: 'released' } }

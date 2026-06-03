@@ -303,10 +303,10 @@ export class Worker {
                         sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
                     })
                     if (sandboxInstanceId) {
-                        // In-process pool doesn't carry a provider-side id — use the
-                        // sandbox's sessionId so the row's `provider_sandbox_id` is
-                        // never empty.
-                        await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.sessionId)
+                        // Real provider id (Modal sandbox id, Docker container hash,
+                        // or sessionId fallback for in-process) so the janitor
+                        // reaper can look up + terminate orphans out-of-process.
+                        await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.providerSandboxId)
                     }
                 } catch (err) {
                     if (sandboxInstanceId) {

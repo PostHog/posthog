@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { ModalSandboxPool } from './sandbox-modal'
+import { createModalSandboxTerminator, MultiBackendSandboxTerminator } from './sandbox-terminator'
 
 // Walk up from this file looking for a repo-root `.env` and load it into
 // process.env. Mirrors real-inference.test.ts so local dev with tokens in
@@ -145,14 +146,55 @@ maybeDescribe('ModalSandboxPool: real e2e', () => {
             }
 
             expect(await sandbox.isAlive()).toBe(true)
+
+            // providerSandboxId must be the real Modal `ap-...` id so the
+            // janitor can look it up out-of-process. Any other shape (e.g.
+            // the runner's session UUID) defeats the whole point of the
+            // tracking row.
+            expect(sandbox.providerSandboxId).toMatch(/^sb-/)
         } finally {
             if (!KEEP) {
                 await pool.release(sessionId)
             }
         }
-    }, // 2-minute test timeout: Modal sandbox boot is typically 5-15s on a
-    // warm image, but a cold image pull can push past 30s.
+    }, // warm image, but a cold image pull can push past 30s. // 2-minute test timeout: Modal sandbox boot is typically 5-15s on a
     120_000)
+
+    it('reaper terminates a Modal sandbox out-of-process by providerSandboxId', async () => {
+        const pool = new ModalSandboxPool({
+            appName: process.env.MODAL_APP_NAME ?? 'posthog-agent-sandbox-test',
+            defaultSessionTimeoutMs: 120_000,
+        })
+
+        const sessionId = `reap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const sandbox = await pool.acquireForSession({
+            sessionId,
+            teamId: 1,
+            tools: [{ id: 'echo', compiledJs: ECHO_TOOL_JS, schemaJson: { type: 'object' } }],
+            nonces: { TEST_SECRET: 'nonce_xyz' },
+        })
+
+        const providerSandboxId = sandbox.providerSandboxId
+        expect(providerSandboxId).toMatch(/^sb-/)
+
+        // Spawn a *fresh* terminator (mimics the janitor — separate
+        // process, separate client) and reap by id only. The original
+        // pool isn't consulted; this proves the row's
+        // provider_sandbox_id alone is enough to kill the compute.
+        const terminator = new MultiBackendSandboxTerminator(createModalSandboxTerminator())
+        const first = await terminator.terminate('modal', providerSandboxId)
+        expect(first.ok, `first terminate: ${JSON.stringify(first)}`).toBe(true)
+
+        // Idempotency: a second terminate of the same id resolves ok
+        // (either Modal returns success again or the not-found branch
+        // catches it and treats it as already gone).
+        const second = await terminator.terminate('modal', providerSandboxId)
+        expect(second.ok, `second terminate: ${JSON.stringify(second)}`).toBe(true)
+
+        // The sandbox should report dead now — poll() returns an exit
+        // code when terminated.
+        expect(await sandbox.isAlive()).toBe(false)
+    }, 120_000)
 })
 
 if (!HAS_CREDS) {

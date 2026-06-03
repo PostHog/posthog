@@ -53,6 +53,14 @@ export type InvokeResponse = { ok: true; result: unknown } | { ok: false; error:
 
 export interface Sandbox {
     readonly sessionId: string
+    /**
+     * Provider-side identifier suitable for out-of-process termination —
+     * Modal's `ap-...` sandbox id, Docker's container hash, etc. Persisted to
+     * `agent_sandbox_instance.provider_sandbox_id` so the janitor can reap
+     * orphans when the owning runner pod dies. InProcess sandboxes use the
+     * sessionId (there is no separate provider handle).
+     */
+    readonly providerSandboxId: string
     invoke(req: InvokeRequest): Promise<InvokeResponse>
     /** True if the sandbox is still alive. */
     isAlive(): Promise<boolean>
