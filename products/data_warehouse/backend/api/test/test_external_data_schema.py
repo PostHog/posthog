@@ -106,6 +106,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": True,
+            "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
         }
@@ -214,6 +215,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
+            "webhook_only": False,
             "available_columns": [
                 {"field": "id", "label": "id", "type": "integer", "nullable": True},
             ],
@@ -1860,3 +1862,49 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["supports_column_selection"] is expected
+
+
+class TestExternalDataSchemaRetrieveSource(APIBaseTest):
+    def _create(self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=source_type,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(name="Customers", team=self.team, source=source)
+        return source, schema
+
+    @parameterized.expand(
+        [
+            (ExternalDataSourceType.STRIPE, False),
+            (ExternalDataSourceType.POSTGRES, True),
+        ]
+    )
+    def test_retrieve_includes_source_summary(
+        self, source_type: ExternalDataSourceType, expected_supports_column_selection: bool
+    ):
+        source, schema = self._create(source_type=source_type)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+        assert response.status_code == 200, response.json()
+        summary = response.json()["source"]
+        assert summary["id"] == str(source.id)
+        assert summary["source_type"] == source_type.value
+        assert summary["supports_column_selection"] is expected_supports_column_selection
+        assert "user_access_level" in summary
+
+    def test_list_omits_source_summary(self):
+        self._create()
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/")
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) > 0
+        assert all(item["source"] is None for item in results)
+
+    def test_retrieve_cross_team_is_404(self):
+        other_team = create_team(organization=self.organization)
+        source = ExternalDataSource.objects.create(
+            team=other_team, source_type=ExternalDataSourceType.STRIPE, job_inputs={}
+        )
+        schema = ExternalDataSchema.objects.create(name="Customers", team=other_team, source=source)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+        assert response.status_code == 404
