@@ -848,7 +848,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
 
-        with patch("posthog.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+        with patch("products.workflows.backend.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
             mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
 
             response = self.client.post(
