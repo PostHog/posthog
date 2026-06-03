@@ -26,8 +26,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "anyOf": [
@@ -112,8 +111,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key"],
@@ -132,8 +130,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -210,8 +207,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -231,8 +227,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -308,8 +303,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -328,8 +322,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -405,8 +398,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -425,8 +417,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -502,8 +493,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -519,8 +509,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "key": {
                                                 "const": "id",
@@ -535,8 +524,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "anyOf": [
@@ -618,8 +606,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -695,8 +682,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -715,8 +701,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -792,8 +777,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -815,8 +799,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "group_type_index": {
                                                 "anyOf": [
@@ -826,8 +809,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "key": {
                                                 "type": "string"
@@ -840,8 +822,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -917,8 +898,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -937,8 +917,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1015,8 +994,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -1036,8 +1014,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "const": "flag_evaluates_to",
@@ -1079,8 +1056,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "type": {
                                                 "const": "hogql",
@@ -1117,8 +1093,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key"],
@@ -1147,8 +1122,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1224,8 +1198,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -1244,8 +1217,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1321,8 +1293,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -1341,8 +1312,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1418,8 +1388,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -1438,8 +1407,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1514,8 +1482,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator", "type"],
@@ -1534,8 +1501,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1610,8 +1576,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator", "type"],
@@ -1630,8 +1595,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1707,8 +1671,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],
@@ -1727,8 +1690,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "operator": {
                                                 "enum": [
@@ -1804,8 +1766,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             }
                                         },
                                         "required": ["key", "operator"],

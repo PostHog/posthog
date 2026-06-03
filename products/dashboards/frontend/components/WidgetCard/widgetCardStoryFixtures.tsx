@@ -1,8 +1,15 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import type { Decorator } from '@storybook/react'
 import React from 'react'
 
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay, type LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
 import { WidgetCardContent } from './WidgetCardBody'
 
@@ -71,3 +78,23 @@ export const sampleListBody = (
 )
 
 export const dashboardTileTopHeading = <CardTopHeadingRow typeLabel="Analytics" showTypeLabel dateText="Last 7 days" />
+
+export function seedErrorTrackingProjectState(configured: boolean): void {
+    teamLogic.mount()
+    filterTestAccountsDefaultsLogic.mount()
+    teamLogic.actions.loadCurrentTeamSuccess({
+        ...MOCK_DEFAULT_TEAM,
+        autocapture_exceptions_opt_in: configured,
+    })
+
+    exceptionIngestionLogic.mount()
+    exceptionIngestionLogic.actions.loadExceptionIngestionStateSuccess(configured)
+}
+
+/** Configured = issues can be queried (post setup). Unconfigured = ingestion prompt / settings hidden. */
+export function withErrorTrackingProjectState(configured: boolean): Decorator {
+    return (Story: React.ComponentType): JSX.Element => {
+        seedErrorTrackingProjectState(configured)
+        return <Story />
+    }
+}

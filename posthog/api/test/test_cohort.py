@@ -23,7 +23,7 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
-from posthog.api.test.test_exports import TestExportMixin
+from posthog.api.cohort import CohortViewSet
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -42,6 +42,7 @@ from posthog.tasks.calculate_cohort import (
 )
 
 from products.actions.backend.models.action import Action
+from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.materialized_columns.analyze import materialize
@@ -313,7 +314,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -328,7 +329,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -583,6 +584,124 @@ email@example.org
 
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 0)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
+        side_effect=insert_cohort_from_filters,
+    )
+    def test_static_cohort_create_with_behavioral_criteria(self, _insert_cohort_from_filters: MagicMock):
+        performed = _create_person(distinct_ids=["did-pageview"], team_id=self.team.pk)
+        _create_person(distinct_ids=["no-pageview"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="did-pageview",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "behavioral snapshot",
+                "is_static": True,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertTrue(cohort.is_static)
+        self.assertEqual(cohort.count, 1)
+
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
+        self.assertEqual(people_in_cohort.count(), 1)
+        first_person = people_in_cohort.first()
+        assert first_person is not None
+        self.assertEqual(first_person.uuid, performed.uuid)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
+        side_effect=insert_cohort_from_filters,
+    )
+    def test_static_cohort_create_with_or_nested_criteria(self, _insert_cohort_from_filters: MagicMock):
+        first_match = _create_person(
+            distinct_ids=["or-match-1"],
+            team_id=self.team.pk,
+            properties={"email": "first@example.com"},
+        )
+        second_match = _create_person(
+            distinct_ids=["or-match-2"],
+            team_id=self.team.pk,
+            properties={"email": "second@example.com"},
+        )
+        _create_person(
+            distinct_ids=["or-miss"],
+            team_id=self.team.pk,
+            properties={"email": "other@example.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "or criteria snapshot",
+                "is_static": True,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "first@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    },
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "second@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertTrue(cohort.is_static)
+        self.assertEqual(cohort.count, 2)
+
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
+        self.assertEqual({p.uuid for p in people_in_cohort}, {first_match.uuid, second_match.uuid})
 
     def test_static_cohort_rejects_criteria_edits_after_creation(self):
         cohort = Cohort.objects.create(
@@ -1653,6 +1772,77 @@ email@example.org,
         results = response.json()["results"]
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], regular_cohort.id)
+
+    def test_find_behavioral_cohorts_propagates_through_references(self):
+        # Build an in-memory dependency graph (no DB needed): 1 is behavioral, 2->1,
+        # 3->2 (both transitively affected), 4 unrelated. 5 is a behavioral realtime
+        # cohort that has been backfilled, 6->5. 7 references both the exempt seed (5)
+        # and a real seed (1), so it must stay excluded even when 5 is exempted.
+        def make(cid: int, *, behavioral: bool = False, refs: tuple[int, ...] = (), realtime_backfilled: bool = False):
+            values: list[dict] = []
+            if behavioral:
+                values.append({"type": "behavioral"})
+            values += [{"type": "cohort", "value": str(ref)} for ref in refs]
+            return Cohort(
+                id=cid,
+                team=self.team,
+                is_static=False,
+                filters={"properties": {"type": "OR", "values": values}},
+                cohort_type=CohortType.REALTIME if realtime_backfilled else None,
+                last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
+            )
+
+        cohorts = {
+            c.id: c
+            for c in [
+                make(1, behavioral=True),
+                make(2, refs=(1,)),
+                make(3, refs=(2,)),
+                make(4),
+                make(5, behavioral=True, realtime_backfilled=True),
+                make(6, refs=(5,)),
+                make(7, refs=(1, 5)),
+            ]
+        }
+        viewset = CohortViewSet()
+
+        # Without the realtime exemption, every behavioral cohort and its referrers are excluded.
+        self.assertEqual(viewset._find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
+        # With it, 5 is flag-compatible (not a seed) and 6 only referenced 5, so both stay.
+        # 7 still reaches real seed 1, so it remains excluded.
+        self.assertEqual(viewset._find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_basic_list_omits_heavy_fields(self, patch_capture):
+        Cohort.objects.create(
+            team=self.team,
+            name="some cohort",
+            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
+        )
+
+        full = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+        self.assertIn("filters", full)
+
+        basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
+        for dropped in ("filters", "query", "groups"):
+            self.assertNotIn(dropped, basic)
+        # The fields pickers actually read are still present.
+        for kept in ("id", "name", "count"):
+            self.assertIn(kept, basic)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_basic_is_ignored_on_detail_fetch(self, patch_capture):
+        # `basic` only trims the list. A detail fetch must keep `filters` so the
+        # cohort editor (which reads them) isn't broken if `?basic=true` leaks through.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="some cohort",
+            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
+        )
+        detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/?basic=true").json()
+        self.assertIn("filters", detail)
+        self.assertIn("query", detail)
+        self.assertIn("groups", detail)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_list_cohorts_excludes_nested_behavioral_cohorts(self, patch_capture):

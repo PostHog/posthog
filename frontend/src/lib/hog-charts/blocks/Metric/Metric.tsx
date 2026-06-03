@@ -1,9 +1,7 @@
 import React, { useMemo, useState } from 'react'
 
-import { Sparkline } from '../../charts/Sparkline/Sparkline'
-import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import type { ChartTheme } from '../../core/types'
-import { percentage } from '../../utils/format'
+import { ChartErrorBoundary, type ChartTheme, percentage, Sparkline } from '@posthog/quill-charts'
+
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
 

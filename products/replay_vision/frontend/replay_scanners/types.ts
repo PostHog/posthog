@@ -1,9 +1,18 @@
+import { LemonTagType } from '@posthog/lemon-ui'
+
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
 export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+
+export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
+    monitor: 'primary',
+    classifier: 'completion',
+    scorer: 'warning',
+    summarizer: 'success',
+}
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
@@ -27,20 +36,22 @@ export type FailureKind =
 const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
     provider_transient: {
         label: 'AI provider unavailable',
-        description: 'The AI provider was temporarily unreachable. PostHog will retry on the next schedule fire.',
+        description:
+            "The AI provider was temporarily unreachable. PostHog will retry on the scanner's next scheduled run.",
     },
     provider_rejected: {
         label: 'AI provider rejected video',
-        description: "The AI provider couldn't process this recording. Other recordings should work.",
+        description: "The AI provider couldn't process this recording. Try a different one.",
     },
     rasterization_failed: {
-        label: 'Rasterization failed',
-        description: "PostHog couldn't render this recording into a video. Other recordings should work.",
+        label: 'Recording video failed',
+        description:
+            "PostHog couldn't render this recording into a video for the AI. Try again, or run the scanner on a different recording.",
     },
     validation_failed: {
         label: 'AI output invalid',
         description:
-            "The AI's response didn't match the scanner schema after several attempts. Try simplifying the scanner prompt.",
+            'The AI returned malformed output after several attempts. Try simplifying or rephrasing the scanner prompt.',
     },
     internal_error: {
         label: 'Internal error',
@@ -139,12 +150,12 @@ export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
 
 export interface MonitorScannerConfig {
     prompt: string
+    allow_inconclusive?: boolean
 }
 
 export interface SummarizerScannerConfig {
     prompt: string
     length: 'short' | 'medium' | 'long'
-    emits_embeddings: boolean
 }
 
 export interface ClassifierScannerConfig {
