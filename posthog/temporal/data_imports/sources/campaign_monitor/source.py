@@ -100,7 +100,6 @@ Create an API key in your [Campaign Monitor account settings](https://www.campai
 Your **Client ID** identifies the client whose data you want to sync. You can find it in the client's **Settings** page, or by calling the `clients.json` API endpoint.""",
             iconPath="/static/services/campaign_monitor.png",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

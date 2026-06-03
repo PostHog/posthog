@@ -27,7 +27,7 @@ class TestCampaignMonitorSource:
         assert config.name.value == "CampaignMonitor"
         assert config.label == "Campaign Monitor"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/campaign_monitor.png"
 
         fields = config.fields
