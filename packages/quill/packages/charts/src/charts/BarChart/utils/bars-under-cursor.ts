@@ -121,8 +121,9 @@ export function resolveBarsAtCursor(
 
 /** Resolve the grouped bar nearest the cursor along the band axis, returning its center and
  *  width. `bandAxisCursor` is the cursor coordinate on the band axis (x for vertical charts).
- *  A cursor inside a slot picks that slot; one in the inter-bar padding picks the nearest by
- *  center. Returns undefined for non-grouped layouts (no `group` scale) or an unknown label. */
+ *  Returns undefined for non-grouped layouts (no `group` scale) or an unknown label.
+ *  A `scaleBand` is uniform, so the nearest slot is the cursor's offset from the first slot
+ *  center divided by the step — O(1), no scan over the domain. */
 export function resolveGroupedBandSlot(
     scales: BarScaleSet,
     label: string,
@@ -130,28 +131,16 @@ export function resolveGroupedBandSlot(
 ): BandSlot | undefined {
     const { band, group } = scales
     const start = band(label)
-    if (!group || start == null) {
+    const domain = group?.domain()
+    if (!group || start == null || !domain?.length) {
         return undefined
     }
     const width = group.bandwidth()
-    const local = bandAxisCursor - start
-    let nearestOffset: number | undefined
-    let nearestDistance = Infinity
-    for (const key of group.domain()) {
-        const offset = group(key)
-        if (offset == null) {
-            continue
-        }
-        if (local >= offset && local <= offset + width) {
-            return { center: start + offset + width / 2, width }
-        }
-        const distance = Math.abs(local - (offset + width / 2))
-        if (distance < nearestDistance) {
-            nearestDistance = distance
-            nearestOffset = offset
-        }
-    }
-    return nearestOffset == null ? undefined : { center: start + nearestOffset + width / 2, width }
+    const step = group.step()
+    const firstCenter = (group(domain[0]) ?? 0) + width / 2
+    const rawIndex = Math.round((bandAxisCursor - start - firstCenter) / step)
+    const index = Math.max(0, Math.min(domain.length - 1, rawIndex))
+    return { center: start + firstCenter + index * step, width }
 }
 
 /** Pixel coordinate of a bar's baseline (value-0) edge — the side the bar grows from. */

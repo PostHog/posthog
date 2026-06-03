@@ -35,7 +35,7 @@ export interface BoxPlotSeries<Meta = unknown> {
     }
 }
 
-interface BandSlot {
+interface BoxBandRect {
     x: number
     width: number
 }
@@ -48,7 +48,7 @@ export function computeBoxBand(
     label: string,
     scales: BarScaleSet,
     grouped: boolean
-): BandSlot | null {
+): BoxBandRect | null {
     const bandStart = scales.band(label)
     if (bandStart == null) {
         return null
