@@ -108,6 +108,24 @@ export interface PaginatedSignalReportListApi {
     results: SignalReportApi[]
 }
 
+export interface CursorDispatchResponseApi {
+    /**
+     * Identifier Cursor assigned to the dispatched cloud agent run.
+     * @nullable
+     */
+    agent_id: string | null
+    /**
+     * URL to the agent run in Cursor, when Cursor returns one.
+     * @nullable
+     */
+    agent_url?: string | null
+    /**
+     * Initial run status reported by Cursor (e.g. queued, running).
+     * @nullable
+     */
+    agent_status?: string | null
+}
+
 /**
  * * `suppressed` - suppressed
  * `potential` - potential

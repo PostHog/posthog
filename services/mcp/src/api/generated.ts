@@ -11773,6 +11773,24 @@ export namespace Schemas {
       access_secret: string;
     }
 
+    export interface CursorDispatchResponse {
+      /**
+         * Identifier Cursor assigned to the dispatched cloud agent run.
+         * @nullable
+         */
+      agent_id: string | null;
+      /**
+         * URL to the agent run in Cursor, when Cursor returns one.
+         * @nullable
+         */
+      agent_url?: string | null;
+      /**
+         * Initial run status reported by Cursor (e.g. queued, running).
+         * @nullable
+         */
+      agent_status?: string | null;
+    }
+
     export interface CustomerJourney {
       readonly id: string;
       insight: number;

@@ -529,8 +529,10 @@ function ReportDetailPane(): JSX.Element {
         selectedReportSignals,
         reportSignalsLoading,
         selectedReportReviewers,
+        canDispatchToCursor,
+        isDispatchingToCursor,
     } = useValues(inboxSceneLogic)
-    const { deleteReport, reingestReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const { deleteReport, reingestReport, dispatchToCursor, setActiveDetailTab } = useActions(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
 
@@ -625,6 +627,20 @@ function ReportDetailPane(): JSX.Element {
                             <span className="inline-flex items-center gap-1">
                                 Updated: <TZLabel time={selectedReport.updated_at} />
                             </span>
+                            {canDispatchToCursor && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSparkles />}
+                                    loading={isDispatchingToCursor}
+                                    disabledReason={isDispatchingToCursor ? 'Sending to Cursor…' : undefined}
+                                    onClick={() => dispatchToCursor(selectedReport.id)}
+                                    data-attr="send-to-cursor-button"
+                                    className="ml-auto"
+                                >
+                                    Send to Cursor
+                                </LemonButton>
+                            )}
                             <More
                                 overlay={
                                     <LemonMenuOverlay
