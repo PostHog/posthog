@@ -4,6 +4,13 @@
         padding: 0.25rem;
     }
 
+    /* Ungrouped items sit directly in the list with no group to pad them, so the
+       list takes over the group's padding. Suppressed when any group is present
+       (the group owns its own padding then). */
+    .quill-select__list:not(:has(.quill-select__group)) {
+        padding: 0.25rem;
+    }
+
     .quill-select__value {
         display: flex;
         flex: 1 1 auto;
