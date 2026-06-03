@@ -80,6 +80,27 @@ describe('ScopeRunner', () => {
         expect(log.slice(3).sort()).toEqual(['stop:a', 'stop:b', 'stop:c'])
     })
 
+    it('lets a child override a parent key while still running both lifecycles', async () => {
+        const log: string[] = []
+        const parentA = makeComponent('parentA', log)
+        const childA = makeComponent('childA', log)
+
+        const parent = ScopeBuilder.empty().add('a', parentA).build('parent')
+        const child = new ScopeRunner(parent, () => ({ a: childA }), 'child')
+
+        const started = await child.start()
+        // The child's value wins in the merged container, but both components
+        // were started and both get torn down — the parent isn't orphaned.
+        expect(started.value.a).toEqual({ name: 'childA' })
+        expect(parentA.startCalls).toBe(1)
+        expect(childA.startCalls).toBe(1)
+
+        await started.stop()
+        expect(parentA.stopCalls).toBe(1)
+        expect(childA.stopCalls).toBe(1)
+        expect(log).toEqual(['start:parentA', 'start:childA', 'stop:childA', 'stop:parentA'])
+    })
+
     it('rolls back already-started entries when a later one fails to start', async () => {
         const log: string[] = []
         const a = makeComponent('a', log)

@@ -125,7 +125,8 @@ export function newScope<S extends Record<string, object>>(
  * Builds a child scope on top of `parent`. The `configure` callback
  * receives the parent's started container and a fresh builder, and returns
  * the builder with the child's entries registered. The child's container
- * is `parent ∪ child`.
+ * is `parent ∪ child`; a child entry that reuses a parent key overrides it
+ * in the merged container, while both still run their own lifecycles.
  *
  * On `start`: the parent is started (or refcounted onto), then the callback
  * runs with the resolved container and the child entries are started.
