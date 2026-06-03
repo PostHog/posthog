@@ -21,6 +21,7 @@ FORBIDDEN_AT_SETUP = [
     "dagster",  # orchestration framework — only the dagster worker needs it (cluster.py logger is lazy)
     "dlt",  # data-load-tool — only the warehouse import pipelines need it (deferred in pipeline typings)
     "products.revenue_analytics.backend.views.sources.stripe",  # revenue view builders (pandas-heavy)
+    "user_agents",  # UA parser — only the request-time UA-summary path needs it (deferred in posthog.utils)
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
