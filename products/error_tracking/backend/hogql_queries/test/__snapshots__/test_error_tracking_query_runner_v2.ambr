@@ -3,7 +3,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -11,7 +17,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -31,7 +37,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -39,7 +51,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -84,7 +96,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -92,7 +110,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -120,7 +138,17 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -135,7 +163,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -180,7 +208,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -188,7 +222,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -210,7 +244,15 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMin(tuple(e.uuid, e.distinct_id, toTimeZone(e.timestamp, 'UTC'), e.properties), toTimeZone(e.timestamp, 'UTC')) AS first_event,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -218,7 +260,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -263,7 +305,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -271,7 +319,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -299,7 +347,17 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -314,7 +372,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -359,7 +417,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -367,7 +431,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -395,7 +459,17 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -410,7 +484,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -455,7 +529,17 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -480,7 +564,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), and(or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('probs')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('not')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('found')), 0), 0))))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('probs')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('not')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('found')), 0), 0)))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -500,7 +584,17 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -525,7 +619,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), and(or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('probs')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('not')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('found')), 0), 0))))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('probs')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('probs')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('not')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('not')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('found')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('found')), 0), 0)))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -570,7 +664,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -578,7 +678,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -598,7 +698,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -606,7 +712,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -652,7 +758,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -660,7 +772,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -680,7 +792,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -688,7 +806,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -734,7 +852,14 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_0`, 'org:acme'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -742,7 +867,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_0`, 'org:acme'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -762,7 +887,14 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_0`, 'org:acme'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -770,7 +902,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_0`, 'org:acme'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -815,7 +947,14 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_0`, 'org:widgets'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -823,7 +962,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_0`, 'org:widgets'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -843,7 +982,14 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_0`, 'org:widgets'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -851,7 +997,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_0`, 'org:widgets'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -896,7 +1042,14 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_1` AS `$group_1`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_1`, 'project:alpha'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -904,7 +1057,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_1`, 'project:alpha'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -924,7 +1077,14 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_1` AS `$group_1`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_1`, 'project:alpha'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -932,7 +1092,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_1`, 'project:alpha'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -977,7 +1137,14 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_0`, 'nonexistent'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -985,7 +1152,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_0`, 'nonexistent'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1005,7 +1172,14 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(events.`$group_0`, 'nonexistent'))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1013,7 +1187,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), equals(e.`$group_0`, 'nonexistent'))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1058,7 +1232,15 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1083,7 +1265,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(e__person.properties___email, 'email@posthog.com'), 0), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(e__person.properties___email, 'email@posthog.com'), 0))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1103,7 +1285,15 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1128,7 +1318,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(e__person.properties___email, 'email@posthog.com'), 0), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(e__person.properties___email, 'email@posthog.com'), 0))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1173,7 +1363,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1181,7 +1377,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1201,7 +1397,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1209,7 +1411,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1255,7 +1457,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1263,7 +1471,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1291,7 +1499,17 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1306,7 +1524,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), '01936e7f-d7ff-7314-b2d4-7627981e34f0'), 0))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1351,7 +1569,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1359,7 +1583,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1379,7 +1603,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1387,7 +1617,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2016-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1432,7 +1662,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1440,7 +1676,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1460,7 +1696,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1468,7 +1710,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1513,7 +1755,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1521,7 +1769,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1541,7 +1789,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1549,7 +1803,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1594,7 +1848,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -1602,7 +1862,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1630,7 +1890,17 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1645,7 +1915,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1690,7 +1960,15 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1705,7 +1983,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), '00000000-0000-4000-8000-000000000002'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), '00000000-0000-4000-8000-000000000002'), 0))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1725,7 +2003,15 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1740,7 +2026,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), '00000000-0000-4000-8000-000000000002'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), '00000000-0000-4000-8000-000000000002'), 0))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1785,7 +2071,17 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1810,7 +2106,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('david@posthog.com')), 0), 0)))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('david@posthog.com')), 0), 0)))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1830,7 +2126,17 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1855,7 +2161,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('david@posthog.com')), 0), 0)))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('david@posthog.com')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('david@posthog.com')), 0), 0)))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -1900,7 +2206,17 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1925,7 +2241,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenot')), 0), 0)))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenot')), 0), 0)))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -1953,7 +2269,19 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1978,7 +2306,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenot')), 0), 0)))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenot')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenot')), 0), 0)))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -2023,7 +2351,17 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2048,7 +2386,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), and(or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenotfoundX')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('clickhouse/client/execute.py')), 0), 0))))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenotfoundX')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('clickhouse/client/execute.py')), 0), 0)))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -2076,7 +2414,19 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 1)))), range(0, 1)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`,
+               events.`mat_$exception_types` AS `mat_$exception_types`,
+               events.`mat_$exception_values` AS `mat_$exception_values`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2101,7 +2451,7 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), and(or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenotfoundX')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('clickhouse/client/execute.py')), 0), 0))))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('databasenotfoundX')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('databasenotfoundX')), 0), 0)), or(ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_types`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(nullIf(nullIf(e.`mat_$exception_values`, ''), 'null')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'email'), ''), 'null'), '^"|"$', '')), lower('clickhouse/client/execute.py')), 0), 0), ifNull(greater(position(lower(e__person.properties___email), lower('clickhouse/client/execute.py')), 0), 0)))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -2146,7 +2496,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2154,7 +2510,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -2174,7 +2530,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2182,7 +2544,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -2228,7 +2590,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2236,7 +2604,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -2256,7 +2624,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2264,7 +2638,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -2310,7 +2684,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2318,7 +2698,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -2338,7 +2718,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2346,7 +2732,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -2391,7 +2777,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2399,7 +2791,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -2419,7 +2811,13 @@
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_functions', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS function,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_sources', -1), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS source,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2427,7 +2825,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('2018-01-11 12:11:00.000000', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -2472,7 +2870,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2480,7 +2884,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -2508,7 +2912,17 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 4))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 4)))), range(0, 4)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2523,7 +2937,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
+     WHERE and(isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), ifNull(equals(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')), 'e9ac529f-ac1c-4a96-bd3a-102334368d64'), 0))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,
@@ -2568,7 +2982,13 @@
   '''
   WITH issue_ids AS
     (SELECT if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')) AS issue_id
-     FROM events AS e
+     FROM
+       (SELECT events.event AS event,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id,
                error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint
@@ -2576,7 +2996,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
   SELECT agg.id AS id,
          issues.status AS status,
@@ -2604,7 +3024,17 @@
             count(DISTINCT coalesce(nullIf(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), '00000000-0000-0000-0000-000000000000'), e.distinct_id)) AS users,
             sumForEach(arrayMap(bin -> if(and(greater(toTimeZone(e.timestamp, 'UTC'), bin), lessOrEquals(dateDiff('seconds', bin, toTimeZone(e.timestamp, 'UTC')), divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 3))), 1, 0), arrayMap(i -> dateAdd(toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toIntervalSecond(multiply(i, divide(dateDiff('seconds', toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC'), toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')), 3)))), range(0, 3)))) AS volumeRange,
             argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(e.timestamp, 'UTC')) AS library
-     FROM events AS e
+     FROM
+       (SELECT events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               events.`mat_$exception_issue_id` AS `mat_$exception_issue_id`
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$exception'), greaterOrEquals(events.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(events.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))) AS e
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2619,7 +3049,7 @@
         WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
         GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
         HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
-     WHERE and(equals(e.team_id, 99999), equals(e.event, '$exception'), isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID'))), greaterOrEquals(e.timestamp, toDateTime(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), 'UTC')), lessOrEquals(e.timestamp, toDateTime(toDateTime64('today', 6, 'UTC'), 'UTC')))
+     WHERE isNotNull(if(not(empty(e__exception_issue_override.issue_id)), e__exception_issue_override.issue_id, accurateCastOrNull(e.`mat_$exception_issue_id`, 'UUID')))
      GROUP BY id) AS agg
   INNER JOIN
     (SELECT system__error_tracking_issues.id AS id,

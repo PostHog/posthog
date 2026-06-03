@@ -38,7 +38,17 @@
                   if(equals(e.event, 'user did things'), 1, 0) AS step_1,
                   ([e__person.properties___fish] AS value) AS prop_basic,
                   prop_basic AS prop
-           FROM events AS e
+           FROM
+             (SELECT events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.distinct_id AS distinct_id,
+                     events.event AS event,
+                     events.person_id AS person_id,
+                     events.properties AS properties,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('user did things', 'user signed up')), ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -56,7 +66,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -115,7 +125,17 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'user did things'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.distinct_id AS distinct_id,
+                     events.event AS event,
+                     events.person_id AS person_id,
+                     events.properties AS properties,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('user did things', 'user signed up')), ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -133,7 +153,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), ifNull(like(e__person.properties___fish, '%fish%'), 0))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(ifNull(like(e__person.properties___fish, '%fish%'), 0), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -192,7 +212,17 @@
                   e.`$window_id` AS `$window_id`,
                   if(and(equals(e.event, 'user signed up'), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), ifNull(like(e__person.properties___fish, '%fish%'), 0))), 1, 0) AS step_0,
                   if(and(equals(e.event, 'user did things'), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), ifNull(like(e__person.properties___fish, '%fish%'), 0))), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.distinct_id AS distinct_id,
+                     events.event AS event,
+                     events.person_id AS person_id,
+                     events.properties AS properties,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('user did things', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -210,7 +240,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown

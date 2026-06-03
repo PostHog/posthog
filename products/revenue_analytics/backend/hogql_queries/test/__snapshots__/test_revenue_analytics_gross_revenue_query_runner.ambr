@@ -31,7 +31,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -39,7 +53,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
@@ -151,7 +165,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -159,7 +187,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
@@ -251,7 +279,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -259,7 +301,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))
   GROUP BY breakdown_by,
@@ -400,7 +442,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -408,7 +464,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT toString(persons.id) AS id,
@@ -458,8 +514,7 @@
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE 1) AS events ON equals(persons.id, events.person_id)
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_customer.country, 'US'))
   GROUP BY breakdown_by,
@@ -662,7 +717,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -670,7 +739,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
@@ -811,7 +880,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -819,7 +902,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
@@ -960,7 +1043,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -968,7 +1065,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT toString(persons.id) AS id,
@@ -1018,8 +1115,7 @@
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-        WHERE 1) AS events ON equals(persons.id, events.person_id)
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
   LEFT JOIN
     (SELECT product_id AS id,
@@ -1236,7 +1332,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1244,7 +1354,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT product_id AS id,
@@ -1399,7 +1509,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1407,7 +1531,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
@@ -1548,7 +1672,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1556,7 +1694,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
@@ -1697,7 +1835,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1705,7 +1857,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
   GROUP BY breakdown_by,
@@ -1847,7 +1999,21 @@
               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
               'GBP' AS currency,
               if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1855,7 +2021,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
   GROUP BY breakdown_by,
@@ -1996,7 +2162,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2004,7 +2184,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT product_id AS id,
@@ -2159,7 +2339,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2167,7 +2361,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
   GROUP BY breakdown_by,
@@ -2308,7 +2502,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2316,7 +2524,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT product_id AS id,
@@ -2471,7 +2679,21 @@
             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
             'GBP' AS currency,
             if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-     FROM events
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$group_1` AS `$group_1`,
+               events.`$group_2` AS `$group_2`,
+               events.`$group_3` AS `$group_3`,
+               events.`$group_4` AS `$group_4`,
+               events.`$session_id` AS `$session_id`,
+               events.distinct_id AS distinct_id,
+               events.event AS event,
+               events.person_id AS person_id,
+               events.properties AS properties,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.event, 'purchase'))) AS events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2479,7 +2701,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+     WHERE isNotNull(amount)
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   LEFT JOIN
     (SELECT product_id AS id,
