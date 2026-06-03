@@ -54,6 +54,17 @@ describe('hogFlowEditorTestLogic', () => {
             expect(groups.project).toMatchObject({ id: 'proj-1', properties: { tier: 'gold' } })
         })
 
+        it('aligns columns by position when group type indices are non-contiguous', () => {
+            // Only group type index 1 exists (index 0 absent) — column sits at result[2], not result[3]
+            const sparseGroupTypes = new Map<GroupTypeIndex, GroupType>([
+                [1 as GroupTypeIndex, { group_type: 'project', group_type_index: 1 } as GroupType],
+            ])
+            const result = [{ uuid: 'e1' }, { id: 'p1' }, ['2021-01-01', 1, 'proj-1', JSON.stringify({ tier: 'gold' }), '2021-01-02']]
+
+            const groups = parseGroupsFromResult(result, sparseGroupTypes)
+            expect(groups.project).toMatchObject({ index: 1, id: 'proj-1', properties: { tier: 'gold' } })
+        })
+
         it('skips group types with no matching group on the event', () => {
             const result = [{ uuid: 'e1' }, { id: 'p1' }, ['2021-01-01', 0, '', '{}', '2021-01-02']]
             expect(parseGroupsFromResult(result, groupTypes)).toEqual({})

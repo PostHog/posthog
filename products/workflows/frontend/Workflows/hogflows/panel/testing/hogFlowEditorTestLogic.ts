@@ -102,8 +102,11 @@ export const parseGroupsFromResult = (
     groupTypes: Map<GroupTypeIndex, GroupType>
 ): NonNullable<CyclotronJobInvocationGlobals['groups']> => {
     const groups: NonNullable<CyclotronJobInvocationGlobals['groups']> = {}
-    groupTypes.forEach((groupType, index) => {
-        const tuple = result?.[2 + index]
+    // Use a positional counter, not the Map key: groupSelectColumns appends columns in iteration
+    // order, so column n sits at result[2 + n] regardless of each type's group_type_index.
+    let position = 0
+    groupTypes.forEach((groupType) => {
+        const tuple = result?.[2 + position++]
         if (tuple && Array.isArray(tuple) && tuple[2]) {
             let properties = {}
             try {
