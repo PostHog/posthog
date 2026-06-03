@@ -622,6 +622,55 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
+        it('applies URL filters on top of defaults, ignoring stale persisted filters', async () => {
+            // simulate stale state left over from a prior visit (e.g. localStorage-persisted)
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    date_from: '-30d',
+                    filter_test_accounts: true,
+                    duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
+                })
+            }).toDispatchActions(['setFilters'])
+
+            // a "View recordings" navigation carries only filter_group - the omitted fields must
+            // fall back to defaults, not inherit the stale persisted values
+            router.actions.push('/replay', {
+                filters: {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                            },
+                        ],
+                    },
+                },
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFilters'])
+                .toMatchValues({
+                    filters: {
+                        date_from: '-3d',
+                        date_to: null,
+                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '1', name: 'View Recording', order: 0, type: 'actions' }],
+                                },
+                            ],
+                        },
+                        filter_test_accounts: false,
+                        order: 'start_time',
+                        order_direction: 'DESC',
+                    },
+                })
+        })
+
         describe('deleting recordings', () => {
             it('otherRecordings filters out deleted recording ids', async () => {
                 await expectLogic(logic)

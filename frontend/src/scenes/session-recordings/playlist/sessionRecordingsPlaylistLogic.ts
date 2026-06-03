@@ -1693,8 +1693,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
+                // Treat the URL as the source of truth for an externally-applied filter (e.g.
+                // "View recordings"). Layer it onto the defaults rather than the current state,
+                // which may be stale localStorage-persisted filters - otherwise fields the URL
+                // omits (date range, duration, test accounts) silently inherit old values and it
+                // looks like the filter wasn't applied.
                 const updatedFilters = {
-                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
+                    ...(params.filters && !equal(params.filters, values.filters)
+                        ? { ...getDefaultFilters(props.personUUID, props.pinnedFilters), ...params.filters }
+                        : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
                         ? { order_direction: params.order_direction }
