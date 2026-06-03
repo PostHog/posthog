@@ -1,5 +1,10 @@
 import { SesWebhookHandler } from './ses'
-import { TRACKING_CODE_HEADER_NAME, generateEmailTrackingCode, generateShortEmailTrackingCode } from './tracking-code'
+import { generateEmailTrackingCode, generateShortEmailTrackingCode } from './tracking-code'
+
+// Hardcoded on purpose, not imported from TRACKING_CODE_HEADER_NAME: the header name is a wire
+// contract (it's baked into already-sent emails and what SES echoes back), so the test should
+// fail loudly if the constant is ever changed rather than silently moving along with it.
+const TRACKING_CODE_HEADER = 'X-PostHog-Tracking-Code'
 
 describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
@@ -21,7 +26,7 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: generateEmailTrackingCode(baseInvocation) }],
+        headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation) }],
         tags: {
             ph_id: [generateShortEmailTrackingCode(baseInvocation)],
         },
@@ -268,7 +273,7 @@ describe('SesWebhookHandler', () => {
         }
         const mailWithParentRun = {
             ...baseMail,
-            headers: [{ name: TRACKING_CODE_HEADER_NAME, value: generateEmailTrackingCode(batchInvocation) }],
+            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(batchInvocation) }],
             tags: { ph_id: [generateShortEmailTrackingCode(batchInvocation)] },
         }
         const body = [
