@@ -1673,9 +1673,7 @@ class TestRerunGithubJob:
     def repo(self, team):
         return logic.create_repo(team_id=team.id, repo_external_id=55555, repo_full_name="org/test-repo")
 
-    def _make_run(
-        self, repo: "Repo", commit_sha: str = "abc123def456", workflow_run_id: str | None = "98765"
-    ) -> "Run":
+    def _make_run(self, repo: "Repo", commit_sha: str = "abc123def456", workflow_run_id: str | None = "98765") -> "Run":
         metadata: dict = {"github_check_run_id": "72855643533"}
         if workflow_run_id is not None:
             metadata["github_run_id"] = workflow_run_id
