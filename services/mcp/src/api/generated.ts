@@ -43793,7 +43793,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated).
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string;
     /**
@@ -43801,7 +43801,7 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
-     * Filter monitor observations by verdict. Accepts a comma-separated list.
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
     };
@@ -49813,7 +49813,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated).
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string;
     /**
@@ -49821,7 +49821,7 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
-     * Filter monitor observations by verdict. Accepts a comma-separated list.
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
     };
