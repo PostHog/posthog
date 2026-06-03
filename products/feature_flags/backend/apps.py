@@ -14,4 +14,12 @@ class FeatureFlagsConfig(AppConfig):
         # as an import side effect of a viewset module; with the lazy API router that no longer
         # happens, so a process that never builds the router (celery, temporal, migrate, shell)
         # would stop invalidating the flags cache on flag/cohort/team writes. Wire them here.
-        from products.feature_flags.backend import flags_cache, local_evaluation  # noqa: F401, PLC0415
+        # Same story for the flag activity-log receiver (handle_feature_flag_change), which used to
+        # ride in on the viewset import. Flags are mutated in non-web processes (cohort recalculation
+        # etc.), so its audit logs must wire here too. It lives in a light activity_logging module
+        # because the flag viewset pulls scipy via the dashboard -> error-tracking query runners.
+        from products.feature_flags.backend import (  # noqa: F401, PLC0415
+            activity_logging,  # noqa: F401, PLC0415
+            flags_cache,
+            local_evaluation,
+        )

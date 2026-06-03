@@ -36,6 +36,7 @@ class PostHogConfig(AppConfig):
         # so a process that never builds the router (celery, temporal, migrate, shell) would lose
         # these receivers. Importing the owning modules here connects them at app-population. Each
         # module is kept light enough to import at startup (heavy deps are deferred inside methods).
+        import posthog.api.tagged_item  # noqa: F401, PLC0415
         import posthog.api.organization  # noqa: F401, PLC0415
         import posthog.api.personal_api_key  # noqa: F401, PLC0415
         import posthog.api.project_secret_api_key  # noqa: F401, PLC0415

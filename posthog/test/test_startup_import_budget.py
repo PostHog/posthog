@@ -112,8 +112,13 @@ import django
 
 django.setup()
 from django.db.models import signals
+from posthog.models.signals import model_activity_signal
 
 _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed", "pre_init", "post_init"]
+# model_activity_signal is PostHog's custom audit-log signal, not a django.db.models one. Its
+# `handle_*_change` receivers live in viewset modules, so they are exactly the kind that the eager
+# router used to wire as a side effect — include it or this whole class of regression is invisible.
+_CUSTOM_SIGNALS = {"model_activity": model_activity_signal}
 
 
 def _resolve(entry):
@@ -128,6 +133,11 @@ def _connected():
     out = set()
     for name in _SIGNALS:
         for entry in getattr(signals, name).receivers:
+            resolved = _resolve(entry)
+            if resolved:
+                out.add(f"{name}:{resolved}")
+    for name, sig in _CUSTOM_SIGNALS.items():
+        for entry in sig.receivers:
             resolved = _resolve(entry)
             if resolved:
                 out.add(f"{name}:{resolved}")
