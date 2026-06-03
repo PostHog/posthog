@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { ActionsHorizontalBar } from 'scenes/trends/viz/ActionsHorizontalBar'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -18,12 +19,21 @@ import { TrendsLineChart } from 'products/product_analytics/frontend/insights/tr
 import { buildCachedInsight } from './buildCachedInsight'
 import type { BenchData } from './generateBenchData'
 
-type AdapterKind = 'adapter-hog' | 'adapter-chartjs' | 'adapter-bar' | 'adapter-bar-horizontal'
+type AdapterKind =
+    | 'adapter-hog'
+    | 'adapter-chartjs'
+    | 'adapter-bar'
+    | 'adapter-bar-horizontal'
+    | 'adapter-chartjs-bar'
+    | 'adapter-chartjs-bar-horizontal'
 
-/** Display type each bar adapter kind drives the insight with. */
+/** Display type each bar adapter kind drives the insight with. hog and chart.js bar adapters share
+ *  a display so they're a clean engine-vs-engine comparison; only the rendered component differs. */
 const ADAPTER_BAR_DISPLAY: Partial<Record<AdapterKind, ChartDisplayType>> = {
     'adapter-bar': ChartDisplayType.ActionsBar,
     'adapter-bar-horizontal': ChartDisplayType.ActionsBarValue,
+    'adapter-chartjs-bar': ChartDisplayType.ActionsBar,
+    'adapter-chartjs-bar-horizontal': ChartDisplayType.ActionsBarValue,
 }
 
 interface RealAdaptersCellProps {
@@ -31,6 +41,9 @@ interface RealAdaptersCellProps {
     data: BenchData
     runKey: number
     fillArea: boolean
+    /** Forwarded to the hog-charts bar adapter to A/B the tooltip's hover cost. Only affects
+     *  `adapter-bar` / `adapter-bar-horizontal`; the chart.js adapters have no equivalent hook. */
+    tooltipEnabled: boolean
 }
 
 /**
@@ -45,7 +58,7 @@ interface RealAdaptersCellProps {
  * `keyForInsightLogicProps`) so mount-time measurements aren't biased by
  * re-using a warm logic cache.
  */
-export function RealAdaptersCell({ kind, data, runKey, fillArea }: RealAdaptersCellProps): JSX.Element {
+export function RealAdaptersCell({ kind, data, runKey, fillArea, tooltipEnabled }: RealAdaptersCellProps): JSX.Element {
     const built = useMemo(
         () =>
             buildCachedInsight(data, {
@@ -86,7 +99,9 @@ export function RealAdaptersCell({ kind, data, runKey, fillArea }: RealAdaptersC
                             {kind === 'adapter-hog' ? (
                                 <TrendsLineChart />
                             ) : kind === 'adapter-bar' || kind === 'adapter-bar-horizontal' ? (
-                                <TrendsBarChart />
+                                <TrendsBarChart tooltipEnabled={tooltipEnabled} />
+                            ) : kind === 'adapter-chartjs-bar-horizontal' ? (
+                                <ActionsHorizontalBar />
                             ) : (
                                 <ActionsLineGraph />
                             )}

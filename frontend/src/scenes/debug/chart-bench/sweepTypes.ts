@@ -9,6 +9,8 @@ export type ChartKind =
     | 'adapter-chartjs'
     | 'adapter-bar'
     | 'adapter-bar-horizontal'
+    | 'adapter-chartjs-bar'
+    | 'adapter-chartjs-bar-horizontal'
 
 export interface SweepResult {
     chart: ChartKind

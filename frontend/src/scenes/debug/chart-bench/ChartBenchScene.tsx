@@ -41,8 +41,12 @@ import type { ChartKind as SweepChartKind, SweepResult } from './sweepTypes'
  *                              tree, chart.js under the hood)
  *   - `adapter-bar`          — real `TrendsBarChart` adapter, vertical
  *                              time-series bars (`ActionsBar`)
+ *   - `adapter-chartjs-bar`  — chart.js engine counterpart of `adapter-bar`:
+ *                              `ActionsLineGraph` at the same `ActionsBar` display
  *   - `adapter-bar-horizontal`— real `TrendsBarChart` adapter, aggregated
  *                              horizontal bars (`ActionsBarValue`)
+ *   - `adapter-chartjs-bar-horizontal`— chart.js counterpart of the above:
+ *                              `ActionsHorizontalBar` at `ActionsBarValue`
  *
  * The raw cells isolate engine cost. The adapter cells include kea overhead,
  * the real PostHog tooltip (`TrendsTooltip` / `InsightTooltip`), and any
@@ -91,7 +95,25 @@ const CHART_OPTIONS: { label: string; value: ChartKind }[] = [
     { label: 'hog-charts (TrendsLineChart adapter)', value: 'adapter-hog' },
     { label: 'chart.js (ActionsLineGraph adapter)', value: 'adapter-chartjs' },
     { label: 'hog-charts (TrendsBarChart adapter)', value: 'adapter-bar' },
+    { label: 'chart.js (ActionsLineGraph bar adapter)', value: 'adapter-chartjs-bar' },
     { label: 'hog-charts (TrendsBarChart horizontal adapter)', value: 'adapter-bar-horizontal' },
+    { label: 'chart.js (ActionsHorizontalBar adapter)', value: 'adapter-chartjs-bar-horizontal' },
+]
+
+/** Dropdown label for each chart kind, so the sweep checkboxes read the same as the single-chart picker. */
+const CHART_LABELS: Record<ChartKind, string> = Object.fromEntries(
+    CHART_OPTIONS.map((o) => [o.value, o.label])
+) as Record<ChartKind, string>
+
+/** Sweep checkboxes grouped the same way the dropdown is ordered: raw line, raw bar, real adapters. */
+const CHART_GROUPS: { title: string; kinds: ChartKind[] }[] = [
+    { title: 'Line (raw)', kinds: ['hog', 'chartjs'] },
+    { title: 'Bar (raw)', kinds: ['hog-bar', 'hog-bar-horizontal', 'chartjs-bar', 'chartjs-bar-horizontal'] },
+    { title: 'Line adapters', kinds: ['adapter-hog', 'adapter-chartjs'] },
+    {
+        title: 'Bar adapters',
+        kinds: ['adapter-bar', 'adapter-chartjs-bar', 'adapter-bar-horizontal', 'adapter-chartjs-bar-horizontal'],
+    },
 ]
 
 /** Bar layouts whose categories run down the y-axis — the hover sweep must
@@ -100,6 +122,7 @@ const HORIZONTAL_CHART_KINDS: ReadonlySet<ChartKind> = new Set<ChartKind>([
     'hog-bar-horizontal',
     'chartjs-bar-horizontal',
     'adapter-bar-horizontal',
+    'adapter-chartjs-bar-horizontal',
 ])
 
 function isHorizontalChart(chart: ChartKind): boolean {
@@ -172,19 +195,6 @@ function parseSeriesList(raw: string): number[] {
         .filter((n) => Number.isFinite(n) && n > 0)
 }
 
-const ALL_CHART_KINDS: ChartKind[] = [
-    'hog',
-    'chartjs',
-    'hog-bar',
-    'hog-bar-horizontal',
-    'chartjs-bar',
-    'chartjs-bar-horizontal',
-    'adapter-hog',
-    'adapter-chartjs',
-    'adapter-bar',
-    'adapter-bar-horizontal',
-]
-
 interface ChartCellProps {
     chart: ChartKind
     series: number
@@ -193,9 +203,19 @@ interface ChartCellProps {
     fillArea: boolean
     showGrid: boolean
     runKey: number
+    adapterTooltip: boolean
 }
 
-function ChartCell({ chart, series, points, seed, fillArea, showGrid, runKey }: ChartCellProps): JSX.Element {
+function ChartCell({
+    chart,
+    series,
+    points,
+    seed,
+    fillArea,
+    showGrid,
+    runKey,
+    adapterTooltip,
+}: ChartCellProps): JSX.Element {
     const data = useMemo(() => generateBenchData(series, points, seed), [series, points, seed])
     if (chart === 'hog') {
         return <HogChartsLineChart data={data} fillArea={fillArea} showGrid={showGrid} />
@@ -209,7 +229,15 @@ function ChartCell({ chart, series, points, seed, fillArea, showGrid, runKey }: 
     if (chart === 'chartjs-bar' || chart === 'chartjs-bar-horizontal') {
         return <ChartJsBarChart data={data} showGrid={showGrid} horizontal={chart === 'chartjs-bar-horizontal'} />
     }
-    return <RealAdaptersCell kind={chart} data={data} runKey={runKey} fillArea={fillArea} />
+    return (
+        <RealAdaptersCell
+            kind={chart}
+            data={data}
+            runKey={runKey}
+            fillArea={fillArea}
+            tooltipEnabled={adapterTooltip}
+        />
+    )
 }
 
 export function ChartBenchScene(): JSX.Element {
@@ -222,6 +250,7 @@ export function ChartBenchScene(): JSX.Element {
     const [seed, setSeed] = useState<number>(readInt(initialParams, 'seed', DEFAULT_SEED))
     const [fillArea, setFillArea] = useState<boolean>(initialParams.get('fill') === '1')
     const [showGrid, setShowGrid] = useState<boolean>(initialParams.get('grid') !== '0')
+    const [adapterTooltip, setAdapterTooltip] = useState<boolean>(initialParams.get('tooltip') !== '0')
 
     const [runKey, setRunKey] = useState<number>(0)
     const [result, setResult] = useState<BenchResult | null>(null)
@@ -521,6 +550,18 @@ export function ChartBenchScene(): JSX.Element {
                             : undefined
                     }
                 />
+                <LemonSwitch
+                    label="Adapter tooltip"
+                    checked={adapterTooltip}
+                    onChange={setAdapterTooltip}
+                    // hog-charts bar adapter only — A/B the per-mousemove tooltip render cost
+                    // (the real InsightTooltip) against the bare engine.
+                    disabledReason={
+                        chart === 'adapter-bar' || chart === 'adapter-bar-horizontal'
+                            ? undefined
+                            : 'Only the hog-charts bar adapter (adapter-bar / -horizontal) supports toggling the tooltip'
+                    }
+                />
                 <LemonButton type="primary" onClick={runBenchmark} loading={busy} data-attr="chart-bench-run">
                     Run benchmark
                 </LemonButton>
@@ -528,9 +569,11 @@ export function ChartBenchScene(): JSX.Element {
 
             <div
                 ref={containerRef}
-                className="border rounded bg-bg-light flex flex-col"
+                className="border rounded bg-bg-light flex flex-col overflow-auto"
                 // Fixed size so repeated runs compare apples-to-apples. Flex
                 // column because hog-charts' internal wrapper uses `flex: 1`.
+                // overflow-auto so horizontal bars (which grow a fixed px per
+                // row) scroll inside the box instead of spilling onto content below.
                 style={{ width: 960, height: 480 }}
                 data-attr="chart-bench-stage"
             >
@@ -543,6 +586,7 @@ export function ChartBenchScene(): JSX.Element {
                     fillArea={fillArea}
                     showGrid={showGrid}
                     runKey={runKey}
+                    adapterTooltip={adapterTooltip}
                 />
             </div>
 
@@ -611,17 +655,21 @@ export function ChartBenchScene(): JSX.Element {
                     </div>
                     <LemonSwitch label="Log Y" checked={sweepLogY} onChange={setSweepLogY} />
                 </div>
-                <div className="flex flex-wrap gap-4 items-center mt-2">
-                    <span className="text-sm text-muted">Charts:</span>
-                    {ALL_CHART_KINDS.map((k) => (
-                        <LemonCheckbox
-                            key={k}
-                            label={k}
-                            checked={sweepKinds.includes(k)}
-                            onChange={(checked) =>
-                                setSweepKinds((prev) => (checked ? [...prev, k] : prev.filter((p) => p !== k)))
-                            }
-                        />
+                <div className="flex flex-col gap-2 mt-2">
+                    {CHART_GROUPS.map((group) => (
+                        <div key={group.title} className="flex flex-wrap gap-4 items-center">
+                            <span className="text-sm text-muted font-semibold w-20 shrink-0">{group.title}</span>
+                            {group.kinds.map((k) => (
+                                <LemonCheckbox
+                                    key={k}
+                                    label={CHART_LABELS[k]}
+                                    checked={sweepKinds.includes(k)}
+                                    onChange={(checked) =>
+                                        setSweepKinds((prev) => (checked ? [...prev, k] : prev.filter((p) => p !== k)))
+                                    }
+                                />
+                            ))}
+                        </div>
                     ))}
                 </div>
                 <div className="flex flex-wrap gap-2 items-center mt-3">
@@ -700,6 +748,8 @@ export function ChartBenchScene(): JSX.Element {
                                     <th className="text-right pr-4">points</th>
                                     <th className="text-right pr-4">ready ms</th>
                                     <th className="text-right pr-4">hover ms</th>
+                                    <th className="text-right pr-4">hover sync ms</th>
+                                    <th className="text-right pr-4">hover frame ms</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -713,6 +763,12 @@ export function ChartBenchScene(): JSX.Element {
                                         </td>
                                         <td className="text-right pr-4">
                                             {Number.isFinite(r.meanHoverMs) ? r.meanHoverMs : '—'}
+                                        </td>
+                                        <td className="text-right pr-4">
+                                            {Number.isFinite(r.meanHoverSyncMs) ? r.meanHoverSyncMs : '—'}
+                                        </td>
+                                        <td className="text-right pr-4">
+                                            {Number.isFinite(r.meanHoverFrameMs) ? r.meanHoverFrameMs : '—'}
                                         </td>
                                     </tr>
                                 ))}

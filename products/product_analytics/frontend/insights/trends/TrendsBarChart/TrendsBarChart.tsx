@@ -48,6 +48,9 @@ import {
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** Defaults to true. Set false to render bars without the hover tooltip — used by the chart
+     *  benchmark harness to isolate the tooltip's per-mousemove render cost from the engine. */
+    tooltipEnabled?: boolean
 }
 
 const EMPTY_LABELS: string[] = []
@@ -75,7 +78,11 @@ const resolveGroupTypeLabel = (
 
 const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
-export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
+export function TrendsBarChart({
+    context,
+    inSharedMode = false,
+    tooltipEnabled = true,
+}: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -199,7 +206,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: TIME_SERIES_TOOLTIP_CONFIG,
+                tooltip: { ...TIME_SERIES_TOOLTIP_CONFIG, enabled: tooltipEnabled },
             }),
         [
             trendsFilter,
@@ -215,6 +222,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             goalLines,
             showValuesOnSeries,
             valueLabelFormatter,
+            tooltipEnabled,
         ]
     )
 
@@ -239,7 +247,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         }
         return {
             showGrid: true,
-            tooltip: AGGREGATED_TOOLTIP_CONFIG,
+            tooltip: { ...AGGREGATED_TOOLTIP_CONFIG, enabled: tooltipEnabled },
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
@@ -255,6 +263,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         trendsFilter?.yAxisLabel,
         displayLabels,
         labels,
+        tooltipEnabled,
     ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
