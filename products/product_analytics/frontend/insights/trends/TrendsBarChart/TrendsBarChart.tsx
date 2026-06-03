@@ -11,6 +11,7 @@ import {
     ValueLabels,
 } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
+import { MAX_CATEGORY_LABEL_WIDTH } from 'lib/hog-charts/utils/text-measure'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -237,6 +238,9 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
+            // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
+            // so they don't grow the margin and push the plot off screen. Full value shows on hover.
+            maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
             // On a dashboard the tile is a fixed height: fit the rows that fit instead of growing
             // the tile and scrolling. On the full insight page, keep the grow-to-fit-all behavior.
             bars: { fitToHeight: isInDashboardContext },
