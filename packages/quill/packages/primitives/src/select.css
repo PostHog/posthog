@@ -76,6 +76,16 @@
         transform-origin: var(--transform-origin);
     }
 
+    /* When items aren't locked to the trigger, the popup is a normal
+       dropdown — size it to its widest option (capped at the viewport)
+       instead of the (often narrow) trigger, so long labels don't clip.
+       Still never narrower than the trigger. */
+    .quill-select__content[data-align-trigger='false'] {
+        width: max-content;
+        min-width: max(8rem, var(--anchor-width));
+        max-width: var(--available-width);
+    }
+
     .quill-select__content[data-starting-style],
     .quill-select__content[data-ending-style] {
         opacity: 0;
