@@ -10,18 +10,26 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.contrib.sessions.backends.db import SessionStore
 from django.core.signing import TimestampSigner
-from django.test import RequestFactory
+from django.http import HttpRequest
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 from loginas import settings as la_settings
 from parameterized import parameterized
 
-from posthog.api.oauth.views import _impersonator_id_for_request
+from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.oauth.views import _impersonation_ai_processing_block, _impersonator_id_for_request
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY
-from posthog.models import OAuthApplication, User
-from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthRefreshToken
+from posthog.models import OAuthApplication, Organization, OrganizationMembership, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+
+TEST_OAUTH2_PROVIDER_WITH_RSA = {
+    **settings.OAUTH2_PROVIDER,
+    "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+}
 
 
+@override_settings(OAUTH2_PROVIDER=TEST_OAUTH2_PROVIDER_WITH_RSA)
 class TestImpersonationOAuthRevocation(BaseTest):
     def test_user_logged_out_revokes_only_impersonated_tokens(self) -> None:
         admin = User.objects.create_user(email="admin@posthog.com", password="x", first_name="A")
@@ -98,6 +106,7 @@ class TestImpersonationOAuthRevocation(BaseTest):
         self.assertTrue(OAuthAccessToken.objects.filter(pk=customer_owned.pk).exists())
 
 
+@override_settings(OAUTH2_PROVIDER=TEST_OAUTH2_PROVIDER_WITH_RSA)
 class TestImpersonationOAuthTokenIssuance(APIBaseTest):
     """Code-exchange flow: tokens minted from an impersonation-tagged grant must be
     short-lived and refresh-less, so they expire at the impersonation idle timeout
@@ -206,3 +215,86 @@ class TestImpersonatorIdResolution(BaseTest):
         request.user = target
 
         self.assertIsNone(_impersonator_id_for_request(request))
+
+
+class TestImpersonationAIProcessingBlock(BaseTest):
+    """Organizations that opt out of AI data processing must not be authorizable for any OAuth
+    client (the MCP being the motivating case) while a staff member is impersonating a customer.
+    Customers authorizing a client themselves are unaffected — they have already consented for
+    their own data."""
+
+    def _build_request(self, target: User, *, impersonating: bool) -> HttpRequest:
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        if impersonating:
+            admin = User.objects.create_user(email="admin@posthog.com", password="x", first_name="A")
+            admin.is_staff = True
+            admin.save()
+            request.session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(admin.pk))
+        request.user = target
+        return request
+
+    def _member_of(self, organization: Organization) -> User:
+        target = User.objects.create_user(email="customer@example.com", password="x", first_name="C")
+        OrganizationMembership.objects.create(user=target, organization=organization)
+        return target
+
+    def test_no_block_when_not_impersonating_even_if_disabled(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        target = self._member_of(self.organization)
+        request = self._build_request(target, impersonating=False)
+
+        self.assertIsNone(_impersonation_ai_processing_block(request))
+
+    @parameterized.expand([("explicitly_disabled", False), ("unset", None)])
+    def test_blocks_impersonation_when_org_not_approved(self, _name: str, value: bool | None) -> None:
+        self.organization.is_ai_data_processing_approved = value
+        self.organization.save()
+        target = self._member_of(self.organization)
+        request = self._build_request(target, impersonating=True)
+
+        response = _impersonation_ai_processing_block(request)
+        assert response is not None
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["error"], "access_denied")
+
+    def test_no_block_when_org_approved(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        target = self._member_of(self.organization)
+        request = self._build_request(target, impersonating=True)
+
+        self.assertIsNone(_impersonation_ai_processing_block(request))
+
+    def test_no_block_when_disabled_org_out_of_scope(self) -> None:
+        approved_org = Organization.objects.create(name="approved", is_ai_data_processing_approved=True)
+        disabled_org = Organization.objects.create(name="disabled", is_ai_data_processing_approved=False)
+        target = User.objects.create_user(email="customer@example.com", password="x", first_name="C")
+        OrganizationMembership.objects.create(user=target, organization=approved_org)
+        OrganizationMembership.objects.create(user=target, organization=disabled_org)
+        request = self._build_request(target, impersonating=True)
+
+        # Scoping the grant to the approved org only must not be blocked by the unrelated disabled org.
+        self.assertIsNone(
+            _impersonation_ai_processing_block(
+                request,
+                access_level=OAuthApplicationAccessLevel.ORGANIZATION.value,
+                scoped_organization_ids=[str(approved_org.id)],
+            )
+        )
+
+    def test_blocks_when_scoped_team_belongs_to_disabled_org(self) -> None:
+        disabled_org = Organization.objects.create(name="disabled", is_ai_data_processing_approved=False)
+        team = Team.objects.create(organization=disabled_org, name="t")
+        target = User.objects.create_user(email="customer@example.com", password="x", first_name="C")
+        OrganizationMembership.objects.create(user=target, organization=disabled_org)
+        request = self._build_request(target, impersonating=True)
+
+        response = _impersonation_ai_processing_block(
+            request,
+            access_level=OAuthApplicationAccessLevel.TEAM.value,
+            scoped_team_ids=[team.id],
+        )
+        assert response is not None
+        self.assertEqual(response.status_code, 403)

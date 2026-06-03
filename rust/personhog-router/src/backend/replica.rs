@@ -2,14 +2,15 @@ use async_trait::async_trait;
 use personhog_proto::personhog::replica::v1::person_hog_replica_client::PersonHogReplicaClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
-    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
-    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -32,7 +33,7 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
 use tracing::info;
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_caller_tag, current_client_name};
 
 use super::retry::with_retry;
 use super::PersonHogBackend;
@@ -81,6 +82,7 @@ pub struct ReplicaBackendConfig {
 const LIGHT_METHODS: &[&str] = &[
     "CheckCohortMembership",
     "CountCohortMembers",
+    "CountGroupTypeMappings",
     "DeleteCohortMember",
     "DeleteCohortMembersBulk",
     "DeleteGroupTypeMapping",
@@ -216,8 +218,8 @@ impl ReplicaBackend {
 }
 
 /// Wraps a gRPC call with retry logic. Clones the request for each attempt.
-/// Forwards the `x-client-name` header so the downstream service can
-/// attribute metrics to the originating client.
+/// Forwards `x-client-name` and `x-caller-tag` headers so the downstream
+/// service can attribute metrics to the originating client and code path.
 ///
 /// The `$client_fn` parameter selects the channel pool: `next_heavy_client`
 /// for RPCs returning large Person/Group payloads, `next_light_client` for
@@ -228,10 +230,14 @@ macro_rules! retry_call {
             let mut client = $self.$client_fn();
             let req = $request.clone();
             let client_name = current_client_name();
+            let caller_tag = current_caller_tag();
             async move {
                 let mut request = Request::new(req);
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
+                }
+                if let Ok(val) = caller_tag.parse() {
+                    request.metadata_mut().insert("x-caller-tag", val);
                 }
                 client.$method(request).await.map(|r| r.into_inner())
             }
@@ -494,6 +500,13 @@ impl PersonHogBackend for ReplicaBackend {
             get_group_type_mappings_by_project_ids,
             request
         )
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        request: CountGroupTypeMappingsRequest,
+    ) -> Result<CountGroupTypeMappingsResponse, Status> {
+        retry_call!(self, next_light_client, count_group_type_mappings, request)
     }
 
     async fn get_group_type_mapping_by_dashboard_id(

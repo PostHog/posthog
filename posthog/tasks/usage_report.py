@@ -25,7 +25,6 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
-from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -33,11 +32,9 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
-from posthog.models.feature_flag import FeatureFlag
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.models import GroupTypeMapping, OrganizationMembership, User
+from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
@@ -47,9 +44,13 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -85,6 +86,11 @@ CH_BILLING_SETTINGS = {
 QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
+
+# Kafka's default `message.max.bytes` is ~1 MiB. For orgs with several hundred
+# teams the per-team breakdown under `teams` makes the report payload exceed
+# that limit, and the event is dropped at the broker — silently.
+MAX_USAGE_REPORT_PAYLOAD_BYTES = 900_000
 
 USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
@@ -229,6 +235,13 @@ class UsageReportCounters:
     logs_bytes_in_period: int
     logs_records_in_period: int
     logs_mb_in_period: int
+    # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
+    # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
+    # Web (browser) is intentionally absent: posthog-js doesn't set telemetry.sdk.name on logs yet.
+    ios_logs_records_in_period: int
+    react_native_logs_records_in_period: int
+    android_logs_records_in_period: int
+    flutter_logs_records_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -1066,6 +1079,7 @@ def get_teams_with_ai_event_count_in_period(
 AI_COST_MARKUP_PERCENT = 0.2
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
+AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
 # Region-to-team mapping for where AI events are stored
 CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
@@ -1075,6 +1089,23 @@ CLOUD_REGION_TO_URL = {
     "EU": "https://eu.posthog.com",
     "US": "https://us.posthog.com",
 }
+
+
+def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
+    """Resolve the $group_N index that holds the customer cloud URL for the internal AI events team."""
+    for mapping in get_group_types_for_team(team_id):
+        if mapping.get("group_type") == AI_BILLING_INSTANCE_GROUP_TYPE:
+            index = mapping.get("group_type_index")
+            return int(index) if index is not None else None
+    return None
+
+
+def build_ai_billing_region_filter(team_id: int, region_url: str) -> dict[str, str] | None:
+    instance_group_index = get_ai_billing_instance_group_type_index(team_id)
+    if instance_group_index is None:
+        return None
+
+    return {"region_group_property": f"$group_{instance_group_index}", "region_url": region_url}
 
 
 @timed_log()
@@ -1103,7 +1134,7 @@ def get_teams_with_ai_credits_used_in_period(
     6. Convert 1:1 to credits
 
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
-    We filter by $group_1 which contains the region URL (https://eu.posthog.com or https://us.posthog.com).
+    We filter by the configured `instance` group column, which contains the region URL.
     """
     region = get_instance_region()
 
@@ -1117,6 +1148,9 @@ def get_teams_with_ai_credits_used_in_period(
         return []
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
+    region_filter_params = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
+    if region_filter_params is None:
+        return []
 
     with tags_context(
         product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report="ai_credits", kind="usage_report"
@@ -1173,7 +1207,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
+                        AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -1197,7 +1231,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
+                        AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
@@ -1227,11 +1261,11 @@ def get_teams_with_ai_credits_used_in_period(
             """,
             {
                 "team_to_query": team_to_query,
-                "region_url": CLOUD_REGION_TO_URL[region],
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+                **region_filter_params,
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
@@ -1720,6 +1754,89 @@ def get_teams_with_logs_records_in_period(
         )
 
 
+# Maps the `telemetry.sdk.name` resource attribute (the mobile SDK package name, set on every log
+# record) to the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys.
+# The browser SDK (posthog-js) is omitted: it doesn't set telemetry.sdk.name on logs (it only sets
+# the OTLP scope name), so a "web" entry here would never match. Add it once posthog-js is fixed.
+SDK_TELEMETRY_NAMES: dict[str, str] = {
+    "posthog-ios": "ios",
+    "posthog-react-native": "react_native",
+    "posthog-android": "android",
+    "posthog-flutter": "flutter",
+}
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_sdk_logs_records_in_period(
+    begin: datetime,
+    end: datetime,
+    team_ids_with_logs: list[int],
+) -> dict[str, list[tuple[int, int]]]:
+    """
+    Returns log record counts grouped by team and PostHog SDK, for the given period.
+
+    The result is keyed by the short SDK suffix used on `UsageReportCounters`
+    (`ios`, `react_native`, `android`, `flutter`); each value is a list of
+    `(team_id, count)` tuples ready for `convert_team_usage_rows_to_dict`.
+
+    `team_ids_with_logs` must be the team_ids that produced any log records in the same period
+    (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
+    pre-filter on `logs_distributed` — without it, scanning the `resource_attributes` map cluster-wide
+    hits the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
+
+    NB: query the physical `logs_distributed` table, not `logs`. `logs` is the HogQL table alias and
+    only resolves inside HogQL (`parse_select`); raw `sync_execute` runs ClickHouse SQL directly, where
+    no `logs` table exists — using it fails the whole usage-report run (see PR #60611 revert).
+    """
+    if not team_ids_with_logs:
+        return {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}
+
+    with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
+        rows = sync_execute(
+            """
+            SELECT
+                team_id,
+                resource_attributes['telemetry.sdk.name'] AS sdk_name,
+                count() AS count
+            FROM logs_distributed
+            WHERE team_id IN %(team_ids)s
+              AND timestamp >= %(begin)s
+              AND timestamp < %(end)s
+              AND resource_attributes['telemetry.sdk.name'] IN %(sdk_names)s
+            GROUP BY team_id, sdk_name
+            """,
+            {
+                "team_ids": team_ids_with_logs,
+                "begin": begin,
+                "end": end,
+                "sdk_names": list(SDK_TELEMETRY_NAMES.keys()),
+            },
+            workload=Workload.LOGS,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+    by_sdk: dict[str, list[tuple[int, int]]] = {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}
+    for team_id, sdk_name, count in rows:
+        suffix = SDK_TELEMETRY_NAMES.get(sdk_name)
+        if suffix is not None:
+            by_sdk[suffix].append((team_id, count))
+    return by_sdk
+
+
+def _trim_oversize_usage_report_payload(full_report_dict: dict[str, Any]) -> dict[str, Any]:
+    """Drop the per-team breakdown when the serialized report would exceed Kafka's
+    message size limit, so the org-level roll-up still makes it through ingestion.
+
+    Returns the original dict when no trimming is needed. The trimmed copy keeps
+    `team_count` and every org-level counter intact and sets
+    `teams_omitted_due_to_size=True` so downstream consumers can detect the drop.
+    """
+    if len(json.dumps(full_report_dict, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES:
+        return full_report_dict
+    return {**full_report_dict, "teams": {}, "teams_omitted_due_to_size": True}
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 @skip_team_scope_audit
 def capture_report(
@@ -1738,7 +1855,7 @@ def capture_report(
             pha_client=pha_client,
             name="organization usage report",
             organization_id=organization_id,
-            properties=full_report_dict,
+            properties=_trim_oversize_usage_report_payload(full_report_dict),
             timestamp=at_date,
         )
     except Exception as err:
@@ -1850,6 +1967,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
 
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
+    logs_records_rows = get_teams_with_logs_records_in_period(period_start, period_end)
+    team_ids_with_logs = [int(row[0]) for row in logs_records_rows]
+    sdk_logs_by_suffix = get_teams_with_sdk_logs_records_in_period(
+        period_start, period_end, team_ids_with_logs=team_ids_with_logs
+    )
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
@@ -2084,7 +2206,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
-        "teams_with_logs_records_in_period": get_teams_with_logs_records_in_period(period_start, period_end),
+        "teams_with_logs_records_in_period": logs_records_rows,
+        "teams_with_ios_logs_records_in_period": sdk_logs_by_suffix["ios"],
+        "teams_with_react_native_logs_records_in_period": sdk_logs_by_suffix["react_native"],
+        "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
+        "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
     }
 
 
@@ -2244,6 +2370,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
+        ios_logs_records_in_period=all_data["teams_with_ios_logs_records_in_period"].get(team.id, 0),
+        react_native_logs_records_in_period=all_data["teams_with_react_native_logs_records_in_period"].get(team.id, 0),
+        android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
+        flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
     )
 
 

@@ -81,7 +81,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     fullWidth
                     sideIcon={<IconLlmAnalytics />}
                     data-attr="events-table-trace-link"
-                    to={urls.llmAnalyticsTrace(
+                    to={urls.aiObservabilityTrace(
                         event.properties.$ai_trace_id,
                         event.event === '$ai_trace'
                             ? { event: event.id, exception_ts: event.timestamp }

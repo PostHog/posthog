@@ -81,6 +81,7 @@ rules:
                               |DAG
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
                               |Dataset
@@ -166,6 +167,7 @@ rules:
                               |MessageTemplate
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
+                              |MCPIntentEmbeddingCache
                               |MCPSession
                               |OptOutSyncConfig
                               |Node
@@ -198,6 +200,10 @@ rules:
                               |SignalReportTask
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalScoutConfig
+                              |SignalScoutRun
+                              |SignalScratchpad
+                              |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
@@ -229,6 +235,7 @@ rules:
                               |UserInterviewTopic
                               |UserRepoPreference
                               |WebAnalyticsFilterPreset
+                              |WizardSession
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -307,6 +314,7 @@ rules:
                         |DAG
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
                         |Dataset
@@ -388,6 +396,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |MCPIntentClusterSnapshot
+                        |MCPIntentEmbeddingCache
                         |MCPSession
                         |OptOutSyncConfig
                         |Node
@@ -420,6 +429,10 @@ rules:
                         |SignalReportTask
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalScoutConfig
+                        |SignalScoutRun
+                        |SignalScratchpad
+                        |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
@@ -451,6 +464,7 @@ rules:
                         |UserInterviewTopic
                         |UserRepoPreference
                         |WebAnalyticsFilterPreset
+                        |WizardSession
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)

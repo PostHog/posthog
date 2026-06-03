@@ -11,12 +11,14 @@ import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { ProxyRecord } from 'scenes/settings/environment/proxyLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -113,8 +115,16 @@ function buildBillingAlertNotice(
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
+        logic: [verifyEmailLogic],
         values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed', 'reportProjectNoticeShown']],
+        actions: [
+            eventUsageLogic,
+            ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
+            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
+            verifyEmailLogic,
+            ['requestVerificationLink'],
+        ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),
@@ -161,6 +171,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.effectiveBillingAlert,
                 router.selectors.currentLocation,
                 s.noticeDismissedThisSession,
+                sceneLogic.selectors.activeSceneId,
+                (state) => liveEventsLogic.findMounted()?.selectors.eventCount(state) ?? 0,
             ],
             (
                 organization,
@@ -174,7 +186,9 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 proxyRecords,
                 effectiveBillingAlert,
                 currentLocation,
-                noticeDismissedThisSession
+                noticeDismissedThisSession,
+                activeSceneId,
+                liveEventCount
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
@@ -205,7 +219,11 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 } else if (
                     !isNoticeDismissed('real_project_with_no_events') &&
                     currentTeam &&
-                    !currentTeam.ingested_event
+                    !currentTeam.ingested_event &&
+                    // Belt-and-braces: never claim "no events" while the live activity feed is
+                    // actively rendering events on the same screen — `currentTeam.ingested_event`
+                    // can lag behind the live SSE stream during the first ingestion window.
+                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
                 ) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
@@ -333,7 +351,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                         onboarding flow
                                     </Link>{' '}
                                     or grab your project API key/HTML snippet from{' '}
-                                    <Link to={urls.settings()} data-attr="real_project_with_no_events-settings">
+                                    <Link
+                                        to={urls.settings('environment-details', 'variables')}
+                                        data-attr="real_project_with_no_events-settings"
+                                    >
                                         Project Settings
                                     </Link>{' '}
                                     to get things moving

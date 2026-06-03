@@ -126,13 +126,17 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
 }
 
 const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filters, id, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { filterGroup, serviceNames } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
+    // Taxonomic value suggestions should respect any active scope (e.g. the person-tab
+    // distinct_id pin), so pass the combined query view rather than the user-editable
+    // filterGroup. The UniversalFilters `group` prop stays on the editable filterGroup
+    // so chips reflect what the user can actually edit.
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup,
+        filterGroup: queryFilterGroup,
         serviceNames,
     }
 
@@ -153,7 +157,7 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
 
 const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: logsFilters } = useValues(logsViewerFiltersLogic)
+    const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -170,7 +174,7 @@ const LogsFilterSearch = (): JSX.Element => {
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-            filterGroup: logsFilters.filterGroup,
+            filterGroup: queryFilterGroup,
             serviceNames: logsFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item) => {

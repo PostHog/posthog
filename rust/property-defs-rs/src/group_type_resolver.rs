@@ -145,10 +145,15 @@ impl GroupTypeResolver {
             team_ids: unique_team_ids,
             read_options: Some(ReadOptions {
                 consistency: consistency.into(),
+                ..Default::default()
             }),
         });
         let metadata = request.metadata_mut();
         metadata.insert("x-client-name", "property-defs-rs".parse().unwrap());
+        metadata.insert(
+            "x-caller-tag",
+            "property-defs/group-type-resolution".parse().unwrap(),
+        );
         metadata.insert(
             "x-read-consistency",
             match consistency {

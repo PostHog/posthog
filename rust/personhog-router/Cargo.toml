@@ -37,6 +37,8 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 dashmap = { workspace = true }
+flate2 = { workspace = true }
+prost = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"

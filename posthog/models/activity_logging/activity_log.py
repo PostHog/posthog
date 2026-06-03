@@ -83,8 +83,10 @@ ActivityScope = Literal[
     "Log",
     "LogsAlertConfiguration",
     "LogsExclusionRule",
+    "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "InstanceSetting",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -197,6 +199,8 @@ class ActivityLog(UUIDTModel):
     is_system = models.BooleanField(null=True)
     # Value of the x-posthog-client request header captured when the activity was logged
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
+    # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -323,6 +327,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "OrganizationDomain": [
         "last_verification_retry",
     ],
+    "Subscription": [
+        "next_delivery_date",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -352,12 +359,25 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Instance-setting changes are staff-only operations and must not leak into the
+        # org-scoped activity log endpoints, which are visible to organization admins.
+        "scope": "InstanceSetting",
+        "activities": ["updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+    ],
+    "Subscription": [
+        # Scheduler-derived field; keep it out of user-facing change diffs even when another
+        # field changes in the same save (signal_exclusions only governs whether the signal fires).
+        "next_delivery_date",
     ],
     "Cohort": [
         "version",
@@ -617,11 +637,11 @@ def describe_change(m: Any) -> Union[str, dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
-        description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
-        if m.insight:
-            description["insight"] = {"id": m.insight.id}
-        if m.text:
-            description["text"] = {"id": m.text.id}
+        description: dict[str, Any] = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
+        description["insight"] = {"id": m.insight_id} if m.insight_id else None
+        description["text"] = {"id": m.text_id} if m.text_id else None
+        description["button_tile"] = {"id": m.button_tile_id} if m.button_tile_id else None
+        description["widget"] = {"id": str(m.widget_id)} if m.widget_id else None
         return description
     else:
         return str(m)
@@ -824,11 +844,14 @@ def log_activity(
     detail: Detail,
     was_impersonated: bool,
     client: Optional[str] = None,
+    ip_address: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
+    if ip_address is None:
+        ip_address = activity_storage.get_ip_address()
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -862,6 +885,7 @@ def log_activity(
                 activity=activity,
                 detail=detail,
                 client=client,
+                ip_address=ip_address,
             )
 
         def _do_log_activity():
@@ -877,6 +901,7 @@ def log_activity(
                 activity=log.activity,
                 detail=log.detail,
                 client=log.client,
+                ip_address=log.ip_address,
             )
 
         if instance_only:
@@ -917,6 +942,7 @@ class LogActivityEntry(TypedDict, total=False):
     detail: Required[Detail]
     was_impersonated: Required[bool]
     client: Optional[str]
+    ip_address: Optional[str]
     force_save: bool
 
 

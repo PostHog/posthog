@@ -254,11 +254,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         {!featureFlag.is_remote_configuration && (
                             <>
                                 <SceneDivider />
-                                {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
-                                {featureFlag.filters.super_groups && featureFlag.filters.super_groups.length > 0 && (
-                                    <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
-                                )}
-
                                 <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
 
                                 <SceneDivider />
@@ -323,9 +318,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         label: (
             <div className="flex flex-row">
                 <div>Experiments</div>
-                <LemonTag className="ml-2 float-right uppercase" type="primary">
-                    New
-                </LemonTag>
             </div>
         ),
         key: FeatureFlagsTab.EXPERIMENTS,

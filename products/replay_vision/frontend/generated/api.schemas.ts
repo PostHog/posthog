@@ -12,6 +12,7 @@
  * `running` - Running
  * `succeeded` - Succeeded
  * `failed` - Failed
+ * `ineligible` - Ineligible
  */
 export type ObservationStatusEnumApi = (typeof ObservationStatusEnumApi)[keyof typeof ObservationStatusEnumApi]
 
@@ -20,6 +21,7 @@ export const ObservationStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
+    Ineligible: 'ineligible',
 } as const
 
 /**
@@ -27,7 +29,6 @@ export const ObservationStatusEnumApi = {
  * `classifier` - Classifier
  * `scorer` - Scorer
  * `summarizer` - Summarizer
- * `indexer` - Indexer
  */
 export type ScannerTypeEnumApi = (typeof ScannerTypeEnumApi)[keyof typeof ScannerTypeEnumApi]
 
@@ -36,7 +37,6 @@ export const ScannerTypeEnumApi = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
-    Indexer: 'indexer',
 } as const
 
 /**
@@ -65,13 +65,12 @@ export const ScannerProviderEnumApi = {
 export interface ScannerSnapshotApi {
     /** Scanner name at run time. */
     name: string
-    /** Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.
+    /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
@@ -91,11 +90,6 @@ export interface ScannerSnapshotApi {
 }
 
 /**
- * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
- */
-export type ScannerResultApiEventIdMapping = { [key: string]: unknown }
-
-/**
  * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
  */
 export interface ScannerResultApi {
@@ -106,8 +100,6 @@ export interface ScannerResultApi {
      * @minimum 0
      */
     signals_count: number
-    /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
-    event_id_mapping: ScannerResultApiEventIdMapping
 }
 
 /**
@@ -182,14 +174,15 @@ export interface ReplayObservationApi {
     readonly scanner_id: string
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
-    /** Observation status (pending, running, succeeded, failed).
+    /** Observation status (pending, running, succeeded, failed, ineligible).
 
   * `pending` - Pending
   * `running` - Running
   * `succeeded` - Succeeded
-  * `failed` - Failed */
+  * `failed` - Failed
+  * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on failure; includes the malformed model response when validation fails. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -220,6 +213,21 @@ export interface PaginatedReplayObservationListApi {
     results: ReplayObservationApi[]
 }
 
+export interface VisionQuotaApi {
+    /** Total observations the org may complete per calendar month. */
+    readonly monthly_quota: number
+    /** Observations created this month that are in flight or have succeeded, counted against the quota. */
+    readonly usage_this_month: number
+    /** `monthly_quota - usage_this_month`, floored at 0. */
+    readonly remaining: number
+    /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+    readonly exhausted: boolean
+    /** First moment of the current quota period (UTC). */
+    readonly period_start: string
+    /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+    readonly period_end: string
+}
+
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -229,15 +237,14 @@ export interface ReplayScannerApi {
     name: string
     /** Free-form description shown in the scanner management UI. */
     description?: string
-    /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+    /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
-    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -288,15 +295,14 @@ export interface PatchedReplayScannerApi {
     name?: string
     /** Free-form description shown in the scanner management UI. */
     description?: string
-    /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+    /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
-    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -348,6 +354,34 @@ export interface ObserveResponseApi {
     workflow_id: string
 }
 
+/**
+ * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
+ */
+export interface EstimateRequestApi {
+    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+    query?: unknown
+    /**
+     * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+/**
+ * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+ */
+export interface EstimateResponseApi {
+    /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+    matched_sessions_in_window: number
+    /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+    window_days: number
+    /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+    estimated_observations_per_month: number
+    /** Sampling rate applied to the projection. Echoed from the request. */
+    sampling_rate: number
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -357,6 +391,10 @@ export type VisionObservationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
      * Session recording id to return observations for.
      */
@@ -381,26 +419,16 @@ export type VisionScannersListParams = {
      */
     offset?: number
     /**
- * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-* `name` - Name
-* `-name` - Name (descending)
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `updated_at` - Updated at
-* `-updated_at` - Updated at (descending)
-* `scanner_type` - Scanner type
-* `-scanner_type` - Scanner type (descending)
- */
-    order_by?: string[]
+     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
- * Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).
+ * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
 * `monitor` - Monitor
 * `classifier` - Classifier
 * `scorer` - Scorer
 * `summarizer` - Summarizer
-* `indexer` - Indexer
  */
     scanner_type?: VisionScannersListScannerType
 }
@@ -410,7 +438,6 @@ export type VisionScannersListScannerType =
 
 export const VisionScannersListScannerType = {
     Classifier: 'classifier',
-    Indexer: 'indexer',
     Monitor: 'monitor',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
@@ -426,18 +453,9 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
- * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `started_at` - Started at
-* `-started_at` - Started at (descending)
-* `completed_at` - Completed at
-* `-completed_at` - Completed at (descending)
-* `status` - Status
-* `-status` - Status (descending)
- */
-    order_by?: string[]
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
      * Filter to observations of a specific session recording.
      */
@@ -449,6 +467,7 @@ export type VisionScannersObservationsListParams = {
 * `running` - Running
 * `succeeded` - Succeeded
 * `failed` - Failed
+* `ineligible` - Ineligible
  */
     status?: VisionScannersObservationsListStatus
     /**
@@ -465,6 +484,7 @@ export type VisionScannersObservationsListStatus =
 
 export const VisionScannersObservationsListStatus = {
     Failed: 'failed',
+    Ineligible: 'ineligible',
     Pending: 'pending',
     Running: 'running',
     Succeeded: 'succeeded',

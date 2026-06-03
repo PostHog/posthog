@@ -50,6 +50,7 @@ from posthog.models.utils import (
     mask_key_value,
 )
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
@@ -292,10 +293,11 @@ def account_requests(request: Request) -> Response:
     # --- Identify partner ---
     auth = ProvisioningAuthentication()
     partner = None
+    authenticated_user = None
     try:
         result = auth.authenticate(request)
         if result:
-            _, partner = result
+            authenticated_user, partner = result
     except AuthenticationFailed:
         return Response(
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
@@ -434,11 +436,59 @@ def account_requests(request: Request) -> Response:
             partner,
             code_challenge,
             code_challenge_method,
+            authenticated_user,
         )
 
     return _handle_new_user(
-        request_id, data, email, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
+        request_id,
+        data,
+        email,
+        scopes,
+        partner_account_id,
+        region,
+        partner,
+        code_challenge,
+        code_challenge_method,
+        authenticated_user,
     )
+
+
+def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplication) -> bool:
+    """True if the user has any live OAuth credential issued to this partner.
+
+    "Live" = unexpired access token or non-revoked refresh token. PersonalAPIKey has no
+    partner attribution today, so it's excluded from this check; in practice PATs are
+    minted alongside OAuth tokens at provisioning time, so the OAuth-only check matches.
+    """
+    now = timezone.now()
+    if OAuthAccessToken.objects.filter(user=user, application=partner, expires__gt=now).exists():
+        return True
+    if OAuthRefreshToken.objects.filter(user=user, application=partner, revoked__isnull=True).exists():
+        return True
+    return False
+
+
+def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
+    """True only when the caller proved a prior trust relationship with this user.
+
+    This is what lets a skip-consent partner re-mint silently after the user has reviewed
+    their credentials. The proof differs by auth method:
+
+    - HMAC callers authenticate with a partner-level secret, so the partner already holding
+      a live OAuth credential for the user is sufficient proof of an existing relationship.
+    - Bearer callers present a single user-scoped access token. That token proves a
+      relationship only with its own user, so it qualifies only when it belongs to the user
+      being re-linked — otherwise any user of the partner could ride another user's live
+      credential to mint a code for that account.
+    - PKCE callers are public: the partner is identified solely by a client_id that anyone
+      can send, so the request carries no proof the caller controls the partner. The "user
+      already holds a live credential" signal proves nothing, so these never qualify.
+    """
+    if partner.provisioning_auth_method == "hmac":
+        return _user_has_existing_credentials_from_partner(user, partner)
+    if partner.provisioning_auth_method == "bearer":
+        return authenticated_user is not None and authenticated_user.id == user.id
+    return False
 
 
 def _handle_existing_user(
@@ -452,8 +502,28 @@ def _handle_existing_user(
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
+    authenticated_user: User | None = None,
 ) -> Response:
-    if partner and not partner.provisioning_skip_existing_user_consent:
+    # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
+    # skip_existing_user_consent=True can only mint silently when the caller proved a prior
+    # trust relationship with this user (see _caller_proved_existing_trust). Otherwise we
+    # fall through to consent.
+    silent_blocked_post_review = (
+        partner is not None
+        and partner.provisioning_skip_existing_user_consent
+        and user.credentials_reviewed_at is not None
+        and not _caller_proved_existing_trust(partner, user, authenticated_user)
+    )
+
+    if silent_blocked_post_review:
+        assert partner is not None  # implied by silent_blocked_post_review
+        _capture_provisioning_event(
+            "account_request",
+            "silent_blocked_post_review",
+            partner_id=str(partner.id),
+        )
+
+    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked_post_review):
         if not code_challenge:
             return Response(
                 {
@@ -463,20 +533,22 @@ def _handle_existing_user(
                 },
                 status=400,
             )
-        validated_scopes = _validate_scopes(scopes)
-        if validated_scopes is None:
+        if not scopes_within_ceiling(scopes, partner.scopes):
             return Response(
                 {
                     "id": request_id,
                     "type": "error",
-                    "error": {"code": "invalid_scope", "message": "One or more requested scopes are not recognized"},
+                    "error": {
+                        "code": "invalid_scope",
+                        "message": "One or more requested scopes exceed the application's allowed scopes",
+                    },
                 },
                 status=400,
             )
         return _require_user_consent(
             request_id,
             user,
-            validated_scopes,
+            scopes,
             partner_account_id,
             region,
             partner,
@@ -608,6 +680,7 @@ def _handle_new_user(
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
+    authenticated_user: User | None = None,
 ) -> Response:
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
@@ -641,6 +714,7 @@ def _handle_new_user(
                 partner,
                 code_challenge,
                 code_challenge_method,
+                authenticated_user,
             )
         _capture_provisioning_event("account_request", "creation_failed", region=region)
         return Response(
@@ -652,7 +726,13 @@ def _handle_new_user(
             status=500,
         )
 
-    _capture_provisioning_event("account_request", "new_user", region=region)
+    _capture_provisioning_event(
+        "account_request",
+        "new_user",
+        region=region,
+        team_id=team.id,
+        partner_id=str(partner.id) if partner else None,
+    )
 
     try:
         reset_token = password_reset_token_generator.make_token(user)
@@ -980,7 +1060,21 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     # Use partner's OAuth app if available, fall back to Stripe
     oauth_app = _get_oauth_app_for_code(code_data)
-    scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
+
+    # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
+    # ceiling has to be enforced here before the token is created by hand.
+    requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
+    app_scopes = oauth_app.scopes if oauth_app else []
+    if not scopes_within_ceiling(requested_scopes, app_scopes):
+        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
+        return Response(
+            {
+                "error": "invalid_scope",
+                "error_description": "Requested scopes exceed the application's allowed scopes",
+            },
+            status=400,
+        )
+    scope_str = " ".join(requested_scopes)
 
     token_expiry = (
         PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
@@ -1042,6 +1136,23 @@ def _exchange_refresh_token(request: Request) -> Response:
     scoped_teams = old_refresh.scoped_teams
     old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
+    # Cap the refreshed scope at the app's current ceiling before touching any
+    # token rows — a since-tightened ceiling must drop the removed scopes, and a
+    # token now fully outside the ceiling has to re-authorize rather than refresh.
+    # Done up front so a rejected refresh never revokes the caller's only token.
+    app_scopes = oauth_app.scopes if oauth_app else []
+    narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
+    if narrowed_scopes is None:
+        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
+        return Response(
+            {
+                "error": "invalid_grant",
+                "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
+            },
+            status=400,
+        )
+    new_scope = " ".join(narrowed_scopes)
+
     # provisioning_partner_type is a stable marker set at partner registration;
     # checking it instead of is_provisioning_partner prevents a bypass when an admin
     # clears provisioning_auth_method to disable a partner without revoking tokens.
@@ -1067,7 +1178,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         token=new_access_value,
         user=user,
         expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=old_scope,
+        scope=new_scope,
         scoped_teams=scoped_teams,
     )
 
@@ -2097,38 +2208,6 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     if request.headers.get("stripe-signature"):
         return verify_provisioning_signature(request)
     return None
-
-
-ALLOWED_PROVISIONING_SCOPES = {
-    "customer_journey:read",
-    "dashboard:write",
-    "query:read",
-    "conversation:read",
-    "conversation:write",
-    "experiment:read",
-    "feature_flag:read",
-    "insight:read",
-    "insight:write",
-    "llm_gateway:read",
-    "organization:read",
-    "person:read",
-    "project:read",
-    "ticket:read",
-    "ticket:write",
-    "user:read",
-    "hog_flow:read",
-    "hog_flow:write",
-}
-
-
-def _validate_scopes(scopes: list[str]) -> list[str] | None:
-    """Validate scopes against the allowlist. Returns filtered scopes or None if any are invalid."""
-    if not scopes:
-        return scopes
-    for scope in scopes:
-        if scope not in ALLOWED_PROVISIONING_SCOPES:
-            return None
-    return scopes
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:

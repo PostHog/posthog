@@ -132,6 +132,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "AsyncDeletion",
         "AsyncMigration",
         "AsyncMigrationError",
+        # Outbound email delivery queue — looked up by PK / comment FK from internal
+        # tasks (send + sweeper), never by user-supplied ID through an API.
+        "EmailOutboxMessage",
         "InsightCachingState",
         "InstanceSetting",
         "Schedule",
@@ -166,6 +169,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamDefaultEvaluationContext",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         "TeamJsSnippetConfig",
@@ -326,6 +330,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
         "SlackUserProfileCache",  # via Integration
+        "SlackSettings",  # via Integration
     }
 
     team_scoped: set[str] = set()

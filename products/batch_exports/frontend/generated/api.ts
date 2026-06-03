@@ -18,14 +18,20 @@ import type {
     BatchExportsLogsRetrieveParams,
     BatchExportsRunsListParams,
     BatchExportsRunsLogsRetrieveParams,
+    BatchImportApi,
     CreateFileDownloadRequestApi,
     CreateOutputApi,
     FileDownloadBatchExportOnDemandApi,
+    FileDownloadBatchExportsListParams,
     FileDownloadBatchExportsLogsRetrieveParams,
+    ManagedMigrationsListParams,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
+    PaginatedBatchImportListApi,
+    PaginatedListOutputListApi,
     PatchedBatchExportRequestApi,
+    PatchedBatchImportApi,
     RetrieveFileDownloadResponseApi,
 } from './api.schemas'
 
@@ -505,6 +511,33 @@ export const batchExportsTestRetrieve = async (projectId: string, options?: Requ
     })
 }
 
+export const getFileDownloadBatchExportsListUrl = (projectId: string, params?: FileDownloadBatchExportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_download_batch_exports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_download_batch_exports/`
+}
+
+export const fileDownloadBatchExportsList = async (
+    projectId: string,
+    params?: FileDownloadBatchExportsListParams,
+    options?: RequestInit
+): Promise<PaginatedListOutputListApi> => {
+    return apiMutator<PaginatedListOutputListApi>(getFileDownloadBatchExportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getFileDownloadBatchExportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_download_batch_exports/`
 }
@@ -530,7 +563,7 @@ export const getFileDownloadBatchExportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Get a run of a batch export on demand.
+ * Get a batch export on demand run.
 
 If the underlying batch export run has completed, we return keys to the
 generated file downloads so that users may download them by making a request
@@ -623,5 +656,171 @@ export const fileDownloadBatchExportsLogsRetrieve = async (
     return apiMutator<void>(getFileDownloadBatchExportsLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getManagedMigrationsListUrl = (projectId: string, params?: ManagedMigrationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/managed_migrations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/managed_migrations/`
+}
+
+/**
+ * List managed migrations using the response serializer
+ */
+export const managedMigrationsList = async (
+    projectId: string,
+    params?: ManagedMigrationsListParams,
+    options?: RequestInit
+): Promise<PaginatedBatchImportListApi> => {
+    return apiMutator<PaginatedBatchImportListApi>(getManagedMigrationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedMigrationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_migrations/`
+}
+
+/**
+ * Create a new managed migration/batch import.
+ */
+export const managedMigrationsCreate = async (
+    projectId: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
+
+export const getManagedMigrationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedMigrationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsUpdate = async (
+    projectId: string,
+    id: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
+
+export const getManagedMigrationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedBatchImportApi?: NonReadonly<PatchedBatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedBatchImportApi),
+    })
+}
+
+export const getManagedMigrationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getManagedMigrationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getManagedMigrationsPauseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/pause/`
+}
+
+/**
+ * Pause a running batch import.
+ */
+export const managedMigrationsPauseCreate = async (
+    projectId: string,
+    id: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsPauseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
+
+export const getManagedMigrationsResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/resume/`
+}
+
+/**
+ * Resume a paused batch import.
+ */
+export const managedMigrationsResumeCreate = async (
+    projectId: string,
+    id: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
     })
 }

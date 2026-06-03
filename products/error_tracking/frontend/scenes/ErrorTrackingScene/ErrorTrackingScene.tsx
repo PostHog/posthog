@@ -32,6 +32,7 @@ import {
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
+import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
@@ -50,6 +51,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
+    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -72,14 +74,15 @@ export function ErrorTrackingScene(): JSX.Element {
             key: 'issues',
             label: 'Issues',
             content: (
-                <>
+                <ErrorTrackingSetupPrompt>
                     <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
                     <div className="border rounded bg-surface-primary p-2">
                         <IssuesFilters />
                     </div>
                     <IssuesList />
-                </>
+                </ErrorTrackingSetupPrompt>
             ),
         },
         {
@@ -117,17 +120,10 @@ export function ErrorTrackingScene(): JSX.Element {
         <StyleVariables>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
                 <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
-                    <ErrorTrackingSetupPrompt>
-                        <SceneContent>
-                            <Header />
-                            <LemonTabs
-                                activeKey={activeTab}
-                                onChange={(key) => setActiveTab(key)}
-                                tabs={tabs}
-                                sceneInset
-                            />
-                        </SceneContent>
-                    </ErrorTrackingSetupPrompt>
+                    <SceneContent>
+                        <Header />
+                        <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} sceneInset />
+                    </SceneContent>
                 </BindLogic>
             </BindLogic>
         </StyleVariables>
