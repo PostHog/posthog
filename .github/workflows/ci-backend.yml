@@ -280,6 +280,7 @@ jobs:
                   BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
+                  # Space-separated, double-quoted, single line — parsed by the guard test.
                   coupled="common postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
@@ -291,12 +292,9 @@ jobs:
                           esac
                           rest=${f#"$prefix"}    # path within sources/
                           top=${rest%%/*}        # vendor dir (or top-level filename)
-                          for c in $coupled; do
-                              if [ "$top" = "$c" ]; then
-                                  only_sources=false
-                                  break 2
-                              fi
-                          done
+                          case " $coupled " in
+                              *" $top "*) only_sources=false; break ;;
+                          esac
                       done
                   fi
                   echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"

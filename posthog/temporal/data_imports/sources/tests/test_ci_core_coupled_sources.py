@@ -9,12 +9,15 @@ from pathlib import Path
 # gains a runtime import of a source missing from that list — which would otherwise let a
 # sources-only PR silently skip the Core test that exercises it.
 
+# Only leaf imports (sources.<vendor>...) are counted. A bare
+# `from ...sources import SourceRegistry / load_all_sources` is intentionally NOT flagged:
+# the registry is lazy, so importing it loads no vendor module — only calling
+# load_all_sources() does (at worker boot), which the Temporal registry-load test covers.
 SOURCES_PKG = "posthog.temporal.data_imports.sources."
 
 # Roots collected by the Django Core/CorePOE segments. posthog/temporal is excluded — it is
 # the Temporal segment, which always runs for a sources-only PR.
 _SCAN_ROOTS = ("posthog", "ee", "products/product_analytics")
-_EXCLUDED_SUBTREE = ("posthog", "temporal")
 
 
 def _repo_root() -> Path:
@@ -63,12 +66,14 @@ def _workflow_coupled(root: Path) -> set[str]:
     text = (root / ".github" / "workflows" / "ci-backend.yml").read_text()
     match = re.search(r'coupled="([^"]*)"', text)
     assert match, 'could not find `coupled="..."` in ci-backend.yml sources step'
-    return set(match.group(1).split())
+    coupled = set(match.group(1).split())
+    assert coupled, "parsed an empty `coupled` list from ci-backend.yml"
+    return coupled
 
 
 def test_core_coupled_sources_are_excluded_from_ci_trim():
     root = _repo_root()
-    excluded = root.joinpath(*_EXCLUDED_SUBTREE).resolve()
+    excluded = root / "posthog" / "temporal"  # the Temporal segment; always runs
 
     imported: set[str] = set()
     for rel in _SCAN_ROOTS:
@@ -76,8 +81,7 @@ def test_core_coupled_sources_are_excluded_from_ci_trim():
         if not base.exists():
             continue
         for file in base.rglob("*.py"):
-            resolved = file.resolve()
-            if resolved == excluded or excluded in resolved.parents:
+            if file.is_relative_to(excluded):
                 continue
             text = file.read_text(errors="ignore")
             if "data_imports.sources" not in text:
