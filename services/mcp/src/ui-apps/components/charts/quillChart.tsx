@@ -23,6 +23,9 @@ export function buildMcpChartTheme(): ChartTheme {
         backgroundColor: readVar(styles, '--color-background-primary', '#ffffff'),
         axisColor: readVar(styles, '--color-text-secondary', '#6b7280'),
         gridColor: readVar(styles, '--color-border-primary', '#e5e7eb'),
+        crosshairColor: 'rgba(128, 128, 128, 0.5)',
+        tooltipBackground: readVar(styles, '--color-background-secondary', '#f9fafb'),
+        tooltipColor: readVar(styles, '--color-text-primary', '#101828'),
     }
 }
 

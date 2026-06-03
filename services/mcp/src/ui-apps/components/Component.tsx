@@ -203,6 +203,7 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 interface DataPayload {
     query?: TrendsQuery | FunnelsQuery | LifecycleQuery | RetentionQuery | PathsQuery | Record<string, unknown>
     results: TrendsResult | FunnelResult | LifecycleResult | RetentionResult | PathsResult | HogQLResult
+    timezone?: string
     _posthogUrl?: string
 }
 
@@ -238,7 +239,11 @@ export function Component({ data }: ComponentProps): ReactElement {
         switch (visualizationType) {
             case 'trends':
                 return (
-                    <TrendsVisualizer query={payload.query as TrendsQuery} results={payload.results as TrendsResult} />
+                    <TrendsVisualizer
+                        query={payload.query as TrendsQuery}
+                        results={payload.results as TrendsResult}
+                        timezone={payload.timezone}
+                    />
                 )
 
             case 'funnel':
@@ -290,6 +295,17 @@ export function Component({ data }: ComponentProps): ReactElement {
             default:
                 return 'Results'
         }
+    }
+
+    // Trends owns its own header row (title + chart-type select + Options) so the
+    // controls sit beside the title instead of below it. Other visualizers still get
+    // the standard title block.
+    if (visualizationType === 'trends') {
+        return (
+            <Card>
+                <CardContent>{renderVisualization()}</CardContent>
+            </Card>
+        )
     }
 
     return (

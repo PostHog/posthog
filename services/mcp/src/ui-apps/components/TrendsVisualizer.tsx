@@ -1,48 +1,32 @@
-import { type ReactElement, useState } from 'react'
+import { type ReactElement, useEffect, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
-import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
-import type { TrendsResultItem, TrendsVisualizerProps } from './types'
+import { BigNumber, Select } from './charts'
+import { type ChartConfig, ChartSettings, loadChartConfig, saveChartConfig } from './ChartSettings'
+import { McpTrendsBarChart } from './McpTrendsBarChart'
+import { McpTrendsLineChart } from './McpTrendsLineChart'
+import type { ChartDisplayType, TrendsResultItem, TrendsVisualizerProps } from './types'
 import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
-type ChartMode = 'line' | 'bar'
+type ChartType = 'line' | 'area' | 'bar' | 'stacked-bar'
 
-const CHART_MODE_OPTIONS = [
+const CHART_TYPE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
+    { value: 'area' as const, label: 'Area' },
     { value: 'bar' as const, label: 'Bar' },
+    { value: 'stacked-bar' as const, label: 'Stacked bar' },
 ]
 
-function prepareChartData(results: TrendsResultItem[]): {
-    series: Series[]
-    labels: string[]
-    maxValue: number
-} {
-    if (!results || results.length === 0) {
-        return { series: [], labels: [], maxValue: 0 }
+function defaultChartType(displayType: ChartDisplayType): ChartType {
+    if (displayType === 'ActionsAreaGraph') {
+        return 'area'
     }
-
-    const labels = results[0]?.days || results[0]?.labels || []
-    let maxValue = 0
-
-    const series = results.map((item, seriesIndex) => {
-        const data = item.data || []
-        const points = data.map((value, i) => {
-            maxValue = Math.max(maxValue, value)
-            return {
-                x: i,
-                y: value,
-                label: labels[i] || `${i}`,
-            }
-        })
-        return {
-            label: getSeriesLabel(item, seriesIndex),
-            points,
-        }
-    })
-
-    return { series, labels, maxValue: maxValue || 1 }
+    if (isBarChart(displayType)) {
+        return 'bar'
+    }
+    return 'line'
 }
 
 function calculateTotal(results: TrendsResultItem[]): number {
@@ -60,12 +44,16 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
-export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
-    const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
-    const { series, labels, maxValue } = prepareChartData(results)
+    const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
+    const [chartConfig, setChartConfig] = useState<ChartConfig>(loadChartConfig)
 
-    if (!results || results.length === 0 || series.length === 0) {
+    useEffect(() => {
+        saveChartConfig(chartConfig)
+    }, [chartConfig])
+
+    if (!results || results.length === 0) {
         return (
             <Empty>
                 <EmptyHeader>
@@ -82,27 +70,54 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         return <BigNumber value={total} label={label} />
     }
 
+    const isBar = chartType === 'bar' || chartType === 'stacked-bar'
+    const chartFamily = isBar ? 'bar' : 'line'
+    // Area auto-stacks but derived overlays draw at raw per-series values, so they
+    // visually disconnect from the stacked totals. Mirror the web's pattern: disable
+    // those toggles in Options and force them off when rendering area mode.
+    const derivedSeriesDisabled = chartType === 'area'
+
     return (
         <div>
-            <div className="mb-2 flex justify-end">
-                {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
+            <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Trends</div>
+                <div className="flex items-center gap-2">
+                    {/* eslint-disable-next-line react/forbid-elements */}
+                    <Select value={chartType} onChange={setChartType} options={CHART_TYPE_OPTIONS} />
+                    <ChartSettings
+                        chartMode={chartFamily}
+                        config={chartConfig}
+                        onChange={setChartConfig}
+                        derivedSeriesDisabled={derivedSeriesDisabled}
+                    />
+                </div>
             </div>
-            {chartMode === 'bar' ? (
-                <BarChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
-            ) : (
-                <LineChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
-            )}
+            {/* Quill charts render on a flex:1 canvas — they need a sized flex-column parent. */}
+            <div className="flex flex-col" style={{ height: 320 }}>
+                {isBar ? (
+                    <McpTrendsBarChart
+                        results={results}
+                        interval={query?.interval}
+                        timezone={timezone}
+                        barLayout={chartType === 'stacked-bar' ? 'stacked' : 'grouped'}
+                        showValueLabels={chartConfig.showValueLabels}
+                        yUnit={chartConfig.yUnit}
+                    />
+                ) : (
+                    <McpTrendsLineChart
+                        results={results}
+                        interval={query?.interval}
+                        timezone={timezone}
+                        fillArea={chartType === 'area'}
+                        showTrendLine={chartConfig.showTrendLine && !derivedSeriesDisabled}
+                        showMovingAverage={chartConfig.showMovingAverage && !derivedSeriesDisabled}
+                        showValueLabels={chartConfig.showValueLabels}
+                        showConfidenceIntervals={chartConfig.showConfidenceIntervals && !derivedSeriesDisabled}
+                        percentStack={chartConfig.percentStack}
+                        yUnit={chartConfig.yUnit}
+                    />
+                )}
+            </div>
         </div>
     )
 }

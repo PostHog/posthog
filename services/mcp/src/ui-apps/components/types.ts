@@ -29,6 +29,8 @@ export interface TrendsFilter {
     aggregationAxisFormat?: 'numeric' | 'duration' | 'duration_ms' | 'percentage'
 }
 
+export type TrendsInterval = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
 export interface TrendsQuery {
     kind: 'TrendsQuery'
     trendsFilter?: TrendsFilter
@@ -37,6 +39,11 @@ export interface TrendsQuery {
         name?: string
         custom_name?: string
     }>
+    interval?: TrendsInterval
+    dateRange?: {
+        date_from?: string
+        date_to?: string
+    }
 }
 
 export interface FunnelsQuery {
@@ -176,6 +183,7 @@ export type PathsResult = PathsResultItem[]
 export interface TrendsPayload extends BasePayload {
     query: TrendsQuery
     results: TrendsResult
+    timezone?: string
 }
 
 export interface FunnelPayload extends BasePayload {
@@ -205,6 +213,7 @@ export interface RetentionPayload extends BasePayload {
 export interface TrendsVisualizerProps {
     query: TrendsQuery | undefined
     results: TrendsResult
+    timezone?: string | undefined
 }
 
 export interface FunnelVisualizerProps {
