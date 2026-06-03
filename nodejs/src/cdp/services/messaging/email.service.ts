@@ -138,7 +138,7 @@ export class EmailService {
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
                 distinct_id: distinctId,
-                event: success ? '$messaging_email_sent' : '$messaging_email_failed',
+                event: success ? '$workflows_email_sent' : '$workflows_email_failed',
                 properties: {
                     $workflow_id: invocation.functionId,
                     $email_to: params.to.email,

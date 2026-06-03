@@ -560,7 +560,7 @@ describe('EmailService', () => {
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
         })
 
-        it('should capture a $messaging_email_sent PostHog event on success', async () => {
+        it('should capture a $workflows_email_sent PostHog event on success', async () => {
             // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
                 true
@@ -572,7 +572,7 @@ describe('EmailService', () => {
             expect(result.capturedPostHogEvents[0]).toMatchObject({
                 team_id: team.id,
                 distinct_id: 'distinct_id',
-                event: '$messaging_email_sent',
+                event: '$workflows_email_sent',
                 properties: {
                     $workflow_id: invocation.functionId,
                     $email_to: 'test@example.com',
@@ -582,14 +582,14 @@ describe('EmailService', () => {
         })
 
         it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
-            // Default config has capture_messaging_engagement_events=false, so even on success no event is queued.
+            // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.capturedPostHogEvents).toHaveLength(0)
         })
 
-        it('should capture a $messaging_email_failed PostHog event on failure', async () => {
+        it('should capture a $workflows_email_failed PostHog event on failure', async () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
                 true
             )
@@ -598,7 +598,7 @@ describe('EmailService', () => {
             expect(result.error).toBeDefined()
             expect(result.capturedPostHogEvents).toHaveLength(1)
             expect(result.capturedPostHogEvents[0]).toMatchObject({
-                event: '$messaging_email_failed',
+                event: '$workflows_email_failed',
                 distinct_id: 'distinct_id',
             })
         })

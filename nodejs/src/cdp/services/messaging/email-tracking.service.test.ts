@@ -170,13 +170,13 @@ describe('EmailTrackingService', () => {
             // Adding entries here changes the set of events customers can build insights on top of —
             // treat as a public-API change. Removing entries leaves customers with broken insights.
             expect(METRIC_NAME_TO_EVENT_NAME).toEqual({
-                email_sent: '$messaging_email_sent',
-                email_failed: '$messaging_email_failed',
-                email_delivered: '$messaging_email_delivered',
-                email_opened: '$messaging_email_opened',
-                email_link_clicked: '$messaging_email_link_clicked',
-                email_bounced: '$messaging_email_bounced',
-                email_blocked: '$messaging_email_blocked',
+                email_sent: '$workflows_email_sent',
+                email_failed: '$workflows_email_failed',
+                email_delivered: '$workflows_email_delivered',
+                email_opened: '$workflows_email_opened',
+                email_link_clicked: '$workflows_email_link_clicked',
+                email_bounced: '$workflows_email_bounced',
+                email_blocked: '$workflows_email_blocked',
             })
         })
     })
