@@ -426,18 +426,14 @@ function buildSqlExamplesFromEvents(topEvents: string[]): string[] {
         return []
     }
 
-    const [first, second, third] = owned
-    const examples: string[] = [
-        `"How many users triggered ${backtick(first)} yesterday?"`,
-        second ? `"What's the trend of ${backtick(second)} over the last 30 days?"` : undefined,
-        third
-            ? `"Funnel: ${backtick(first)} → ${backtick(second)} → ${backtick(third)}"`
-            : second
-              ? `"Funnel: ${backtick(first)} → ${backtick(second)}"`
-              : undefined,
-    ].filter(Boolean) as string[]
+    const [first, second] = owned
+    const funnelSteps = owned.map(backtick).join(' → ')
 
-    return examples
+    return [
+        `"How many users triggered ${backtick(first)} yesterday?"`,
+        second && `"What's the trend of ${backtick(second)} over the last 30 days?"`,
+        owned.length >= 2 && `"Funnel: ${funnelSteps}"`,
+    ].filter(Boolean) as string[]
 }
 
 export function getSurfacePrompts(surfaceKey: SurfaceKey, options: ResolveOptions = {}): SurfacePrompts {
