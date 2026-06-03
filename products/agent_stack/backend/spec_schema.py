@@ -90,13 +90,30 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "type": "object",
                         "properties": {
                             "type": {"type": "string", "const": "cron"},
+                            # Mirror of the node cron config (services/agent-shared
+                            # spec.ts, added by the cron scheduler PR #61028). The
+                            # upstream Django mirror lagged at {schedule, timezone};
+                            # synced here so cron-triggered agents validate.
                             "config": {
                                 "type": "object",
                                 "properties": {
-                                    "schedule": {"type": "string"},
+                                    "name": {"type": "string", "minLength": 1},
+                                    "schedule": {"type": "string", "minLength": 1},
                                     "timezone": {"default": "UTC", "type": "string"},
+                                    "prompt": {"type": "string", "minLength": 1, "maxLength": 4096},
+                                    "external_key": {"type": "string"},
+                                    "catch_up": {
+                                        "enum": ["all", "most_recent", "skip"],
+                                        "default": "most_recent",
+                                    },
+                                    "max_catch_up_age_seconds": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 604800,
+                                        "default": 3600,
+                                    },
                                 },
-                                "required": ["schedule", "timezone"],
+                                "required": ["name", "schedule", "prompt"],
                                 "additionalProperties": False,
                             },
                         },

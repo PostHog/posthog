@@ -9,7 +9,7 @@
  *     reaps stuck rows here.
  *
  * Bundle storage: S3-backed via `S3BundleStore` (AGENT_BUNDLE_S3_BUCKET +
- * endpoint required at boot). Dev runs MinIO; prod uses real S3 with the
+ * endpoint required at boot). Dev runs SeaweedFS; prod uses real S3 with the
  * pod's IRSA role for credentials. `FsBundleStore` is kept around for the
  * agent-tests harness only.
  *
@@ -46,8 +46,8 @@ async function main(): Promise<void> {
     // S3 bundle storage is required — the authoring API publishes new
     // revisions through this store. Fail-fast at boot rather than 503-ing
     // every bundle CRUD call individually. Endpoint is optional — unset
-    // means "use the AWS SDK's regional default" (prod path); MinIO in dev
-    // sets it explicitly.
+    // means "use the AWS SDK's regional default" (prod path); SeaweedFS in
+    // dev sets it explicitly.
     if (!config.bundleS3Bucket) {
         throw new Error(
             'AGENT_BUNDLE_S3_BUCKET must be set — the janitor cannot serve bundle endpoints without storage.'
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
     }
     // S3-backed memory store. Unset bucket/endpoint disables the
     // /memory/* endpoints (503), keeping local dev that hasn't wired
-    // MinIO bootable.
+    // SeaweedFS bootable.
     let memoryStore: MemoryStore | undefined
     if (config.memoryS3Bucket && config.memoryS3Endpoint) {
         const s3 = new S3Client({

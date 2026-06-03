@@ -1,8 +1,8 @@
 /**
- * Janitor /memory/* HTTP routes against real S3 (MinIO in dev).
+ * Janitor /memory/* HTTP routes against real S3 (SeaweedFS in dev).
  *
- * No skip-if-unreachable — memory is core platform infra. Bring up MinIO
- * (`hogli start` / `docker compose up objectstorage`) before running.
+ * No skip-if-unreachable — memory is core platform infra. Bring up SeaweedFS
+ * (`hogli start` / `docker compose up seaweedfs`) before running.
  *
  * Per-suite unique prefix isolates from siblings; afterEach wipes the
  * prefix so individual test cases don't see each other's writes.
@@ -52,7 +52,7 @@ describe('janitor /memory/* — store not configured', () => {
     })
 })
 
-describe('janitor /memory/* — real S3 / MinIO', () => {
+describe('janitor /memory/* — real S3 / SeaweedFS', () => {
     let client: S3Client
     let store: S3MemoryStore
     let prefix: string

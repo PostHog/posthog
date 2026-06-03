@@ -11,7 +11,7 @@
  * Two impls:
  *   - InMemoryMemoryStore — Map-backed. Used by tests + dev when no bucket
  *     is configured.
- *   - S3MemoryStore — talks to S3 / MinIO via @aws-sdk/client-s3.
+ *   - S3MemoryStore — talks to S3 / SeaweedFS via @aws-sdk/client-s3.
  */
 
 import { MemoryFrontmatter } from './format'

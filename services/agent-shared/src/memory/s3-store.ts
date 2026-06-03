@@ -1,7 +1,8 @@
 /**
  * S3-backed MemoryStore.
  *
- * Talks to a real S3 endpoint OR a MinIO instance (with `forcePathStyle: true`).
+ * Talks to a real S3 endpoint OR an S3-compatible local store like SeaweedFS
+ * (with `forcePathStyle: true`).
  * Keys live at `<bucketPrefix>/team/<team_id>/agent/<application_slug>/<path>.md`.
  *
  * Why the readHeader Range-GET: `search` ranks across N candidate files but

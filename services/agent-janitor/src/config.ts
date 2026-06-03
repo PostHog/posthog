@@ -12,9 +12,26 @@
 
 import { z } from 'zod'
 
-import { extendEnvKeyMap, loadConfigFromEnv, PLATFORM_ENV_KEY_MAP, PlatformConfigSchema } from '@posthog/agent-shared'
+import {
+    extendEnvKeyMap,
+    isDev,
+    loadConfigFromEnv,
+    PLATFORM_ENV_KEY_MAP,
+    PlatformConfigSchema,
+} from '@posthog/agent-shared'
 
 const ONE_MINUTE_MS = 60_000
+
+// Dev SeaweedFS defaults — the PostHog dev stack pre-creates the `posthog`
+// bucket on `seaweedfs:8333`. Matches the same defaults session-replay v2
+// uses (`SESSION_RECORDING_V2_S3_*`). SeaweedFS S3 runs in anonymous mode,
+// so the access/secret keys are placeholders (`any`). Gated by `isDev()`
+// so prod (NODE_ENV=production) still has to set AGENT_{MEMORY,BUNDLE}_S3_*
+// explicitly; without them the bundle-store fail-fast in index.ts trips.
+const DEV_S3_ENDPOINT = 'http://localhost:8333'
+const DEV_S3_BUCKET = 'posthog'
+const DEV_S3_ACCESS_KEY_ID = 'any'
+const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
     port: z.coerce.number().int().positive().default(8082).describe('HTTP listen port.'),
@@ -66,41 +83,72 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .string()
         .url()
         .optional()
-        .describe('S3 / MinIO endpoint for memory file storage. Unset disables the /memory/* routes (503).'),
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_ENDPOINT : undefined))
+        .describe(
+            'S3-compatible endpoint for memory file storage. Dev defaults to local SeaweedFS; prod unset disables the /memory/* routes (503).'
+        ),
     memoryS3Region: z.string().default('us-east-1').describe('Region for the memory bucket.'),
-    memoryS3Bucket: z.string().optional().describe('Bucket holding agent memory files.'),
+    memoryS3Bucket: z
+        .string()
+        .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_BUCKET : undefined))
+        .describe('Bucket holding agent memory files. Dev defaults to the SeaweedFS `posthog` bucket.'),
     memoryS3Prefix: z.string().default('agent_memory').describe('Per-deployment key prefix inside the bucket.'),
     memoryS3AccessKeyId: z
         .string()
         .optional()
-        .describe('Optional explicit access key id; falls back to SDK default chain.'),
-    memoryS3SecretAccessKey: z.string().optional().describe('Optional explicit secret access key.'),
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_ACCESS_KEY_ID : undefined))
+        .describe(
+            'Optional explicit access key id; falls back to SDK default chain. Dev defaults to SeaweedFS anonymous (`any`/`any`).'
+        ),
+    memoryS3SecretAccessKey: z
+        .string()
+        .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_SECRET_ACCESS_KEY : undefined))
+        .describe('Optional explicit secret access key. Dev defaults to SeaweedFS anonymous (`any`/`any`).'),
     memoryS3ForcePathStyle: z
         .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
         .default('1')
         .transform((v) => v === '1' || v === 'true')
-        .describe('forcePathStyle for the S3 client. Default true (MinIO needs it).'),
+        .describe(
+            'forcePathStyle for the S3 client. Default true (SeaweedFS + MinIO both need it; real S3 accepts it).'
+        ),
     bundleS3Endpoint: z
         .string()
         .url()
         .optional()
-        .describe('S3 / MinIO endpoint for agent-bundle storage. Unset disables the bundle CRUD endpoints.'),
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_ENDPOINT : undefined))
+        .describe(
+            'S3-compatible endpoint for agent-bundle storage. Dev defaults to local SeaweedFS; prod unset means SDK regional default.'
+        ),
     bundleS3Region: z.string().default('us-east-1').describe('Region for the bundle bucket.'),
     bundleS3Bucket: z
         .string()
         .optional()
-        .describe('Bucket holding agent bundles (per-revision compiled code + spec + skills).'),
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_BUCKET : undefined))
+        .describe(
+            'Bucket holding agent bundles (per-revision compiled code + spec + skills). Dev defaults to the SeaweedFS `posthog` bucket; prod must set explicitly or the janitor fails closed at boot.'
+        ),
     bundleS3Prefix: z.string().default('agent_bundles').describe('Per-deployment key prefix inside the bucket.'),
     bundleS3AccessKeyId: z
         .string()
         .optional()
-        .describe('Optional explicit access key id; falls back to SDK default chain.'),
-    bundleS3SecretAccessKey: z.string().optional().describe('Optional explicit secret access key.'),
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_ACCESS_KEY_ID : undefined))
+        .describe(
+            'Optional explicit access key id; falls back to SDK default chain. Dev defaults to SeaweedFS anonymous (`any`/`any`).'
+        ),
+    bundleS3SecretAccessKey: z
+        .string()
+        .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_SECRET_ACCESS_KEY : undefined))
+        .describe('Optional explicit secret access key. Dev defaults to SeaweedFS anonymous (`any`/`any`).'),
     bundleS3ForcePathStyle: z
         .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
         .default('1')
         .transform((v) => v === '1' || v === 'true')
-        .describe('forcePathStyle for the S3 client. Default true (MinIO needs it).'),
+        .describe(
+            'forcePathStyle for the S3 client. Default true (SeaweedFS + MinIO both need it; real S3 accepts it).'
+        ),
 })
 
 export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>

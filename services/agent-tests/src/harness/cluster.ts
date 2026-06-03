@@ -84,7 +84,7 @@ export interface Cluster {
     sandboxInstances: PgSandboxInstanceStore
     broker: SecretBroker
     /**
-     * Real S3MemoryStore (MinIO in dev) wired through to ToolContext for the
+     * Real S3MemoryStore (SeaweedFS in dev) wired through to ToolContext for the
      * `@posthog/memory-*` tools. Per-cluster random prefix isolates concurrent
      * tests; teardown wipes the prefix.
      */
@@ -209,8 +209,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const credentialBroker = new PgCredentialBroker(pool, {
         encryptionSaltKeys: '01234567890123456789012345678901',
     })
-    // Real S3 (MinIO) memory store with a per-cluster random prefix —
-    // teardown wipes it. Failing here means MinIO isn't up; fix the dev
+    // Real S3 (SeaweedFS) memory store with a per-cluster random prefix —
+    // teardown wipes it. Failing here means SeaweedFS isn't up; fix the dev
     // stack rather than mocking around it.
     const memoryStorePrefix = newMemoryTestPrefix('agent_memory_harness')
     const { client: memoryStoreClient, store: memoryStore } = buildMemoryTestStore(memoryStorePrefix)

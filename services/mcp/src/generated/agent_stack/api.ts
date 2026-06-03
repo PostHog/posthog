@@ -151,7 +151,14 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
+
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
+
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigCatchUpDefault = `most_recent`
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsDefault = 3600
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsMax = 604800
+
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
@@ -231,11 +238,31 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         zod.object({
                             type: zod.literal('cron'),
                             config: zod.object({
-                                schedule: zod.string(),
+                                name: zod.string().min(1),
+                                schedule: zod.string().min(1),
                                 timezone: zod
                                     .string()
                                     .default(
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault
+                                    ),
+                                prompt: zod
+                                    .string()
+                                    .min(1)
+                                    .max(agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax),
+                                external_key: zod.string().optional(),
+                                catch_up: zod
+                                    .enum(['all', 'most_recent', 'skip'])
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigCatchUpDefault
+                                    ),
+                                max_catch_up_age_seconds: zod
+                                    .number()
+                                    .min(1)
+                                    .max(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsMax
+                                    )
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsDefault
                                     ),
                             }),
                         }),
@@ -514,7 +541,14 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
 })
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigCatchUpDefault = `most_recent`
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsDefault = 3600
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsMax = 604800
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
@@ -594,11 +628,33 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         zod.object({
                             type: zod.literal('cron'),
                             config: zod.object({
-                                schedule: zod.string(),
+                                name: zod.string().min(1),
+                                schedule: zod.string().min(1),
                                 timezone: zod
                                     .string()
                                     .default(
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault
+                                    ),
+                                prompt: zod
+                                    .string()
+                                    .min(1)
+                                    .max(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax
+                                    ),
+                                external_key: zod.string().optional(),
+                                catch_up: zod
+                                    .enum(['all', 'most_recent', 'skip'])
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigCatchUpDefault
+                                    ),
+                                max_catch_up_age_seconds: zod
+                                    .number()
+                                    .min(1)
+                                    .max(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsMax
+                                    )
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigMaxCatchUpAgeSecondsDefault
                                     ),
                             }),
                         }),

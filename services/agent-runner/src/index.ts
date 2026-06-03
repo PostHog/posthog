@@ -90,8 +90,8 @@ async function main(): Promise<void> {
     // compiled code + spec + skills at start. Fail-fast at boot rather than
     // silently no-oping per-session and confusing the operator with a wall
     // of `session.bundle_missing` failures. Endpoint is optional — unset
-    // means "use the AWS SDK's regional default" (prod path); MinIO in dev
-    // sets it explicitly.
+    // means "use the AWS SDK's regional default" (prod path); SeaweedFS in
+    // dev sets it explicitly.
     if (!config.bundleS3Bucket) {
         throw new Error('AGENT_BUNDLE_S3_BUCKET must be set — the runner cannot start sessions without bundle storage.')
     }
