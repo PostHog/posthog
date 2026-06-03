@@ -131,6 +131,8 @@ export type SettingId =
     | 'environment-experiment-matured-users'
     | 'environment-experiment-mde'
     | 'environment-experiment-recalculation-time'
+    | 'environment-experiment-sequential-testing-enabled'
+    | 'environment-experiment-sequential-tuning-parameter'
     | 'environment-experiment-stats-method'
     | 'environment-secret-api-keys'
     | 'error-tracking-alerting'

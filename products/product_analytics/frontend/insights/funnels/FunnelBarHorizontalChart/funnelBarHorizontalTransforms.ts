@@ -1,4 +1,5 @@
-import type { Series } from 'lib/hog-charts'
+import type { Series } from '@posthog/quill-charts'
+
 import { getReferenceStep, getStepBreakdownSeries } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
