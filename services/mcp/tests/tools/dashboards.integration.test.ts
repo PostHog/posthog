@@ -14,7 +14,34 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
+import { GENERATED_TOOLS as FF_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
+
+async function ensureDashboardWidgetsFeatureFlag(context: Context): Promise<void> {
+    const listFlags = FF_TOOLS['feature-flag-get-all']!()
+    const updateFlag = FF_TOOLS['update-feature-flag']!()
+    const createFlag = FF_TOOLS['create-feature-flag']!()
+
+    const flagsResult = await listFlags.handler(context, { search: 'dashboard-widgets' })
+    const flags = (flagsResult as { results?: Array<{ id: number; key: string; active: boolean }> }).results ?? []
+    const flag = flags.find((entry) => entry.key === 'dashboard-widgets')
+
+    if (flag && !flag.active) {
+        await updateFlag.handler(context, { id: flag.id, active: true })
+        return
+    }
+
+    if (!flag) {
+        await createFlag.handler(context, {
+            key: 'dashboard-widgets',
+            name: 'Dashboard widgets',
+            active: true,
+            filters: {
+                groups: [{ properties: [], rollout_percentage: 100 }],
+            },
+        })
+    }
+}
 
 describe('Dashboards', { concurrent: false }, () => {
     let context: Context
@@ -465,6 +492,10 @@ describe('Dashboards', { concurrent: false }, () => {
         const createTool = getToolByName('dashboard-create')
         const getOneTool = getToolByName('dashboard-get')
 
+        beforeAll(async () => {
+            await ensureDashboardWidgetsFeatureFlag(context)
+        })
+
         it('dashboard-widget-catalog-list returns widget catalog entries', async () => {
             const result = await catalogTool.handler(context, {})
             const catalog = parseToolResponse(result)
@@ -491,24 +522,15 @@ describe('Dashboards', { concurrent: false }, () => {
             const dashboard = parseToolResponse(dashboardResult)
             createdResources.dashboards.push(dashboard.id)
 
-            let addResult
-            try {
-                addResult = await batchAddWidgetTool.handler(context, {
-                    id: dashboard.id,
-                    widgets: [
-                        {
-                            widget_type: 'error_tracking_list',
-                            config: { limit: 5 },
-                        },
-                    ],
-                })
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error)
-                if (message.includes('403') || message.toLowerCase().includes('feature')) {
-                    return
-                }
-                throw error
-            }
+            const addResult = await batchAddWidgetTool.handler(context, {
+                id: dashboard.id,
+                widgets: [
+                    {
+                        widget_type: 'error_tracking_list',
+                        config: { limit: 5 },
+                    },
+                ],
+            })
 
             const batchResponse = parseToolResponse(addResult)
             expect(Array.isArray(batchResponse.tiles)).toBe(true)
