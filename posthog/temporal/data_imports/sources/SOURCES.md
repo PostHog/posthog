@@ -168,7 +168,6 @@ doesn't conflict with concurrent PRs.
 - google_analytics
 - google_drive
 - gorgias
-- granola
 - greenhouse
 - helpscout
 - instagram
