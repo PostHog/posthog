@@ -623,7 +623,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         it('applies URL filters on top of defaults, ignoring stale persisted filters', async () => {
-            // simulate stale state left over from a prior visit (e.g. localStorage-persisted)
+            // stale persisted state from a prior visit
             await expectLogic(logic, () => {
                 logic.actions.setFilters({
                     date_from: '-30d',
@@ -632,8 +632,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
             }).toDispatchActions(['setFilters'])
 
-            // a "View recordings" navigation carries only filter_group - the omitted fields must
-            // fall back to defaults, not inherit the stale persisted values
+            // "View recordings" navigation carrying only filter_group
             router.actions.push('/replay', {
                 filters: {
                     filter_group: {
