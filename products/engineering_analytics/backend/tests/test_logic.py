@@ -84,7 +84,7 @@ def _header(
     )
 
 
-class _WarehouseMixin(ClickhouseTestMixin):
+class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
     """Creates warehouse tables from in-memory rows; skips when object storage is
     unreachable so the suite still runs without the dev stack."""
 
@@ -93,7 +93,7 @@ class _WarehouseMixin(ClickhouseTestMixin):
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
-        self.addCleanup(lambda path=tmp.name: Path(path).unlink(missing_ok=True))
+        self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
         try:
             _table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),

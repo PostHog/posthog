@@ -117,7 +117,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
-        self.addCleanup(lambda path=tmp.name: Path(path).unlink(missing_ok=True))
+        self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
         try:
             _table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),

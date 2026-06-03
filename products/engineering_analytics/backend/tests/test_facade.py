@@ -14,15 +14,15 @@ class TestEngineeringAnalyticsFacade(BaseTest):
         build.assert_called_once_with(team=self.team, pr_number=10, repo=None)
 
     def test_get_pr_lifecycle_forwards_repo(self) -> None:
-        with mock.patch(f"{_LOGIC}.build_pr_lifecycle", return_value="sentinel") as build:
+        with mock.patch(f"{_LOGIC}.build_pr_lifecycle", return_value=mock.sentinel.result) as build:
             result = api.get_pr_lifecycle(team=self.team, pr_number=42, repo="PostHog/posthog")
 
-        assert result == "sentinel"
+        assert result is mock.sentinel.result
         build.assert_called_once_with(team=self.team, pr_number=42, repo="PostHog/posthog")
 
     def test_get_ci_cards_delegates(self) -> None:
-        with mock.patch(f"{_LOGIC}.build_ci_cards", return_value="sentinel") as build:
-            assert api.get_ci_cards(team=self.team) == "sentinel"
+        with mock.patch(f"{_LOGIC}.build_ci_cards", return_value=mock.sentinel.result) as build:
+            assert api.get_ci_cards(team=self.team) is mock.sentinel.result
 
         build.assert_called_once_with(team=self.team)
 
