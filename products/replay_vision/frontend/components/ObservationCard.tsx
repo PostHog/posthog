@@ -1,4 +1,4 @@
-import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
+import { IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { colonDelimitedDuration } from 'lib/utils'
@@ -326,22 +326,8 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
 }
 
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    if (observation.status === 'ineligible') {
+    if (observation.status === 'ineligible' || observation.status === 'failed') {
         return <span className="text-muted text-sm">—</span>
-    }
-    if (observation.status === 'failed') {
-        const parsed = parseFailureReason(observation.error_reason)
-        const label = parsed?.label ?? 'Failed'
-        const description = parsed ? failureKindDescription(parsed.kind) : null
-        const detail = parsed?.message ?? observation.error_reason
-        const tooltip = [description, detail].filter(Boolean).join('\n\n') || 'Unknown error'
-        return (
-            <Tooltip title={tooltip}>
-                <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {label}
-                </span>
-            </Tooltip>
-        )
     }
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
