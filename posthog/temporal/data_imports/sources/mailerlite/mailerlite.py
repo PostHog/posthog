@@ -62,6 +62,10 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         url = resume_config.next_url
+        # Guard the persisted resume URL too — only ever saved from a host-pinned `links.next`,
+        # but re-check so a tampered Redis state can't redirect our authenticated request (SSRF).
+        if not url.startswith(MAILERLITE_BASE_URL):
+            raise ValueError(f"MailerLite resume state contains an unexpected URL: {url!r}")
         logger.debug(f"MailerLite: resuming {endpoint} from URL: {url}")
     else:
         url = _build_initial_url(config.path)
@@ -97,6 +101,13 @@ def get_rows(
         # absolute next-page URL in `links.next`, or `None` on the last page.
         next_url = data.get("links", {}).get("next")
         if not next_url:
+            break
+
+        # Only follow pagination URLs that stay on the canonical MailerLite host, so a tampered or
+        # compromised API response can't point our authenticated request at an internal address
+        # (SSRF) and leak the API key carried in the Authorization header.
+        if not isinstance(next_url, str) or not next_url.startswith(MAILERLITE_BASE_URL):
+            logger.warning(f"MailerLite: ignoring off-host pagination URL: {next_url!r}")
             break
 
         # Save state only after yielding the current page, so a crash re-yields the last page

@@ -132,6 +132,34 @@ class TestGetRows:
         with pytest.raises(HTTPError):
             _drive_get_rows("groups", manager, responses)
 
+    @pytest.mark.parametrize(
+        "off_host_url",
+        [
+            "http://169.254.169.254/latest/meta-data/",
+            "https://evil.example.com/api/subscribers?cursor=abc",
+            "https://connect.mailerlite.com.evil.com/api/subscribers",
+        ],
+    )
+    def test_off_host_next_url_is_ignored(self, off_host_url: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = [_make_response(_page([{"id": "1"}], off_host_url))]
+
+        batches, fetched_urls = _drive_get_rows("subscribers", manager, responses)
+
+        # The tampered next URL is dropped: we yield the first page and stop without following it.
+        assert batches == [[{"id": "1"}]]
+        assert fetched_urls == [f"{MAILERLITE_BASE_URL}/subscribers?limit=100"]
+        manager.save_state.assert_not_called()
+
+    def test_off_host_resume_url_raises(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = MailerLiteResumeConfig(next_url="http://169.254.169.254/latest/meta-data/")
+
+        with pytest.raises(ValueError, match="unexpected URL"):
+            _drive_get_rows("subscribers", manager, [])
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
