@@ -21,6 +21,27 @@ function getPreview(notebook: AccountNotebookApi): string {
     return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}…` : collapsed
 }
 
+const USEFUL_LINKS: { label: string; to: string }[] = [
+    { label: 'Salesforce', to: 'https://www.salesforce.com' },
+    { label: 'HubSpot', to: 'https://www.hubspot.com' },
+    { label: 'Stripe', to: 'https://stripe.com' },
+    { label: 'Zendesk', to: 'https://www.zendesk.com' },
+    { label: 'Slack', to: 'https://slack.com' },
+]
+
+function UsefulLinks(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <h4 className="secondary uppercase text-secondary mb-1">Useful links</h4>
+            {USEFUL_LINKS.map((link) => (
+                <Link key={link.label} to={link.to} target="_blank" className="text-sm">
+                    {link.label}
+                </Link>
+            ))}
+        </div>
+    )
+}
+
 export function AccountNotebooksExpansion({ accountId }: { accountId: string }): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksLoading } = useValues(logic)
@@ -76,17 +97,26 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
 
     return (
         <div className="sticky left-0 w-[100cqw] p-3 bg-bg-light">
-            <LemonTable<AccountNotebookApi>
-                size="small"
-                embedded
-                dataSource={notebooks ?? []}
-                rowKey="short_id"
-                loading={notebooksLoading}
-                columns={columns}
-                emptyState={
-                    notebooks === null ? 'Failed to load account notes.' : 'No notes linked to this account yet.'
-                }
-            />
+            <div className="flex gap-4">
+                <div className="w-1/4">
+                    <UsefulLinks />
+                </div>
+                <div className="flex-1 min-w-0">
+                    <LemonTable<AccountNotebookApi>
+                        size="small"
+                        embedded
+                        dataSource={notebooks ?? []}
+                        rowKey="short_id"
+                        loading={notebooksLoading}
+                        columns={columns}
+                        emptyState={
+                            notebooks === null
+                                ? 'Failed to load account notes.'
+                                : 'No notes linked to this account yet.'
+                        }
+                    />
+                </div>
+            </div>
         </div>
     )
 }
