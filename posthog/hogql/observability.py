@@ -142,44 +142,12 @@ _UNKNOWN_REASONS = {
     "inference_exception",
 }
 
-_FUNCTION_GROUPS = {
-    "comparison",
-    "logical",
-    "cast",
-    "datetime",
-    "string",
-    "json",
-    "array",
-    "tuple",
-    "map",
-    "aggregate",
-    "aggregate_state",
-    "posthog",
-    "url",
-    "math",
-    "unknown",
-}
-
-_SQL_SHAPES = {
-    "datetime_cast",
-    "numeric_cast",
-    "string_cast",
-    "boolean_cast",
-    "nullable_comparison_wrapper",
-    "assume_not_null",
-    "json_extract",
-    "json_extract_raw",
-    "property_conversion_wrapper",
-}
-
 
 @dataclass
 class HogQLTypeObservability:
     engine: str = "current"
     dialect: str = "unknown"
     source: str = "unknown"
-    enabled: bool = False
-    sampled: bool = False
 
     started_at: float = field(default_factory=perf_counter)
     result: str = "success"
@@ -255,8 +223,6 @@ def create_hogql_type_observability(
         engine=_clean_tag(engine),
         dialect=_clean_tag(dialect),
         source=_clean_tag(source),
-        enabled=True,
-        sampled=True,
     )
 
 
@@ -323,21 +289,21 @@ def classify_function_group(function_name: str) -> str:
 
 @_safe
 def collect_hogql_type_coverage(node: ast.AST, stats: HogQLTypeObservability | None) -> None:
-    if stats is None or not stats.enabled or not stats.sampled:
+    if stats is None:
         return
     TypeCoverageCollector(stats).visit(node)
 
 
 @_safe
 def collect_hogql_sql_shape(node: ast.AST, stats: HogQLTypeObservability | None) -> None:
-    if stats is None or not stats.enabled or not stats.sampled:
+    if stats is None:
         return
     SQLShapeCollector(stats).visit(node)
 
 
 @_safe
 def emit_hogql_type_observability(stats: HogQLTypeObservability | None) -> None:
-    if stats is None or not stats.enabled or not stats.sampled:
+    if stats is None:
         return
 
     base = stats.tags()
@@ -371,6 +337,24 @@ class TypeCoverageCollector(TraversingVisitor):
         return super().visit(node)
 
 
+# Type-coercion casts that wrap a property; each also counts as a property_conversion_wrapper.
+_CAST_SHAPES = {
+    "todatetime": "datetime_cast",
+    "todatetime64": "datetime_cast",
+    "todate": "datetime_cast",
+    "tofloat": "numeric_cast",
+    "tofloat32": "numeric_cast",
+    "tofloat64": "numeric_cast",
+    "toint": "numeric_cast",
+    "toint32": "numeric_cast",
+    "toint64": "numeric_cast",
+    "todecimal": "numeric_cast",
+    "tostring": "string_cast",
+    "tofixedstring": "string_cast",
+    "tobool": "boolean_cast",
+}
+
+
 class SQLShapeCollector(TraversingVisitor):
     def __init__(self, stats: HogQLTypeObservability):
         super().__init__()
@@ -378,17 +362,9 @@ class SQLShapeCollector(TraversingVisitor):
 
     def visit_call(self, node: ast.Call) -> None:
         name = node.name.lower()
-        if name in {"todatetime", "todatetime64", "todate"}:
-            self.stats.sql_shape["datetime_cast"] += 1
-            self.stats.sql_shape["property_conversion_wrapper"] += 1
-        elif name in {"tofloat", "tofloat32", "tofloat64", "toint", "toint32", "toint64", "todecimal"}:
-            self.stats.sql_shape["numeric_cast"] += 1
-            self.stats.sql_shape["property_conversion_wrapper"] += 1
-        elif name in {"tostring", "tofixedstring"}:
-            self.stats.sql_shape["string_cast"] += 1
-            self.stats.sql_shape["property_conversion_wrapper"] += 1
-        elif name == "tobool":
-            self.stats.sql_shape["boolean_cast"] += 1
+        cast_shape = _CAST_SHAPES.get(name)
+        if cast_shape is not None:
+            self.stats.sql_shape[cast_shape] += 1
             self.stats.sql_shape["property_conversion_wrapper"] += 1
         elif name == "ifnull":
             self.stats.sql_shape["nullable_comparison_wrapper"] += 1

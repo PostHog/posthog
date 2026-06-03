@@ -36,12 +36,11 @@ class TestHogQLTypeObservability(SimpleTestCase):
     @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
     def test_sampling_returns_accumulator(self):
         stats = create_hogql_type_observability(dialect="clickhouse", source="sql_editor")
-        assert stats is not None
-        self.assertTrue(stats.sampled)
+        self.assertIsNotNone(stats)
 
     def test_observability_failures_never_propagate(self):
         # A bug anywhere in the observability path must not break query execution.
-        stats = HogQLTypeObservability(enabled=True, sampled=True, dialect="clickhouse", source="sql_editor")
+        stats = HogQLTypeObservability(dialect="clickhouse", source="sql_editor")
         before_errors = _metric("hogql_type_observability_errors_total", {"stage": "collect_hogql_type_coverage"})
 
         with patch("posthog.hogql.observability.TypeCoverageCollector", side_effect=RuntimeError("boom")):
@@ -54,7 +53,7 @@ class TestHogQLTypeObservability(SimpleTestCase):
         )
 
     def test_record_methods_swallow_bad_input(self):
-        stats = HogQLTypeObservability(enabled=True, sampled=True, dialect="clickhouse", source="sql_editor")
+        stats = HogQLTypeObservability(dialect="clickhouse", source="sql_editor")
         before_errors = _metric("hogql_type_observability_errors_total", {"stage": "record_function_call"})
 
         # function_name=None makes classify_function_group raise (None.lower()); @_safe must swallow it.
@@ -98,7 +97,7 @@ class TestHogQLTypeObservability(SimpleTestCase):
         )
 
     def test_collects_sql_shape_pathologies_from_ast(self):
-        stats = HogQLTypeObservability(enabled=True, sampled=True, dialect="clickhouse", source="sql_editor")
+        stats = HogQLTypeObservability(dialect="clickhouse", source="sql_editor")
         node = ast.Call(
             name="ifNull",
             args=[
@@ -114,7 +113,7 @@ class TestHogQLTypeObservability(SimpleTestCase):
         self.assertEqual(stats.sql_shape["property_conversion_wrapper"], 1)
 
     def test_records_property_typing_results(self):
-        stats = HogQLTypeObservability(enabled=True, sampled=True, dialect="clickhouse", source="sql_editor")
+        stats = HogQLTypeObservability(dialect="clickhouse", source="sql_editor")
 
         stats.record_property_definition_lookup(property_source="event", known_count=2, total_count=3)
         stats.record_property_definition_lookup(property_source="person", known_count=1, total_count=1)
