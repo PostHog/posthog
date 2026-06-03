@@ -202,8 +202,6 @@ def _evaluate_numeric_arithmetic(
         if right == 0:
             return None
         result = left % right
-    else:
-        return None
 
     if isinstance(result, float) and not math.isfinite(result):
         return None

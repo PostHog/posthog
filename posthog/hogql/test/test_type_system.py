@@ -290,8 +290,10 @@ class TestHogQLTypeSystem:
         lambda_arg = cast(ast.FieldAliasType, lambda_type.aliases["x"])
 
         assert lambda_arg.resolve_constant_type(self.context) == ast.IntegerType(nullable=False)
-        assert lambda_node.expr.type is not None
-        assert lambda_node.expr.type.resolve_constant_type(self.context) == ast.FloatType(nullable=False)
+        lambda_expr = lambda_node.expr
+        assert isinstance(lambda_expr, ast.Expr)
+        assert lambda_expr.type is not None
+        assert lambda_expr.type.resolve_constant_type(self.context) == ast.FloatType(nullable=False)
         assert call.type is not None
         assert call.type.resolve_constant_type(self.context) == ast.ArrayType(
             nullable=False,
@@ -766,11 +768,12 @@ class TestHogQLTypeSystem:
         values = [cast(ast.Constant, cast(ast.Alias, select_expr).expr).value for select_expr in simplified.select]
         assert values == [42, 1.0, True, 4, 5, 6, 2.5, 1, '{"a":1}']
 
-        types = [
-            cast(ast.Alias, select_expr).expr.type.resolve_constant_type(self.context)
-            for select_expr in simplified.select
-            if cast(ast.Alias, select_expr).expr.type is not None
-        ]
+        types: list[ast.ConstantType] = []
+        for select_expr in simplified.select:
+            expr = cast(ast.Alias, select_expr).expr
+            assert expr.type is not None
+            types.append(expr.type.resolve_constant_type(self.context))
+
         assert types == [
             ast.IntegerType(nullable=False),
             ast.FloatType(nullable=False),

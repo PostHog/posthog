@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import dataclasses
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, Optional, cast
@@ -697,7 +698,7 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
     return RuntimeType(family="unknown", nullable=True, dialect="clickhouse", source=stripped)
 
 
-def least_common_supertype(types: list[ast.ConstantType], dialect: HogQLDialect = "clickhouse") -> ast.ConstantType:
+def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDialect = "clickhouse") -> ast.ConstantType:
     if not types:
         return ast.UnknownType()
     runtime_types = [runtime_type_from_constant_type(type_) for type_ in types]
@@ -1356,11 +1357,17 @@ def _higher_order_array_arg_types(
     return arg_types
 
 
+def _lambda_return_constant_type(lambda_node: ast.Lambda) -> ast.ConstantType | None:
+    if not isinstance(lambda_node.expr, ast.Expr) or lambda_node.expr.type is None:
+        return None
+    return _context_free_constant_type(lambda_node.expr.type)
+
+
 def _infer_array_fold_type(arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]]) -> ast.ConstantType:
     if len(arg_types) < 3:
         return ast.UnknownType()
     if args and isinstance(args[0], ast.Lambda):
-        lambda_expr_type = _context_free_constant_type(args[0].expr.type) if args[0].expr.type is not None else None
+        lambda_expr_type = _lambda_return_constant_type(args[0])
         if lambda_expr_type is not None and not isinstance(lambda_expr_type, ast.UnknownType):
             return lambda_expr_type
     return dataclasses.replace(arg_types[-1])
@@ -1554,7 +1561,7 @@ def _infer_map_apply_type(arg_types: list[ast.ConstantType], args: Optional[list
         return ast.UnknownType()
 
     if args and isinstance(args[0], ast.Lambda):
-        lambda_return_type = _context_free_constant_type(args[0].expr.type) if args[0].expr.type is not None else None
+        lambda_return_type = _lambda_return_constant_type(args[0])
         if isinstance(lambda_return_type, ast.TupleType) and len(lambda_return_type.item_types) >= 2:
             return ast.MapType(
                 nullable=map_type.nullable,
@@ -1573,7 +1580,7 @@ def _infer_higher_order_array_type(
         return ast.UnknownType()
     first_array_type = array_arg_types[0]
     if use_lambda_return and args and isinstance(args[0], ast.Lambda):
-        lambda_expr_type = _context_free_constant_type(args[0].expr.type) if args[0].expr.type is not None else None
+        lambda_expr_type = _lambda_return_constant_type(args[0])
         if lambda_expr_type is not None and not isinstance(lambda_expr_type, ast.UnknownType):
             if isinstance(first_array_type, ast.ArrayType):
                 return ast.ArrayType(nullable=first_array_type.nullable, item_type=lambda_expr_type)

@@ -768,8 +768,8 @@ class ClickHousePrinter(BasePrinter):
     def _get_materialized_range_source(self, expr: ast.Expr) -> tuple[PrintableMaterializedColumn, bool] | None:
         physical_source = self._get_physical_materialized_column_source(expr)
         if physical_source is not None:
-            property_source, physical_type = physical_source
-            return property_source, isinstance(physical_type, ast.StringType)
+            physical_property_source, physical_type = physical_source
+            return physical_property_source, isinstance(physical_type, ast.StringType)
 
         expr_type = resolve_field_type(expr)
         if not isinstance(expr_type, ast.PropertyType) or len(expr_type.chain) != 1:
@@ -779,12 +779,12 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(semantic_type, ast.StringType):
             return None
 
-        property_source = self._get_materialized_property_source_for_property_type(expr_type)
-        if not isinstance(property_source, PrintableMaterializedColumn):
+        materialized_source = self._get_materialized_property_source_for_property_type(expr_type)
+        if not isinstance(materialized_source, PrintableMaterializedColumn):
             return None
 
-        materialized_column_type = property_source.type or ""
-        return property_source, "String" in materialized_column_type
+        materialized_column_type = materialized_source.type or ""
+        return materialized_source, "String" in materialized_column_type
 
     def _get_physical_materialized_column_source(
         self, expr: ast.Expr
