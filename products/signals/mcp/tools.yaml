@@ -151,7 +151,8 @@ tools:
         description: >
             List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
             (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run,
-            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.
+            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune
+            them.
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
