@@ -1,9 +1,9 @@
-import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -266,7 +266,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (sortOrder) {
                     state.sort = sortOrder
                 }
-                if (!equal(selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT)) {
+                if (!objectsEqual(selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT)) {
                     state.columns = selectColumns
                 }
                 if (tileFilter) {
@@ -433,7 +433,7 @@ export const accountsLogic = kea<accountsLogicType>([
         const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
             urls.customerAnalyticsAccounts(),
             router.values.searchParams,
-            equal(values.viewUrlState, {}) ? {} : { view: values.viewUrlState },
+            objectsEqual(values.viewUrlState, {}) ? {} : { view: values.viewUrlState },
             { replace: true },
         ]
         return {
@@ -463,7 +463,7 @@ export const accountsLogic = kea<accountsLogicType>([
             }
 
             const tags = view.tags ?? []
-            if (!equal(tags, values.tagsFilter)) {
+            if (!objectsEqual(tags, values.tagsFilter)) {
                 actions.setTagsFilter(tags)
             }
 
@@ -488,7 +488,7 @@ export const accountsLogic = kea<accountsLogicType>([
             }
 
             const sort = view.sort ?? null
-            if (!equal(sort, values.sortOrder)) {
+            if (!objectsEqual(sort, values.sortOrder)) {
                 actions.setSortOrder(sort)
             }
 
@@ -496,14 +496,14 @@ export const accountsLogic = kea<accountsLogicType>([
             // config, which loads asynchronously after mount — the guard makes
             // the late-arriving saved config defer to the URL.
             if (view.columns) {
-                if (!equal(view.columns, values.selectColumns)) {
+                if (!objectsEqual(view.columns, values.selectColumns)) {
                     actions.setSelectColumns(view.columns)
                 }
                 actions.markColumnsOverriddenByUrl()
             }
 
             const tileFilter = view.tileFilter ?? null
-            if (!equal(tileFilter, values.tileFilter)) {
+            if (!objectsEqual(tileFilter, values.tileFilter)) {
                 actions.setTileFilter(tileFilter)
             }
         },
