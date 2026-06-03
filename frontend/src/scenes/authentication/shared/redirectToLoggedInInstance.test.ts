@@ -1,4 +1,4 @@
-import { cleanedCookieSubdomain } from 'scenes/authentication/RedirectToLoggedInInstance'
+import { cleanedCookieSubdomain } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 
 describe('RedirectToLoggedInInstance cleanedCookieSubdomain', () => {
     test.each([

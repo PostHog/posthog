@@ -22,7 +22,7 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersExportLogic } from 'scenes/organization/membersExportLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'

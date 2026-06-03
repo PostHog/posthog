@@ -30,7 +30,7 @@ export interface TwoFactorLogicProps {
 }
 
 export const twoFactorLogic = kea<twoFactorLogicType>([
-    path(['scenes', 'authentication', 'loginLogic']),
+    path(['scenes', 'authentication', 'two-factor-setup', 'twoFactorLogic']),
     props({} as TwoFactorLogicProps),
     connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],

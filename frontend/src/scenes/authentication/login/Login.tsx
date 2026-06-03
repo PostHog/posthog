@@ -16,17 +16,17 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { Skeleton } from 'lib/ui/quill'
 import { isEmail } from 'lib/utils'
+import { AuthShell } from 'scenes/authentication/shared/AuthShell'
+import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
+import RegionSelect from 'scenes/authentication/shared/RegionSelect'
+import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { LoginMethod } from '~/types'
 
-import { AuthShell } from './AuthShell'
 import { loginLogic } from './loginLogic'
-import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
-import RegionSelect from './RegionSelect'
-import { SupportModalButton } from './SupportModalButton'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:

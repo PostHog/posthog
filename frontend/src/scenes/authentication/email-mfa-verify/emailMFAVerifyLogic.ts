@@ -4,13 +4,13 @@ import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { handleLoginRedirect } from 'scenes/authentication/login/loginLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { emailMFAVerifyLogicType } from './emailMFAVerifyLogicType'
-import { handleLoginRedirect } from './loginLogic'
 
 export const emailMFAVerifyLogic = kea<emailMFAVerifyLogicType>([
-    path(['scenes', 'authentication', 'emailMFAVerifyLogic']),
+    path(['scenes', 'authentication', 'email-mfa-verify', 'emailMFAVerifyLogic']),
     connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     })),

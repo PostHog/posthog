@@ -9,13 +9,13 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath } from 'lib/utils'
+import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { SSOProvider } from '~/types'
 
 import type { loginLogicType } from './loginLogicType'
-import { twoFactorResetLogic } from './twoFactorResetLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -81,7 +81,7 @@ export interface TwoFactorForm {
 }
 
 export const loginLogic = kea<loginLogicType>([
-    path(['scenes', 'authentication', 'loginLogic']),
+    path(['scenes', 'authentication', 'login', 'loginLogic']),
     connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     })),
@@ -268,7 +268,7 @@ export const loginLogic = kea<loginLogicType>([
             ) {
                 breakpoint()
                 // Dynamic import to avoid circular dependency
-                const { passkeyLogic } = await import('./passkeyLogic')
+                const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
             }

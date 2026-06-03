@@ -5,11 +5,11 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { handleLoginRedirect } from 'scenes/authentication/login/loginLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 
 import type { login2FALogicType } from './login2FALogicType'
-import { handleLoginRedirect } from './loginLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -36,7 +36,7 @@ export interface LoginTokenResponse {
 }
 
 export const login2FALogic = kea<login2FALogicType>([
-    path(['scenes', 'authentication', 'login2FALogic']),
+    path(['scenes', 'authentication', 'login-2fa', 'login2FALogic']),
     connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     })),

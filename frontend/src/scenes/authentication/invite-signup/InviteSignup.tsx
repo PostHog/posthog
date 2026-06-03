@@ -17,6 +17,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
+import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -25,9 +28,6 @@ import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite } from '~/types'
 
 import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
-import { loginLogic } from './loginLogic'
-import { TurnstileChallenge } from './signup/signupForm/TurnstileChallenge'
-import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: InviteSignup,

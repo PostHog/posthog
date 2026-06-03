@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { urls } from 'scenes/urls'
 
-import { loginLogic } from './loginLogic'
 import type { twoFactorResetLogicType } from './twoFactorResetLogicType'
 
 export interface ValidatedTokenResponse {
@@ -22,7 +22,7 @@ export interface ResetResponse {
 }
 
 export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
-    path(['scenes', 'authentication', 'twoFactorResetLogic']),
+    path(['scenes', 'authentication', 'two-factor-reset', 'twoFactorResetLogic']),
     actions({
         confirmReset: (token: string) => ({ token }),
         setResetComplete: (complete: boolean) => ({ complete }),
