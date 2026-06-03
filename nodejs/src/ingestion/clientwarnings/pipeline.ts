@@ -5,6 +5,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '../common/outputs'
+import { createAllowEventsStep } from '../common/steps/allow-events'
 import {
     EventFiltersBatchContext,
     createApplyEventFiltersStep,
@@ -66,6 +67,7 @@ export function createClientWarningsPipeline<
                         .sequentially((b) =>
                             b
                                 .pipe(createParseHeadersStep())
+                                .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
                                 .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
                                 .pipe(createParseKafkaMessageStep())
                                 .pipe(createResolveTeamStep(teamManager))
