@@ -62,10 +62,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 RUN npm install -g yarn pnpm typescript ts-node nodemon
 
 # Install ruff and ty
+# uv comes from its pinned, registry-verified official image (same pattern as the
+# main Dockerfile) rather than piping a remote installer script to a shell.
+COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /usr/local/bin/
 ARG RUFF_VERSION=0.14.11
 ARG TY_VERSION=0.0.29
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh && \
-    UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff~=${RUFF_VERSION}" && \
+RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
     UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ty==${TY_VERSION}" && \
     ruff --version && \
     ty --version
