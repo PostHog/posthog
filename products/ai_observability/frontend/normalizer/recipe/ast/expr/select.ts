@@ -18,7 +18,10 @@ export class SelectExpr extends FilterExpr {
             return this.onNotArray(scope)
         }
         const filtered = this.where ? arr.filter((item) => this.where!.matches(item)) : arr
-        const result = this.pluck ? filtered.map((item) => this.pluck!.eval(scope.withInput(item))) : filtered
+        let result: unknown[] = filtered
+        if (this.pluck) {
+            result = filtered.map((item) => this.pluck!.eval(scope.withInput(item))).filter((v) => v != null)
+        }
         return this.withIfEmpty(result, scope)
     }
 }

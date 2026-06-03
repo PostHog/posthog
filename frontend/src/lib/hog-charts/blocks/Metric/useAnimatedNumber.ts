@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
-
-import { useLatest } from '../../core/hooks/useLatest'
+import { useEffect, useRef, useState } from 'react'
 
 /** When `target` changes mid-animation, animation restarts from the currently-displayed value (no snap). */
 export function useAnimatedNumber(target: number, duration = 350): number {
     const [value, setValue] = useState(target)
-    const valueRef = useLatest(value)
+    // Written during render so the animation reads the latest value from the same render pass.
+    const valueRef = useRef(value)
+    valueRef.current = value
 
     useEffect(() => {
         if (duration <= 0 || !Number.isFinite(target)) {

@@ -136,7 +136,6 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
     WebNotableChangesQuery = 'WebNotableChangesQuery',
 
@@ -219,7 +218,6 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | WebNotableChangesQuery
     | SessionAttributionExplorerQuery
@@ -2281,6 +2279,8 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit: integer
     offset: integer
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[]
 }
 
 export type AccountsRoleAssignmentFilter = integer | 'unassigned'
@@ -2288,12 +2288,16 @@ export type AccountsRoleAssignmentFilter = integer | 'unassigned'
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
     csm?: AccountsRoleAssignmentFilter
     accountExecutive?: AccountsRoleAssignmentFilter
     accountOwner?: AccountsRoleAssignmentFilter
     allRolesUnassigned?: boolean
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: HogQLExpression
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -5290,51 +5294,6 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export enum WebTrendsMetric {
-    UNIQUE_USERS = 'UniqueUsers',
-    PAGE_VIEWS = 'PageViews',
-    SESSIONS = 'Sessions',
-    BOUNCES = 'Bounces',
-    SESSION_DURATION = 'SessionDuration',
-    TOTAL_SESSIONS = 'TotalSessions',
-}
-
-export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResponse> {
-    kind: NodeKind.WebTrendsQuery
-    interval: IntervalType
-    metrics: WebTrendsMetric[]
-    limit?: integer
-    offset?: integer
-}
-
-export interface WebTrendsItem {
-    bucket: string
-    metrics: Partial<Record<WebTrendsMetric, number>>
-}
-
-export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
-    results: WebTrendsItem[]
-    /** Input query string */
-    query?: string
-    /** Executed ClickHouse query */
-    clickhouse?: string
-    /** Returned columns */
-    columns?: any[]
-    /** Types of returned columns */
-    types?: any[]
-    /** Query explanation output */
-    explain?: string[]
-    /** Query metadata output */
-    metadata?: HogQLMetadataResponse
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-    samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
-}
-
-export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
-
 export interface WebNotableChangesQuery extends WebAnalyticsQueryBase<WebNotableChangesQueryResponse> {
     kind: NodeKind.WebNotableChangesQuery
     limit?: integer
@@ -6769,6 +6728,7 @@ export enum ProductIntentContext {
     VERCEL_INTEGRATION = 'vercel_integration',
 
     // Endpoints
+    ENDPOINTS_VIEWED = 'endpoints_viewed',
     ENDPOINT_CREATED = 'endpoint_created',
     ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
     ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',
