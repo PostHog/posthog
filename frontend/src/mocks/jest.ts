@@ -28,17 +28,23 @@ window.confirm = jest.fn()
 
 beforeAll(() => {
     useAvailableFeatures([])
-    // MSW passes unhandled requests through to the "real" global fetch. In the jsdom test env
-    // that real fetch can resolve with a response the MSW v2 interceptor then fails to clone
-    // ("originalResponse.clone is not a function"), crashing the whole test file. Replace it with
-    // a never-resolving stub so unhandled requests just hang (as a real network call to a
-    // non-existent server effectively does). Hanging — rather than erroring — is deliberate: a
-    // resolved/rejected response lets fire-and-forget requests settle after jsdom teardown and
-    // throw "location is not defined" / "Cannot log after tests are done", which OOMs jest workers
-    // across a large shard. A loader the test actually awaits should be mocked explicitly so it
-    // doesn't hang `toFinishAllListeners`. Handled requests never reach here — MSW only calls this
-    // for genuine passthrough.
-    global.fetch = (() => new Promise<Response>(() => {})) as typeof fetch
+    // MSW passes unhandled requests through to the "real" global fetch. Under MSW v2 in jsdom that
+    // passthrough resolves a response the interceptor then fails to clone ("originalResponse.clone
+    // is not a function"), crashing the whole file. We can't passthrough. The two obvious stubs are
+    // both worse at scale: a never-resolving stub makes any awaited unmocked load hang
+    // toFinishAllListeners, and a rejecting stub turns every fire-and-forget request into an
+    // unhandled "Failed to fetch" rejection that settles after teardown and OOMs the worker.
+    // Instead resolve a benign, cloneable, empty paginated response: awaited loads complete (no
+    // hang), loaders succeed with empty data (no rejection, no post-teardown console), and the 2xx
+    // path never touches `location` (no "location is not defined"). A test that needs real data
+    // from an endpoint mocks it explicitly via useMocks; this is only the floor for the rest.
+    global.fetch = (() =>
+        Promise.resolve(
+            new Response(JSON.stringify({ results: [], count: 0, next: null, previous: null }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            })
+        )) as typeof fetch
     // Silent: suites run to completion, so warning on every unhandled request would flood output.
     mswServer.listen({ onUnhandledRequest: () => {} })
 })
