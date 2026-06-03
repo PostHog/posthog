@@ -6,7 +6,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
@@ -20,6 +20,9 @@ from ee.api.agentic_provisioning.views import (
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestOAuthTokenExchange(ProvisioningTestBase):
+    def _set_app_ceiling(self, scopes: list[str]) -> None:
+        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).update(scopes=scopes)
+
     def _store_auth_code(self, code: str = "test_code", **overrides):
         data = {
             "user_id": self.user.id,
@@ -158,6 +161,44 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert res.json()["error"] == "server_error"
         # No app may be fabricated to paper over the missing configuration.
         assert not OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).exists()
+
+    def test_direct_mint_within_ceiling_grants_requested_scopes(self):
+        self._set_app_ceiling(["query:read", "project:read"])
+        self._store_auth_code("ceiling_ok", scopes=["query:read"])
+        res = self._post_token(self._token_request_body(code="ceiling_ok"))
+        assert res.status_code == 200
+        token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
+        assert token.scope == "query:read"
+
+    def test_direct_mint_outside_ceiling_returns_invalid_scope(self):
+        self._set_app_ceiling(["query:read"])
+        self._store_auth_code("ceiling_bad", scopes=["query:read", "insight:write"])
+        res = self._post_token(self._token_request_body(code="ceiling_bad"))
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_scope"
+
+    def test_refresh_narrows_to_tightened_ceiling(self):
+        self._store_auth_code("refresh_narrow", scopes=["query:read", "insight:write"])
+        first = self._post_token(self._token_request_body(code="refresh_narrow"))
+        refresh_token = first.json()["refresh_token"]
+
+        self._set_app_ceiling(["query:read"])
+        refresh_body = urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode()
+        res = self._post_token(refresh_body)
+        assert res.status_code == 200
+        token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
+        assert token.scope == "query:read"
+
+    def test_refresh_rejected_when_scopes_outside_ceiling(self):
+        self._store_auth_code("refresh_reject", scopes=["insight:write"])
+        first = self._post_token(self._token_request_body(code="refresh_reject"))
+        refresh_token = first.json()["refresh_token"]
+
+        self._set_app_ceiling(["query:read"])
+        refresh_body = urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode()
+        res = self._post_token(refresh_body)
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
 
 
 class TestLegacyStripeOAuthApp(ProvisioningTestBase):

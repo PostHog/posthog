@@ -762,6 +762,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             for field in _CONNECTION_TARGET_FIELDS
         )
 
+        # Some sources keep their connection target in a differently named field (e.g. Okta's
+        # `okta_domain`, Freshdesk's `subdomain`). Changing one would send the preserved credential
+        # to a new host — the same exfiltration risk as a `host` change — so require re-entry too.
+        connection_host_changed = connection_host_changed or any(
+            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            for field in source.connection_host_fields
+        )
+
         # If the SSH tunnel's connection target changed, also require credentials. Without this an
         # editor could swap in a tunnel that routes the backend's auth to an attacker-controlled
         # server, exfiltrating the stored database credentials (VERIA-311).

@@ -134,7 +134,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
         {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <ObservationStatusTag status={obs.status} />,
+            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
         },
         {
             title: 'Result',

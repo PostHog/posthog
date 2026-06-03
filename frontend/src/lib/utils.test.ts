@@ -231,6 +231,12 @@ describe('lib/utils', () => {
             expect(wordPluralize('child')).toEqual('children')
             expect(wordPluralize('knife')).toEqual('knives')
         })
+
+        it('returns falsy input unchanged without throwing', () => {
+            expect(wordPluralize('')).toEqual('')
+            expect(wordPluralize(null as unknown as string)).toEqual('')
+            expect(wordPluralize(undefined as unknown as string)).toEqual('')
+        })
     })
 
     describe('endWithPunctation()', () => {

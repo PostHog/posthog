@@ -118,4 +118,43 @@ describe('personInitialAndUTMProperties()', () => {
             $set: { $os: 'Windows' },
         })
     })
+    it('does not lift device context from an $is_server event, but keeps campaign params', () => {
+        // A server SDK (is_server: true) stamps its host $os; it must not reach $set/$set_once or
+        // it permanently poisons $initial_os. utm is real attribution and still flows through.
+        const properties = {
+            $is_server: true,
+            $os: 'Linux',
+            $os_version: '5.15.0',
+            utm_source: 'newsletter',
+        }
+        expect(personInitialAndUTMProperties(properties)).toEqual({
+            $is_server: true,
+            $os: 'Linux',
+            $os_version: '5.15.0',
+            utm_source: 'newsletter',
+            $set: { utm_source: 'newsletter' },
+            $set_once: { $initial_utm_source: 'newsletter' },
+        })
+    })
+    it('does not let a server $os_name alias into $initial_os', () => {
+        const result = personInitialAndUTMProperties({ $is_server: true, $os_name: 'Linux' })
+        expect((result.$set_once as Record<string, any> | undefined)?.$initial_os).toBeUndefined()
+    })
+    it.each([
+        ['client event maps $os', { $lib: 'web', $os: 'Linux' }, 'Linux'],
+        ['client mobile via $os_name', { $lib: 'posthog-ios', $os_name: 'iOS' }, 'iOS'],
+        ['no $is_server is treated as client', { $os: 'Linux' }, 'Linux'],
+        ['$is_server false is treated as client', { $os: 'Linux', $is_server: false }, 'Linux'],
+        ['$is_server true skips $os', { $os: 'Linux', $is_server: true }, undefined],
+        ['$is_server true skips regardless of lib', { $lib: 'web', $os: 'Linux', $is_server: true }, undefined],
+    ])('maps $os to $initial_os unless $is_server is true: %s', (_desc, properties, expected) => {
+        const result = personInitialAndUTMProperties({ ...properties })
+        const setOnce = result.$set_once as Record<string, any> | undefined
+        const set = result.$set as Record<string, any> | undefined
+        expect(setOnce?.$initial_os).toBe(expected)
+        if (expected === undefined) {
+            // host $os must not reach current $set either, not just $set_once
+            expect(set?.$os).toBeUndefined()
+        }
+    })
 })

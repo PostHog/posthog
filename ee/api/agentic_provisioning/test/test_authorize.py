@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
@@ -186,6 +187,34 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             content_type="application/json",
         )
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consume") is None
+
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_confirm_success_attributes_partner(self, mock_capture_event):
+        partner = OAuthApplication.objects.create(
+            client_id="confirm-attribution-partner",
+            name="Confirm Attribution Client",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=DUMMY_CALLBACK,
+            algorithm="RS256",
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+        )
+        self._set_pending_auth("state_attr", self.user.email, partner_id=str(partner.id), partner_name=partner.name)
+        res = self.client.post(
+            "/api/agentic/authorize/confirm/",
+            {"state": "state_attr", "team_id": self.team.id},
+            content_type="application/json",
+        )
+        assert res.status_code == 200
+
+        success_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("authorize_confirm", "success")
+        ]
+        assert len(success_calls) == 1
+        assert success_calls[0].kwargs["partner"] == partner
 
     def test_confirm_rejects_expired_state(self):
         res = self.client.post(

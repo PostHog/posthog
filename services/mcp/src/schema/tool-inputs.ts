@@ -194,7 +194,7 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.'
+            'Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user\'s task or data.'
         ),
     suggested_improvement: z
         .string()
@@ -208,7 +208,12 @@ export const FeedbackSubmitSchema = z.object({
         .describe(
             'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
         ),
-    details: z.string().optional().describe("Any additional context that doesn't fit the other fields."),
+    details: z
+        .string()
+        .optional()
+        .describe(
+            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
+        ),
 })
 
 export const ExperimentResultsGetSchema = z.object({

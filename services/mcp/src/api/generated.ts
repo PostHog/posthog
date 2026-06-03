@@ -58,7 +58,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -87,6 +87,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -106,7 +110,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -3886,6 +3890,55 @@ export namespace Schemas {
       filterTestAccounts?: boolean;
     }
 
+    /**
+     * * `activity_score` - activity_score
+    * `click_count` - click_count
+    * `console_error_count` - console_error_count
+    * `duration` - duration
+    * `recording_duration` - recording_duration
+    * `start_time` - start_time
+     */
+    export type SessionReplayListWidgetConfigOrderByEnum = typeof SessionReplayListWidgetConfigOrderByEnum[keyof typeof SessionReplayListWidgetConfigOrderByEnum];
+
+
+    export const SessionReplayListWidgetConfigOrderByEnum = {
+      ActivityScore: 'activity_score',
+      ClickCount: 'click_count',
+      ConsoleErrorCount: 'console_error_count',
+      Duration: 'duration',
+      RecordingDuration: 'recording_duration',
+      StartTime: 'start_time',
+    } as const;
+
+    export interface SessionReplayListWidgetConfig {
+      /**
+         * Maximum number of recordings to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Recording ranking column.
+
+      * `activity_score` - activity_score
+      * `click_count` - click_count
+      * `console_error_count` - console_error_count
+      * `duration` - duration
+      * `recording_duration` - recording_duration
+      * `start_time` - start_time */
+      orderBy?: SessionReplayListWidgetConfigOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
+    }
+
+    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+
     export interface TileLayoutBox {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
@@ -3906,12 +3959,12 @@ export namespace Schemas {
 
     export interface AddDashboardWidgetRequest {
       /**
-         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+         * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
          * @maxLength 64
          */
       widget_type: string;
-      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
-      config: ErrorTrackingListWidgetConfig;
+      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
+      config: DashboardWidgetConfig;
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -4536,7 +4589,6 @@ export namespace Schemas {
 
     export const IntegrationKind = {
       Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -6826,7 +6878,7 @@ export namespace Schemas {
       /** Optional markdown description shown on the dashboard tile when enabled. */
       description?: string;
       /** Widget-specific configuration JSON for this widget type. */
-      config?: ErrorTrackingListWidgetConfig;
+      config?: DashboardWidgetConfig;
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       readonly last_modified_at: string;
       team: number;
@@ -18413,6 +18465,48 @@ export namespace Schemas {
       output_variable?: unknown;
     }
 
+    /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `completed` - Completed
+     */
+    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
+
+
+    export const HogFlowScheduleStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Completed: 'completed',
+    } as const;
+
+    export interface HogFlowSchedule {
+      readonly id: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface HogFlow {
       readonly id: string;
       /**
@@ -18454,6 +18548,50 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+    }
+
+    /**
+     * * `waiting` - Waiting
+    * `queued` - Queued
+    * `active` - Active
+    * `completed` - Completed
+    * `cancelled` - Cancelled
+    * `failed` - Failed
+     */
+    export type HogFlowBatchJobStatusEnum = typeof HogFlowBatchJobStatusEnum[keyof typeof HogFlowBatchJobStatusEnum];
+
+
+    export const HogFlowBatchJobStatusEnum = {
+      Waiting: 'waiting',
+      Queued: 'queued',
+      Active: 'active',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    export interface HogFlowBatchJob {
+      readonly id: string;
+      /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+
+      * `waiting` - Waiting
+      * `queued` - Queued
+      * `active` - Active
+      * `completed` - Completed
+      * `cancelled` - Cancelled
+      * `failed` - Failed */
+      status?: HogFlowBatchJobStatusEnum;
+      /** ID of the workflow this batch run belongs to. */
+      hog_flow: string;
+      /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
+      filters?: unknown;
+      /** Variable value overrides applied to this run. */
+      variables?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
     }
 
     /**
@@ -18492,34 +18630,6 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
-    }
-
-    /**
-     * * `active` - Active
-    * `paused` - Paused
-    * `completed` - Completed
-     */
-    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
-
-
-    export const HogFlowScheduleStatusEnum = {
-      Active: 'active',
-      Paused: 'paused',
-      Completed: 'completed',
-    } as const;
-
-    export interface HogFlowSchedule {
-      readonly id: string;
-      rrule: string;
-      starts_at: string;
-      /** @maxLength 64 */
-      timezone?: string;
-      variables?: unknown;
-      readonly status: HogFlowScheduleStatusEnum;
-      /** @nullable */
-      readonly next_run_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     /**
@@ -21883,6 +21993,13 @@ export namespace Schemas {
       id: number;
     }
 
+    export interface MoveTileRequest {
+      /** Destination dashboard ID. */
+      to_dashboard: number;
+      /** Tile to move, identified by its dashboard tile ID. */
+      tile: MoveTileTile;
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -23214,15 +23331,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
-    }
-
-    export interface PaginatedHogFlowScheduleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HogFlowSchedule[];
     }
 
     export interface PaginatedHogFlowTemplateList {
@@ -26162,6 +26270,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PaginatedUserInterviewTopicList {
@@ -26546,7 +26664,7 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -26575,6 +26693,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -26594,7 +26716,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -28522,6 +28644,36 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowSchedule {
+      readonly id?: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule?: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at?: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status?: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -32228,6 +32380,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PatchedUserProductList {
@@ -36569,7 +36731,7 @@ export namespace Schemas {
       needs_updating: boolean;
       /** True when this version equals or exceeds the latest known published version. */
       is_current_or_newer: boolean;
-      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available. Click Releases above to check for any since.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
       status_reason: string;
       /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
       sql_query: string;
@@ -36628,7 +36790,7 @@ export namespace Schemas {
 
     export interface SendInvitesRequest {
       /**
-         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
          * @maxLength 200
          */
       subject?: string;
@@ -40177,6 +40339,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsMoveTileCreateParams = {
+    format?: EnvironmentsDashboardsMoveTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsMoveTileCreateFormat = typeof EnvironmentsDashboardsMoveTileCreateFormat[keyof typeof EnvironmentsDashboardsMoveTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsMoveTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -41339,66 +41513,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type EnvironmentsHogFunctionsListParams = {
@@ -44854,6 +44968,10 @@ export namespace Schemas {
      */
     basic?: boolean;
     /**
+     * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
+     */
+    hide_behavioral_cohorts?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -45262,6 +45380,18 @@ export namespace Schemas {
 
 
     export const DashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsMoveTileCreateParams = {
+    format?: DashboardsMoveTileCreateFormat;
+    };
+
+    export type DashboardsMoveTileCreateFormat = typeof DashboardsMoveTileCreateFormat[keyof typeof DashboardsMoveTileCreateFormat];
+
+
+    export const DashboardsMoveTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -46769,66 +46899,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type HogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
-
-
-    export const HogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type HogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
-
-
-    export const HogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type HogFunctionTemplatesListParams = {
