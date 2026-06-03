@@ -34375,6 +34375,15 @@ export namespace Schemas {
       labels: string[];
     }
 
+    export interface PullRequestList {
+      /** Pull requests, newest first, capped at `limit`. */
+      items: PullRequestListItem[];
+      /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+      truncated: boolean;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
+    }
+
     /**
      * * `ios` - iOS
     * `android` - Android

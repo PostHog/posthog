@@ -170,6 +170,20 @@ class PullRequestListItem:
 
 
 @dataclass(frozen=True)
+class PullRequestList:
+    """A page of the PR list plus an explicit truncation signal. ``items`` is capped
+    at ``limit`` (newest first); ``truncated`` is True when more pull requests match
+    than the cap. Surfaced so a consumer never mistakes a capped page for the whole
+    set — the aggregate counts in ``CICardSummary`` can legitimately exceed
+    ``len(items)`` when ``truncated`` is True.
+    """
+
+    items: list[PullRequestListItem]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
 class CICardSummary:
     """Headline counts for the open-PR backlog. ``failing_ci`` rests on the
     head-SHA CI join and can lag (see ``CIStatusRollup``).

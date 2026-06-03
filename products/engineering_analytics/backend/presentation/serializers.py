@@ -16,6 +16,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRLifecycle,
     PRLifecycleEvent,
     PullRequest,
+    PullRequestList,
     PullRequestListItem,
     RepoRef,
     WorkflowHealthItem,
@@ -118,6 +119,20 @@ class PullRequestListItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "labels": {"help_text": "GitHub label names on the pull request."},
+        }
+
+
+class PullRequestListSerializer(DataclassSerializer):
+    items = PullRequestListItemSerializer(many=True, help_text="Pull requests, newest first, capped at `limit`.")
+
+    class Meta:
+        dataclass = PullRequestList
+        extra_kwargs = {
+            "truncated": {
+                "help_text": "True when more pull requests match than the cap; `items` is the newest `limit` rows "
+                "and the aggregate counts in ci_cards can exceed it.",
+            },
+            "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
         }
 
 

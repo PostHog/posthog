@@ -14,7 +14,7 @@ from posthog.utils import relative_date_parse
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     PRLifecycle,
-    PullRequestListItem,
+    PullRequestList,
     WorkflowHealthItem,
 )
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
@@ -36,7 +36,7 @@ def build_ci_cards(*, team: Team) -> CICardSummary:
     return query_ci_cards(team=team)
 
 
-def build_pull_request_list(*, team: Team, date_from: str | None = None) -> list[PullRequestListItem]:
+def build_pull_request_list(*, team: Team, date_from: str | None = None) -> PullRequestList:
     return query_pull_request_list(team=team, date_from=_parse_date(team, date_from or _DEFAULT_WINDOW))
 
 

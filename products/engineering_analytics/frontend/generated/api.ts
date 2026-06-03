@@ -14,7 +14,7 @@ import type {
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     PRLifecycleApi,
-    PullRequestListItemApi,
+    PullRequestListApi,
     WorkflowHealthItemApi,
 } from './api.schemas'
 
@@ -88,14 +88,14 @@ export const getEngineeringAnalyticsPullRequestsUrl = (
 }
 
 /**
- * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. open_to_merge_seconds is coarse — it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
+ * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse — it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
  */
 export const engineeringAnalyticsPullRequests = async (
     projectId: string,
     params?: EngineeringAnalyticsPullRequestsParams,
     options?: RequestInit
-): Promise<PullRequestListItemApi[]> => {
-    return apiMutator<PullRequestListItemApi[]>(getEngineeringAnalyticsPullRequestsUrl(projectId, params), {
+): Promise<PullRequestListApi> => {
+    return apiMutator<PullRequestListApi>(getEngineeringAnalyticsPullRequestsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

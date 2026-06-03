@@ -2,7 +2,9 @@
 
 All open PRs plus any merged or closed since ``date_from`` (the recency floor for
 finished work; open PRs are always included regardless of age). Ordered newest
-first, capped at ``_LIMIT``.
+first, capped at ``_LIMIT``. The query fetches ``_LIMIT + 1`` rows so an overflow is
+detectable, and the result reports ``truncated`` rather than silently dropping the
+tail (the aggregate counts in ``ci_cards`` can then legitimately exceed the list).
 """
 
 from datetime import datetime
@@ -15,6 +17,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     Author,
     CIStatusRollup,
     PRState,
+    PullRequestList,
     PullRequestListItem,
     RepoRef,
 )
@@ -38,11 +41,11 @@ _SELECT = f"""
         OR pr.merged_at >= {{date_from}}
         OR pr.closed_at >= {{date_from}}
     ORDER BY pr.created_at DESC
-    LIMIT {_LIMIT}
+    LIMIT {_LIMIT + 1}
 """
 
 
-def query_pull_request_list(*, team: Team, date_from: datetime) -> list[PullRequestListItem]:
+def query_pull_request_list(*, team: Team, date_from: datetime) -> PullRequestList:
     sql = f"WITH {_curated.ci_rollup_cte()} {_SELECT}".replace("__PR_SOURCE__", _curated.pr_source())
     response = _curated.run_query(
         sql,
@@ -50,7 +53,10 @@ def query_pull_request_list(*, team: Team, date_from: datetime) -> list[PullRequ
         query_type="engineering_analytics.pull_request_list",
         placeholders={"date_from": ast.Constant(value=date_from)},
     )
-    return [_map_row(row) for row in response.results]
+    rows = response.results or []
+    truncated = len(rows) > _LIMIT
+    items = [_map_row(row) for row in rows[:_LIMIT]]
+    return PullRequestList(items=items, truncated=truncated, limit=_LIMIT)
 
 
 def _map_row(row: tuple) -> PullRequestListItem:

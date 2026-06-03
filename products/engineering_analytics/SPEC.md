@@ -140,7 +140,7 @@ A PR's current CI status is the head-SHA join between the two (the `ci_rollup` C
 **MCP (official):** named typed tools, each a DRF endpoint returning a typed contract:
 
 - `ci_cards` — open-PR backlog counts (open / repos / stuck >7d / failing CI).
-- `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window.
+- `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window. Capped (newest first) and returned as `{items, truncated, limit}` so the page never silently under-counts against `ci_cards`.
 - `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window.
 - `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
 

@@ -80,14 +80,16 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert "GitHub" in response.json()["detail"]
 
     def test_pull_requests_serializes(self) -> None:
-        with mock.patch(f"{_VIEWS}.list_pull_requests", return_value=[_pr_list_item()]) as listing:
+        result = contracts.PullRequestList(items=[_pr_list_item()], truncated=False, limit=1000)
+        with mock.patch(f"{_VIEWS}.list_pull_requests", return_value=result) as listing:
             response = self.client.get(self._url("pull_requests"), {"date_from": "-7d"})
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert isinstance(body, list)
-        assert body[0]["number"] == 10
-        assert body[0]["ci"]["failing"] == 1
+        assert body["truncated"] is False
+        assert body["limit"] == 1000
+        assert body["items"][0]["number"] == 10
+        assert body["items"][0]["ci"]["failing"] == 1
         assert listing.call_args.kwargs["date_from"] == "-7d"
 
     def test_pull_requests_400_on_bad_date(self) -> None:

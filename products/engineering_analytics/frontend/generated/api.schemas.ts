@@ -192,6 +192,15 @@ export interface PullRequestListItemApi {
     labels: string[]
 }
 
+export interface PullRequestListApi {
+    /** Pull requests, newest first, capped at `limit`. */
+    items: PullRequestListItemApi[]
+    /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+    truncated: boolean
+    /** Maximum number of pull requests returned in `items`. */
+    limit: number
+}
+
 export interface WorkflowHealthItemApi {
     /** GitHub Actions workflow name. */
     workflow_name: string

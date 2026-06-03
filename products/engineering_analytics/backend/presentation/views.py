@@ -24,7 +24,7 @@ from products.engineering_analytics.backend.facade.contracts import GitHubSource
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
     PRLifecycleSerializer,
-    PullRequestListItemSerializer,
+    PullRequestListSerializer,
     WorkflowHealthItemSerializer,
 )
 
@@ -92,12 +92,13 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         operation_id="engineering_analytics_pull_requests",
         parameters=[_DATE_FROM],
         responses={
-            200: PullRequestListItemSerializer(many=True),
+            200: PullRequestListSerializer,
             400: OpenApiResponse(description="Invalid date_from."),
         },
         description=(
             "Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with "
-            "its head-SHA CI rollup. open_to_merge_seconds is coarse — it fuses draft and ready-for-review time; "
+            "its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards "
+            "counts can exceed it. open_to_merge_seconds is coarse — it fuses draft and ready-for-review time; "
             "CI counts can lag until late completions settle."
         ),
     )
@@ -107,7 +108,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             result = api.list_pull_requests(team=self.team, date_from=request.query_params.get("date_from") or None)
         except ValueError:
             return _invalid_date()
-        return Response(PullRequestListItemSerializer(instance=result, many=True).data)
+        return Response(PullRequestListSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",

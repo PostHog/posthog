@@ -15,7 +15,7 @@ from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     PRLifecycle,
-    PullRequestListItem,
+    PullRequestList,
     WorkflowHealthItem,
 )
 
@@ -37,7 +37,7 @@ def list_pull_requests(
     *,
     team: Team,
     date_from: str | None = None,
-) -> list[PullRequestListItem]:
+) -> PullRequestList:
     return logic.build_pull_request_list(team=team, date_from=date_from)
 
 

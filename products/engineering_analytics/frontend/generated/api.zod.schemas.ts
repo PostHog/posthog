@@ -244,6 +244,72 @@ export const PullRequestListItemApi = zod.object({
 export type PullRequestListItemApi = zod.input<typeof PullRequestListItemApi>
 export type PullRequestListItemApiOutput = zod.output<typeof PullRequestListItemApi>
 
+export const PullRequestListApi = zod.object({
+    items: zod
+        .array(
+            zod.object({
+                author: zod
+                    .object({
+                        handle: zod.string().describe('Login handle of the pull request author.'),
+                        display_name: zod.string().describe('Human-readable name; equals the handle in v1.'),
+                        avatar_url: zod.string().describe("URL of the author's avatar image."),
+                        is_bot: zod
+                            .boolean()
+                            .describe('True if the author is a bot (handle ends in [bot] or is a known bot).'),
+                    })
+                    .describe('The pull request author.'),
+                repo: zod
+                    .object({
+                        provider: zod.string().describe("Code host provider, e.g. 'github'."),
+                        owner: zod.string().describe('Repository owner or organization.'),
+                        name: zod.string().describe('Repository name.'),
+                    })
+                    .describe('Repository the pull request belongs to.'),
+                ci: zod
+                    .object({
+                        runs: zod.number().describe("Distinct workflows run on the PR's head SHA."),
+                        passing: zod.number().describe("Latest runs that completed with conclusion 'success'."),
+                        failing: zod
+                            .number()
+                            .describe("Latest runs that completed with conclusion 'failure' or 'timed_out'."),
+                        pending: zod.number().describe('Latest runs not yet completed (queued or in progress).'),
+                    })
+                    .describe('CI status from the latest workflow runs on the head SHA.'),
+                number: zod.number().describe('Pull request number within the repository.'),
+                title: zod.string().describe('Pull request title.'),
+                state: zod
+                    .enum(['open', 'closed', 'merged'])
+                    .describe('\* `open` - OPEN\n\* `closed` - CLOSED\n\* `merged` - MERGED')
+                    .describe(
+                        "Derived state: 'open', 'closed', or 'merged'.\n\n\* `open` - OPEN\n\* `closed` - CLOSED\n\* `merged` - MERGED"
+                    ),
+                is_draft: zod.boolean().describe('True if the pull request is a draft.'),
+                created_at: zod.iso.datetime({ offset: true }).describe('When the pull request was opened.'),
+                merged_at: zod.iso
+                    .datetime({ offset: true })
+                    .nullable()
+                    .describe('When the pull request was merged, or null.'),
+                open_to_merge_seconds: zod
+                    .number()
+                    .nullable()
+                    .describe(
+                        'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
+                    ),
+                labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+            })
+        )
+        .describe('Pull requests, newest first, capped at `limit`.'),
+    truncated: zod
+        .boolean()
+        .describe(
+            'True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it.'
+        ),
+    limit: zod.number().describe('Maximum number of pull requests returned in `items`.'),
+})
+
+export type PullRequestListApi = zod.input<typeof PullRequestListApi>
+export type PullRequestListApiOutput = zod.output<typeof PullRequestListApi>
+
 export const WorkflowHealthItemApi = zod.object({
     workflow_name: zod.string().describe('GitHub Actions workflow name.'),
     run_count: zod.number().describe('Total runs started in the window.'),
