@@ -26,7 +26,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { HogFlow } from '../../src/schema/hogflow'
-import { Hub, Team } from '../../src/types'
+import { GroupTypeIndex, Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
@@ -73,8 +73,13 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     let team: Team
     let globals: HogFunctionInvocationGlobals
     let mockPersonRepo: jest.Mocked<PersonReadRepository>
-    let mockGroupTypes: { team_id: number; group_type: string; group_type_index: number }[]
-    let mockGroups: { team_id: number; group_type_index: number; group_key: string; group_properties: any }[]
+    let mockGroupTypes: { team_id: number; group_type: string; group_type_index: GroupTypeIndex }[]
+    let mockGroups: {
+        team_id: number
+        group_type_index: GroupTypeIndex
+        group_key: string
+        group_properties: Record<string, any>
+    }[]
     let cyclotronPool: Pool
     let deps: ReturnType<typeof createCdpConsumerDeps>
 
@@ -144,7 +149,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         mockGroups = []
         const mockGroupRepo: GroupReadRepository = {
             fetchGroupTypesByTeamIds: (teamIds) => {
-                const result: Record<string, { group_type: string; group_type_index: number }[]> = {}
+                const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
                 teamIds.forEach((id) => (result[String(id)] = []))
                 mockGroupTypes.forEach((gt) => {
                     if (teamIds.includes(gt.team_id)) {
@@ -481,7 +486,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         // conditional branch -> HogVM — which is the seam the unit tests can't cover. The worker
         // loads groups even though the trigger-time globals had none. organization sits at a
         // non-zero group index in real projects, so use index 2 to catch index-alignment bugs.
-        const ORG_GROUP_INDEX = 2
+        const ORG_GROUP_INDEX: GroupTypeIndex = 2
         const ORG_KEY = 'org-scale-1'
 
         beforeEach(async () => {
