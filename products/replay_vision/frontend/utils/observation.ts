@@ -10,9 +10,11 @@ export function readScore(obs: ReplayObservationApi): number | null {
     return typeof raw === 'number' ? raw : null
 }
 
-export function readVerdict(obs: ReplayObservationApi): boolean | null {
+export type MonitorVerdict = 'yes' | 'no' | 'inconclusive'
+
+export function readVerdict(obs: ReplayObservationApi): MonitorVerdict | null {
     const raw = readModelOutput(obs)?.verdict
-    return typeof raw === 'boolean' ? raw : null
+    return raw === 'yes' || raw === 'no' || raw === 'inconclusive' ? raw : null
 }
 
 function readStringArray(value: unknown): string[] {

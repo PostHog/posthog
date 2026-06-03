@@ -147,6 +147,7 @@ export function Chart<Meta = unknown>({
         isPercent = false,
         animateHover,
         margins: marginsOverride,
+        maxCategoryLabelWidth,
     } = config ?? {}
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
@@ -168,6 +169,7 @@ export function Chart<Meta = unknown>({
         axisOrientation,
         override: marginsOverride,
         valueRangeSeries,
+        maxCategoryLabelWidth,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -310,6 +312,7 @@ export function Chart<Meta = unknown>({
                                 axisColor={axisColor}
                                 orientation={axisOrientation}
                                 labelToCoord={labelToCoord}
+                                maxCategoryLabelWidth={maxCategoryLabelWidth}
                             />
                             <AxisTitles
                                 xAxisLabel={xAxisLabel}

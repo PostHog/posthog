@@ -247,6 +247,7 @@ class TestSignalsProductModuleIntegrity:
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
             "SignalsScoutCoordinatorWorkflow",
+            "CustomSignalAgentWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -299,6 +300,7 @@ class TestSignalsProductModuleIntegrity:
             "wait_for_signal_in_clickhouse_activity",
             "fetch_enabled_signals_scout_runs_activity",
             "run_signals_scout_activity",
+            "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

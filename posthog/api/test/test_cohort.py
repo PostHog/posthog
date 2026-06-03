@@ -24,7 +24,6 @@ from rest_framework import status
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.cohort import CohortViewSet
-from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -43,6 +42,7 @@ from posthog.tasks.calculate_cohort import (
 )
 
 from products.actions.backend.models.action import Action
+from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.materialized_columns.analyze import materialize
@@ -584,6 +584,124 @@ email@example.org
 
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 0)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
+        side_effect=insert_cohort_from_filters,
+    )
+    def test_static_cohort_create_with_behavioral_criteria(self, _insert_cohort_from_filters: MagicMock):
+        performed = _create_person(distinct_ids=["did-pageview"], team_id=self.team.pk)
+        _create_person(distinct_ids=["no-pageview"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="did-pageview",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "behavioral snapshot",
+                "is_static": True,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertTrue(cohort.is_static)
+        self.assertEqual(cohort.count, 1)
+
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
+        self.assertEqual(people_in_cohort.count(), 1)
+        first_person = people_in_cohort.first()
+        assert first_person is not None
+        self.assertEqual(first_person.uuid, performed.uuid)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
+        side_effect=insert_cohort_from_filters,
+    )
+    def test_static_cohort_create_with_or_nested_criteria(self, _insert_cohort_from_filters: MagicMock):
+        first_match = _create_person(
+            distinct_ids=["or-match-1"],
+            team_id=self.team.pk,
+            properties={"email": "first@example.com"},
+        )
+        second_match = _create_person(
+            distinct_ids=["or-match-2"],
+            team_id=self.team.pk,
+            properties={"email": "second@example.com"},
+        )
+        _create_person(
+            distinct_ids=["or-miss"],
+            team_id=self.team.pk,
+            properties={"email": "other@example.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "or criteria snapshot",
+                "is_static": True,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "first@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    },
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "second@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertTrue(cohort.is_static)
+        self.assertEqual(cohort.count, 2)
+
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
+        self.assertEqual({p.uuid for p in people_in_cohort}, {first_match.uuid, second_match.uuid})
 
     def test_static_cohort_rejects_criteria_edits_after_creation(self):
         cohort = Cohort.objects.create(
