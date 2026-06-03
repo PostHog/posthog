@@ -23,17 +23,47 @@ def _metric(name: str, labels: dict[str, str]) -> float:
 
 class TestHogQLTypeObservability(SimpleTestCase):
     @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 0.0)
-    def test_zero_sample_rate_does_not_emit_metrics(self):
+    def test_zero_sample_rate_creates_no_accumulator(self):
         base = {"engine": "current", "dialect": "clickhouse", "source": "sql_editor"}
         before = _metric("hogql_typecheck_total", {**base, "result": "success"})
 
         stats = create_hogql_type_observability(dialect="clickhouse", source="sql_editor")
-        stats.expression_count = 1
-        stats.typed_by_precision["precise"] = 1
-        emit_hogql_type_observability(stats)
 
-        self.assertFalse(stats.sampled)
+        self.assertIsNone(stats)
+        emit_hogql_type_observability(stats)  # no-op on None
         self.assertEqual(_metric("hogql_typecheck_total", {**base, "result": "success"}), before)
+
+    @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
+    def test_sampling_returns_accumulator(self):
+        stats = create_hogql_type_observability(dialect="clickhouse", source="sql_editor")
+        self.assertIsNotNone(stats)
+        self.assertTrue(stats.sampled)
+
+    def test_observability_failures_never_propagate(self):
+        # A bug anywhere in the observability path must not break query execution.
+        stats = HogQLTypeObservability(enabled=True, sampled=True, dialect="clickhouse", source="sql_editor")
+        before_errors = _metric("hogql_type_observability_errors_total", {"stage": "collect_hogql_type_coverage"})
+
+        with patch("posthog.hogql.observability.TypeCoverageCollector", side_effect=RuntimeError("boom")):
+            # Does not raise, despite the collector blowing up.
+            collect_hogql_type_coverage(ast.Constant(value=1), stats)
+
+        self.assertEqual(
+            _metric("hogql_type_observability_errors_total", {"stage": "collect_hogql_type_coverage"}) - before_errors,
+            1,
+        )
+
+    def test_record_methods_swallow_bad_input(self):
+        stats = HogQLTypeObservability(enabled=True, sampled=True, dialect="clickhouse", source="sql_editor")
+        before_errors = _metric("hogql_type_observability_errors_total", {"stage": "record_function_call"})
+
+        # function_name=None makes classify_function_group raise (None.lower()); @_safe must swallow it.
+        stats.record_function_call(function_name=None, return_type=ast.UnknownType(), signatures_present=False)  # type: ignore[arg-type]
+
+        self.assertEqual(
+            _metric("hogql_type_observability_errors_total", {"stage": "record_function_call"}) - before_errors, 1
+        )
+        emit_hogql_type_observability(stats)  # must not raise
 
     @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
     def test_emits_expression_coverage_metrics_with_bounded_labels(self):

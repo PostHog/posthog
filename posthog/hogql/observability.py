@@ -7,12 +7,15 @@ gated by ``TYPE_OBSERVABILITY_SAMPLE_RATE``.
 
 from __future__ import annotations
 
+import functools
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from random import random
 from time import perf_counter
-from typing import Literal
+from typing import Literal, TypeVar
 
+import structlog
 from prometheus_client import (
     Counter as PromCounter,
     Histogram,
@@ -21,8 +24,11 @@ from prometheus_client import (
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
+logger = structlog.get_logger(__name__)
+
 Precision = Literal["precise", "partial", "unknown"]
 Labels = dict[str, str]
+_F = TypeVar("_F", bound=Callable[..., object])
 
 _BASE_LABELS = ["engine", "dialect", "source"]
 
@@ -87,6 +93,40 @@ SQL_SHAPE_TOTAL = PromCounter(
     "Generated SQL shape pathologies by kind.",
     labelnames=[*_BASE_LABELS, "shape"],
 )
+OBSERVABILITY_ERRORS_TOTAL = PromCounter(
+    "hogql_type_observability_errors_total",
+    "Swallowed exceptions raised inside the type-observability code itself, by stage. "
+    "Observability never propagates its own failures into query execution; this counter makes them visible.",
+    labelnames=["stage"],
+)
+
+
+def _log_observability_error(stage: str) -> None:
+    """Record and log a swallowed observability failure. Must never raise."""
+    try:
+        OBSERVABILITY_ERRORS_TOTAL.labels(stage=stage).inc()
+        logger.warning("hogql_type_observability_error", stage=stage, exc_info=True)
+    except Exception:
+        pass
+
+
+def _safe(fn: _F) -> _F:
+    """Wrap an observability entry point so its own exceptions can never reach the query path.
+
+    Instrumentation must never break the thing it observes: on failure we log, count, and
+    continue. Functions that produce a value return ``None`` when they fail.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args: object, **kwargs: object) -> object:
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            _log_observability_error(fn.__name__)
+            return None
+
+    return wrapper  # ty: ignore[invalid-return-type]
+
 
 _UNKNOWN_REASONS = {
     "missing_function_signature",
@@ -166,9 +206,11 @@ class HogQLTypeObservability:
             "source": self.source,
         }
 
+    @_safe
     def record_unknown(self, reason: str, count: int = 1) -> None:
         self.unknown_by_reason[_bounded(reason, _UNKNOWN_REASONS)] += count
 
+    @_safe
     def record_function_call(self, function_name: str, return_type: ast.ConstantType, signatures_present: bool) -> None:
         self.function_call_count += 1
         precision = classify_constant_type(return_type)
@@ -183,6 +225,7 @@ class HogQLTypeObservability:
                 self.function_signature_miss_by_group[function_group] += 1
                 self.record_unknown("missing_function_signature")
 
+    @_safe
     def record_property_definition_lookup(self, property_source: str, known_count: int, total_count: int) -> None:
         property_source = _bounded(property_source, {"event", "person", "group"})
         unknown_count = max(total_count - known_count, 0)
@@ -198,16 +241,22 @@ class HogQLTypeObservability:
 TYPE_OBSERVABILITY_SAMPLE_RATE = 0.01
 
 
+@_safe
 def create_hogql_type_observability(
     dialect: str, source: str = "unknown", engine: str = "current"
-) -> HogQLTypeObservability:
-    enabled = TYPE_OBSERVABILITY_SAMPLE_RATE > 0
+) -> HogQLTypeObservability | None:
+    # Return an accumulator only when this pass is actually sampled. On the unsampled
+    # majority we return None, so every per-pass hook (record_*/collect_*/emit_*)
+    # short-circuits on a single `is not None` check — unsampled queries pay nothing
+    # beyond the sampling draw below.
+    if TYPE_OBSERVABILITY_SAMPLE_RATE <= 0 or random() >= TYPE_OBSERVABILITY_SAMPLE_RATE:
+        return None
     return HogQLTypeObservability(
         engine=_clean_tag(engine),
         dialect=_clean_tag(dialect),
         source=_clean_tag(source),
-        enabled=enabled,
-        sampled=enabled and random() < TYPE_OBSERVABILITY_SAMPLE_RATE,
+        enabled=True,
+        sampled=True,
     )
 
 
@@ -272,18 +321,21 @@ def classify_function_group(function_name: str) -> str:
     return "unknown"
 
 
+@_safe
 def collect_hogql_type_coverage(node: ast.AST, stats: HogQLTypeObservability | None) -> None:
     if stats is None or not stats.enabled or not stats.sampled:
         return
     TypeCoverageCollector(stats).visit(node)
 
 
+@_safe
 def collect_hogql_sql_shape(node: ast.AST, stats: HogQLTypeObservability | None) -> None:
     if stats is None or not stats.enabled or not stats.sampled:
         return
     SQLShapeCollector(stats).visit(node)
 
 
+@_safe
 def emit_hogql_type_observability(stats: HogQLTypeObservability | None) -> None:
     if stats is None or not stats.enabled or not stats.sampled:
         return
