@@ -330,12 +330,12 @@ class TestDashboardContext(BaseTest):
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Broken Insight",
-                insight_id="insight-1",
+                short_id="insight-1",
             ),
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="signup")]),
                 name="Working Insight",
-                insight_id="insight-2",
+                short_id="insight-2",
             ),
         ]
 

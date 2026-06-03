@@ -11,9 +11,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 
 
 def format_matrix(matrix: list[list[Any]]) -> str:
-    # Coerce cells defensively: formatters occasionally pass None (e.g. a missing label or
-    # value), and a bare "|".join(row) then raises "sequence item N: expected str instance,
-    # NoneType found", which fails the whole insight/dashboard context build.
+    # Coerce cells: a None (or non-str) cell would make "|".join raise and crash the build.
     lines: list[str] = []
     for row in matrix:
         lines.append("|".join("" if cell is None else str(cell) for cell in row))

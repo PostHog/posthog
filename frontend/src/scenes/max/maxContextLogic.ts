@@ -75,16 +75,19 @@ const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], i
 // throwing — but never let the failure stay silent.
 const reportedSceneContextErrors = new Set<string>()
 const reportSceneContextError = (error: unknown): void => {
-    const key = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    const err = error instanceof Error ? error : new Error(String(error))
+    const key = `${err.name}: ${err.message}`
     if (reportedSceneContextErrors.has(key)) {
         return
     }
+    // Bound growth in case messages embed dynamic content.
+    if (reportedSceneContextErrors.size > 50) {
+        reportedSceneContextErrors.clear()
+    }
     reportedSceneContextErrors.add(key)
     // eslint-disable-next-line no-console
-    console.error('[Max] Failed to build scene context — Max will have no auto-context for this scene:', error)
-    posthog.captureException(error instanceof Error ? error : new Error(key), {
-        feature: 'max_scene_context',
-    })
+    console.error('[Max] Failed to build scene context; Max will have no auto-collected context for this scene:', err)
+    posthog.captureException(err, { feature: 'max_scene_context' })
 }
 
 export type LoadedEntitiesMap = { dashboard: number[]; insight: string[] }
