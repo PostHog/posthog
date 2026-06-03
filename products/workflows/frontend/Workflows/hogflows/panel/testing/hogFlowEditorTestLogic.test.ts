@@ -59,7 +59,11 @@ describe('hogFlowEditorTestLogic', () => {
             const sparseGroupTypes = new Map<GroupTypeIndex, GroupType>([
                 [1 as GroupTypeIndex, { group_type: 'project', group_type_index: 1 } as GroupType],
             ])
-            const result = [{ uuid: 'e1' }, { id: 'p1' }, ['2021-01-01', 1, 'proj-1', JSON.stringify({ tier: 'gold' }), '2021-01-02']]
+            const result = [
+                { uuid: 'e1' },
+                { id: 'p1' },
+                ['2021-01-01', 1, 'proj-1', JSON.stringify({ tier: 'gold' }), '2021-01-02'],
+            ]
 
             const groups = parseGroupsFromResult(result, sparseGroupTypes)
             expect(groups.project).toMatchObject({ index: 1, id: 'proj-1', properties: { tier: 'gold' } })
