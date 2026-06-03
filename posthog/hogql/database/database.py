@@ -155,7 +155,6 @@ from posthog.models.team.team import WeekStartDay
 
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1135,6 +1134,10 @@ class Database(BaseModel):
                 revenue_views: list[RevenueAnalyticsBaseView] = []
                 try:
                     if not is_managed_viewset_enabled:
+                        from products.revenue_analytics.backend.views.orchestrator import (  # noqa: PLC0415
+                            build_all_revenue_analytics_views,
+                        )
+
                         revenue_views = list(build_all_revenue_analytics_views(team, timings))
                 except Exception as e:
                     capture_exception(e)
