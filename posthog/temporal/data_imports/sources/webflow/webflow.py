@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -34,6 +34,17 @@ def _get_headers(api_token: str) -> dict[str, str]:
         "Authorization": f"Bearer {api_token}",
         "Accept": "application/json",
     }
+
+
+def _encode_path_segment(value: str) -> str:
+    """Percent-encode a value before interpolating it into a URL path.
+
+    ``site_id`` is a non-secret field a user can edit on an existing source while the
+    saved ``api_token`` is preserved. Without encoding, a value containing ``/``, ``?``,
+    or ``#`` could redirect the authenticated request to an unintended Webflow endpoint.
+    Encoding with ``safe=""`` keeps every delimiter inside the single path segment.
+    """
+    return quote(value, safe="")
 
 
 def _extract_items(data: Any, data_key: str) -> list[dict[str, Any]]:
@@ -70,7 +81,7 @@ def _normalize(item: dict[str, Any], config: WebflowEndpointConfig) -> dict[str,
 
 
 def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
-    url = f"{WEBFLOW_BASE_URL}/sites/{site_id}"
+    url = f"{WEBFLOW_BASE_URL}/sites/{_encode_path_segment(site_id)}"
     try:
         response = make_tracked_session(redact_values=(api_token,)).get(
             url, headers=_get_headers(api_token), timeout=10
@@ -104,7 +115,7 @@ def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str
 
 
 def list_collections(api_token: str, site_id: str) -> list[dict[str, Any]]:
-    url = f"{WEBFLOW_BASE_URL}/sites/{site_id}/collections"
+    url = f"{WEBFLOW_BASE_URL}/sites/{_encode_path_segment(site_id)}/collections"
     response = make_tracked_session(redact_values=(api_token,)).get(url, headers=_get_headers(api_token), timeout=30)
     response.raise_for_status()
     return _extract_items(response.json(), "collections")
@@ -128,7 +139,7 @@ def _endpoint_config_for_schema(api_token: str, site_id: str, schema_name: str) 
 
 
 def _build_url(config: WebflowEndpointConfig, site_id: str, offset: int) -> str:
-    path = config.path.format(site_id=site_id) if config.requires_site else config.path
+    path = config.path.format(site_id=_encode_path_segment(site_id)) if config.requires_site else config.path
     params: dict[str, Any] = {}
     if config.paginated:
         params["limit"] = DEFAULT_PAGE_SIZE

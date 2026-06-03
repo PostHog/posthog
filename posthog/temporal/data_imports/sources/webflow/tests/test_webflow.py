@@ -91,6 +91,12 @@ class TestBuildUrl:
             "https://api.webflow.com/v2/collections/col-99/items?limit=100&offset=0&sortBy=createdOn&sortOrder=asc"
         )
 
+    def test_site_id_with_path_delimiters_is_encoded_into_a_single_segment(self) -> None:
+        # A site_id containing path/query delimiters must not redirect the request to
+        # an account-level (or otherwise unintended) Webflow endpoint.
+        url = _build_url(WEBFLOW_ENDPOINTS["pages"], "../../sites", 0)
+        assert url == "https://api.webflow.com/v2/sites/..%2F..%2Fsites/pages?limit=100&offset=0"
+
 
 def _drive_rows(
     config: Any, manager: Any, responses: list[Response], schema_name: str = "pages"
