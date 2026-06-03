@@ -1025,71 +1025,60 @@ describe('infiniteListLogic', () => {
             expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
         })
 
-        it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {
+        describe('recent Persons items', () => {
             // Persons items are stored stripped ({name, id?}) — distinct_ids is not persisted.
-            // The fix in InfiniteListRow falls back to _recentContext.sourceValue instead of
-            // calling Persons.getValue (which would return undefined). This test asserts that
-            // sourceValue is recorded correctly at storage time so the fallback has something to use.
-            const recentLogic = recentTaxonomicFiltersLogic.build()
-            recentLogic.mount()
-            recentLogic.actions.recordRecentFilter({
-                groupType: TaxonomicFilterGroupType.Persons,
-                groupName: 'Persons',
-                value: 'user-distinct-id',
-                item: { name: 'Jane Doe' },
+            // Both selection paths (click in InfiniteListRow, keyboard in selectSelected) fall back
+            // to _recentContext.sourceValue instead of calling Persons.getValue (which would return
+            // undefined for the stripped item). Shared setup records the recent and mounts the list.
+            let listLogic: ReturnType<typeof infiniteListLogic.build>
+
+            beforeEach(() => {
+                const recentLogic = recentTaxonomicFiltersLogic.build()
+                recentLogic.mount()
+                recentLogic.actions.recordRecentFilter({
+                    groupType: TaxonomicFilterGroupType.Persons,
+                    groupName: 'Persons',
+                    value: 'user-distinct-id',
+                    item: { name: 'Jane Doe' },
+                })
+
+                listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'persons-recents-test',
+                    listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
+                    showNumericalPropsOnly: false,
+                })
+                listLogic.mount()
             })
 
-            const listLogic = infiniteListLogic({
-                taxonomicFilterLogicKey: 'persons-recents-test',
-                listGroupType: TaxonomicFilterGroupType.RecentFilters,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
-                showNumericalPropsOnly: false,
-            })
-            listLogic.mount()
+            it('records sourceValue at storage time so the row resolves the correct distinct_id', () => {
+                const personItems = listLogic.values.contextFilteredRecentItems
+                    .filter(onlyWithRecentContext)
+                    .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons)
 
-            const personItems = listLogic.values.contextFilteredRecentItems
-                .filter(onlyWithRecentContext)
-                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons)
-
-            expect(personItems).toHaveLength(1)
-            expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
-        })
-
-        it('selects a recent item by its sourceValue when chosen with the keyboard', async () => {
-            // Keyboard selection (Enter) routes through selectSelected, not the row's onClick.
-            // Without the sourceValue fallback it dispatched a null value, producing a null
-            // breakdown that crashed BreakdownTag. Mirrors the click-path test above.
-            const recentLogic = recentTaxonomicFiltersLogic.build()
-            recentLogic.mount()
-            recentLogic.actions.recordRecentFilter({
-                groupType: TaxonomicFilterGroupType.Persons,
-                groupName: 'Persons',
-                value: 'user-distinct-id',
-                item: { name: 'Jane Doe' },
+                expect(personItems).toHaveLength(1)
+                expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
             })
 
-            const listLogic = infiniteListLogic({
-                taxonomicFilterLogicKey: 'persons-recents-keyboard-test',
-                listGroupType: TaxonomicFilterGroupType.RecentFilters,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
-                showNumericalPropsOnly: false,
+            it('selects a recent item by its sourceValue when chosen with the keyboard', async () => {
+                // Keyboard selection (Enter) routes through selectSelected, not the row's onClick.
+                // Without the sourceValue fallback it dispatched a null value, producing a null
+                // breakdown that crashed BreakdownTag.
+                const recentIndex = listLogic.values.results.findIndex(
+                    (item) =>
+                        onlyWithRecentContext(item) &&
+                        item._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons
+                )
+                expect(recentIndex).toBeGreaterThanOrEqual(0)
+
+                await expectLogic(listLogic, () => {
+                    listLogic.actions.setIndex(recentIndex)
+                    listLogic.actions.selectSelected()
+                }).toDispatchActions([
+                    ({ type, payload }) =>
+                        type === listLogic.actionTypes.selectItem && payload.value === 'user-distinct-id',
+                ])
             })
-            listLogic.mount()
-
-            const recentIndex = listLogic.values.results.findIndex(
-                (item) =>
-                    onlyWithRecentContext(item) &&
-                    item._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons
-            )
-            expect(recentIndex).toBeGreaterThanOrEqual(0)
-
-            await expectLogic(listLogic, () => {
-                listLogic.actions.setIndex(recentIndex)
-                listLogic.actions.selectSelected()
-            }).toDispatchActions([
-                ({ type, payload }) =>
-                    type === listLogic.actionTypes.selectItem && payload.value === 'user-distinct-id',
-            ])
         })
     })
 })
