@@ -10,10 +10,13 @@
 
 use-default-rules = true
 
-# Override default: Cargo.lock changes affect dependency resolution for everyone.
-[[path-rule]]
-globs = ["Cargo.lock"]
-mark-changed = "all"
+# Cargo.lock: When two graphs are available (--base-ref mode), the determinator
+# diffs resolved dependency versions directly — no rule needed. When only one
+# graph is available (fallback), compute_affected() handles the rebuild-all
+# logic in code. Either way, this rule is not needed here.
+#
+# The default determinator rule for Cargo.lock is mark-changed = [] (ignore),
+# which is what we want — the diff or the code handles it.
 
 # Dockerfiles and CI image config — cross-cutting build changes.
 [[path-rule]]
@@ -28,7 +31,7 @@ mark-changed = "all"
 # Proto files trigger the two build-script crates that read them.
 [[path-rule]]
 globs = ["../proto/**"]
-mark-changed = ["personhog-proto", "kafka-assigner-proto"]
+mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
 
 # Migration directories are not cargo crates. Tell the determinator to
 # ignore them (don't try ancestor-walk package matching). The sqlx-migrate

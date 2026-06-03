@@ -100,6 +100,115 @@ fn multi_file_is_union() {
     );
 }
 
+// ── Completeness tests ──────────────────────────────────────────
+
+#[test]
+fn every_deployable_binary_has_an_image_entry() {
+    let non_deployable: HashSet<&str> =
+        ["affected-services", "debug_rule", "stl_dump", "hermes"].into();
+
+    let (graph, images) = load_test_fixtures();
+    let bin_to_crate = build_binary_to_crate_map(&graph);
+
+    let image_binaries: HashSet<&str> = images
+        .iter()
+        .map(|img| img.bin.as_deref().unwrap_or(&img.image))
+        .collect();
+
+    let mut missing = Vec::new();
+    for bin_name in bin_to_crate.keys() {
+        if non_deployable.contains(bin_name.as_str()) {
+            continue;
+        }
+        if !image_binaries.contains(bin_name.as_str()) {
+            missing.push(bin_name.as_str());
+        }
+    }
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "workspace binaries missing from .github/rust-images.yml: {:?}\n\
+         If these are not deployable services, add them to `non_deployable` in this test.",
+        missing,
+    );
+}
+
+#[test]
+fn proto_build_scripts_are_in_determinator_rules() {
+    let repo_root = find_repo_root().expect("must be in a git repo");
+    let workspace_dir = repo_root.join("rust");
+
+    let rules_content =
+        std::fs::read_to_string(workspace_dir.join("affected-services/determinator-rules.toml"))
+            .expect("determinator-rules.toml");
+
+    let mut proto_rule_crates: HashSet<String> = HashSet::new();
+    let mut in_proto_rule = false;
+    let mut in_mark_changed = false;
+    for line in rules_content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[[path-rule]]" {
+            in_proto_rule = false;
+            in_mark_changed = false;
+        }
+        if trimmed.contains("../proto/**") {
+            in_proto_rule = true;
+        }
+        if in_proto_rule && trimmed.starts_with("mark-changed") {
+            in_mark_changed = true;
+        }
+        if in_mark_changed {
+            for part in trimmed.split('"') {
+                let part = part.trim();
+                if !part.is_empty()
+                    && !part.contains("mark-changed")
+                    && !part.contains('[')
+                    && !part.contains(']')
+                    && !part.contains(',')
+                    && !part.contains('=')
+                {
+                    proto_rule_crates.insert(part.to_string());
+                }
+            }
+            if trimmed.contains(']') {
+                in_mark_changed = false;
+            }
+        }
+    }
+
+    let graph = build_package_graph(&workspace_dir).expect("cargo metadata");
+
+    let mut missing = Vec::new();
+    for member in graph.workspace().iter() {
+        let crate_dir = workspace_dir.join(
+            member
+                .source()
+                .workspace_path()
+                .expect("workspace member has path"),
+        );
+        let build_rs = crate_dir.join("build.rs");
+        if !build_rs.exists() {
+            continue;
+        }
+        let content = std::fs::read_to_string(&build_rs).unwrap_or_default();
+        if content.contains("tonic_build")
+            || content.contains("prost_build")
+            || content.contains("protobuf_codegen")
+        {
+            if !proto_rule_crates.contains(&member.name().to_string()) {
+                missing.push(member.name().to_string());
+            }
+        }
+    }
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "crates with proto build scripts missing from determinator-rules.toml proto rule: {:?}\n\
+         Add these to the `mark-changed` list for the `../proto/**` path-rule.",
+        missing,
+    );
+}
+
 // ── Concrete tests ───────────────────────────────────────────────
 //
 // Update these when adding/removing/renaming services.
@@ -207,11 +316,25 @@ fn old_graph_no_changed_files_produces_empty() {
 }
 
 #[test]
-fn old_graph_rebuild_all_on_lockfile() {
+fn two_graph_lockfile_with_identical_graphs_is_noop() {
     let (graph, images) = load_test_fixtures();
     let result =
         compute_affected(&["rust/Cargo.lock".into()], Some(&graph), &graph, &images).unwrap();
-    assert!(result.rebuild_all);
+    assert!(
+        !result.rebuild_all,
+        "two identical graphs should detect no dependency changes from Cargo.lock"
+    );
+    assert!(result.crates.is_empty());
+}
+
+#[test]
+fn single_graph_lockfile_triggers_rebuild_all() {
+    let (graph, images) = load_test_fixtures();
+    let result = compute_affected(&["rust/Cargo.lock".into()], None, &graph, &images).unwrap();
+    assert!(
+        result.rebuild_all,
+        "Cargo.lock change without old graph should force rebuild-all"
+    );
     let workspace_count = graph.workspace().iter().count();
     assert_eq!(result.crates.len(), workspace_count);
 }

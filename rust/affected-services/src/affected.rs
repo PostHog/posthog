@@ -46,6 +46,30 @@ pub fn compute_affected(
         .map(|f| to_workspace_relative(f))
         .collect();
 
+    // When no old graph is available (single-graph fallback) and Cargo.lock
+    // changed, the determinator can't diff resolved dependencies — it sees
+    // old == new. Force a full rebuild to be safe.
+    if old_graph.is_none()
+        && changed_files
+            .iter()
+            .any(|f| f == "rust/Cargo.lock" || f == "Cargo.lock")
+    {
+        let mut all_images: Vec<String> = images.iter().map(|i| i.image.clone()).collect();
+        all_images.sort();
+        let mut all_crates: Vec<String> = new_graph
+            .workspace()
+            .iter()
+            .map(|p| p.name().to_string())
+            .collect();
+        all_crates.sort();
+        return Ok(AffectedResult {
+            rebuild_all: true,
+            images: all_images,
+            crates: all_crates,
+            directly_changed: Vec::new(),
+        });
+    }
+
     let old = old_graph.unwrap_or(new_graph);
     let mut det = Determinator::new(old, new_graph);
     det.set_rules(&rules)
