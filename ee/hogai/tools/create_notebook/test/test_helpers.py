@@ -5,11 +5,15 @@ from parameterized import parameterized
 
 from posthog.schema import TrendsQuery, VisualizationMessage
 
+from posthog.constants import AvailableFeature
+
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.helpers import save_notebook_to_db
 from ee.models.assistant import AgentArtifact, Conversation
+from ee.models.rbac.access_control import AccessControl
 
 
 def _find_ph_query_nodes(doc: dict) -> list[dict]:
@@ -151,3 +155,41 @@ class TestSaveNotebookToDb(BaseTest):
 
         ph_queries = _find_ph_query_nodes(notebook.content)
         self.assertEqual(len(ph_queries), 0)
+
+    def test_save_notebook_skips_restricted_insight(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        restricted_user = self._create_user("restricted@posthog.com")
+        insight = Insight.objects.create(
+            team=self.team,
+            short_id="rstr",
+            name="Restricted insight",
+            saved=True,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": []},
+        )
+        AccessControl.objects.create(
+            resource="insight",
+            resource_id=insight.id,
+            team=self.team,
+            access_level="none",
+        )
+
+        parent = self._create_notebook_parent("nrst")
+        blocks: list[StoredBlock] = [VisualizationRefBlock(artifact_id=insight.short_id, title="Restricted")]
+        async_to_sync(save_notebook_to_db)(
+            team=self.team,
+            user=restricted_user,
+            artifact=parent,
+            blocks=blocks,
+            title="Restricted notebook",
+            state_messages=[],
+        )
+
+        notebook = Notebook.objects.get(team=self.team, short_id=parent.short_id)
+        ph_queries = _find_ph_query_nodes(notebook.content)
+        self.assertEqual(ph_queries, [])
