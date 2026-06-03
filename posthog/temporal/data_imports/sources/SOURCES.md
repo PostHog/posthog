@@ -167,7 +167,6 @@ doesn't conflict with concurrent PRs.
 - gong
 - google_analytics
 - google_drive
-- gorgias
 - granola
 - greenhouse
 - helpscout
