@@ -191,13 +191,12 @@ fn proto_build_scripts_are_in_determinator_rules() {
             continue;
         }
         let content = std::fs::read_to_string(&build_rs).unwrap_or_default();
-        if content.contains("tonic_build")
+        if (content.contains("tonic_build")
             || content.contains("prost_build")
-            || content.contains("protobuf_codegen")
+            || content.contains("protobuf_codegen"))
+            && !proto_rule_crates.contains(member.name())
         {
-            if !proto_rule_crates.contains(&member.name().to_string()) {
-                missing.push(member.name().to_string());
-            }
+            missing.push(member.name().to_string());
         }
     }
     missing.sort();
