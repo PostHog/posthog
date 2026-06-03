@@ -75,6 +75,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -388,7 +389,13 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
         description="Update an existing endpoint.",
     ),
 )
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemViewSetMixin, viewsets.ModelViewSet):
+class EndpointViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    PydanticModelMixin,
+    TaggedItemViewSetMixin,
+    viewsets.ModelViewSet,
+):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
@@ -540,6 +547,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
             "tags": self._get_tag_names(endpoint),
+            # Resource access control: the effective access level the user has for this endpoint.
+            # Computed manually because endpoints use Pydantic response models, not a DRF
+            # ModelSerializer that could carry UserAccessControlSerializerMixin.
+            "user_access_level": self.user_access_control.get_user_access_level(endpoint),
         }
 
         if isinstance(obj, EndpointVersion):
@@ -561,9 +572,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
+            self.user_access_control.preload_object_access_controls(list(page))
             results = [self._serialize(endpoint, request) for endpoint in page]
             return self.get_paginated_response(results)
-        results = [self._serialize(endpoint, request) for endpoint in queryset]
+        endpoints = list(queryset)
+        self.user_access_control.preload_object_access_controls(endpoints)
+        results = [self._serialize(endpoint, request) for endpoint in endpoints]
         return Response({"results": results})
 
     @extend_schema(
@@ -1267,6 +1281,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        self.check_object_permissions(request, endpoint)
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
 

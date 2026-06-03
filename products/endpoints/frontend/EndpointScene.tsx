@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { IconPause, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
@@ -13,6 +14,7 @@ import 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -28,7 +30,7 @@ import {
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
@@ -61,6 +63,13 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+
+    // Object-level access control: editor access is required to mutate an endpoint.
+    const editRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Endpoint,
+        AccessControlLevel.Editor,
+        endpoint?.user_access_level
+    )
 
     const tabs: LemonTab<EndpointTab>[] = [
         {
@@ -162,6 +171,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                                 variant="destructive"
                                 opensFloatingUi
                                 onClick={handleDelete}
+                                disabled={!!editRestrictionReason}
                                 data-attr="endpoint-menubar-delete"
                             >
                                 <IconTrash />
@@ -173,6 +183,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                             <SceneMenuBarCheckboxItem
                                 checked={endpoint.is_active}
                                 onCheckedChange={handleToggleActive}
+                                disabled={!!editRestrictionReason}
                                 data-attr="endpoint-menubar-active"
                             >
                                 Active
@@ -181,7 +192,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                         <SceneMenuBarPopover label="Metadata" dataAttr="endpoint-menubar-metadata">
                             <SceneTagsCombobox
                                 onSave={(tags) => saveTagsInline(tags)}
-                                canEdit
+                                canEdit={!editRestrictionReason}
                                 tags={endpoint.tags}
                                 tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                                 dataAttrKey="endpoint"
@@ -213,20 +224,47 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                             tags={endpoint.tags}
                             tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
                             onSave={(tags) => saveTagsInline(tags)}
-                            canEdit
+                            canEdit={!editRestrictionReason}
                             dataAttrKey="endpoint"
                         />
                     </ScenePanelInfoSection>
                     <ScenePanelActionsSection>
-                        <ButtonPrimitive menuItem onClick={handleToggleActive}>
-                            {endpoint.is_active ? <IconPause /> : <IconPlay />}
-                            {endpoint.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
-                        </ButtonPrimitive>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Endpoint}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={endpoint.user_access_level}
+                        >
+                            {({ disabledReason }) => (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={handleToggleActive}
+                                    disabled={!!disabledReason}
+                                    {...(disabledReason && { tooltip: disabledReason })}
+                                >
+                                    {endpoint.is_active ? <IconPause /> : <IconPlay />}
+                                    {endpoint.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
+                                </ButtonPrimitive>
+                            )}
+                        </AccessControlAction>
                         <LemonDivider />
-                        <ButtonPrimitive menuItem onClick={handleDelete} className="text-danger">
-                            <IconTrash />
-                            Delete endpoint
-                        </ButtonPrimitive>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Endpoint}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={endpoint.user_access_level}
+                        >
+                            {({ disabledReason }) => (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={handleDelete}
+                                    className="text-danger"
+                                    disabled={!!disabledReason}
+                                    {...(disabledReason && { tooltip: disabledReason })}
+                                >
+                                    <IconTrash />
+                                    Delete endpoint
+                                </ButtonPrimitive>
+                            )}
+                        </AccessControlAction>
                     </ScenePanelActionsSection>
                 </ScenePanel>
             )}

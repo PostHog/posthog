@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconBug } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
@@ -10,7 +11,7 @@ import { objectsEqual } from 'lib/utils'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EndpointRequest } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
-import { EndpointType, EndpointVersionType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic } from './endpointSceneLogic'
@@ -132,21 +133,27 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                                 Discard changes
                             </LemonButton>
                         )}
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSave}
-                            disabledReason={
-                                !endpoint
-                                    ? 'Endpoint not loaded'
-                                    : !hasChanges
-                                      ? 'No changes to save'
-                                      : hasQueryChange && targetVersion
-                                        ? 'Query can only be changed when on the latest version'
-                                        : undefined
-                            }
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Endpoint}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={endpoint?.user_access_level}
                         >
-                            Update
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={handleSave}
+                                disabledReason={
+                                    !endpoint
+                                        ? 'Endpoint not loaded'
+                                        : !hasChanges
+                                          ? 'No changes to save'
+                                          : hasQueryChange && targetVersion
+                                            ? 'Query can only be changed when on the latest version'
+                                            : undefined
+                                }
+                            >
+                                Update
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             />

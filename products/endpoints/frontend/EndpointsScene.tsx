@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
@@ -16,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { Endpoints } from './Endpoints'
 import { endpointsLogic } from './endpointsLogic'
@@ -64,32 +66,37 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
                             }}
                             actions={
-                                <AppShortcut
-                                    name="EndpointsNew"
-                                    keybind={[keyBinds.new]}
-                                    intent="New endpoint"
-                                    interaction="click"
-                                    scope={Scene.EndpointsScene}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Endpoint}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    <LemonButton
-                                        type="primary"
-                                        to={urls.sqlEditor({ source: 'endpoint' })}
-                                        sideAction={{
-                                            dropdown: {
-                                                placement: 'bottom-end',
-                                                className: 'new-endpoint-overlay',
-                                                actionable: true,
-                                                overlay: <OverlayForNewEndpointMenu />,
-                                            },
-                                            'data-attr': 'new-endpoint-dropdown',
-                                        }}
-                                        data-attr="new-endpoint-button"
-                                        size="small"
-                                        icon={<IconPlusSmall />}
+                                    <AppShortcut
+                                        name="EndpointsNew"
+                                        keybind={[keyBinds.new]}
+                                        intent="New endpoint"
+                                        interaction="click"
+                                        scope={Scene.EndpointsScene}
                                     >
-                                        New
-                                    </LemonButton>
-                                </AppShortcut>
+                                        <LemonButton
+                                            type="primary"
+                                            to={urls.sqlEditor({ source: 'endpoint' })}
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    className: 'new-endpoint-overlay',
+                                                    actionable: true,
+                                                    overlay: <OverlayForNewEndpointMenu />,
+                                                },
+                                                'data-attr': 'new-endpoint-dropdown',
+                                            }}
+                                            data-attr="new-endpoint-button"
+                                            size="small"
+                                            icon={<IconPlusSmall />}
+                                        >
+                                            New
+                                        </LemonButton>
+                                    </AppShortcut>
+                                </AccessControlAction>
                             }
                         />
                         <ProductIntroduction

@@ -4,6 +4,7 @@ import { combineUrl } from 'kea-router'
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -11,7 +12,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import type { EndpointVersionType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type EndpointVersionType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { EndpointTab, endpointSceneLogic } from '../endpointSceneLogic'
@@ -141,18 +142,24 @@ export function EndpointVersions({ tabId }: EndpointVersionsProps): JSX.Element 
                                 <LemonButton fullWidth to={versionUrl}>
                                     View version
                                 </LemonButton>
-                                <LemonButton
-                                    fullWidth
-                                    onClick={() =>
-                                        updateEndpoint(
-                                            endpoint.name,
-                                            { is_active: !record.is_active },
-                                            { version: record.version }
-                                        )
-                                    }
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Endpoint}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={endpoint.user_access_level}
                                 >
-                                    {record.is_active ? 'Deactivate version' : 'Activate version'}
-                                </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() =>
+                                            updateEndpoint(
+                                                endpoint.name,
+                                                { is_active: !record.is_active },
+                                                { version: record.version }
+                                            )
+                                        }
+                                    >
+                                        {record.is_active ? 'Deactivate version' : 'Activate version'}
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />

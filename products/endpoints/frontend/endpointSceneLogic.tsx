@@ -12,9 +12,10 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
+import { ActivityScope, Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -332,6 +333,22 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     name: endpoint?.name || 'New Endpoint',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.endpoint],
+            (endpoint: EndpointType | null): SidePanelSceneContext | null => {
+                return endpoint?.id
+                    ? {
+                          // Activity logs are keyed by the endpoint UUID...
+                          activity_scope: ActivityScope.ENDPOINT,
+                          activity_item_id: endpoint.id,
+                          // ...but the access_controls route resolves the endpoint by its
+                          // `name` lookup field, so the resource id here must be the name.
+                          access_control_resource: 'endpoint',
+                          access_control_resource_id: endpoint.name,
+                      }
+                    : null
+            },
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({

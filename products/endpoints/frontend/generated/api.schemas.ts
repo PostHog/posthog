@@ -176,6 +176,11 @@ export interface EndpointResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /**
+     * The effective access level the current user has for this endpoint (e.g. 'viewer', 'editor', 'manager').
+     * @nullable
+     */
+    user_access_level: string | null
 }
 
 export interface PaginatedEndpointResponseListApi {
@@ -326,6 +331,11 @@ export interface EndpointVersionResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /**
+     * The effective access level the current user has for this endpoint (e.g. 'viewer', 'editor', 'manager').
+     * @nullable
+     */
+    user_access_level: string | null
     /** Version number. */
     version: number
     /** Version unique identifier (UUID). */

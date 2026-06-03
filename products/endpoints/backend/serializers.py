@@ -191,6 +191,10 @@ class EndpointResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Tag names associated with this endpoint.",
     )
+    user_access_level = serializers.CharField(
+        allow_null=True,
+        help_text="The effective access level the current user has for this endpoint (e.g. 'viewer', 'editor', 'manager').",
+    )
 
 
 class EndpointRunResponseSerializer(serializers.Serializer):
