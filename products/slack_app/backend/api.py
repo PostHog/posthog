@@ -15,9 +15,9 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-import posthoganalytics
 import requests
 import structlog
+import posthoganalytics
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -1663,12 +1663,10 @@ def _report_slack_mention_received(event: dict, integration: Integration, slack_
             if slack_user_id
             else None
         )
-        identified = bool(posthog_user and posthog_user.distinct_id)
-        distinct_id = (
-            posthog_user.distinct_id
-            if (identified and posthog_user is not None)
-            else f"slack:{slack_team_id}:{slack_user_id or 'unknown'}"
-        )
+        # Prefer the resolved PostHog user's distinct id so the event attributes to a real person;
+        # fall back to a stable Slack-derived id so anonymous-but-valid mentions are still captured.
+        identified_distinct_id = posthog_user.distinct_id if posthog_user else None
+        distinct_id = identified_distinct_id or f"slack:{slack_team_id}:{slack_user_id or 'unknown'}"
 
         if is_first_message_in_session:
             session_message_count: int | None = 1
@@ -1683,9 +1681,9 @@ def _report_slack_mention_received(event: dict, integration: Integration, slack_
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,
             "slack_user_id": slack_user_id,
-            "posthog_user_identified": identified,
+            "posthog_user_identified": identified_distinct_id is not None,
         }
-        if identified and posthog_user is not None:
+        if posthog_user is not None and identified_distinct_id is not None:
             properties["$set"] = posthog_user.get_analytics_metadata()
 
         posthoganalytics.capture(
