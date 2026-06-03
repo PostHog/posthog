@@ -874,3 +874,40 @@ class TestDashboardWidgets(APIBaseTest):
         assert set(shared_widget.keys()) == {"id", "widget_type", "name", "description", "config"}
         assert shared_widget["widget_type"] == "error_tracking_list"
         assert shared_widget["config"]["limit"] == 10
+
+
+class TestDashboardWidgetOpenApiSchema(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+        self._widgets_flag_patchers = [
+            patch("products.dashboards.backend.api.dashboard.dashboard_widgets_enabled", return_value=True),
+            patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True),
+        ]
+        for patcher in self._widgets_flag_patchers:
+            patcher.start()
+
+    def tearDown(self) -> None:
+        for patcher in self._widgets_flag_patchers:
+            patcher.stop()
+        super().tearDown()
+
+    def test_add_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        component = schema["components"]["schemas"]["AddDashboardWidgetRequest"]
+
+        assert component["discriminator"]["propertyName"] == "widget_type"
+        assert set(component["discriminator"]["mapping"].keys()) == {
+            "error_tracking_list",
+            "session_replay_list",
+        }
+
+    def test_batch_add_rejects_unknown_widget_type(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "not_a_real_widget", "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

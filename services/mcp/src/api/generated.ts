@@ -3770,6 +3770,36 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface _WidgetTileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface _WidgetTileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _WidgetTileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: _WidgetTileLayoutBoxOpenApi;
+    }
+
+    /**
+     * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+
+    * `error_tracking_list` - error_tracking_list
+     */
+    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetType = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
+
     /**
      * * `last_seen` - last_seen
     * `first_seen` - first_seen
@@ -3890,6 +3920,39 @@ export namespace Schemas {
       filterTestAccounts?: boolean;
     }
 
+    export interface ErrorTrackingListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      /** Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+
+      * `error_tracking_list` - error_tracking_list */
+      widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the error tracking list widget. */
+      config: ErrorTrackingListWidgetConfig;
+    }
+
+    /**
+     * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+
+    * `session_replay_list` - session_replay_list
+     */
+    export type SessionReplayListWidgetAddRequestOpenApiWidgetType = typeof SessionReplayListWidgetAddRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const SessionReplayListWidgetAddRequestOpenApiWidgetType = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
     /**
      * * `activity_score` - activity_score
     * `click_count` - click_count
@@ -3937,34 +4000,7 @@ export namespace Schemas {
       filterTestAccounts?: boolean;
     }
 
-    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
-
-    export interface TileLayoutBox {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface TileLayouts {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: TileLayoutBox;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: TileLayoutBox;
-    }
-
-    export interface AddDashboardWidgetRequest {
-      /**
-         * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-         * @maxLength 64
-         */
-      widget_type: string;
-      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
-      config: DashboardWidgetConfig;
+    export interface SessionReplayListWidgetAddRequestOpenApi {
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -3974,12 +4010,23 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: TileLayouts;
+      layouts?: _WidgetTileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
+      /** Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+
+      * `session_replay_list` - session_replay_list */
+      widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the session replay list widget. */
+      config: SessionReplayListWidgetConfig;
     }
 
-    export interface AddDashboardWidgetsBatchRequest {
+    export type AddDashboardWidgetRequest = ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
+
+    /**
+     * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
+     */
+    export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
          * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
          * @minItems 1
@@ -6859,6 +6906,8 @@ export namespace Schemas {
       readonly last_modified_at: string;
       team: number;
     }
+
+    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -11805,6 +11854,24 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface TileLayoutBox {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface TileLayouts {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: TileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: TileLayoutBox;
+    }
+
     export interface CreateTextTileRequest {
       /**
          * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
@@ -15192,6 +15259,16 @@ export namespace Schemas {
       /** Offset to fetch the next page when hasMore is true. */
       nextOffset?: number;
     }
+
+    /**
+     * * `error_tracking_list` - error_tracking_list
+     */
+    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum];
+
+
+    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
 
     /**
      * Recommendation payload, shape depends on type.
@@ -37156,6 +37233,16 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly team: number;
     }
+
+    /**
+     * * `session_replay_list` - session_replay_list
+     */
+    export type SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum];
+
+
+    export const SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
 
     export interface SessionSummaries {
       /**
