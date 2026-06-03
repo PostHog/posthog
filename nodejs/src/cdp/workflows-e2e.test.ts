@@ -30,6 +30,7 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
+import { GroupReadRepository } from '../../src/worker/ingestion/groups/repositories/group-repository.interface'
 import {
     InternalPersonWithDistinctId,
     PersonReadRepository,
@@ -46,6 +47,7 @@ import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
+import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
@@ -71,6 +73,8 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     let team: Team
     let globals: HogFunctionInvocationGlobals
     let mockPersonRepo: jest.Mocked<PersonReadRepository>
+    let mockGroupTypes: { team_id: number; group_type: string; group_type_index: number }[]
+    let mockGroups: { team_id: number; group_type_index: number; group_key: string; group_properties: any }[]
     let cyclotronPool: Pool
     let deps: ReturnType<typeof createCdpConsumerDeps>
 
@@ -95,6 +99,13 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         await cyclotronPool.query('DELETE FROM cyclotron_jobs')
 
         hub = await createHub()
+
+        // Group loading is gated on the team having group_analytics; the test team doesn't,
+        // so force it on (scoped to that feature) without standing up billing.
+        const realHasFeature = hub.teamManager.hasAvailableFeature.bind(hub.teamManager)
+        jest.spyOn(hub.teamManager, 'hasAvailableFeature').mockImplementation((teamId, feature) =>
+            feature === 'group_analytics' ? Promise.resolve(true) : realHasFeature(teamId, feature)
+        )
 
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
@@ -127,7 +138,42 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
         }
 
-        deps = { ...createCdpConsumerDeps(hub, kafkaProducer), personRepository: mockPersonRepo }
+        // Group data is served from these arrays so tests can populate org group properties
+        // without writing to Postgres. The consumers' GroupsManagerService reads through here.
+        mockGroupTypes = []
+        mockGroups = []
+        const mockGroupRepo: GroupReadRepository = {
+            fetchGroupTypesByTeamIds: (teamIds) => {
+                const result: Record<string, { group_type: string; group_type_index: number }[]> = {}
+                teamIds.forEach((id) => (result[String(id)] = []))
+                mockGroupTypes.forEach((gt) => {
+                    if (teamIds.includes(gt.team_id)) {
+                        result[String(gt.team_id)].push({
+                            group_type: gt.group_type,
+                            group_type_index: gt.group_type_index,
+                        })
+                    }
+                })
+                return Promise.resolve(result)
+            },
+            fetchGroupsByKeys: (teamIds, groupIndexes, groupKeys) =>
+                Promise.resolve(
+                    mockGroups.filter((g) =>
+                        teamIds.some(
+                            (_t, i) =>
+                                teamIds[i] === g.team_id &&
+                                groupIndexes[i] === g.group_type_index &&
+                                groupKeys[i] === g.group_key
+                        )
+                    )
+                ),
+        }
+
+        deps = {
+            ...createCdpConsumerDeps(hub, kafkaProducer),
+            personRepository: mockPersonRepo,
+            groupRepository: mockGroupRepo,
+        }
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
@@ -425,6 +471,85 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
 
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/branch-a', expect.anything())
+        })
+    })
+
+    describe('conditional branch on organization (group) property', () => {
+        // Repro of the support-workflow bug: a $conversation_ticket_created event carries the
+        // customer org via $groups, and the branch routes on that org's billing_plan. Runs the
+        // full chain — event -> CdpEventsConsumer -> queue -> worker (loads group props) ->
+        // conditional branch -> HogVM — which is the seam the unit tests can't cover. The worker
+        // loads groups even though the trigger-time globals had none. organization sits at a
+        // non-zero group index in real projects, so use index 2 to catch index-alignment bugs.
+        const ORG_GROUP_INDEX = 2
+        const ORG_KEY = 'org-scale-1'
+
+        beforeEach(async () => {
+            mockGroupTypes = [{ team_id: team.id, group_type: 'organization', group_type_index: ORG_GROUP_INDEX }]
+            mockGroups = [
+                {
+                    team_id: team.id,
+                    group_type_index: ORG_GROUP_INDEX,
+                    group_key: ORG_KEY,
+                    group_properties: { billing_plan: 'scale' },
+                },
+            ]
+
+            // Same chain the frontend produces for "organization.billing_plan = scale":
+            // property.type === 'group' compiles to group_<index>.properties.<key>
+            const billingPlanIsScale = await compileHog(
+                `return ifNull(group_${ORG_GROUP_INDEX}.properties.billing_plan == 'scale', false)`
+            )
+
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    branch: {
+                        type: 'conditional_branch',
+                        config: {
+                            conditions: [
+                                {
+                                    filters: {
+                                        properties: [
+                                            {
+                                                type: 'group',
+                                                group_type_index: ORG_GROUP_INDEX,
+                                                key: 'billing_plan',
+                                                value: 'scale',
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        bytecode: billingPlanIsScale,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                    function_sla: fetchAction('https://example.com/enterprise-sla'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'branch', type: 'continue' },
+                    { from: 'branch', to: 'function_sla', type: 'branch', index: 0 },
+                    { from: 'branch', to: 'exit', type: 'continue' },
+                    { from: 'function_sla', to: 'exit', type: 'continue' },
+                ],
+            })
+        })
+
+        it('matches the SLA branch using org properties loaded from $groups on the event', async () => {
+            globals = createGlobals({
+                event: '$conversation_ticket_created',
+                properties: { $groups: { organization: ORG_KEY } },
+            })
+
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/enterprise-sla', expect.anything())
         })
     })
 

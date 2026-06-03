@@ -3,9 +3,14 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { GroupsManagerService } from '~/cdp/services/managers/groups-manager.service'
+import { compileHog } from '~/cdp/templates/compiler'
+import { CyclotronJobInvocationHogFlow, HogBytecode } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
+import { TeamManager } from '~/utils/team-manager'
+import { GroupReadRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
 import { ConditionalBranchHandler, checkConditions } from './conditional_branch'
@@ -157,6 +162,125 @@ describe('action.conditional_branch', () => {
             expect(result).toEqual({
                 nextAction: findActionById(invocation.hogFlow, 'condition_1'),
             })
+        })
+    })
+
+    // Repro of the support-workflow bug: a $conversation_ticket_created event carries the
+    // customer org via $groups, and the branch should match on that org's billing_plan.
+    // Exercises the full chain the runtime uses: $groups -> group loading -> filter globals
+    // -> compiled filter bytecode -> HogVM. organization sits at a non-zero group index in
+    // real projects, so we use index 2 to catch index-alignment bugs.
+    describe('organization (group) property conditions', () => {
+        const TEAM_ID = 1
+        const ORG_GROUP_INDEX = 2
+        const ORG_KEY = 'org-key-123'
+
+        let groupsManager: GroupsManagerService
+        let billingPlanIsScale: HogBytecode
+
+        const mockFetchGroupTypesByTeamIds = jest.fn()
+        const mockFetchGroupsByKeys = jest.fn()
+
+        beforeAll(async () => {
+            // Same chain the frontend produces for "organization.billing_plan = scale":
+            // property.type === 'group' compiles to group_<index>.properties.<key>
+            billingPlanIsScale = await compileHog(
+                `return ifNull(group_${ORG_GROUP_INDEX}.properties.billing_plan == 'scale', false)`
+            )
+        })
+
+        beforeEach(() => {
+            mockFetchGroupTypesByTeamIds.mockResolvedValue({
+                [String(TEAM_ID)]: [{ group_type: 'organization', group_type_index: ORG_GROUP_INDEX }],
+            })
+            mockFetchGroupsByKeys.mockResolvedValue([
+                {
+                    team_id: TEAM_ID,
+                    group_type_index: ORG_GROUP_INDEX,
+                    group_key: ORG_KEY,
+                    group_properties: { billing_plan: 'scale' },
+                },
+            ])
+
+            const teamManager = {
+                hasAvailableFeature: jest.fn().mockResolvedValue(true),
+            } as unknown as TeamManager
+            const groupRepository = {
+                fetchGroupTypesByTeamIds: mockFetchGroupTypesByTeamIds,
+                fetchGroupsByKeys: mockFetchGroupsByKeys,
+            } as unknown as GroupReadRepository
+            groupsManager = new GroupsManagerService(teamManager, groupRepository)
+        })
+
+        const filterGlobalsForEvent = async (eventProperties: Record<string, any>) => {
+            const groups = await groupsManager.getGroupsForEvent(
+                TEAM_ID,
+                eventProperties,
+                `http://localhost:8000/project/${TEAM_ID}`
+            )
+            return convertToHogFunctionFilterGlobal({
+                event: { event: '$conversation_ticket_created', properties: eventProperties } as any,
+                person: undefined,
+                groups,
+                variables: {},
+            })
+        }
+
+        // properties is present so the bytecode actually runs (a bytecode-only filter
+        // short-circuits to match without executing).
+        const billingPlanCondition = () => ({
+            filters: {
+                properties: [
+                    {
+                        type: 'group',
+                        group_type_index: ORG_GROUP_INDEX,
+                        key: 'billing_plan',
+                        value: 'scale',
+                        operator: 'exact',
+                    },
+                ],
+                bytecode: billingPlanIsScale,
+            },
+        })
+
+        it('matches the branch when the org group on the event carries billing_plan', async () => {
+            invocation.filterGlobals = await filterGlobalsForEvent({ $groups: { organization: ORG_KEY } })
+            action.config.conditions = [billingPlanCondition()]
+
+            const result = await checkConditions(invocation, action)
+
+            expect(result).toEqual({
+                nextAction: findActionById(invocation.hogFlow, 'condition_1'),
+            })
+        })
+
+        it('does not match when the event has no $groups (no org id on the event)', async () => {
+            invocation.filterGlobals = await filterGlobalsForEvent({})
+            action.config.conditions = [billingPlanCondition()]
+
+            const result = await checkConditions(invocation, action)
+
+            expect(result).toEqual({})
+        })
+
+        it('does not match when the org id is on the event but the group has no billing_plan', async () => {
+            // The event carries $groups.organization, but the resolved group has no
+            // billing_plan (e.g. the group key never received a $groupidentify, or the
+            // key on the event does not match the stored group). The branch correctly
+            // exits no-match — same symptom as a missing $groups, different root cause.
+            mockFetchGroupsByKeys.mockResolvedValue([
+                { team_id: TEAM_ID, group_type_index: ORG_GROUP_INDEX, group_key: ORG_KEY, group_properties: {} },
+            ])
+            const filterGlobals = await filterGlobalsForEvent({ $groups: { organization: ORG_KEY } })
+            // The org id is still exposed on the event even though properties are empty.
+            expect(filterGlobals[`group_${ORG_GROUP_INDEX}`]).toEqual({ properties: {} })
+            expect(filterGlobals[`$group_${ORG_GROUP_INDEX}`]).toEqual(ORG_KEY)
+            invocation.filterGlobals = filterGlobals
+            action.config.conditions = [billingPlanCondition()]
+
+            const result = await checkConditions(invocation, action)
+
+            expect(result).toEqual({})
         })
     })
 
