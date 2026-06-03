@@ -519,7 +519,7 @@ def _handle_existing_user(
         _capture_provisioning_event(
             "account_request",
             "silent_blocked_post_review",
-            partner_id=str(partner.id),
+            partner=partner,
         )
 
     if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked_post_review):
@@ -582,7 +582,7 @@ def _handle_existing_user(
         timeout=AUTH_CODE_TTL_SECONDS,
     )
 
-    _capture_provisioning_event("account_request", "existing_user", region=region, team_id=team.id)
+    _capture_provisioning_event("account_request", "existing_user", partner=partner, region=region, team_id=team.id)
 
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
 
@@ -625,7 +625,7 @@ def _require_user_consent(
 
     auth_url = _build_authorize_url(state, scopes, region=region)
 
-    _capture_provisioning_event("account_request", "requires_auth", region=region)
+    _capture_provisioning_event("account_request", "requires_auth", partner=partner, region=region)
 
     return Response(
         {
@@ -726,9 +726,9 @@ def _handle_new_user(
     _capture_provisioning_event(
         "account_request",
         "new_user",
+        partner=partner,
         region=region,
         team_id=team.id,
-        partner_id=str(partner.id) if partner else None,
     )
 
     try:
@@ -1086,7 +1086,7 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     available_teams = _get_available_teams_for_user(user)
 
-    _capture_provisioning_event("token_exchange", "success", grant_type="authorization_code")
+    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="authorization_code")
 
     return Response(
         {
@@ -1157,7 +1157,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         scoped_teams=scoped_teams,
     )
 
-    _capture_provisioning_event("token_exchange", "success", grant_type="refresh_token")
+    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="refresh_token")
 
     return Response(
         {
@@ -1495,19 +1495,19 @@ def provisioning_resources_create(request: Request) -> Response:
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
-        _capture_provisioning_event("resource_created", "error", error_code="unknown_service")
+        _capture_provisioning_event("resource_created", "error", partner=app, error_code="unknown_service")
         return _error_response("unknown_service", f"Unknown service_id: {service_id}")
 
     try:
         label_prefix = _extract_label_prefix(request)
     except _InvalidLabelPrefixError as exc:
-        _capture_provisioning_event("resource_created", "error", error_code="invalid_label_prefix")
+        _capture_provisioning_event("resource_created", "error", partner=app, error_code="invalid_label_prefix")
         return _error_response("invalid_label_prefix", str(exc))
 
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
-        _capture_provisioning_event("resource_created", "error", error_code="no_team")
+        _capture_provisioning_event("resource_created", "error", partner=app, error_code="no_team")
         return _error_response("no_team", "No team associated with this token")
 
     project_id = request.data.get("project_id", "")
@@ -1520,7 +1520,7 @@ def provisioning_resources_create(request: Request) -> Response:
             )
         except _ProjectIdCollisionError:
             _capture_provisioning_event(
-                "resource_created", "error", error_code="project_id_conflict", project_id=project_id
+                "resource_created", "error", partner=app, error_code="project_id_conflict", project_id=project_id
             )
             return _error_response(
                 "project_id_conflict",
@@ -1528,14 +1528,18 @@ def provisioning_resources_create(request: Request) -> Response:
                 status=409,
             )
         if team is None:
-            _capture_provisioning_event("resource_created", "error", error_code="not_found", project_id=project_id)
+            _capture_provisioning_event(
+                "resource_created", "error", partner=app, error_code="not_found", project_id=project_id
+            )
             return _error_response("not_found", "Resource not found", status=404)
     else:
         team_id = scoped_teams[0]
         try:
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
-            _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
+            _capture_provisioning_event(
+                "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
+            )
             return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
@@ -1547,6 +1551,7 @@ def provisioning_resources_create(request: Request) -> Response:
         _capture_provisioning_event(
             "resource_created",
             "error",
+            partner=app,
             error_code="requires_payment_credentials",
             service_id=resolved_service_id,
             team_id=team.id,
@@ -1568,6 +1573,7 @@ def provisioning_resources_create(request: Request) -> Response:
         _capture_provisioning_event(
             "resource_created",
             "error",
+            partner=app,
             error_code="requires_payment_credentials",
             service_id=resolved_service_id,
             team_id=team.id,
@@ -1580,6 +1586,7 @@ def provisioning_resources_create(request: Request) -> Response:
     _capture_provisioning_event(
         "resource_created",
         "success",
+        partner=app,
         service_id=resolved_service_id,
         team_id=team.id,
         has_spt=has_spt,
@@ -2085,7 +2092,7 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
 
     if count > limit:
         event_name = PARTNER_RATE_LIMIT_EVENT_NAMES.get(endpoint, endpoint)
-        _capture_provisioning_event(event_name, "rate_limited", partner_id=str(partner.id), limit=limit, count=count)
+        _capture_provisioning_event(event_name, "rate_limited", partner=partner, limit=limit, count=count)
         retry_after = PARTNER_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % PARTNER_RATE_LIMIT_WINDOW_SECONDS)
         response = Response(
             {
@@ -2408,13 +2415,23 @@ def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
     return "/"
 
 
-def _capture_provisioning_event(event_type: str, outcome: str, **extra: object) -> None:
+def _capture_provisioning_event(
+    event_type: str,
+    outcome: str,
+    partner: OAuthApplication | None = None,
+    **extra: object,
+) -> None:
     team_id = extra.get("team_id")
     distinct_id = f"agentic_provisioning_team_{team_id}" if team_id else f"agentic_provisioning_{uuid.uuid4().hex[:16]}"
+    properties: dict[str, object] = {"outcome": outcome, **extra}
+    if partner is not None:
+        properties.setdefault("partner_id", str(partner.id))
+        properties.setdefault("client_name", partner.name)
+        properties.setdefault("partner_type", partner.provisioning_partner_type or "")
     posthoganalytics.capture(
         f"agentic_provisioning {event_type}",
         distinct_id=distinct_id,
-        properties={"outcome": outcome, **extra},
+        properties=properties,
     )
 
 

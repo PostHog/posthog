@@ -21,6 +21,7 @@ from posthog.models.user import User
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.views import _capture_provisioning_event
 
 HMAC_PARTNER_SECRET = "test_hmac_partner_secret"
 
@@ -282,7 +283,8 @@ class TestAccountRequests(ProvisioningTestBase):
         assert len(new_user_calls) == 1
         kwargs = new_user_calls[0].kwargs
         assert kwargs["team_id"] == team.id
-        assert "partner_id" in kwargs
+        # Stripe HMAC path has no OAuthApplication partner, so there's no client to attribute.
+        assert kwargs["partner"] is None
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -364,6 +366,18 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
+
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_pkce_partner_new_user_capture_attributes_client(self, mock_capture_event):
+        payload = self._account_request_payload(email="attributed@example.com")
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+
+        new_user_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("account_request", "new_user")
+        ]
+        assert len(new_user_calls) == 1
+        assert new_user_calls[0].kwargs["partner"] == self.pkce_partner
 
     def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
         self.pkce_partner.provisioning_skip_existing_user_consent = True
@@ -680,3 +694,39 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestCaptureProvisioningEvent(ProvisioningTestBase):
+    def _make_partner(self, **overrides) -> OAuthApplication:
+        defaults = {
+            "client_id": "attribution-test",
+            "name": "Attribution Test Client",
+            "client_secret": "",
+            "client_type": OAuthApplication.CLIENT_PUBLIC,
+            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            "redirect_uris": "https://partner.example.com/callback",
+            "algorithm": "RS256",
+            "provisioning_partner_type": "test_partner",
+        }
+        defaults.update(overrides)
+        return OAuthApplication.objects.create(**defaults)
+
+    @patch("ee.api.agentic_provisioning.views.posthoganalytics.capture")
+    def test_partner_adds_client_attribution(self, mock_capture):
+        partner = self._make_partner()
+        _capture_provisioning_event("account_request", "new_user", partner=partner, team_id=42)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["client_name"] == "Attribution Test Client"
+        assert props["partner_id"] == str(partner.id)
+        assert props["partner_type"] == "test_partner"
+
+    @patch("ee.api.agentic_provisioning.views.posthoganalytics.capture")
+    def test_no_partner_omits_client_attribution(self, mock_capture):
+        _capture_provisioning_event("account_request", "new_user", team_id=42)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert "client_name" not in props
+        assert "partner_id" not in props
+        assert "partner_type" not in props
