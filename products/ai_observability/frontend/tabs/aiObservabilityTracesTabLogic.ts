@@ -45,6 +45,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
     actions({
         setTracesQuery: (query: DataTableNode) => ({ query }),
         setShowInputOutputColumns: (show: boolean) => ({ show }),
+        setShowSentimentColumn: (show: boolean) => ({ show }),
     }),
 
     reducers({
@@ -59,6 +60,13 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
             { persist: true },
             {
                 setShowInputOutputColumns: (_, { show }) => show,
+            },
+        ],
+        showSentimentColumn: [
+            true as boolean,
+            { persist: true },
+            {
+                setShowSentimentColumn: (_, { show }) => show,
             },
         ],
     }),
@@ -81,6 +89,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 s.featureFlags,
                 s.user,
                 s.showInputOutputColumns,
+                s.showSentimentColumn,
             ],
             (
                 dateFilter: { dateFrom: string | null; dateTo: string | null },
@@ -92,7 +101,8 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[],
                 featureFlags: { [flag: string]: boolean | string | undefined },
                 user: { is_impersonated?: boolean } | null,
-                showInputOutputColumns: boolean
+                showInputOutputColumns: boolean,
+                showSentimentColumn: boolean
             ): DataTableNode => {
                 // For impersonated users (support agents), default to showing support traces
                 // For regular users, always filter out support traces
@@ -121,7 +131,9 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                             ? ['inputState', 'outputState']
                             : []),
                         'person',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] ? ['__llm_sentiment'] : []),
+                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && showSentimentColumn
+                            ? ['__llm_sentiment']
+                            : []),
                         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] ? ['__llm_tools'] : []),
                         'errorCount',
                         'totalLatency',

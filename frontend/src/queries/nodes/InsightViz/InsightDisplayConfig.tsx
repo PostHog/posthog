@@ -5,6 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { IconEllipsis, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -13,7 +14,6 @@ import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
@@ -32,6 +32,7 @@ import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
+import { StackBreakdownFilter } from 'scenes/insights/EditorFilters/StackBreakdownFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
@@ -94,6 +95,7 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        supportsBarValueStacking,
         supportsResultCustomizationBy,
         yAxisScaleType,
         showMultipleYAxes,
@@ -207,6 +209,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
                                 ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                                 ...(display === ChartDisplayType.ActionsPie
                                     ? [{ label: () => <ShowPieTotalFilter /> }]

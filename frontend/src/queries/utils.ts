@@ -670,6 +670,12 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
+export const supportsBarValueStacking = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && getDisplay(q) === ChartDisplayType.ActionsBarValue && hasBreakdownFilter(getBreakdown(q))
+
+export const getStackBreakdownValues = (query: InsightQueryNode): boolean | undefined =>
+    supportsBarValueStacking(query) && (query as TrendsQuery)?.trendsFilter?.stackBreakdownValues
+
 export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',

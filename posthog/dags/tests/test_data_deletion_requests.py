@@ -1675,4 +1675,32 @@ def test_pickup_sensor_routes_person_removal_request():
     assert isinstance(result, dagster.RunRequest)
     assert result.job_name == "data_deletion_request_person_removal"
     assert "load_person_removal_request" in result.run_config["ops"]
-    assert str(request.pk) == result.run_key
+    assert result.run_key == f"{request.pk}:{request.attempt_count}"
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_run_key_changes_across_attempts():
+    # A re-approved/retried request keeps its pk but has a higher attempt_count, so
+    # the run_key must differ — otherwise Dagster dedupes and silently never relaunches.
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+        attempt_count=0,
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+
+    first = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+    assert isinstance(first, dagster.RunRequest)
+    assert first.run_key == f"{request.pk}:0"
+
+    # Simulate the load op having run once, then a retry re-approving the same request.
+    DataDeletionRequest.objects.filter(pk=request.pk).update(attempt_count=1)
+    second = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+    assert isinstance(second, dagster.RunRequest)
+    assert second.run_key == f"{request.pk}:1"
+    assert second.run_key != first.run_key

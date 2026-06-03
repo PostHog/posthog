@@ -202,7 +202,7 @@ class BuildBetterSourceConfig(config.Config):
 
 @config.config
 class CalendlySourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
@@ -306,7 +306,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DripSourceConfig(config.Config):
-    pass
+    api_token: str
+    account_id: str
 
 
 @config.config
@@ -493,7 +494,8 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailjetSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config
@@ -753,7 +755,7 @@ class ShopifySourceConfig(config.Config):
 
 @config.config
 class ShortcutSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -870,6 +872,11 @@ class WooCommerceSourceConfig(config.Config):
 @config.config
 class WorkdaySourceConfig(config.Config):
     pass
+
+
+@config.config
+class WorkOSSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -1050,6 +1057,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
         ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
         ExternalDataSourceType.WORKDAY: WorkdaySourceConfig,
+        ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
         ExternalDataSourceType.WRIKE: WrikeSourceConfig,
         ExternalDataSourceType.XERO: XeroSourceConfig,
         ExternalDataSourceType.YOUTUBEANALYTICS: YouTubeAnalyticsSourceConfig,

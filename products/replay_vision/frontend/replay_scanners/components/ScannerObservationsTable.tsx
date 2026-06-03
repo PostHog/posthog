@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -35,6 +35,7 @@ const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
     { value: 'no', label: 'No' },
+    { value: 'inconclusive', label: 'Inconclusive' },
 ]
 
 // Nulls (no model output) sort last regardless of direction.
@@ -57,6 +58,37 @@ function compareByVerdict(a: ReplayObservationApi, b: ReplayObservationApi): num
         return va === null ? 1 : -1
     }
     return va ? -1 : 1
+}
+
+// Rows with no snapshot (rendered as "—") sort last regardless of direction, matching compareByScore/Verdict.
+function compareByVersion(a: ReplayObservationApi, b: ReplayObservationApi): number {
+    const va = a.scanner_snapshot?.scanner_version ?? null
+    const vb = b.scanner_snapshot?.scanner_version ?? null
+    if (va === null || vb === null) {
+        return va === vb ? 0 : va === null ? 1 : -1
+    }
+    return va - vb
+}
+
+// Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
+const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
+
+function versionTag(
+    obsVersion: number | null | undefined,
+    currentVersion: number | null | undefined
+): { type: LemonTagType; label: string; tooltip: string } | null {
+    if (obsVersion == null) {
+        return null
+    }
+    const label = `v${obsVersion}`
+    if (currentVersion == null) {
+        return { type: 'muted', label, tooltip: `Ran with scanner version ${obsVersion}` }
+    }
+    const age = Math.max(0, currentVersion - obsVersion)
+    const type = VERSION_TAG_TYPES[Math.min(age, VERSION_TAG_TYPES.length - 1)]
+    const tooltip =
+        age === 0 ? `Current version (v${currentVersion})` : `${age} version(s) behind current (v${currentVersion})`
+    return { type, label, tooltip }
 }
 
 export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
@@ -114,6 +146,24 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
             ),
             sorter:
                 scannerType === 'scorer' ? compareByScore : scannerType === 'monitor' ? compareByVerdict : undefined,
+        },
+        {
+            title: 'Version',
+            key: 'version',
+            render: (_, obs) => {
+                const tag = versionTag(obs.scanner_snapshot?.scanner_version, scanner?.scanner_version)
+                if (!tag) {
+                    return <span className="text-muted">—</span>
+                }
+                return (
+                    <Tooltip title={tag.tooltip}>
+                        <LemonTag type={tag.type} className="font-mono">
+                            {tag.label}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            },
+            sorter: compareByVersion,
         },
         {
             title: 'Triggered by',
@@ -257,7 +307,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     <div className="p-6 text-center text-muted">
                         {hasActiveObservationFilters
                             ? 'No observations match your filters.'
-                            : 'No observations yet. Observations appear here once the scanner runs on a schedule, or when you observe a recording from the session replay page.'}
+                            : "No observations yet. They'll appear here once the scanner fires on its schedule, or when you manually trigger one from a session recording."}
                     </div>
                 }
             />

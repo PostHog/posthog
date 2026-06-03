@@ -85,6 +85,7 @@ def to_dict(query: BaseModel) -> dict:
                     not in [
                         "showLegend",
                         "showPercentStackView",
+                        "stackBreakdownValues",
                         "showValuesOnSeries",
                         "aggregationAxisFormat",
                         "aggregationAxisPrefix",
