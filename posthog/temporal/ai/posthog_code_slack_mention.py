@@ -656,13 +656,11 @@ async def _gate_on_personal_github(
 ) -> bool:
     """Return True when the workflow must abort because the mentioner has no personal GitHub.
 
-    Gated by `workflow.patched` so in-flight workflows started before this code was
-    deployed don't introduce a new activity command on replay and trip nondeterminism.
-    Pre-patch workflows skip the gate entirely and behave as before; post-patch
-    workflows always evaluate it.
+    The patch marker is preserved via `deprecate_patch` so any straggler workflow
+    that recorded the pre-patch path on its first task can still replay
+    deterministically. Drop the `deprecate_patch` call once the next drain completes.
     """
-    if not workflow.patched("posthog-code-block-no-personal-github-2026-05"):
-        return False
+    workflow.deprecate_patch("posthog-code-block-no-personal-github-2026-05")
     return await _execute_posthog_code_activity(
         block_posthog_code_task_if_no_personal_github_activity,
         inputs,
