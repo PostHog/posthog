@@ -19,7 +19,6 @@ from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationChec
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
-from hogli_commands.workflow_lint.checks.setup_action_token import SetupActionTokenCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
 
@@ -519,76 +518,6 @@ class TestSemgrepServicesCoverageCheck:
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert issue.workflow == "ci-security.yaml"
         assert "services/worker/" in issue.message
-
-
-# ---------------------------------------------------------------------------
-# SetupActionTokenCheck
-# ---------------------------------------------------------------------------
-
-
-_SETUP_UV = "astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78"
-
-
-_SETUP_PY = "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405"
-_SETUP_NODE = "actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238"
-
-
-def _setup_step(uses: str, with_block: str = "") -> str:
-    indented = textwrap.indent(textwrap.dedent(with_block).strip(), " " * 22)
-    with_part = f"\n                    with:\n{indented}" if with_block else ""
-    return f"""
-            name: x
-            on: [pull_request]
-            jobs:
-              j:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - uses: {uses}{with_part}
-            """
-
-
-class TestSetupActionTokenCheck:
-    def test_warns_when_no_token(self, tmp_path: Path) -> None:
-        _write(tmp_path, "wf.yml", _setup_step(_SETUP_PY, "python-version-file: pyproject.toml"))
-        [issue] = SetupActionTokenCheck().run(_read_all(tmp_path)).issues
-        assert issue.workflow == "wf.yml"
-        assert "GITHUB_TOKEN" in issue.message
-
-    def test_warns_on_bare_default_token(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "wf.yml",
-            _setup_step(_SETUP_NODE, "node-version-file: .nvmrc\ntoken: ${{ github.token }}"),
-        )
-        assert len(SetupActionTokenCheck().run(_read_all(tmp_path)).issues) == 1
-
-    def test_passes_on_app_token_fallback(self, tmp_path: Path) -> None:
-        # The established repo pattern (app token, default-token fallback for forks).
-        _write(
-            tmp_path,
-            "wf.yml",
-            _setup_step(
-                _SETUP_PY,
-                "python-version-file: pyproject.toml\ntoken: ${{ steps.app-token.outputs.token || github.token }}",
-            ),
-        )
-        assert SetupActionTokenCheck().run(_read_all(tmp_path)).issues == []
-
-    def test_passes_on_secret_pat(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "wf.yml",
-            _setup_step(_SETUP_NODE, "node-version-file: .nvmrc\ntoken: ${{ secrets.GH_COM_PAT }}"),
-        )
-        assert SetupActionTokenCheck().run(_read_all(tmp_path)).issues == []
-
-    def test_ignores_unrelated_setup_actions(self, tmp_path: Path) -> None:
-        _write(tmp_path, "wf.yml", _setup_step(_SETUP_UV, "version: '0.11.14'"))
-        assert SetupActionTokenCheck().run(_read_all(tmp_path)).issues == []
-
-    def test_is_non_blocking(self) -> None:
-        assert SetupActionTokenCheck().blocking is False
 
 
 # ---------------------------------------------------------------------------
