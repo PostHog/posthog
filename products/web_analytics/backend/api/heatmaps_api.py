@@ -7,6 +7,8 @@ from django.db.models import Q
 from django.http import HttpResponse
 
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
@@ -119,22 +121,65 @@ OFFSET {offset}
 
 
 class HeatmapsRequestSerializer(serializers.Serializer):
-    viewport_width_min = serializers.IntegerField(required=False)
-    viewport_width_max = serializers.IntegerField(required=False)
-    type = serializers.CharField(required=False, default="click")
-    date_from = serializers.CharField(required=False, default="-7d")
-    date_to = serializers.CharField(required=False)
-    url_exact = serializers.CharField(required=False)
-    url_pattern = serializers.CharField(required=False)
+    viewport_width_min = serializers.IntegerField(
+        required=False,
+        help_text="Only include interactions captured at a viewport at least this wide, in CSS pixels. "
+        "Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).",
+    )
+    viewport_width_max = serializers.IntegerField(
+        required=False,
+        help_text="Only include interactions captured at a viewport at most this wide, in CSS pixels.",
+    )
+    type = serializers.CharField(
+        required=False,
+        default="click",
+        help_text="The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', "
+        "or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        default="-7d",
+        help_text="Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. "
+        "Defaults to '-7d'. Heatmap data is retained for 90 days.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text="End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.",
+    )
+    url_exact = serializers.CharField(
+        required=False,
+        help_text="Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.",
+    )
+    url_pattern = serializers.CharField(
+        required=False,
+        help_text="Match pages by regex against the full current_url (anchored automatically). Use this to aggregate "
+        "across query strings or path segments. Mutually exclusive with url_exact.",
+    )
     aggregation = serializers.ChoiceField(
         required=False,
         choices=["unique_visitors", "total_count"],
-        help_text="How to aggregate the response",
+        help_text="How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' "
+        "(distinct people).",
         default="total_count",
     )
-    filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
-    hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
-    cohort_ids = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="When true, exclude sessions from internal/test accounts using the project's test-account filters.",
+    )
+    hide_zero_coordinates = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.",
+    )
+    cohort_ids = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. "
+        "Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
+    )
 
     def validate_cohort_ids(self, value: str | None) -> list[int]:
         if value is None or value == "":
@@ -241,10 +286,19 @@ class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
 
 
 class HeatmapEventsRequestSerializer(HeatmapsRequestSerializer):
-    # JSON string of coordinate points: [{"x": 0.5, "y": 100}, ...]
-    points = serializers.CharField(required=True)
-    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
-    offset = serializers.IntegerField(required=False, default=0, min_value=0)
+    points = serializers.CharField(
+        required=True,
+        help_text='JSON array of the heatmap coordinates to drill into, e.g. \'[{"x": 0.5, "y": 100}]\'. '
+        "Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned "
+        "by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. "
+        "Returns the individual session interactions behind those spots.",
+    )
+    limit = serializers.IntegerField(
+        required=False, default=50, min_value=1, max_value=100, help_text="Maximum interactions to return (1-100)."
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of interactions to skip, for pagination."
+    )
 
     def validate_points(self, value: str) -> list[dict]:
         try:
@@ -283,6 +337,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
 
+    @extend_schema(
+        parameters=[HeatmapsRequestSerializer],
+        responses={200: HeatmapsResponseSerializer},
+        description="Aggregated heatmap interactions for a page. For type 'click'/'rageclick'/'mousemove' each result "
+        "is a point with relative x, absolute client-y, and a count. For type 'scrolldepth' the response is "
+        "scroll-depth buckets instead (cumulative reach down the page).",
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
@@ -441,6 +502,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         resp["Vary"] = "Accept, Accept-Encoding, Query-String"
         return resp
 
+    @extend_schema(
+        parameters=[HeatmapEventsRequestSerializer],
+        responses={200: HeatmapEventsResponseSerializer},
+        description="Drill into the individual session interactions behind one or more heatmap coordinates. "
+        "Pass the 'points' you want to inspect (from the heatmaps list response) to get the underlying "
+        "per-session events, so you can jump to the session recordings that produced a hotspot.",
+    )
     @action(methods=["GET"], detail=False)
     def events(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapEventsRequestSerializer(data=request.query_params, context={"team": self.team})
@@ -535,9 +603,18 @@ class LegacyHeatmapViewSet(HeatmapViewSet):
 # Heatmap Screenshot functionality
 
 
+class HeatmapSnapshotMetadataSerializer(serializers.Serializer):
+    width = serializers.IntegerField(help_text="Viewport width (CSS pixels) this screenshot was rendered at.")
+    has_content = serializers.BooleanField(
+        help_text="Whether the rendered image for this width is ready to fetch from the content endpoint."
+    )
+
+
 class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    snapshots = serializers.SerializerMethodField()
+    snapshots = serializers.SerializerMethodField(
+        help_text="Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint."
+    )
 
     class Meta:
         model = SavedHeatmap
@@ -568,7 +645,20 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "updated_at",
             "exception",
         ]
+        extra_kwargs = {
+            "short_id": {"help_text": "Short, URL-safe identifier used as the lookup key for saved-heatmap routes."},
+            "name": {"help_text": "Human-readable label for the saved heatmap."},
+            "url": {"help_text": "The page URL this saved heatmap renders and overlays data on."},
+            "data_url": {"help_text": "URL whose heatmap data is overlaid on the screenshot (defaults to 'url')."},
+            "target_widths": {"help_text": "Viewport widths (CSS pixels) the screenshot is rendered at."},
+            "type": {"help_text": "Render mode: 'screenshot', 'iframe', or 'recording'."},
+            "status": {"help_text": "Screenshot generation status: 'processing', 'completed', or 'failed'."},
+            "has_content": {"help_text": "Whether at least one rendered image is ready to fetch."},
+            "deleted": {"help_text": "Soft-delete flag; deleted heatmaps are hidden from the list."},
+            "exception": {"help_text": "Error detail when screenshot generation failed, otherwise null."},
+        }
 
+    @extend_schema_field(HeatmapSnapshotMetadataSerializer(many=True))
     def get_snapshots(self, obj: SavedHeatmap) -> list[dict]:
         # Expose metadata of generated snapshots (width + readiness)
         snaps = []
@@ -599,6 +689,24 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="width",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for "
+                "this width the closest available one is returned.",
+            )
+        ],
+        responses={
+            (200, "image/jpeg"): OpenApiTypes.BINARY,
+            202: HeatmapScreenshotResponseSerializer,
+        },
+        description="Fetch the rendered screenshot image (JPEG bytes) for a saved heatmap at a given viewport width. "
+        "Returns 202 with the saved-heatmap metadata while the screenshot is still being generated.",
+    )
     @action(methods=["GET"], detail=True)
     def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
         screenshot = self.get_object()
@@ -671,12 +779,45 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
         model = SavedHeatmap
         fields = ["name", "url", "data_url", "widths", "type", "deleted"]
         extra_kwargs = {
-            "name": {"required": False, "allow_null": True},
-            "url": {"required": True},
-            "data_url": {"required": False, "allow_null": True},
-            "type": {"required": False, "default": SavedHeatmap.Type.SCREENSHOT},
-            "deleted": {"required": False},
+            "name": {"required": False, "allow_null": True, "help_text": "Human-readable label for the saved heatmap."},
+            "url": {
+                "required": True,
+                "help_text": "Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.",
+            },
+            "data_url": {
+                "required": False,
+                "allow_null": True,
+                "help_text": "URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.",
+            },
+            "type": {
+                "required": False,
+                "default": SavedHeatmap.Type.SCREENSHOT,
+                "help_text": "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', "
+                "or 'recording'. Only 'screenshot' generates image bytes.",
+            },
+            "deleted": {"required": False, "help_text": "Set true to soft-delete the saved heatmap."},
         }
+
+
+class SavedHeatmapListQuerySerializer(serializers.Serializer):
+    type = serializers.CharField(
+        required=False, help_text="Filter by render mode: 'screenshot', 'iframe', or 'recording'."
+    )
+    status = serializers.CharField(
+        required=False, help_text="Filter by generation status: 'processing', 'completed', or 'failed'."
+    )
+    search = serializers.CharField(required=False, help_text="Case-insensitive substring match on URL or name.")
+    created_by = serializers.IntegerField(required=False, help_text="Filter by the creating user's ID.")
+    order = serializers.CharField(
+        required=False, help_text="Field to order by, e.g. '-updated_at' (default) or 'created_at'."
+    )
+    limit = serializers.IntegerField(required=False, default=100, help_text="Maximum saved heatmaps to return.")
+    offset = serializers.IntegerField(required=False, default=0, help_text="Number to skip, for pagination.")
+
+
+class SavedHeatmapListResponseSerializer(serializers.Serializer):
+    results = HeatmapScreenshotResponseSerializer(many=True)
+    count = serializers.IntegerField(help_text="Total number of saved heatmaps matching the filters.")
 
 
 class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
@@ -695,6 +836,12 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
 
+    @extend_schema(
+        parameters=[SavedHeatmapListQuerySerializer],
+        responses={200: SavedHeatmapListResponseSerializer},
+        description="List saved heatmaps for the project. A saved heatmap pins a page URL and a set of viewport "
+        "widths, and (for type 'screenshot') renders the page so heatmap data can be overlaid on it.",
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         qs = (
             self.safely_get_queryset(self.get_queryset())
@@ -736,6 +883,13 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         data = HeatmapScreenshotResponseSerializer(results, many=True).data
         return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=SavedHeatmapRequestSerializer,
+        responses={201: HeatmapScreenshotResponseSerializer},
+        description="Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a "
+        "headless render of the page at each target width; poll the saved heatmap or its content endpoint until "
+        "status is 'completed'. Provide 'widths' to control which viewport widths are rendered.",
+    )
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         serializer = SavedHeatmapRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -777,6 +931,10 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
         return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        responses={200: HeatmapScreenshotResponseSerializer},
+        description="Get a single saved heatmap by its short_id, including per-width render status.",
+    )
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
 
@@ -789,6 +947,12 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
         return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={200: HeatmapScreenshotResponseSerializer, 400: OpenApiResponse(description="Not a screenshot")},
+        description="Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders "
+        "and re-renders at every target width; status returns to 'processing'.",
+    )
     @action(methods=["POST"], detail=True)
     def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
@@ -807,6 +971,12 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         HeatmapSnapshot.objects.filter(heatmap=obj).delete()
         generate_heatmap_screenshot.delay(obj.id)
 
+    @extend_schema(
+        request=SavedHeatmapRequestSerializer,
+        responses={200: HeatmapScreenshotResponseSerializer},
+        description="Update a saved heatmap (e.g. rename, change widths, or soft-delete via 'deleted'). Changing the "
+        "URL of a 'screenshot' heatmap triggers a re-render.",
+    )
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         old_url = obj.url
