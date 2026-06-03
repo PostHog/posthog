@@ -2022,13 +2022,12 @@ mod tests {
         );
     }
 
-    /// Regression for the PR #57253 follow-up: a `$cookieless_mode` event
-    /// with heatmap data must produce a redirect that carries every property
-    /// the cookieless identity hash reads in
-    /// `nodejs/src/ingestion/cookieless/cookieless-manager.ts`. Without these,
-    /// the ingestion pipeline emits `cookieless_missing_user_agent` against
-    /// the redirect and silently drops every heatmap/scroll-depth data point
-    /// from cookieless-mode customers.
+    /// A `$cookieless_mode` event with heatmap data must produce a redirect
+    /// that carries every property the cookieless identity hash reads in
+    /// `nodejs/src/ingestion/cookieless/cookieless-manager.ts`. Without
+    /// these, the ingestion pipeline emits `cookieless_missing_user_agent`
+    /// against the redirect and silently drops every heatmap/scroll-depth
+    /// data point from cookieless-mode customers.
     #[test]
     fn test_create_heatmap_redirect_preserves_cookieless_identity_inputs() {
         let now = Utc::now();
