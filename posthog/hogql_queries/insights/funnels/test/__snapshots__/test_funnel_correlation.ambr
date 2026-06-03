@@ -35,7 +35,17 @@
                   e.`$window_id` AS `$window_id`,
                   if(and(equals(e.event, 'user signed up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_0,
                   if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     e.properties AS properties,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -43,7 +53,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -57,7 +67,18 @@
                                                         and isNull(target_step))) AS success_count,
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
-  FROM events AS event
+  FROM
+    (SELECT event.`$session_id` AS `$session_id`,
+            event.`$window_id` AS `$window_id`,
+            event.distinct_id AS distinct_id,
+            event.event AS event,
+            event.person_id AS person_id,
+            event.properties AS properties,
+            event.team_id AS team_id,
+            toTimeZone(event.timestamp, 'UTC') AS timestamp,
+            event.uuid AS uuid
+     FROM events AS event
+     WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), notIn(event.event, []))) AS event
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -66,7 +87,7 @@
      GROUP BY person_distinct_id_overrides.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
   JOIN funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
-  WHERE and(equals(event.team_id, 99999), greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), notIn(event.event, []))
+  WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names))
   GROUP BY name
   LIMIT 100
   UNION ALL WITH funnel_actors AS
@@ -103,7 +124,17 @@
                   e.`$window_id` AS `$window_id`,
                   if(and(equals(e.event, 'user signed up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_0,
                   if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     e.properties AS properties,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -111,7 +142,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -171,7 +202,16 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -179,7 +219,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -245,7 +285,16 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -253,7 +302,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -318,7 +367,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.distinct_id AS distinct_id,
+                        e.event AS event,
+                        e.person_id AS person_id,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -336,7 +394,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -428,7 +486,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.distinct_id AS distinct_id,
+                        e.event AS event,
+                        e.person_id AS person_id,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -446,7 +513,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -538,7 +605,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.distinct_id AS distinct_id,
+                        e.event AS event,
+                        e.person_id AS person_id,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -556,7 +632,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -648,7 +724,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.distinct_id AS distinct_id,
+                        e.event AS event,
+                        e.person_id AS person_id,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -666,7 +751,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -1355,9 +1440,16 @@
             funnel_actors.steps AS steps,
             event.event AS event_name,
             arrayJoin(JSONExtractKeysAndValues(event.properties, 'String')) AS prop
-     FROM events AS event
+     FROM
+       (SELECT event.`$group_1` AS `$group_1`,
+               event.event AS event,
+               event.properties AS properties,
+               event.team_id AS team_id,
+               toTimeZone(event.timestamp, 'UTC') AS timestamp
+        FROM events AS event
+        WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), in(event.event, tuple('positively_related', 'negatively_related')))) AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), in(event.event, tuple('positively_related', 'negatively_related'))))
+     WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names)))
   GROUP BY name,
            prop
   HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
@@ -1595,15 +1687,15 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM
-    (SELECT events.`$group_0` AS `$group_0`,
-            events.`$session_id` AS `$session_id`,
-            events.`$window_id` AS `$window_id`,
-            events.event AS event,
-            events.team_id AS team_id,
-            toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            events.uuid AS uuid
-     FROM events
-     WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), notIn(events.event, []))) AS event
+    (SELECT event.`$group_0` AS `$group_0`,
+            event.`$session_id` AS `$session_id`,
+            event.`$window_id` AS `$window_id`,
+            event.event AS event,
+            event.team_id AS team_id,
+            toTimeZone(event.timestamp, 'UTC') AS timestamp,
+            event.uuid AS uuid
+     FROM events AS event
+     WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), notIn(event.event, []))) AS event
   JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names))
   GROUP BY name
@@ -1719,15 +1811,15 @@
                                                                  any(funnel_actors.matching_events) AS matching_events,
                                                                  actor_id AS key
      FROM
-       (SELECT events.`$group_0` AS `$group_0`,
-               events.`$session_id` AS `$session_id`,
-               events.`$window_id` AS `$window_id`,
-               events.event AS event,
-               events.team_id AS team_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), equals(events.event, 'positively_related'))) AS event
+       (SELECT event.`$group_0` AS `$group_0`,
+               event.`$session_id` AS `$session_id`,
+               event.`$window_id` AS `$window_id`,
+               event.event AS event,
+               event.team_id AS team_id,
+               toTimeZone(event.timestamp, 'UTC') AS timestamp,
+               event.uuid AS uuid
+        FROM events AS event
+        WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), equals(event.event, 'positively_related'))) AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(target_step)))
@@ -1801,15 +1893,15 @@
                                                                  any(funnel_actors.matching_events) AS matching_events,
                                                                  actor_id AS key
      FROM
-       (SELECT events.`$group_0` AS `$group_0`,
-               events.`$session_id` AS `$session_id`,
-               events.`$window_id` AS `$window_id`,
-               events.event AS event,
-               events.team_id AS team_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), equals(events.event, 'positively_related'))) AS event
+       (SELECT event.`$group_0` AS `$group_0`,
+               event.`$session_id` AS `$session_id`,
+               event.`$window_id` AS `$window_id`,
+               event.event AS event,
+               event.team_id AS team_id,
+               toTimeZone(event.timestamp, 'UTC') AS timestamp,
+               event.uuid AS uuid
+        FROM events AS event
+        WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), equals(event.event, 'positively_related'))) AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                or isNotNull(target_step)))
@@ -1883,15 +1975,15 @@
                                                                  any(funnel_actors.matching_events) AS matching_events,
                                                                  actor_id AS key
      FROM
-       (SELECT events.`$group_0` AS `$group_0`,
-               events.`$session_id` AS `$session_id`,
-               events.`$window_id` AS `$window_id`,
-               events.event AS event,
-               events.team_id AS team_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), equals(events.event, 'negatively_related'))) AS event
+       (SELECT event.`$group_0` AS `$group_0`,
+               event.`$session_id` AS `$session_id`,
+               event.`$window_id` AS `$window_id`,
+               event.event AS event,
+               event.team_id AS team_id,
+               toTimeZone(event.timestamp, 'UTC') AS timestamp,
+               event.uuid AS uuid
+        FROM events AS event
+        WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), equals(event.event, 'negatively_related'))) AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(target_step)))
@@ -1965,15 +2057,15 @@
                                                                  any(funnel_actors.matching_events) AS matching_events,
                                                                  actor_id AS key
      FROM
-       (SELECT events.`$group_0` AS `$group_0`,
-               events.`$session_id` AS `$session_id`,
-               events.`$window_id` AS `$window_id`,
-               events.event AS event,
-               events.team_id AS team_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), equals(events.event, 'negatively_related'))) AS event
+       (SELECT event.`$group_0` AS `$group_0`,
+               event.`$session_id` AS `$session_id`,
+               event.`$window_id` AS `$window_id`,
+               event.event AS event,
+               event.team_id AS team_id,
+               toTimeZone(event.timestamp, 'UTC') AS timestamp,
+               event.uuid AS uuid
+        FROM events AS event
+        WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), equals(event.event, 'negatively_related'))) AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                or isNotNull(target_step)))
@@ -2032,14 +2124,14 @@
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM
-             (SELECT events.`$group_0` AS `$group_0`,
-                     events.`$session_id` AS `$session_id`,
-                     events.`$window_id` AS `$window_id`,
-                     events.event AS event,
-                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     events.uuid AS uuid
-              FROM events
-              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+             (SELECT e.`$group_0` AS `$group_0`,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.event AS event,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -2063,15 +2155,15 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM
-    (SELECT events.`$group_0` AS `$group_0`,
-            events.`$session_id` AS `$session_id`,
-            events.`$window_id` AS `$window_id`,
-            events.event AS event,
-            events.team_id AS team_id,
-            toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            events.uuid AS uuid
-     FROM events
-     WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), notIn(events.event, []))) AS event
+    (SELECT event.`$group_0` AS `$group_0`,
+            event.`$session_id` AS `$session_id`,
+            event.`$window_id` AS `$window_id`,
+            event.event AS event,
+            event.team_id AS team_id,
+            toTimeZone(event.timestamp, 'UTC') AS timestamp,
+            event.uuid AS uuid
+     FROM events AS event
+     WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), notIn(event.event, []))) AS event
   JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names))
   GROUP BY name
@@ -2111,14 +2203,14 @@
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM
-             (SELECT events.`$group_0` AS `$group_0`,
-                     events.`$session_id` AS `$session_id`,
-                     events.`$window_id` AS `$window_id`,
-                     events.event AS event,
-                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     events.uuid AS uuid
-              FROM events
-              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+             (SELECT e.`$group_0` AS `$group_0`,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.event AS event,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -2203,15 +2295,15 @@
                                                                  any(funnel_actors.matching_events) AS matching_events,
                                                                  actor_id AS key
      FROM
-       (SELECT events.`$group_0` AS `$group_0`,
-               events.`$session_id` AS `$session_id`,
-               events.`$window_id` AS `$window_id`,
-               events.event AS event,
-               events.team_id AS team_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), equals(events.event, 'negatively_related'))) AS event
+       (SELECT event.`$group_0` AS `$group_0`,
+               event.`$session_id` AS `$session_id`,
+               event.`$window_id` AS `$window_id`,
+               event.event AS event,
+               event.team_id AS team_id,
+               toTimeZone(event.timestamp, 'UTC') AS timestamp,
+               event.uuid AS uuid
+        FROM events AS event
+        WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), equals(event.event, 'negatively_related'))) AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(target_step)))
@@ -2285,15 +2377,15 @@
                                                                  any(funnel_actors.matching_events) AS matching_events,
                                                                  actor_id AS key
      FROM
-       (SELECT events.`$group_0` AS `$group_0`,
-               events.`$session_id` AS `$session_id`,
-               events.`$window_id` AS `$window_id`,
-               events.event AS event,
-               events.team_id AS team_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), equals(events.team_id, 99999), equals(events.event, 'negatively_related'))) AS event
+       (SELECT event.`$group_0` AS `$group_0`,
+               event.`$session_id` AS `$session_id`,
+               event.`$window_id` AS `$window_id`,
+               event.event AS event,
+               event.team_id AS team_id,
+               toTimeZone(event.timestamp, 'UTC') AS timestamp,
+               event.uuid AS uuid
+        FROM events AS event
+        WHERE and(equals(event.team_id, 99999), equals(event.team_id, 99999), equals(event.event, 'negatively_related'))) AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                or isNotNull(target_step)))
@@ -3166,14 +3258,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3251,14 +3343,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3336,14 +3428,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3421,14 +3513,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4322,14 +4414,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4407,14 +4499,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4492,14 +4584,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4577,14 +4669,14 @@
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM
-                (SELECT events.`$group_0` AS `$group_0`,
-                        events.`$session_id` AS `$session_id`,
-                        events.`$window_id` AS `$window_id`,
-                        events.event AS event,
-                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                        events.uuid AS uuid
-                 FROM events
-                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
+                (SELECT e.`$group_0` AS `$group_0`,
+                        e.`$session_id` AS `$session_id`,
+                        e.`$window_id` AS `$window_id`,
+                        e.event AS event,
+                        toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.uuid AS uuid
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(e.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,

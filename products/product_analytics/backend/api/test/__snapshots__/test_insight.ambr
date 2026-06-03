@@ -39,16 +39,16 @@
                   ([e__person.properties___fish] AS value) AS prop_basic,
                   prop_basic AS prop
            FROM
-             (SELECT events.`$session_id` AS `$session_id`,
-                     events.`$window_id` AS `$window_id`,
-                     events.distinct_id AS distinct_id,
-                     events.event AS event,
-                     events.person_id AS person_id,
-                     events.properties AS properties,
-                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     events.uuid AS uuid
-              FROM events
-              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('user did things', 'user signed up')), ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0))) AS e
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     e.properties AS properties,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('user did things', 'user signed up')), ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -126,16 +126,16 @@
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'user did things'), 1, 0) AS step_1
            FROM
-             (SELECT events.`$session_id` AS `$session_id`,
-                     events.`$window_id` AS `$window_id`,
-                     events.distinct_id AS distinct_id,
-                     events.event AS event,
-                     events.person_id AS person_id,
-                     events.properties AS properties,
-                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     events.uuid AS uuid
-              FROM events
-              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('user did things', 'user signed up')), ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0))) AS e
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     e.properties AS properties,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('user did things', 'user signed up')), ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -213,16 +213,16 @@
                   if(and(equals(e.event, 'user signed up'), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), ifNull(like(e__person.properties___fish, '%fish%'), 0))), 1, 0) AS step_0,
                   if(and(equals(e.event, 'user did things'), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), ifNull(like(e__person.properties___fish, '%fish%'), 0))), 1, 0) AS step_1
            FROM
-             (SELECT events.`$session_id` AS `$session_id`,
-                     events.`$window_id` AS `$window_id`,
-                     events.distinct_id AS distinct_id,
-                     events.event AS event,
-                     events.person_id AS person_id,
-                     events.properties AS properties,
-                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     events.uuid AS uuid
-              FROM events
-              WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('user did things', 'user signed up')))) AS e
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     e.properties AS properties,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('user did things', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id

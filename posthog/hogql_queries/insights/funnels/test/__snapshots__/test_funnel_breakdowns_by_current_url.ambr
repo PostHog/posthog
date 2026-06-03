@@ -37,7 +37,17 @@
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
                   [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
-           FROM events AS e
+           FROM
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     e.properties AS properties,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('terminate funnel', 'watched movie')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -45,7 +55,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('terminate funnel', 'watched movie'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -105,7 +115,17 @@
                   if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
                   [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS prop_basic,
                   prop_basic AS prop
-           FROM events AS e
+           FROM
+             (SELECT e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     e.distinct_id AS distinct_id,
+                     e.event AS event,
+                     e.person_id AS person_id,
+                     e.properties AS properties,
+                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.uuid AS uuid
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('terminate funnel', 'watched movie')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -113,7 +133,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('terminate funnel', 'watched movie'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown

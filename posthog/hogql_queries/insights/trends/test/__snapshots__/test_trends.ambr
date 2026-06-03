@@ -200,16 +200,16 @@
                e.`$window_id` AS `$window_id`,
                e.distinct_id AS distinct_id
         FROM
-          (SELECT events.`$group_0` AS `$group_0`,
-                  events.`$session_id` AS `$session_id`,
-                  events.`$window_id` AS `$window_id`,
-                  events.distinct_id AS distinct_id,
-                  events.event AS event,
-                  events.person_id AS person_id,
-                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  events.uuid AS uuid
-           FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), less(events.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(events.event, 'sign up'))) AS e
+          (SELECT e.`$group_0` AS `$group_0`,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  e.distinct_id AS distinct_id,
+                  e.event AS event,
+                  e.person_id AS person_id,
+                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.uuid AS uuid
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), less(e.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up'))) AS e
         LEFT JOIN
           (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                   groups.group_type_index AS index,
@@ -231,9 +231,9 @@
                                                        FROM
                                                          (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
                                                           FROM
-                                                            (SELECT events.`$group_0` AS `$group_0`, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
-                                                             FROM events
-                                                             WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), less(events.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(events.event, 'sign up'))) AS e
+                                                            (SELECT e.`$group_0` AS `$group_0`, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id, e.event AS event, e.person_id AS person_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid
+                                                             FROM events AS e
+                                                             WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), less(e.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up'))) AS e
                                                           LEFT JOIN
                                                             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                              FROM groups
@@ -1244,17 +1244,17 @@
                e.`$window_id` AS `$window_id`,
                e.distinct_id AS distinct_id
         FROM
-          (SELECT events.`$group_0` AS `$group_0`,
-                  events.`$group_2` AS `$group_2`,
-                  events.`$session_id` AS `$session_id`,
-                  events.`$window_id` AS `$window_id`,
-                  events.distinct_id AS distinct_id,
-                  events.event AS event,
-                  events.person_id AS person_id,
-                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  events.uuid AS uuid
-           FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), less(events.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(events.event, 'sign up'))) AS e
+          (SELECT e.`$group_0` AS `$group_0`,
+                  e.`$group_2` AS `$group_2`,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  e.distinct_id AS distinct_id,
+                  e.event AS event,
+                  e.person_id AS person_id,
+                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.uuid AS uuid
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), less(e.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up'))) AS e
         LEFT JOIN
           (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
                   groups.group_type_index AS index,
@@ -1284,9 +1284,9 @@
                                                        FROM
                                                          (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
                                                           FROM
-                                                            (SELECT events.`$group_0` AS `$group_0`, events.`$group_2` AS `$group_2`, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
-                                                             FROM events
-                                                             WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), less(events.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(events.event, 'sign up'))) AS e
+                                                            (SELECT e.`$group_0` AS `$group_0`, e.`$group_2` AS `$group_2`, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id, e.event AS event, e.person_id AS person_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid
+                                                             FROM events AS e
+                                                             WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), less(e.timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up'))) AS e
                                                           LEFT JOIN
                                                             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
                                                              FROM groups
