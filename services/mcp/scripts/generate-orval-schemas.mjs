@@ -74,61 +74,6 @@ function parseToolDefinition(filePath) {
 // ------------------------------------------------------------------
 
 /**
- * Checks if the schema allows null in any of the following ways:
- * - `nullable: true` (OpenAPI 3.0)
- * - `type: 'null'` (OpenAPI 3.1 / JSON Schema)
- * - `type: ['string', 'null']` (OpenAPI 3.1 / JSON Schema)
- * - `anyOf: [{ type: 'string' }, { type: 'null' }]` (OpenAPI 3.1 / JSON Schema)
- * - `oneOf: [{ type: 'string' }, { type: 'null' }]` (OpenAPI 3.1 / JSON Schema)
- */
-function schemaAllowsNull(schema) {
-    if (!schema || typeof schema !== 'object') {
-        return false
-    }
-    if (schema.nullable === true || schema.type === 'null') {
-        return true
-    }
-    if (Array.isArray(schema.type) && schema.type.includes('null')) {
-        return true
-    }
-    for (const key of ['anyOf', 'oneOf']) {
-        const variants = schema[key]
-        if (Array.isArray(variants) && variants.some(schemaAllowsNull)) {
-            return true
-        }
-    }
-    return false
-}
-
-/**
- * Strip 'default: null' from nullable properties in OpenAPI schemas.
- *
- * Orval mirrors `default: null` into `.default(null)`, which makes Zod fill the
- * field with `null` whenever the caller omits it (`safeParse` applies defaults).
- * For request schemas that turns "field not sent" into "field sent as null",
- * which the backend then rejects (`extra="forbid"`) or silently overwrites.
- * Removing the null default lets Orval emit a plain `.nullable()` instead, so an
- * omitted field stays omitted while an explicit `null` still parses.
- */
-function stripNullDefaults(obj) {
-    if (!obj || typeof obj !== 'object') {
-        return obj
-    }
-    if (Array.isArray(obj)) {
-        return obj.map(stripNullDefaults)
-    }
-    const result = {}
-    for (const [key, value] of Object.entries(obj)) {
-        // Skip injecting `default: null` if schema permits null
-        if (key === 'default' && value === null && schemaAllowsNull(obj)) {
-            continue
-        }
-        result[key] = stripNullDefaults(value)
-    }
-    return result
-}
-
-/**
  * Strip `default` values from Patched* (PATCH request body) schemas.
  *
  * drf-spectacular copies serializer defaults into both the create and
@@ -288,12 +233,11 @@ for (const def of definitions) {
     }
     totalEnabledOps += operationIds.size
 
-    let filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
+    const filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
 
     // Annotate title for easier debugging
     filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} enabled ops`
 
-    filtered = stripNullDefaults(filtered)
     stripDefaultsFromPatchedSchemas(filtered)
     stripUuidFormat(filtered)
     stripReadOnlyFromRequired(filtered)

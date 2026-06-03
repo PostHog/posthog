@@ -1227,7 +1227,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         )
 
     def test_create_with_early_access_feature_write_only_logs_warning(self):
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_feature()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         events = self._warning_events(mock_logger)
@@ -1242,7 +1242,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     def test_create_with_feature_flag_write_does_not_log(self):
         self.key.scopes = ["early_access_feature:write", "feature_flag:write"]
         self.key.save()
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_feature()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
@@ -1250,7 +1250,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     def test_create_with_wildcard_scope_does_not_log(self):
         self.key.scopes = ["*"]
         self.key.save()
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_feature()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
@@ -1262,7 +1262,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["early_access_feature:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
                 data={"stage": "beta"},
@@ -1281,7 +1281,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["early_access_feature:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
                 data={"description": "updated"},
@@ -1298,7 +1298,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["early_access_feature:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.delete(
                 f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
                 headers=self.auth_headers,
@@ -1310,7 +1310,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
 
     def test_session_auth_does_not_log(self):
         self.client.force_login(self.user)
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/early_access_feature/",
                 data=self.CREATE_PAYLOAD,
