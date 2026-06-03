@@ -63,6 +63,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         setSearch: (search: string) => ({ search }),
         setEnabledFilter: (values: EnabledFilter[]) => ({ values }),
         setScannerTypeFilter: (scannerTypes: ScannerType[]) => ({ scannerTypes }),
+        setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         clearFilters: true,
     }),
 
@@ -114,6 +115,18 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             {
                 setScannerTypeFilter: (_, { scannerTypes }) => scannerTypes,
                 clearFilters: () => [],
+            },
+        ],
+        chartDateFrom: [
+            '-30d' as string | null,
+            {
+                setChartDateRange: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        chartDateTo: [
+            null as string | null,
+            {
+                setChartDateRange: (_, { dateTo }) => dateTo,
             },
         ],
     }),

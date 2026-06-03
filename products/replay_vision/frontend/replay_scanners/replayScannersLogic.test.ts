@@ -145,4 +145,11 @@ describe('replayScannersLogic', () => {
             togglingIds: [],
         })
     })
+
+    it('setChartDateRange updates the chart date range', async () => {
+        await expectLogic(logic, () => logic.actions.setChartDateRange('-90d', null)).toMatchValues({
+            chartDateFrom: '-90d',
+            chartDateTo: null,
+        })
+    })
 })
