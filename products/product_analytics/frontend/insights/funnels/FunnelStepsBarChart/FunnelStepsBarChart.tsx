@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
+import { BarChart, DEFAULT_MARGINS } from '@posthog/quill-charts'
+import type { BarChartConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart } from 'lib/hog-charts'
-import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -17,21 +18,25 @@ import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
-// Both axes are hidden: steps are identified by the legend row below, and the per-step
-// conversion rate is shown there too. This lets the bars span the full width so the
-// legend columns line up with them without measuring the chart's plot area.
-const CHART_CONFIG: BarChartConfig = {
+const STEP_WIDTH_PX = 240
+const BAND_PADDING = 0.04
+const STEP_BAND_WIDTH_PX = STEP_WIDTH_PX * (1 - BAND_PADDING)
+
+const baseChartConfig: BarChartConfig = {
     barLayout: 'grouped',
     showGrid: true,
-    barCornerRadius: 6,
-    barTrack: true,
+    bars: {
+        cornerRadius: 10,
+        track: true,
+        shadow: { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 },
+        bandPadding: BAND_PADDING,
+    },
+    animateHover: true,
     hideXAxis: true,
-    hideYAxis: true,
+    yTickFormatter: (value) => `${Math.round(value)}%`,
     tooltip: { placement: 'top' },
+    margins: { left: DEFAULT_MARGINS.left },
 }
-
-// Floor per-step width — below this the legend text overlaps; scroll horizontally instead.
-const MIN_STEP_WIDTH_PX = 210
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -70,6 +75,8 @@ export function FunnelStepsBarChart({
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
+    const barsWidth = steps.length * STEP_WIDTH_PX
+    const chartWidth = DEFAULT_MARGINS.left + barsWidth + DEFAULT_MARGINS.right
 
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -103,34 +110,43 @@ export function FunnelStepsBarChart({
 
     return (
         <div className="flex w-full flex-1 flex-col overflow-x-auto" data-attr="funnel-steps-bar-chart">
-            <div
-                className="flex flex-1 flex-col"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ minWidth: steps.length * MIN_STEP_WIDTH_PX }}
-            >
-                <div className="flex min-h-[150px] flex-1">
+            <div className="flex flex-1 flex-col">
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div className="flex min-h-[150px] flex-1" style={{ width: chartWidth }}>
                     <BarChart<FunnelStepsBarSeriesMeta>
                         series={series}
                         labels={labels}
                         theme={theme}
-                        config={CHART_CONFIG}
+                        config={baseChartConfig}
                         tooltip={renderTooltip}
                         onPointClick={showPersonsModal ? onPointClick : undefined}
                         onError={handleChartError}
                     />
                 </div>
-                <div className="flex">
-                    {steps.map((step, stepIndex) => (
-                        <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
-                            <StepLegend
-                                step={step}
-                                stepIndex={stepIndex}
-                                showTime={showTime}
-                                showPersonsModal={showPersonsModal}
-                                inCardView={inCardView}
-                            />
-                        </div>
-                    ))}
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div
+                    className="flex shrink-0"
+                    style={{ paddingLeft: DEFAULT_MARGINS.left, paddingRight: DEFAULT_MARGINS.right }}
+                >
+                    <div className="flex shrink-0" style={{ width: barsWidth }}>
+                        {steps.map((step, stepIndex) => (
+                            <div
+                                key={stepIndex}
+                                className={`flex min-w-0 flex-1 ${stepIndex === 0 ? 'justify-start' : 'justify-center'}`}
+                            >
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <div className="min-w-0 overflow-hidden" style={{ width: STEP_BAND_WIDTH_PX }}>
+                                    <StepLegend
+                                        step={step}
+                                        stepIndex={stepIndex}
+                                        showTime={showTime}
+                                        showPersonsModal={showPersonsModal}
+                                        inCardView={inCardView}
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>

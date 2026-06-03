@@ -10,18 +10,12 @@ from celery.schedules import crontab
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
     send_error_tracking_weekly_digest,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
-)
-from posthog.tasks.feature_flags import (
-    cleanup_stale_flag_definitions_expiry_tracking_task,
-    cleanup_stale_flags_expiry_tracking_task,
-    compute_feature_flag_metrics,
-    refresh_expiring_flag_definitions_cache_entries,
-    refresh_expiring_flags_cache_entries,
 )
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
@@ -31,7 +25,6 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
-from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
@@ -72,12 +65,20 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
+from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
-from products.conversations.backend.tasks import wake_snoozed_tickets
+from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.feature_flags.backend.tasks import (
+    cleanup_stale_flag_definitions_expiry_tracking_task,
+    cleanup_stale_flags_expiry_tracking_task,
+    compute_feature_flag_metrics,
+    refresh_expiring_flag_definitions_cache_entries,
+    refresh_expiring_flags_cache_entries,
+)
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -199,6 +200,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="team metadata expiry tracking cleanup",
     )
 
+    # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
+    sender.add_periodic_task(
+        crontab(hour="*", minute="5"),
+        refresh_expiring_llm_gateway_policy_cache_entries.s(),
+        name="llm-gateway policy cache sync",
+    )
+
     # Stale QUEUED task run cleanup - hourly
     add_periodic_task_with_expiry(
         sender,
@@ -317,7 +325,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Send AI observability usage reports daily at 4:15 AM UTC
     sender.add_periodic_task(
         crontab(hour="4", minute="15"),
-        send_llm_analytics_usage_reports.s(),
+        send_ai_observability_usage_reports.s(),
         name="send llm analytics usage reports",
     )
 
@@ -615,4 +623,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+
+    # Re-drive queued outbound support email replies (survives a multi-day email provider outage)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        flush_pending_email_replies.s(),
+        name="flush pending conversation email replies",
     )

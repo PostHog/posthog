@@ -1,4 +1,12 @@
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
+from products.signals.backend.temporal.agentic.scout_coordinator import (
+    SignalsScoutCoordinatorWorkflow,
+    fetch_enabled_signals_scout_runs_activity,
+)
+from products.signals.backend.temporal.agentic.scout_scheduler import (
+    RunSignalsScoutWorkflow,
+    run_signals_scout_activity,
+)
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
@@ -11,6 +19,7 @@ from products.signals.backend.temporal.buffer import (
     signal_with_start_grouping_v2_activity,
     submit_signal_to_buffer_activity,
 )
+from products.signals.backend.temporal.custom_agent import CustomSignalAgentWorkflow, run_custom_signal_agent_activity
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
@@ -66,12 +75,16 @@ WORKFLOWS = [
     TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
+    CustomSignalAgentWorkflow,
+    RunSignalsScoutWorkflow,
+    SignalsScoutCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
     dispatch_inbox_slack_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
+    fetch_enabled_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,
@@ -98,7 +111,9 @@ ACTIVITIES = [
     reset_report_to_potential_activity,
     restore_grouping_pause_activity,
     run_agentic_report_activity,
+    run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
+    run_signals_scout_activity,
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,

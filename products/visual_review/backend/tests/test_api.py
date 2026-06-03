@@ -124,6 +124,7 @@ class TestRunAPI:
                     "github_comment_id": 99999,
                     "baseline_commit_sha": "deadbeef",
                     "baseline_healed_from_merge_base": 1,
+                    "github_check_run_id": "72855643533",
                 },
             ),
             team_id=repo.team_id,
@@ -294,7 +295,7 @@ class TestApproveRunAPI:
         logic.finish_processing(create_result.run_id)
 
         # Per-snapshot approval is DB only — no run-level finalization
-        result = api.approve_run(
+        result = api.approve_snapshots(
             ApproveRunInput(
                 run_id=create_result.run_id,
                 user_id=user.id,

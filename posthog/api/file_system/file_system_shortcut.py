@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 
 
@@ -31,6 +32,15 @@ class FileSystemShortcutSerializer(serializers.ModelSerializer):
             "id",
             "created_at",
         ]
+        extra_kwargs = {
+            "path": {"help_text": "Display path of the shortcut in the sidebar."},
+            "type": {"help_text": "Type of the linked item (e.g. 'folder', 'insight'), or blank."},
+            "ref": {"help_text": "Reference to the linked item, scoped to its type. Null for href-only shortcuts."},
+            "href": {
+                "help_text": "Destination URL the shortcut opens. Null when the shortcut points at an item by ref."
+            },
+            "order": {"help_text": "Display order within the user's shortcut list, ascending."},
+        }
 
     def update(self, instance: FileSystemShortcut, validated_data: dict[str, Any]) -> FileSystemShortcut:
         instance.team_id = self.context["team_id"]
@@ -52,6 +62,7 @@ class FileSystemShortcutSerializer(serializers.ModelSerializer):
         file_system_shortcut = FileSystemShortcut.objects.create(
             team=team,
             user=request.user,
+            surface=self.context.get("file_system_surface", DEFAULT_SURFACE),
             **validated_data,
         )
         return file_system_shortcut
@@ -65,13 +76,22 @@ class FileSystemShortcutReorderSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(extensions={"x-product": "core"})
 class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = FileSystemShortcut.objects.all()
     scope_object = "file_system_shortcut"
     serializer_class = FileSystemShortcutSerializer
+    # Product surface these shortcuts serve. Subclass and override to expose a different surface
+    # (e.g. "desktop") on its own route. The default surface also matches legacy NULL rows.
+    file_system_surface: str = DEFAULT_SURFACE
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["file_system_surface"] = self.file_system_surface
+        return context
 
     def _scope_by_project(self, queryset):
-        return queryset.filter(team__project_id=self.team.project_id)
+        return queryset.filter(surface_q(self.file_system_surface), team__project_id=self.team.project_id)
 
     def _scope_by_project_and_environment(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project(queryset)
@@ -102,7 +122,9 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         ordered_ids = [str(uuid) for uuid in serializer.validated_data["ordered_ids"]]
 
-        user_shortcuts_qs = FileSystemShortcut.objects.filter(team=self.team, user=cast(User, request.user))
+        user_shortcuts_qs = FileSystemShortcut.objects.filter(
+            surface_q(self.file_system_surface), team=self.team, user=cast(User, request.user)
+        )
         existing_ids = {str(pk) for pk in user_shortcuts_qs.values_list("id", flat=True)}
         unknown = [pk for pk in ordered_ids if pk not in existing_ids]
         if unknown:
@@ -122,3 +144,14 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         refreshed = self.filter_queryset(self.get_queryset())
         return Response(self.get_serializer(refreshed, many=True).data)
+
+
+@extend_schema(extensions={"x-product": "core"})
+class DesktopFileSystemShortcutViewSet(FileSystemShortcutViewSet):
+    """
+    Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
+    behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+    the default "web" surface.
+    """
+
+    file_system_surface = "desktop"

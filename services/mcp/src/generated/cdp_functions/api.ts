@@ -100,13 +100,15 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         'posthog_assignee',
                         'posthog_ticket_tags',
                         'posthog_business_hours',
+                        'non_failure_status_codes',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
                 choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                searchable: zod.boolean().optional(),
                 required: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemRequiredDefault),
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretDefault),
@@ -190,13 +192,15 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                     'posthog_assignee',
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
+                                    'non_failure_status_codes',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
                             choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            searchable: zod.boolean().optional(),
                             required: zod
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemRequiredDefault),
@@ -343,13 +347,15 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'posthog_assignee',
                         'posthog_ticket_tags',
                         'posthog_business_hours',
+                        'non_failure_status_codes',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
                 choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                searchable: zod.boolean().optional(),
                 required: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemRequiredDefault),
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
@@ -433,13 +439,15 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     'posthog_assignee',
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
+                                    'non_failure_status_codes',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
                             choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            searchable: zod.boolean().optional(),
                             required: zod
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemRequiredDefault),
@@ -660,13 +668,15 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 'posthog_assignee',
                                 'posthog_ticket_tags',
                                 'posthog_business_hours',
+                                'non_failure_status_codes',
                             ])
                             .describe(
-                                '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                             ),
                         key: zod.string(),
                         label: zod.string().optional(),
                         choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        searchable: zod.boolean().optional(),
                         required: zod
                             .boolean()
                             .default(hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemRequiredDefault),
@@ -764,13 +774,15 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             'posthog_assignee',
                                             'posthog_ticket_tags',
                                             'posthog_business_hours',
+                                            'non_failure_status_codes',
                                         ])
                                         .describe(
-                                            '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                            '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                                         ),
                                     key: zod.string(),
                                     label: zod.string().optional(),
                                     choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    searchable: zod.boolean().optional(),
                                     required: zod
                                         .boolean()
                                         .default(

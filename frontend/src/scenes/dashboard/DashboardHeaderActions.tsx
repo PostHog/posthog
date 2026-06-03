@@ -19,6 +19,79 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
+export function DashboardAddTileButton(): JSX.Element | null {
+    const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen } = useActions(dashboardLogic)
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const { push } = useActions(router)
+
+    if (!dashboard) {
+        return null
+    }
+
+    return (
+        <MaxTool
+            className="shrink-0"
+            identifier="upsert_dashboard"
+            context={{
+                current_dashboard: {
+                    id: dashboard.id,
+                    name: dashboard.name,
+                    description: dashboard.description,
+                    tags: dashboard.tags,
+                },
+            }}
+            contextDescription={{
+                text: dashboard.name,
+                icon: iconForType('dashboard'),
+            }}
+            active={false}
+            callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
+            position="top-right"
+        >
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Dashboard}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={dashboard.user_access_level}
+            >
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Insight',
+                            onClick: showAddInsightToDashboardModal,
+                            'data-attr': 'dashboard-add-insight',
+                        },
+                        {
+                            label: 'Text card',
+                            onClick: () => push(urls.dashboardTextTile(dashboard.id, 'new')),
+                            'data-attr': 'dashboard-add-text-tile',
+                        },
+                        {
+                            label: 'Button',
+                            onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
+                            'data-attr': 'dashboard-add-button-tile',
+                        },
+                        ...(dashboardWidgetsEnabled
+                            ? [
+                                  {
+                                      label: 'Widget',
+                                      tag: 'new' as const,
+                                      onClick: () => setAddWidgetModalOpen(true),
+                                      'data-attr': 'dashboard-add-widget',
+                                  },
+                              ]
+                            : []),
+                    ]}
+                >
+                    <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>
+                        Add
+                    </LemonButton>
+                </LemonMenu>
+            </AccessControlAction>
+        </MaxTool>
+    )
+}
+
 export function EditModeActions(): JSX.Element {
     const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
@@ -68,6 +141,7 @@ export function EditModeActions(): JSX.Element {
                     Save
                 </LemonButton>
             </AppShortcut>
+            <DashboardAddTileButton />
         </>
     )
 }
@@ -91,8 +165,7 @@ export function FullscreenModeActions(): JSX.Element {
 
 export function ViewModeActions(): JSX.Element {
     const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
-    const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
-    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const { setDashboardMode } = useActions(dashboardLogic)
     const { push } = useActions(router)
     if (!dashboard) {
         return <></>
@@ -133,59 +206,7 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </AppShortcut>
             )}
-            <MaxTool
-                identifier="upsert_dashboard"
-                context={{
-                    current_dashboard: {
-                        id: dashboard.id,
-                        name: dashboard.name,
-                        description: dashboard.description,
-                        tags: dashboard.tags,
-                    },
-                }}
-                contextDescription={{
-                    text: dashboard.name,
-                    icon: iconForType('dashboard'),
-                }}
-                active={false}
-                callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
-                position="top-right"
-            >
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Dashboard}
-                    minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={dashboard.user_access_level}
-                >
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Insight',
-                                onClick: showAddInsightToDashboardModal,
-                                'data-attr': 'dashboard-add-insight',
-                            },
-                            {
-                                label: 'Text card',
-                                onClick: () => push(urls.dashboardTextTile(dashboard.id, 'new')),
-                                'data-attr': 'dashboard-add-text-tile',
-                            },
-                            {
-                                label: 'Button',
-                                onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
-                                'data-attr': 'dashboard-add-button-tile',
-                            },
-                        ]}
-                    >
-                        <LemonButton
-                            type="primary"
-                            data-attr="dashboard-add-tile"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                        >
-                            Add
-                        </LemonButton>
-                    </LemonMenu>
-                </AccessControlAction>
-            </MaxTool>
+            <DashboardAddTileButton />
         </>
     )
 }

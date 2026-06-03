@@ -41,7 +41,7 @@ class CustomPromptSandboxContext:
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
-    """Override the agent model (e.g. ``"claude-opus-4-7"``). Falls back to the
+    """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
 
@@ -66,6 +66,11 @@ async def create_task_and_trigger(
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
+    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
+    # None would clobber it. sandbox_environment_id already accepts None.
+    posthog_mcp_scopes: PosthogMcpScopes = (
+        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    )
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -77,9 +82,9 @@ async def create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
-        model=context.model,
+        posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
-        posthog_mcp_scopes=context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full",
+        model=context.model,
         internal=internal,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
@@ -106,6 +111,10 @@ async def poll_for_turn(
     last_new_lines_at = 0
     # Remember assistant text, as the agent message and end_message could arrive in different poll slices
     latest_assistant_text: str | None = None
+    # Cursor at start of this turn — passed to _drain_final_log so the terminal-status drain can
+    # recover an agent_message emitted earlier in *this* turn without crossing the previous turn's
+    # boundary (which would return a stale previous-turn response in multi-turn sessions).
+    original_skip_lines = skip_lines
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
@@ -195,8 +204,8 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
-                skip_lines=skip_lines,
                 printed_lines=printed_lines,
+                original_skip_lines=original_skip_lines,
                 verbose=verbose,
                 output_fn=output_fn,
             )
@@ -208,18 +217,25 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
-    skip_lines: int,
     printed_lines: int,
+    original_skip_lines: int,
     verbose: bool,
     output_fn: OutputFn,
 ) -> tuple[str, str | None, int, int]:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
     before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
+
+    Re-parses from the start-of-turn cursor (`original_skip_lines`) rather than only the slice past the *last* poll
+    cursor: when the agent emits text mid-run but never reaches `end_turn` (e.g. killed by inactivity timeout
+    mid-tool-call), the agent_message landed in an earlier poll slice and the per-poll cursor has advanced past
+    it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
+    stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
+    the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
     final_message = None
     final_log = None
-    final_lines = skip_lines
+    final_lines = 0
     final_empty_end_turn = False
     for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
         try:
@@ -227,7 +243,7 @@ async def _drain_final_log(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
-            )(task_run, skip_lines)
+            )(task_run, skip_lines=original_skip_lines)
             break
         except ObjectStorageError:
             logger.warning(

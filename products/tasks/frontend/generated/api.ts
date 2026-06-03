@@ -16,12 +16,15 @@ import type {
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PaginatedTaskSummaryListApi,
+    PatchedSandboxEnvironmentApi,
     PatchedTaskApi,
+    PatchedTaskAutomationApi,
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     RepositoryReadinessResponseApi,
     SandboxEnvironmentApi,
     SandboxListParams,
+    SlackThreadContextResponseApi,
     TaskApi,
     TaskAutomationApi,
     TaskAutomationsListParams,
@@ -53,6 +56,7 @@ import type {
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
+    TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
 } from './api.schemas'
 
@@ -158,6 +162,59 @@ export const sandboxCreate = async (
     })
 }
 
+export const getSandboxRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/${id}/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSandboxPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/${id}/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSandboxEnvironmentApi?: NonReadonly<PatchedSandboxEnvironmentApi>,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSandboxEnvironmentApi),
+    })
+}
+
+export const getSandboxDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/${id}/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSandboxDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -195,6 +252,86 @@ export const taskAutomationsCreate = async (
     options?: RequestInit
 ): Promise<TaskAutomationApi> => {
     return apiMutator<TaskAutomationApi>(getTaskAutomationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
+    })
+}
+
+export const getTaskAutomationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskAutomationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsUpdate = async (
+    projectId: string,
+    id: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
+    })
+}
+
+export const getTaskAutomationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTaskAutomationApi?: NonReadonly<PatchedTaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskAutomationApi),
+    })
+}
+
+export const getTaskAutomationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTaskAutomationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTaskAutomationsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/run/`
+}
+
+export const taskAutomationsRunCreate = async (
+    projectId: string,
+    id: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -908,6 +1045,40 @@ export const tasksRepositoryReadinessRetrieve = async (
     options?: RequestInit
 ): Promise<RepositoryReadinessResponseApi> => {
     return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSlackThreadContextRetrieveUrl = (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/slack_thread_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/slack_thread_context/`
+}
+
+/**
+ * PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs.
+ * @summary Resolve a Slack thread to its task, runs, and Temporal workflows
+ */
+export const tasksSlackThreadContextRetrieve = async (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams,
+    options?: RequestInit
+): Promise<SlackThreadContextResponseApi> => {
+    return apiMutator<SlackThreadContextResponseApi>(getTasksSlackThreadContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

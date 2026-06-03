@@ -12,6 +12,7 @@ from django.dispatch import receiver
 from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
@@ -58,7 +59,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
     linked_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -66,7 +67,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_linked_flag",
     )
     targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -74,7 +75,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_targeting_flag",
     )
     linked_insight = models.ForeignKey(
-        "posthog.Insight",
+        "product_analytics.Insight",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -84,7 +85,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -92,7 +93,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_internal_targeting_flag",
     )
     internal_response_sampling_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -301,9 +302,9 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     actions = models.ManyToManyField(Action)
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="survey", ref_field="id", surface=surface)
 
     @classmethod
     def get_internal_flag_ids(
@@ -482,8 +483,9 @@ surveys_hypercache = HyperCache(
 @receiver(post_save, sender=Survey)
 @receiver(post_delete, sender=Survey)
 def survey_changed(sender, instance: "Survey", **kwargs):
-    from posthog.tasks.feature_flags import update_team_flags_cache
     from posthog.tasks.surveys import update_team_surveys_cache
+
+    from products.feature_flags.backend.tasks import update_team_flags_cache
 
     # Defer task execution until after the transaction commits
     # Update both survey cache and flag cache since survey-linked flags are

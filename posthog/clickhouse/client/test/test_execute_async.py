@@ -197,7 +197,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.pickup_time)
         self.assertIsNotNone(result.end_time)
         assert result.error_message
-        self.assertRegex(result.error_message, "no viable alternative at input")
+        self.assertRegex(result.error_message, "trailing tokens after expression")
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")

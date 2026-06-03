@@ -12,6 +12,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     InternalAPIAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
@@ -54,7 +55,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
-class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" in name
+class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -205,7 +206,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             authentication_classes.append(SharingAccessTokenAuthentication)
 
         authentication_classes.extend(
-            [JwtAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
+            [
+                # IDJagAccessTokenAuthentication runs before JwtAuthentication because the latter
+                # decodes with HS256+SECRET_KEY and treats algorithm mismatches as hard auth
+                # failures (401) rather than "not my token". ID-JAG uses RS256, so it would be
+                # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
+                # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
+                IDJagAccessTokenAuthentication,
+                JwtAuthentication,
+                OAuthAccessTokenAuthentication,
+                PersonalAPIKeyAuthentication,
+                SessionAuthentication,
+            ]
         )
 
         return [auth() for auth in authentication_classes]

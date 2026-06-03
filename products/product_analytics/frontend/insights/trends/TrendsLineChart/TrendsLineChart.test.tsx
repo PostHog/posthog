@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
+
+import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -17,6 +18,10 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
+
+// The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
+// the default 1s waitFor / findBy timeout is too tight and flakes randomly.
+configure({ asyncUtilTimeout: 5000 })
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
@@ -337,11 +342,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const ticks = getHogChart().yTicks()
-            expect(ticks.length).toBeGreaterThan(0)
-            for (const t of ticks) {
-                expect(t).toMatch(/%/)
-            }
+            await waitFor(() => {
+                const ticks = getHogChart().yTicks()
+                expect(ticks.length).toBeGreaterThan(0)
+                for (const t of ticks) {
+                    expect(t).toMatch(/%/)
+                }
+            })
         })
     })
 

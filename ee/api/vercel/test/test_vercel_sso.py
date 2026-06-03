@@ -225,7 +225,7 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         assert sso_setup["user"].current_team != team  # Team switching happens after login verification
 
     def test_sso_redirect_with_experimentation_item(self, sso_setup):
-        from posthog.models import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         team = Team.objects.create(organization=sso_setup["organization"], name="Test Team")
         flag = FeatureFlag.objects.create(

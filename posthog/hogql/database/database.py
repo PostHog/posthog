@@ -1,6 +1,7 @@
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -52,6 +53,7 @@ from posthog.hogql.database.models import (
     Table,
     TableNode,
     UnknownDatabaseField,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
@@ -151,6 +153,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.team import WeekStartDay
 
+from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -159,6 +162,8 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
 if TYPE_CHECKING:
+    from posthog.schema import DataWarehouseSyncWarning
+
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
 
@@ -340,6 +345,9 @@ class Database(BaseModel):
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
+    # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
+    # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
+    _data_warehouse_sync_warnings: dict[str, list["DataWarehouseSyncWarning"]] = {}
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -364,6 +372,7 @@ class Database(BaseModel):
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
+        self._data_warehouse_sync_warnings = {}
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -479,7 +488,7 @@ class Database(BaseModel):
         if not isinstance(system_tables, SystemTables):
             return []
 
-        return ["query_log", *system_tables.resolve_all_table_names()]
+        return ["query_log", *system_tables.resolve_visible_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -773,10 +782,15 @@ class Database(BaseModel):
                     )
                     fields_dict = {field.name: field for field in fields}
 
+                    # The table is also queryable by its raw underscore name, which is registered
+                    # separately from the dotted `table_key`. Surface it so search matches either form.
+                    search_aliases = [warehouse_table.name] if warehouse_table.name != table_key else None
+
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
                         fields=fields_dict,
                         id=str(warehouse_table.id),
                         name=table_key,
+                        search_aliases=search_aliases,
                         format=warehouse_table.format,
                         url_pattern=warehouse_table.url_pattern,
                         schema=schema,
@@ -1173,6 +1187,7 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
+            sync_warnings_now = datetime.now(UTC)
             for table in tables:
                 if (
                     not database._is_direct_query()
@@ -1183,6 +1198,10 @@ class Database(BaseModel):
 
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
+
+                    sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
+                    if sync_warnings:
+                        database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
                     primary_table = s3_table
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
@@ -1682,7 +1701,9 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
         return
 
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
-    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids):
+    # select_related("source"): warning rendering reads schema.source.source_type, so avoid a
+    # per-schema lazy fetch when any of these tables turns out to be unhealthy.
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids).select_related("source"):
         schemas_by_table_id[str(schema.table_id)].append(schema)
 
     for warehouse_table in warehouse_tables:
@@ -1813,6 +1834,15 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, StringDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UUIDDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,

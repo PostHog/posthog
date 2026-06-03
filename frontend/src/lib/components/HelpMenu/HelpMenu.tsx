@@ -3,21 +3,23 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconBook,
+    IconCloud,
     IconConfetti,
     IconCopy,
     IconDatabase,
     IconEllipsis,
     IconExpand45,
-    IconGear,
+    IconHeart,
     IconLive,
     IconOpenSidebar,
     IconServer,
     IconShieldLock,
     IconSparkles,
+    IconStethoscope,
 } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
-import { IconBlank } from 'lib/lemon-ui/icons'
+import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -44,18 +46,23 @@ import { keyBinds } from '../AppShortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { ThemeMenu } from '../Menus/ThemeMenu'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
+import { posthogStatusLogic } from './posthogStatusLogic'
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { isHelpMenuOpen } = useValues(helpMenuLogic)
+    const { isHelpMenuOpen, isUnifiedHealthEnabled, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { user } = useValues(userLogic)
-    const { isCloud, preflight } = useValues(preflightLogic)
+    const { isCloudOrDev, preflight } = useValues(preflightLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
+    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
+        useValues(posthogStatusLogic)
+    const { totalIssues } = useValues(healthSummaryLogic)
 
     return (
         <Menu.Root open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -79,11 +86,18 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                         data-attr="help-menu-button"
                     >
                         <span className="flex text-secondary group-hover:text-primary">
-                            <SidePanelQuestionIcon className="size-[17px]" />
+                            <IconWithBadge
+                                content={triggerBadgeContent}
+                                size="xsmall"
+                                status={triggerBadgeStatus}
+                                className="flex"
+                            >
+                                <SidePanelQuestionIcon className="size-[17px]" />
+                            </IconWithBadge>
                         </span>
                         {!iconOnly && (
                             <>
-                                <span className="-ml-[1px]">Help</span>
+                                <span className="-ml-px">Help</span>
                                 <MenuOpenIndicator direction="up" />
                             </>
                         )}
@@ -106,7 +120,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                             className="flex flex-col gap-px overflow-x-hidden"
                             innerClassName="primitive-menu-content-inner p-1 "
                         >
-                            <div className="flex flex-col gap-px">
+                            <div className="flex flex-col gap-px mb-2">
                                 <Menu.Item
                                     render={(props) => (
                                         <Link
@@ -164,20 +178,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     render={(props) => (
                                         <Link
                                             {...props}
-                                            to={urls.settings()}
-                                            buttonProps={{ menuItem: true }}
-                                            data-attr="help-menu-settings-button"
-                                        >
-                                            <IconGear />
-                                            Settings
-                                        </Link>
-                                    )}
-                                />
-
-                                <Menu.Item
-                                    render={(props) => (
-                                        <Link
-                                            {...props}
                                             tooltip="View our changelog in new browser tab"
                                             tooltipPlacement="right"
                                             targetBlankIcon
@@ -191,9 +191,61 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Link>
                                     )}
                                 />
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            targetBlankIcon
+                                            target="_blank"
+                                            buttonProps={{ menuItem: true }}
+                                            to={statusPageUrl}
+                                            tooltip={postHogStatusTooltip}
+                                            tooltipPlacement="right"
+                                            tooltipCloseDelayMs={0}
+                                            data-attr="help-menu-posthog-status-button"
+                                        >
+                                            <IconWithBadge
+                                                content={postHogStatusBadgeContent}
+                                                size="xsmall"
+                                                status={postHogStatusBadgeStatus}
+                                                className="flex"
+                                            >
+                                                <IconCloud />
+                                            </IconWithBadge>
+                                            PostHog status
+                                        </Link>
+                                    )}
+                                />
+                                {isUnifiedHealthEnabled && (
+                                    <Menu.Item
+                                        render={(props) => (
+                                            <Link
+                                                {...props}
+                                                to={urls.health()}
+                                                buttonProps={{ menuItem: true }}
+                                                tooltip={
+                                                    totalIssues > 0
+                                                        ? `${totalIssues} health issue${totalIssues === 1 ? '' : 's'}`
+                                                        : 'All systems healthy'
+                                                }
+                                                tooltipPlacement="right"
+                                                tooltipCloseDelayMs={0}
+                                                data-attr="help-menu-health-issues-button"
+                                            >
+                                                <IconWithBadge
+                                                    size="xsmall"
+                                                    content={triggerBadgeContent}
+                                                    status={triggerBadgeStatus}
+                                                >
+                                                    <IconStethoscope />
+                                                </IconWithBadge>
+                                                Health issues
+                                            </Link>
+                                        )}
+                                    />
+                                )}
 
-                                {user?.is_staff && <></>}
-                                {!isCloud && (
+                                {!isCloudOrDev && (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link
@@ -214,7 +266,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         <Menu.SubmenuTrigger
                                             render={
                                                 <ButtonPrimitive menuItem data-attr="help-menu-admin-button">
-                                                    <IconBlank />
+                                                    <IconHeart />
                                                     Admin (Lucky you!)
                                                     <MenuOpenIndicator intent="sub" />
                                                 </ButtonPrimitive>
@@ -342,6 +394,9 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                             >
                                                                 <IconExpand45 />
                                                                 Zen mode
+                                                                <div className="flex gap-1 ml-auto items-center">
+                                                                    <KeyboardShortcut command option z />
+                                                                </div>
                                                             </ButtonPrimitive>
                                                         }
                                                     />

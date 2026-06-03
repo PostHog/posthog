@@ -67,6 +67,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
+        assert response["results"][0]["person"] is None
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2&include_person=true").json()
         assert response["results"][0]["person"] == {
             "distinct_ids": ["2"],
             "is_identified": True,
@@ -98,8 +101,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
-        # instance setting check, person and distinct id
-        with self.assertNumQueries(10):
+        # instance setting check
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -125,8 +128,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
-        # access control, instance settings (poe, rate limit), person and distinct id
-        expected_queries = 11
+        # access control, instance settings (poe, rate limit)
+        expected_queries = 10
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -866,6 +869,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             is_identified=True,
         )
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
+        flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
         assert response.status_code == status.HTTP_200_OK
@@ -931,6 +935,24 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
         assert len(response["results"]) == 2
+
+    @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
+    def test_list_without_include_person_skips_person_lookup(self, mock_get_persons):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+        assert response["results"][0]["person"] is None
+        mock_get_persons.assert_not_called()
+
+    @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
+    def test_list_with_include_person_calls_person_lookup(self, mock_get_persons):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
+        mock_get_persons.return_value = {}
+
+        self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&include_person=true")
+        mock_get_persons.assert_called_once()
 
     def test_get_events_with_specified_token(self):
         _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)

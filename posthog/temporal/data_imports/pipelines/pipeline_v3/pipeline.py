@@ -185,6 +185,16 @@ class PipelineV3(Generic[ResumableData]):
         start_time = time.perf_counter()
         status = "success"
 
+        await self._logger.ainfo(
+            "V3 Pipeline: Extraction starting",
+            run_uuid=self._s3_batch_writer.get_run_uuid(),
+            sync_type=sync_type,
+            is_incremental=self._is_incremental,
+            is_resume=should_resume,
+            is_first_ever_sync=self._delta_table_helper.is_first_sync,
+            reset_pipeline=self._reset_pipeline,
+        )
+
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
 
@@ -217,12 +227,34 @@ class PipelineV3(Generic[ResumableData]):
                 py_table = None
 
                 self._batcher.batch(item)
-                if not self._batcher.should_yield():
-                    continue
 
+                # A single batched table may be split into several when a string/binary/list
+                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                while self._batcher.should_yield():
+                    py_table = self._batcher.get_table()
+                    row_count += py_table.num_rows
+
+                    await self._process_batch(
+                        pa_table=py_table,
+                        batch_index=chunk_index,
+                        row_count=row_count,
+                    )
+
+                    if activity.in_activity():
+                        get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
+                        get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+
+                    chunk_index += 1
+
+                    cleanup_memory(pa_memory_pool, py_table)
+                    py_table = None
+
+                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                    self._shutdown_monitor.raise_if_is_worker_shutdown()
+
+            while self._batcher.should_yield(include_incomplete_chunk=True):
                 py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
-
                 await self._process_batch(
                     pa_table=py_table,
                     batch_index=chunk_index,
@@ -235,25 +267,6 @@ class PipelineV3(Generic[ResumableData]):
 
                 chunk_index += 1
 
-                cleanup_memory(pa_memory_pool, py_table)
-                py_table = None
-
-                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
-                    self._shutdown_monitor.raise_if_is_worker_shutdown()
-
-            if self._batcher.should_yield(include_incomplete_chunk=True):
-                py_table = self._batcher.get_table()
-                row_count += py_table.num_rows
-                await self._process_batch(
-                    pa_table=py_table,
-                    batch_index=chunk_index,
-                    row_count=row_count,
-                )
-
-                if activity.in_activity():
-                    get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
-                    get_batches_produced_metric(team_id_str, schema_id_str).add(1)
-
             await self._finalize(row_count=row_count)
 
             return {
@@ -262,6 +275,7 @@ class PipelineV3(Generic[ResumableData]):
             }
         except Exception:
             status = "error"
+            self._logger.exception("V3 Pipeline: Extraction failed")
             try:
                 self._s3_batch_writer.cleanup()
             except Exception:
