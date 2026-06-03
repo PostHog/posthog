@@ -64,14 +64,15 @@ class TestRedisClusterConnectionFactory(TestCase):
 
     @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
     def test_disconnect_evicts_client_so_next_connect_rediscovers(self, from_url: MagicMock) -> None:
-        from_url.side_effect = lambda url, **kwargs: MagicMock(name=url)
+        clients = [MagicMock(name="client-a"), MagicMock(name="client-b")]
+        from_url.side_effect = clients
         factory = self._factory()
 
         first = factory.connect("redis://node-a:6379")
         factory.disconnect(first)
         second = factory.connect("redis://node-a:6379")
 
-        first.close.assert_called_once_with()
+        clients[0].close.assert_called_once_with()
         assert second is not first
         assert from_url.call_count == 2
 
