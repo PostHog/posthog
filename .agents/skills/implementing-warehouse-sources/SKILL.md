@@ -77,7 +77,17 @@ Follow this order. Each step maps to TODOs in `source.template`.
 10. **Add icon.** Place at `frontend/public/services/{source}.svg` (prefer SVG). If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Keep file size reasonable.
 11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
 12. **Rebuild schema types**: `pnpm run schema:build`. This updates `posthog/schema.py` from `schema-general.ts` and makes the source appear in frontend dropdowns. Re-run whenever `schema-general.ts` changes.
-13. **Release status.** Whenever you set `releaseStatus`, use the `ReleaseStatus` enum from `posthog.schema` — never a bare string literal. Add `ReleaseStatus` to your existing `from posthog.schema import (...)` block, then use `releaseStatus=ReleaseStatus.ALPHA` for new sources that haven't been extensively tested, `releaseStatus=ReleaseStatus.BETA` once most rough edges are ironed out, and `releaseStatus=ReleaseStatus.GA` for general availability (you may also leave `releaseStatus` unset for GA). For unfinished work, set `unreleasedSource=True`. For controlled rollout, set `featureFlag="dwh-{source_name}"` (kebab-case). When fully releasing, remove `unreleasedSource`, set `releaseStatus` to the appropriate stage (`ReleaseStatus.GA` or omit it), and optionally drop the feature flag.
+13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `DataWarehouseQueryVariant.tsx`, `InlineSourceSetup.tsx`, and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
+
+    Keeping `unreleasedSource=True` is the exception that needs a reason: only do it when the source is genuinely incomplete and must not be reachable yet (e.g. you're landing it across several PRs and it can't sync). The moment it syncs end-to-end and its tests pass, it's done — the flag comes out.
+
+    So a newly finished, tested source ships with:
+    - **no `unreleasedSource`** (visible and connectable),
+    - `releaseStatus=ReleaseStatus.ALPHA` for a new source that hasn't been extensively tested (`ReleaseStatus.BETA` once rough edges are ironed out; `ReleaseStatus.GA`, or omit `releaseStatus` entirely, for general availability) — a soft label on a _visible_ source, not a gate,
+    - optional `featureFlag="dwh-{source_name}"` (kebab-case) **only** if you want a controlled rollout to flagged users instead of releasing to everyone.
+
+    Whenever you set `releaseStatus`, use the `ReleaseStatus` enum from `posthog.schema` — never a bare string literal. Add `ReleaseStatus` to your existing `from posthog.schema import (...)` block.
+
 14. **Delete the template TODO comments** before PR.
 
 ## Source architecture contract
@@ -431,14 +441,13 @@ Tooling & assets:
 - [ ] Run `pnpm run schema:build`
 - [ ] Django migrations run if enum value requires it
 
-Release status:
-- [ ] unreleasedSource=True while WIP
+Release status (default: a finished source has NO unreleasedSource flag — it hides the source from users):
+- [ ] No unreleasedSource on the finished source — delete the line the scaffolded stub ships with
+      (keep it ONLY as an exception, when the source is genuinely incomplete / landed across multiple PRs)
 - [ ] When set, releaseStatus uses the `ReleaseStatus` enum, never a string literal
-- [ ] releaseStatus=ReleaseStatus.ALPHA for new sources not yet extensively tested
-- [ ] releaseStatus=ReleaseStatus.BETA when most rough edges have been ironed out
-- [ ] releaseStatus=ReleaseStatus.GA (or omit it) on full release
-- [ ] featureFlag="dwh-{source_name}" for controlled rollout
-- [ ] Flag removed / unreleasedSource removed on full release
+- [ ] releaseStatus=ReleaseStatus.ALPHA for a new source not yet extensively tested
+      (ReleaseStatus.BETA later; ReleaseStatus.GA or omit for GA)
+- [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
 - [ ] Source tests (test_<source>_source.py)
