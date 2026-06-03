@@ -1259,18 +1259,21 @@ class TestIntegrationAPIKeyAccess:
         "search,expected_ids",
         [
             # Spaces match separator-delimited names: the reported "product analytics" papercut.
-            ("product analytics", ["C1"]),
+            # "team-product" (C2) is a weaker fuzzy match so it ranks below the exact hit.
+            ("product analytics", ["C1", "C2"]),
             # Underscore variant of the same query.
-            ("product_analytics", ["C1"]),
+            ("product_analytics", ["C1", "C2"]),
             # Reordered tokens still match (order independent).
-            ("analytics product", ["C1"]),
-            # Partial tokens match as substrings.
+            ("analytics product", ["C1", "C2"]),
+            # Partial tokens match.
             ("prod analy", ["C1"]),
+            # A small typo still resolves to the intended channel.
+            ("analytcs", ["C1"]),
             # Exact hyphenated name keeps working.
-            ("product-analytics", ["C1"]),
+            ("product-analytics", ["C1", "C2"]),
             # A single shared token matches multiple channels.
             ("team", ["C2", "C3"]),
-            # Pasting a channel id still resolves.
+            # Pasting a channel id still resolves via the id fallback.
             ("C2", ["C2"]),
             # Genuine non-matches return nothing.
             ("nonexistent channel", []),
@@ -1280,6 +1283,7 @@ class TestIntegrationAPIKeyAccess:
             "underscores-match-hyphens",
             "reordered-tokens",
             "partial-tokens",
+            "typo-tolerant",
             "exact-hyphenated",
             "shared-token-multi-match",
             "channel-id-paste",
@@ -1287,7 +1291,7 @@ class TestIntegrationAPIKeyAccess:
         ],
     )
     @patch("posthog.api.integration.SlackIntegration")
-    def test_channels_action_normalized_search(
+    def test_channels_action_fuzzy_search(
         self,
         mock_slack_class,
         search: str,

@@ -30,6 +30,7 @@ from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
@@ -671,30 +672,22 @@ class IntegrationViewSet(
         }
 
     @staticmethod
-    def _normalize_slack_search_text(text: str) -> str:
-        # Treat hyphens, underscores and whitespace runs as equivalent separators so that
-        # "product analytics" matches the channel "product-analytics".
-        return re.sub(r"[\s_-]+", " ", text.lower()).strip()
-
-    @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
-        query = search.strip().lower()
+        query = search.strip()
         if not query:
             return visible
-        # Every token of the normalized query must appear in the normalized channel name (order
-        # independent), so multi-word and reordered searches match. Fall back to a raw substring
-        # match on the channel id so pasting an id still resolves.
-        tokens = IntegrationViewSet._normalize_slack_search_text(query).split()
-        return [
+        # Fuzzy-rank by channel name so spaced, reordered, partial and slightly-misspelled
+        # queries all match "product-analytics" and friends, best match first. Then union in
+        # any channel whose id contains the raw query so pasting a channel id still resolves.
+        ranked = fuzzy_filter(query, visible, key=lambda channel: channel["name"])
+        ranked_ids = {channel["id"] for channel in ranked}
+        id_matches = [
             channel
             for channel in visible
-            if (
-                tokens
-                and all(token in IntegrationViewSet._normalize_slack_search_text(channel["name"]) for token in tokens)
-            )
-            or query in channel["id"].lower()
+            if query.lower() in channel["id"].lower() and channel["id"] not in ranked_ids
         ]
+        return ranked + id_matches
 
     @extend_schema(
         parameters=[SlackChannelsQuerySerializer],
