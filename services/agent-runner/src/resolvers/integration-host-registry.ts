@@ -4,10 +4,13 @@
  * Threat model: a bundle author can write any URL into `mcps[].url` plus an
  * `auth.integration` reference. Without a host check the runner would attach
  * the team's connected OAuth token (Slack, Linear, etc.) to whatever URL the
- * author wanted — exfiltration. `assertSafeExternalMcpUrl` already blocks
- * private / loopback hosts, but a public `evil.com` would still slip through
- * the SSRF floor. This registry closes that gap by binding each integration
- * kind to a fixed list of host patterns.
+ * author wanted — exfiltration. SSRF protection itself lives at the infra
+ * layer (smokescreen denies RFC1918 / loopback / link-local + closes the
+ * DNS-rebinding gap), but smokescreen has no concept of *which* integration's
+ * bearer is being attached — it sees "this pod wants to call that host" and
+ * has no way to know "the linear bearer must only go to mcp.linear.app". This
+ * registry closes that logical-binding gap by binding each integration kind
+ * to a fixed list of host patterns.
  *
  * The registry is **append-only**: adding a kind is one entry; removing or
  * narrowing a kind's hosts breaks existing bundles that already authored

@@ -147,35 +147,39 @@ Lifecycle:
 ## Security floor for `external` URLs
 
 The author-supplied `url` on a `kind: 'external'` MCP ref is treated as
-untrusted input. Before opening the transport, the runner enforces:
+untrusted input. Protection is split between **infra** (smokescreen at
+the egress hop) and **application** (the runner's integration-host
+validator):
 
-- **HTTPS only.** `http://`, `ws://`, `file://`, etc. are rejected with
-  `mcp_unsafe_url: scheme must be https`.
-- **Private / loopback / cloud-metadata hostnames are rejected.** IPv4
-  loopback (`127.0.0.0/8`), RFC1918 (`10.0.0.0/8`, `192.168.0.0/16`,
-  `172.16.0.0/12`), link-local (`169.254.0.0/16`, includes AWS/GCP/Azure
-  IMDS), `localhost`, IPv6 loopback / unique-local / link-local, and
-  hostnames ending in `.local` or `.internal` all fail at open with
-  `mcp_unsafe_url: hostname '<h>' is private / loopback / link-local`.
-  Lives in `assertSafeExternalMcpUrl` in `loop/mcp-clients.ts`.
+- **SSRF — handled by smokescreen.** `charts/shared/agent-platform/common.yaml`
+  sets `httpProxy.enabled: true`, so all outbound HTTPS from the runner
+  routes through the smokescreen pod. Smokescreen's default ACL denies
+  RFC1918 / loopback / link-local / cloud-IMDS, AND resolves DNS per-IP
+  at connect time — closing the DNS-rebinding gap a runner-side string
+  match couldn't close. The runner gets out of the URL-vetting business
+  entirely. ai-gateway calls stay internal; the proxy is a no-op for
+  those routes.
 - **Integration bearer attachment is fail-closed.** When `auth.integration`
   is set, the runner consults `WorkerDeps.integrationHostValidator` —
   `(integrationRef, url) => boolean` — before stamping the bearer header.
-  Without a wired validator (config drift, deploy issue), every such
-  request is refused (`mcp_integration_host_validator_not_wired`). With
-  one wired but the URL host outside its allowlist, the request is
+  Smokescreen has no concept of _which_ integration's token is being
+  attached; this is a logical-binding check that has to live in the
+  runner. Without a wired validator (config drift, deploy issue), every
+  such request is refused (`mcp_integration_host_validator_not_wired`).
+  With one wired but the URL host outside its allowlist, the request is
   refused with `mcp_integration_host_not_allowed`. Production wires a
   per-integration-kind registry (`linear:*` → `mcp.linear.app`,
   `github:*` → `api.github.com`, etc.); v0 tests pass `() => true` to
   opt in to the legacy "attach-to-anywhere" behaviour.
 
-`kind: 'agent'` URLs are minted by the runner's own resolver — not author
-input — and don't pass through `assertSafeExternalMcpUrl`.
+`kind: 'agent'` URLs are minted by the runner's own resolver — not
+author input — and don't go through any of these checks.
 
-**Known gap (DNS rebinding).** The hostname checks are string-pattern
-only; a public hostname that A-records to a private IP slips through.
-Closing that requires a custom HTTP agent that resolves DNS and inspects
-each candidate IP before connect. Tracked as a follow-up.
+**Local dev** has no smokescreen pod, so the runner there sees an
+unfiltered network. That matches the existing assumption "your laptop,
+your bundle" and was the threat model under the old
+`AGENT_MCP_ALLOW_PRIVATE_HOSTS=1` dev escape (now removed since the
+runner no longer enforces a URL check at all).
 
 ## Future direction: native OAuth discovery (suggested, not yet planned)
 
