@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from 'react'
 
 import type { ChartTheme } from '@posthog/quill-charts'
 
-// Quill charts render on a canvas, so colours must be concrete values — `var(--…)`
+// These charts render on a canvas, so colours must be concrete values — `var(--…)`
 // strings don't resolve inside a 2D context. We read the chart palette (and axis/grid
 // colours) from the CSS variables declared in `styles/base.css`, which the MCP host can
 // override via ext-apps, falling back to the light-mode hexes when computed styles aren't
@@ -40,8 +40,8 @@ interface ChartFrameProps {
 
 // Fixed-height flex column so the canvas chart (whose root is `flex: 1`) gets a concrete
 // size for its ResizeObserver, with an inline-styled legend below. We render the legend
-// ourselves rather than using Quill's `ChartLegend` to keep the swatch styling independent
-// of which Tailwind utilities get generated for the MCP bundle.
+// ourselves rather than using the chart library's `ChartLegend` to keep the swatch styling
+// independent of which Tailwind utilities get generated for the MCP bundle.
 export function ChartFrame({ children, labels, colors, showLegend = true }: ChartFrameProps): ReactElement {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: FRAME_HEIGHT }}>

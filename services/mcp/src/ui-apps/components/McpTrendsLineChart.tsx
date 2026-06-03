@@ -12,7 +12,7 @@ import {
     type YAxisConfig,
 } from '@posthog/quill-charts'
 
-import { buildMcpChartTheme } from './charts/quillChart'
+import { buildMcpChartTheme } from './charts/shared'
 import type { YUnit } from './ChartSettings'
 import type { TrendsInterval, TrendsResultItem } from './types'
 import { formatDate, getSeriesLabel } from './utils'

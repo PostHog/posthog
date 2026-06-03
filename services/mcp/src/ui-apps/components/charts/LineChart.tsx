@@ -1,9 +1,9 @@
 import { type ReactElement, useMemo } from 'react'
 
-import { TimeSeriesLineChart, type Series as QuillSeries, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
+import { TimeSeriesLineChart, type Series as ChartSeries, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { formatDate, formatNumber } from '../utils'
-import { buildMcpChartTheme, ChartFrame } from './quillChart'
+import { buildMcpChartTheme, ChartFrame } from './shared'
 
 export interface DataPoint {
     x: number
@@ -19,7 +19,7 @@ export interface Series {
 export interface LineChartProps {
     series: Series[]
     labels: string[]
-    // Kept for call-site compatibility; Quill derives the y-axis domain from the data.
+    // Kept for call-site compatibility; the chart derives the y-axis domain from the data.
     maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
@@ -28,7 +28,7 @@ export interface LineChartProps {
 export function LineChart({ series, labels, showLegend = true, yAxisLabel }: LineChartProps): ReactElement {
     const theme = useMemo(() => buildMcpChartTheme(), [])
 
-    const quillSeries = useMemo<QuillSeries[]>(
+    const chartSeries = useMemo<ChartSeries[]>(
         () =>
             series.map((s, i) => ({
                 key: `${i}`,
@@ -49,7 +49,7 @@ export function LineChart({ series, labels, showLegend = true, yAxisLabel }: Lin
 
     return (
         <ChartFrame labels={series.map((s) => s.label)} colors={theme.colors} showLegend={showLegend}>
-            <TimeSeriesLineChart series={quillSeries} labels={labels} theme={theme} config={config} />
+            <TimeSeriesLineChart series={chartSeries} labels={labels} theme={theme} config={config} />
         </ChartFrame>
     )
 }

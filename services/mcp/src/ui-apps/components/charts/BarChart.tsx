@@ -1,9 +1,9 @@
 import { type ReactElement, useMemo } from 'react'
 
-import { TimeSeriesBarChart, type Series as QuillSeries, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import { TimeSeriesBarChart, type Series as ChartSeries, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { formatDate, formatNumber } from '../utils'
-import { buildMcpChartTheme, ChartFrame } from './quillChart'
+import { buildMcpChartTheme, ChartFrame } from './shared'
 
 export interface DataPoint {
     x: number
@@ -19,7 +19,7 @@ export interface Series {
 export interface BarChartProps {
     series: Series[]
     labels: string[]
-    // Kept for call-site compatibility; Quill derives the y-axis domain from the data.
+    // Kept for call-site compatibility; the chart derives the y-axis domain from the data.
     maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
@@ -28,7 +28,7 @@ export interface BarChartProps {
 export function BarChart({ series, labels, showLegend = true, yAxisLabel }: BarChartProps): ReactElement {
     const theme = useMemo(() => buildMcpChartTheme(), [])
 
-    const quillSeries = useMemo<QuillSeries[]>(
+    const chartSeries = useMemo<ChartSeries[]>(
         () =>
             series.map((s, i) => ({
                 key: `${i}`,
@@ -50,7 +50,7 @@ export function BarChart({ series, labels, showLegend = true, yAxisLabel }: BarC
 
     return (
         <ChartFrame labels={series.map((s) => s.label)} colors={theme.colors} showLegend={showLegend}>
-            <TimeSeriesBarChart series={quillSeries} labels={labels} theme={theme} config={config} />
+            <TimeSeriesBarChart series={chartSeries} labels={labels} theme={theme} config={config} />
         </ChartFrame>
     )
 }

@@ -92,7 +92,7 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
                     />
                 </div>
             </div>
-            {/* Quill charts render on a flex:1 canvas — they need a sized flex-column parent. */}
+            {/* These charts render on a flex:1 canvas — they need a sized flex-column parent. */}
             <div className="flex flex-col" style={{ height: 320 }}>
                 {isBar ? (
                     <McpTrendsBarChart

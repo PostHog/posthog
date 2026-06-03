@@ -51,7 +51,7 @@ export default defineConfig({
                 find: /^@posthog\/quill$/,
                 replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
             },
-            // Quill charts ship as TypeScript source (no dist build), so resolve the
+            // The charts package ships as TypeScript source (no dist build), so resolve the
             // package entry directly — Vite compiles it alongside the app bundle.
             {
                 find: /^@posthog\/quill-charts$/,
