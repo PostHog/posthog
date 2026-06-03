@@ -329,7 +329,7 @@ The `agent-feedback` tool is the primary signal we use to improve this MCP serve
 
 **When you finish a task on which you hit friction with the MCP, call `agent-feedback` before handing back to the user.** Skip it for smooth, routine work where nothing stood out.
 
-Keep it short: write your feedback as clear, concise bullet points, and quote the exact tool name, parameter, or error text. Friction worth reporting (any one is enough):
+Keep it short: give a one-sentence `summary`, then write the detail fields (`friction_points`, `suggested_improvement`, `details`) as clear, concise bullet points, quoting the exact tool name, parameter, or error text. Friction worth reporting (any one is enough):
 
 - A tool description was unclear or ambiguous and you had to guess.
 - An input schema was confusing or surprising.
