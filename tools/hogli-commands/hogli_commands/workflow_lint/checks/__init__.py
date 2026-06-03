@@ -16,12 +16,14 @@ from .dorny_negation import DornyNegationCheck
 from .job_timeouts import JobTimeoutsCheck
 from .pr_concurrency import PrConcurrencyCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
+from .setup_action_token import SetupActionTokenCheck
 
 CHECKS: list[WorkflowCheck] = [
     JobTimeoutsCheck(),
     PrConcurrencyCheck(),
     DornyNegationCheck(),
     SemgrepServicesCoverageCheck(),
+    SetupActionTokenCheck(),
 ]
 
 

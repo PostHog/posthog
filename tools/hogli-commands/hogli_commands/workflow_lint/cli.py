@@ -27,12 +27,17 @@ def _gh_annotation(level: str, check_label: str, issue: Issue) -> None:
 
 
 def _run_one(check: WorkflowCheck, workflows: list[Workflow]) -> int:
-    """Run a single check, print results, return the issue count."""
+    """Run a single check, print results, return the issue count.
+
+    Non-blocking checks render as warnings and never fail the command — the
+    caller decides what to do with the count based on ``check.blocking``.
+    """
     click.echo(f"  {check.id} ({check.label})...")
     result = check.run(workflows)
+    level, mark = ("error", "✗") if check.blocking else ("warning", "⚠")
     for issue in result.issues:
-        click.echo(f"    ✗ {issue.render()}")
-        _gh_annotation("error", check.label, issue)
+        click.echo(f"    {mark} {issue.render()}")
+        _gh_annotation(level, check.label, issue)
     if not result.issues:
         click.echo("    ✓ ok")
     return len(result.issues)
@@ -84,18 +89,27 @@ def cmd_lint_workflows(check_id: str | None, list_checks: bool, workflows_dir: P
     click.echo(f"Linting {len(workflows)} workflow(s) with {len(selected)} check(s):\n")
 
     total_issues = 0
+    warning_count = 0
     failing_checks: list[WorkflowCheck] = []
+    warning_checks: list[WorkflowCheck] = []
     for check in selected:
         issues = _run_one(check, workflows)
-        total_issues += issues
-        if issues:
+        if not issues:
+            continue
+        if check.blocking:
+            total_issues += issues
             failing_checks.append(check)
+        else:
+            warning_count += issues
+            warning_checks.append(check)
 
     click.echo("")
+    for check in failing_checks + warning_checks:
+        if check.fix_hint:
+            click.echo(f"Fix for {check.id}:\n{check.fix_hint}\n")
+    if warning_checks:
+        click.echo(f"⚠ {warning_count} non-blocking warning(s) across {len(warning_checks)} check(s)")
     if failing_checks:
-        for check in failing_checks:
-            if check.fix_hint:
-                click.echo(f"Fix for {check.id}:\n{check.fix_hint}\n")
         click.echo(f"✗ {total_issues} issue(s) across {len(failing_checks)} check(s)")
         raise SystemExit(1)
 
