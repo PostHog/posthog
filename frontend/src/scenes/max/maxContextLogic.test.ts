@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import '@posthog/icons'
 
@@ -715,6 +716,37 @@ describe('maxContextLogic', () => {
                     dashboards: [partial({ id: mockDashboard.id, type: 'dashboard', insights: [] })],
                 }),
             })
+        })
+    })
+
+    describe('scene context errors are surfaced, not silently swallowed', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('reports an exception (instead of blanking context silently) when a scene maxContext selector throws', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                selectors: {
+                    maxContext: () => {
+                        throw new Error('boom from scene maxContext')
+                    },
+                },
+            } as any)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({}),
+                sceneParams: {},
+            } as any)
+
+            // Reading scene context triggers the throwing selector.
+            await expectLogic(logic).toMatchValues({ sceneContext: [] })
+
+            expect(captureException).toHaveBeenCalledWith(
+                expect.objectContaining({ message: 'boom from scene maxContext' }),
+                expect.objectContaining({ feature: 'max_scene_context' })
+            )
         })
     })
 })

@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
@@ -67,6 +68,24 @@ const addOrUpdateEntity = <TContext extends EntityWithIdAndType>(state: TContext
 
 const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], id: string | number): TContext[] =>
     state.filter((item) => item.id !== id)
+
+// A throw while building scene context blanks out ALL of Max's auto-collected context
+// (e.g. Max reporting it has no dashboard and falling back to search). The selector that
+// catches it runs on every read, so dedupe by message to avoid spamming when it keeps
+// throwing — but never let the failure stay silent.
+const reportedSceneContextErrors = new Set<string>()
+const reportSceneContextError = (error: unknown): void => {
+    const key = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    if (reportedSceneContextErrors.has(key)) {
+        return
+    }
+    reportedSceneContextErrors.add(key)
+    // eslint-disable-next-line no-console
+    console.error('[Max] Failed to build scene context — Max will have no auto-context for this scene:', error)
+    posthog.captureException(error instanceof Error ? error : new Error(key), {
+        feature: 'max_scene_context',
+    })
+}
 
 export type LoadedEntitiesMap = { dashboard: number[]; insight: string[] }
 
@@ -504,8 +523,9 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
                             )
-                        } catch {
-                            // If the maxContext selector fails, return empty array
+                        } catch (error) {
+                            // Surface the failure instead of silently returning empty context.
+                            reportSceneContextError(error)
                         }
                     }
                     return []
