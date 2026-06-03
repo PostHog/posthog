@@ -1014,6 +1014,7 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
 
     @extend_schema(
         operation_id="single_session_summaries_list",
+        extensions={"x-product": "replay"},
         description=(
             "List stored AI-generated session summaries for the team, one row per session (latest summary "
             "kept). Use to discover which sessions have been summarized and to filter for sessions with "
@@ -1091,6 +1092,7 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
 
     @extend_schema(
         operation_id="single_session_summaries_retrieve",
+        extensions={"x-product": "replay"},
         description=(
             "Get the latest stored AI summary for a single session by `session_id`. Returns the full "
             "`summary` JSON (segments with named timeline, per-action `abandonment` / `confusion` / "
