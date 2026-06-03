@@ -23,6 +23,8 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.product_analytics.backend.models.insight import Insight
 
@@ -1471,11 +1473,46 @@ class TestSharedCohortInlining(APIBaseTest):
         )
 
     @staticmethod
-    def _parse_exported_cohorts(html: str) -> list[dict]:
+    def _parse_exported_data(html: str) -> dict:
         # mock_exporter_template embeds the exported_data JSON inside this <script> tag.
         start_marker = '<script id="posthog-exported-data" type="application/json">'
         start = html.index(start_marker) + len(start_marker)
         end = html.index("</script>", start)
         outer = json.loads(html[start:end])
         inner = json.loads(outer) if isinstance(outer, str) else outer
-        return inner.get("cohorts", [])
+        return inner
+
+    @staticmethod
+    def _parse_exported_cohorts(html: str) -> list[dict]:
+        return TestSharing._parse_exported_data(html).get("cohorts", [])
+
+    @mock_exporter_template
+    def test_shared_dashboard_includes_widget_metadata_only(self):
+        widget = DashboardWidget.all_teams.create(
+            team_id=self.team.id,
+            widget_type="error_tracking_list",
+            name="Top errors",
+            config={"limit": 10},
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+        DashboardTile.objects.create(
+            dashboard=self.dashboard,
+            team_id=self.team.id,
+            widget=widget,
+            layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+        )
+
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        exported = self._parse_exported_data(response.content.decode())
+        widget_tiles = [tile for tile in exported["dashboard"]["tiles"] if tile.get("widget")]
+        assert len(widget_tiles) == 1
+
+        widget_data = widget_tiles[0]["widget"]
+        assert set(widget_data.keys()) == {"id", "widget_type", "name", "description", "config"}
+        assert widget_data["widget_type"] == "error_tracking_list"
+        assert widget_data["config"]["limit"] == 10
+        assert "created_by" not in widget_data

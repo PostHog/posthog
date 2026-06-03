@@ -1164,20 +1164,6 @@
             "readOnlyHint": true
         }
     },
-    "dashboards-move-tile-partial-update": {
-        "description": "Move a tile from the source dashboard (path ID) to another dashboard. Provide to_dashboard (destination dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget tiles require the dashboard-widgets feature flag on the project.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Move dashboard tile",
-        "title": "Move dashboard tile",
-        "required_scopes": ["dashboard:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "data-warehouse-data-health-issues-retrieve": {
         "description": "Return all failed or degraded items across the data pipeline: materialized saved queries that failed, external data schemas in Failed or BillingLimitReached state, sources in Error state, failed batch exports, and disabled/degraded transformations. Each entry includes id, name, type (materialized_view, external_data_sync, source, destination, transformation), status, error message, failed_at, and url. Use this for a one-shot audit of what's broken in a project's data warehouse.",
         "category": "Data warehouse",
