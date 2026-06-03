@@ -44,49 +44,67 @@ the row lists both.
 
 | Source        | Comm method                 | Primary library                                                 | Tracked transport           |
 | ------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
+| aircall       | HTTP                        | requests                                                        | ✅                          |
 | attio         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| bamboohr      | HTTP                        | requests                                                        | ✅                          |
 | bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| brevo         | HTTP                        | requests                                                        | ✅                          |
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
+| calendly      | HTTP                        | requests                                                        | ✅                          |
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| chartmogul    | HTTP                        | requests                                                        | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse    | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| convertkit    | HTTP                        | requests                                                        | ✅                          |
 | convex        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
+| drip          | HTTP                        | requests                                                        | ✅                          |
+| eventbrite    | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
+| gorgias       | HTTP                        | requests                                                        | ✅                          |
 | hubspot       | HTTP                        | requests                                                        | ✅                          |
 | klaviyo       | HTTP                        | requests                                                        | ✅                          |
 | linear        | HTTP                        | requests                                                        | ✅                          |
+| lever         | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads  | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailjet       | HTTP                        | requests                                                        | ✅                          |
 | meta_ads      | HTTP                        | requests                                                        | ✅                          |
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql         | DB protocol                 | pymysql                                                         | ➖                          |
+| notion        | HTTP                        | requests                                                        | ✅                          |
 | paddle        | HTTP                        | requests                                                        | ✅                          |
+| pagerduty     | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads | HTTP                        | requests                                                        | ✅                          |
 | plain         | HTTP                        | requests                                                        | ✅                          |
 | polar         | HTTP                        | requests                                                        | ✅                          |
 | postgres      | DB protocol                 | psycopg                                                         | ➖                          |
+| recharge      | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift      | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend        | HTTP                        | requests                                                        | ✅                          |
 | revenuecat    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| servicenow    | HTTP                        | requests                                                        | ✅                          |
 | shopify       | HTTP                        | requests                                                        | ✅                          |
+| shortcut      | HTTP                        | requests                                                        | ✅                          |
 | slack         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snapchat_ads  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake     | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | stripe        | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase      | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
+| surveymonkey  | HTTP                        | requests                                                        | ✅                          |
 | temporalio    | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| woocommerce   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
@@ -118,17 +136,92 @@ the row lists both.
 These are registered in `__init__.py` with `unreleasedSource=True` and a stub `source.py`. They have no
 sync logic yet — picking up any of them means following the [implementing-warehouse-sources skill](/.agents/skills/implementing-warehouse-sources/SKILL.md).
 
-active_campaign, adjust, aircall, airtable, amazon_ads, amplitude, apple_search_ads, appsflyer, asana,
-ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, calendly, campaign_monitor,
-chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, copper, datadog,
-drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
-fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
-instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
-microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
-pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
-recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
-square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
-youtube_analytics, zoho_crm, zoom, zuora.
+One source per line (kept alphabetical) so adding or removing a source only touches its own line and
+doesn't conflict with concurrent PRs.
+
+- active_campaign
+- adjust
+- airtable
+- amazon_ads
+- amplitude
+- apple_search_ads
+- appsflyer
+- asana
+- ashby
+- auth0
+- azure_blob
+- bigcommerce
+- box
+- braintree
+- braze
+- campaign_monitor
+- circleci
+- clickup
+- close
+- cockroachdb
+- confluence
+- copper
+- datadog
+- dynamodb
+- elasticsearch
+- facebook_pages
+- firebase
+- freshdesk
+- freshsales
+- front
+- fullstory
+- gitlab
+- gong
+- google_analytics
+- google_drive
+- granola
+- greenhouse
+- helpscout
+- instagram
+- intercom
+- iterable
+- jira
+- kafka
+- launchdarkly
+- mailerlite
+- marketo
+- microsoft_teams
+- mixpanel
+- monday
+- netsuite
+- okta
+- omnisend
+- onedrive
+- oracle
+- outreach
+- pagerduty
+- pardot
+- paypal
+- pendo
+- pipedrive
+- plaid
+- postmark
+- productboard
+- quickbooks
+- recurly
+- ringcentral
+- salesloft
+- sendgrid
+- sftp
+- sharepoint
+- smartsheet
+- square
+- trello
+- twilio
+- twitter_ads
+- webflow
+- workday
+- wrike
+- xero
+- youtube_analytics
+- zoho_crm
+- zoom
+- zuora
 
 ---
 

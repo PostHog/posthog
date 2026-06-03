@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
+import { PieChart } from '@posthog/quill-charts'
+import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { PieChart } from 'lib/hog-charts'
-import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from 'lib/hog-charts'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,

@@ -10,13 +10,15 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core import exceptions
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db.utils import OperationalError
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
+from posthog.health import get_pending_postgres_migrations
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
@@ -64,6 +66,11 @@ class Command(BaseCommand):
             help="Number of clusters (default: 500)",
         )
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
+        parser.add_argument(
+            "--skip-migration-check",
+            action="store_true",
+            help="Skip the pre-flight check for unapplied Postgres migrations",
+        )
         parser.add_argument(
             "--team-id",
             type=int,
@@ -121,6 +128,20 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         timer = monotonic()
+
+        if not options.get("skip_migration_check"):
+            try:
+                pending = get_pending_postgres_migrations()
+            except OperationalError:
+                pending = []  # DB unreachable — let the normal flow surface the connection error
+            if pending:
+                raise CommandError(
+                    f"{len(pending)} unapplied Postgres migration(s) (e.g. {pending[0]}). "
+                    "The dev database schema is behind the code, so demo data generation would fail. "
+                    "Run `python manage.py migrate` (or `hogli migrations:sync`) first, "
+                    "or pass --skip-migration-check to bypass."
+                )
+
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")

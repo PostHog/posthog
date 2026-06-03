@@ -32,7 +32,10 @@ resolvers and then rejoin the same properties/grouping/linking pipeline.
 
 Backpressure is result-only on the `Resolve` stream: overload is surfaced as
 `ResolveOutcome.Error { kind: ERROR_KIND_OVERLOADED }`, which the cymbal client
-reroutes with overload-specific backoff. When
+reroutes with overload-specific backoff. Pods emit `ResolveOutcome.Accepted`
+after they admit an item; cymbal limits concurrent unaccepted routing attempts
+with a process-local semaphore and releases the permit when acceptance arrives.
+When
 `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MS` is non-zero, the overloaded
 endpoint is also excluded from new routing in that cymbal process. Repeated
 overloads double the endpoint cooldown up to
