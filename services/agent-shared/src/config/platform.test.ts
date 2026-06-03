@@ -3,13 +3,26 @@ import { z } from 'zod'
 import { extendEnvKeyMap, loadConfigFromEnv, PLATFORM_ENV_KEY_MAP, PlatformConfigSchema } from './platform'
 
 describe('PlatformConfigSchema', () => {
-    it('exposes defaults for all platform fields', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs()
+    })
+
+    it('exposes prod-safe defaults when NODE_ENV=production (fail-closed encryption + api base)', () => {
+        vi.stubEnv('NODE_ENV', 'production')
         const cfg = PlatformConfigSchema.parse({})
         expect(cfg.posthogDbUrl).toContain('postgres://')
         expect(cfg.agentDbUrl).toContain('postgres://')
         expect(cfg.encryptionSaltKeys).toBe('')
+        expect(cfg.posthogApiBaseUrl).toBe('')
         expect(cfg.logLevel).toBe('info')
         expect(cfg.redisUrl).toBeUndefined()
+    })
+
+    it('exposes dev-ergonomic defaults when NODE_ENV is not production', () => {
+        // vitest sets NODE_ENV=test by default — same branch as local dev.
+        const cfg = PlatformConfigSchema.parse({})
+        expect(cfg.encryptionSaltKeys).not.toBe('')
+        expect(cfg.posthogApiBaseUrl).toContain('localhost')
     })
 
     it('every shared field carries a description (for runbook generation)', () => {

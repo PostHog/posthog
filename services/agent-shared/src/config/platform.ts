@@ -73,13 +73,13 @@ export const PlatformConfigSchema = z.object({
         ),
     encryptionSaltKeys: z
         .string()
-        .default(isDev() ? DEV_ENCRYPTION_KEY : '')
+        .default(() => (isDev() ? DEV_ENCRYPTION_KEY : ''))
         .describe(
             'Comma-separated UTF-8 Fernet keys (32 bytes each). Matches Django EncryptedTextField. In dev (NODE_ENV != production) defaults to a deterministic test key so the credential broker + encrypted env work out of the box. In prod, MUST be set explicitly — empty value → encryption-requiring components fail closed.'
         ),
     posthogApiBaseUrl: z
         .string()
-        .default(isDev() ? DEV_POSTHOG_API_BASE_URL : '')
+        .default(() => (isDev() ? DEV_POSTHOG_API_BASE_URL : ''))
         .describe(
             'Base URL for the PostHog API the oauth/pat verifiers introspect against. Dev defaults to localhost:8010; prod must set explicitly (e.g. https://app.posthog.com).'
         ),

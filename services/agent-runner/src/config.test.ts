@@ -1,13 +1,29 @@
 import { AgentRunnerConfigSchema, defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 
 describe('loadAgentRunnerConfig', () => {
-    it('returns defaults for an empty env', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs()
+    })
+
+    it('returns prod-safe defaults when NODE_ENV=production', () => {
+        vi.stubEnv('NODE_ENV', 'production')
         const cfg = loadAgentRunnerConfig({})
         expect(cfg.maxConcurrency).toBe(8)
         expect(cfg.useAiGateway).toBe(false)
         expect(cfg.aiGatewayUrl).toBe('http://ai-gateway/v1')
         expect(cfg.encryptionSaltKeys).toBe('')
         expect(cfg.logLevel).toBe('info')
+        // S3 fields fall back to undefined in prod — fail-fast at boot lives in index.ts.
+        expect(cfg.bundleS3Bucket).toBeUndefined()
+        expect(cfg.memoryS3Bucket).toBeUndefined()
+    })
+
+    it('exposes dev MinIO defaults when NODE_ENV is not production', () => {
+        // vitest runs NODE_ENV=test — same branch as local dev.
+        const cfg = loadAgentRunnerConfig({})
+        expect(cfg.bundleS3Bucket).toBe('posthog')
+        expect(cfg.bundleS3Endpoint).toBe('http://localhost:19000')
+        expect(cfg.memoryS3Bucket).toBe('posthog')
     })
 
     it('AGENT_USE_AI_GATEWAY=1 parses to true', () => {
