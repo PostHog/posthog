@@ -92,6 +92,7 @@ the row lists both.
 | revenuecat       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | salesforce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| servicenow       | HTTP                        | requests                                                        | ✅                          |
 | shopify          | HTTP                        | requests                                                        | ✅                          |
 | shortcut         | HTTP                        | requests                                                        | ✅                          |
 | slack            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -206,7 +207,6 @@ doesn't conflict with concurrent PRs.
 - ringcentral
 - salesloft
 - sendgrid
-- servicenow
 - sftp
 - sharepoint
 - smartsheet

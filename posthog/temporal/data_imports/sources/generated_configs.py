@@ -62,6 +62,14 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class ServiceNowAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
@@ -743,7 +751,8 @@ class SentrySourceConfig(config.Config):
 
 @config.config
 class ServiceNowSourceConfig(config.Config):
-    pass
+    instance_url: str
+    auth_method: ServiceNowAuthMethodConfig
 
 
 @config.config
