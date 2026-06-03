@@ -311,10 +311,20 @@ jobs:
                   pattern: artifacts-*
                   path: npm/
                   merge-multiple: true
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
                   registry-url: 'https://registry.npmjs.org'
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Ensure modern npm (OIDC support)
               run: npm install -g npm@11.6.4
             - run: |
