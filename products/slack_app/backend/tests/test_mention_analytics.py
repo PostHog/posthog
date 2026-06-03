@@ -39,6 +39,7 @@ class TestReportSlackMentionReceived:
         kwargs = mock_capture.call_args.kwargs
         assert kwargs["distinct_id"] == "user-distinct-1"
         assert kwargs["event"] == "posthog code slack mention received"
+        assert kwargs["send_feature_flags"] is True
         props = kwargs["properties"]
         assert props["is_first_message_in_session"] is True
         assert props["session_message_count"] == 1

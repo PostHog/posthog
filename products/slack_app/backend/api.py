@@ -1691,6 +1691,7 @@ def _report_slack_mention_received(event: dict, integration: Integration, slack_
             event="posthog code slack mention received",
             properties=properties,
             groups=groups(team=integration.team),
+            send_feature_flags=True,
         )
     except Exception:
         logger.warning("posthog_code_mention_analytics_failed", exc_info=True)
