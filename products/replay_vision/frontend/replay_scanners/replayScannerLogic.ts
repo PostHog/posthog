@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -223,6 +223,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         scannerEstimateLoading: [
             false,
             {
+                requestScannerEstimate: () => true,
                 loadScannerEstimate: () => true,
                 loadScannerEstimateSuccess: () => false,
                 loadScannerEstimateFailure: () => false,
@@ -569,7 +570,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             }, 'scannerEstimateDebounce')
         },
 
-        loadScannerEstimate: async () => {
+        loadScannerEstimate: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             const scanner = values.scanner
             if (!teamId || !scanner) {
@@ -581,8 +582,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     query: scanner.query ?? undefined,
                     sampling_rate: scanner.sampling_rate,
                 })
+                // If a newer loadScannerEstimate fired while this one was in flight, abort so
+                // the slower response can't overwrite the newer one. Re-thrown by `breakpoint()`.
+                breakpoint()
                 actions.loadScannerEstimateSuccess(response)
             } catch (error) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 // eslint-disable-next-line no-console
                 console.warn('[replay-vision] scanner estimate failed', error)
                 actions.loadScannerEstimateFailure()
