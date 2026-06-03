@@ -129,18 +129,21 @@ export class HogFlowExecutorService {
         for (const hogFlow of hogFlows) {
             const trigger = hogFlow.trigger
 
-            if (trigger.type === 'event') {
-                // Event triggers never apply to warehouse rows (which carry a synthetic event)
-                if (dataWarehouseTable !== undefined) {
+            switch (trigger.type) {
+                case 'event':
+                    // Event triggers never apply to warehouse rows (which carry a synthetic event)
+                    if (dataWarehouseTable !== undefined) {
+                        continue
+                    }
+                    break
+                case 'data-warehouse-table':
+                    // Row-scoped: only fire when the row's source table matches the trigger's table
+                    if (dataWarehouseTable === undefined || trigger.table_name !== dataWarehouseTable) {
+                        continue
+                    }
+                    break
+                default:
                     continue
-                }
-            } else if (trigger.type === 'data-warehouse-table') {
-                // Row-scoped: only fire when the row's source table matches the trigger's table
-                if (dataWarehouseTable === undefined || trigger.table_name !== dataWarehouseTable) {
-                    continue
-                }
-            } else {
-                continue
             }
 
             // Both remaining trigger types carry `filters`

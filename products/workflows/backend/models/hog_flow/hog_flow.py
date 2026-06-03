@@ -26,6 +26,14 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
     "function_push",  # Push notification actions
 }
 
+# Action types that read person data and therefore cannot be used in person-less ("row-scoped")
+# workflows such as those triggered by a data warehouse table row sync. Keep in sync with the
+# frontend's PERSON_DEPENDENT_ACTION_TYPES.
+PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
+    "wait_until_condition",
+    "random_cohort_branch",
+}
+
 
 class HogFlow(UUIDTModel):
     """

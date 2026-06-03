@@ -41,7 +41,11 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius_persons,
 )
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
-from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    BILLABLE_ACTION_TYPES,
+    PERSON_DEPENDENT_ACTION_TYPES,
+    HogFlow,
+)
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
@@ -497,6 +501,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
+        is_draft = self.context.get("is_draft")
         actions = data.get("actions", instance.actions if instance else [])
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
@@ -513,6 +518,31 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
 
         data["trigger"] = trigger_actions[0]["config"]
+
+        # Warehouse-triggered workflows are person-less ("row-scoped"): one run per synced row with no
+        # associated person. Person-dependent steps and person-aware exit conditions would silently
+        # assume person data, so we block them here — the serializer is the source of truth, so the API,
+        # MCP, and frontend can't bypass it. We force exit_only_at_end since the other exit conditions
+        # re-evaluate trigger/conversion filters that may reference person properties.
+        if data["trigger"].get("type") == "data-warehouse-table":
+            data["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
+            if not is_draft:
+                offending_types = sorted(
+                    {
+                        action.get("type", "")
+                        for action in actions
+                        if action.get("type") in PERSON_DEPENDENT_ACTION_TYPES
+                    }
+                )
+                if offending_types:
+                    raise serializers.ValidationError(
+                        {
+                            "actions": (
+                                "These step types rely on person data, which is unavailable for data warehouse "
+                                f"table triggers: {', '.join(offending_types)}"
+                            )
+                        }
+                    )
 
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions defined in BILLABLE_ACTION_TYPES
