@@ -50,6 +50,7 @@ the row lists both.
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
 | calendly      | HTTP                        | requests                                                        | ✅                          |
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| chartmogul    | HTTP                        | requests                                                        | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse    | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | convertkit    | HTTP                        | requests                                                        | ✅                          |
@@ -147,7 +148,6 @@ doesn't conflict with concurrent PRs.
 - braze
 - brevo
 - campaign_monitor
-- chartmogul
 - circleci
 - clickup
 - close
