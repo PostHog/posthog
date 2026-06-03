@@ -10,7 +10,7 @@
  * degradation rules kick in.
  *
  * Tool ids mirror the MCP catalog (e.g. `@posthog/agent-applications-list`
- * matches `agent-applications-list` in `services/mcp/definitions/agent_stack.yaml`)
+ * matches `agent-applications-list` in `services/mcp/definitions/agent_platform.yaml`)
  * so a future migration to MCP-routed dispatch keeps the same surface.
  *
  * **Read-only for v0.** Write operations (new_draft, file_update,

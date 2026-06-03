@@ -6,7 +6,7 @@ Two parallel families — `AgentSkillTemplateViewSet` and
 viewset shape on the ai_observability side: list / retrieve / publish
 / archive / duplicate / versions / usages, plus file CRUD for skill
 templates. Same access-control + scope pattern as the rest of
-`agent_stack`.
+`agent_platform`.
 
 Spec → bundle wiring (the freeze-time copy + join row inserts) is in
 `registry_freeze.py`. Native tools have their own existing viewset in
@@ -66,7 +66,7 @@ from .registry_serializers import (
 # ───────────────────────────── Skill templates ──────────────────────────────
 
 
-@extend_schema(tags=["agent_stack"])
+@extend_schema(tags=["agent_platform"])
 class AgentSkillTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Shared, versioned markdown skill templates.
 
@@ -450,7 +450,7 @@ class AgentSkillTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 # ─────────────────────────── Custom tool templates ──────────────────────────
 
 
-@extend_schema(tags=["agent_stack"])
+@extend_schema(tags=["agent_platform"])
 class AgentCustomToolTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Shared, versioned TypeScript custom tool templates.
 

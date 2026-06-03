@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-concierge')
-const AGENT_STACK_YAML = resolve(__dirname, '../../../mcp/definitions/agent_stack.yaml')
+const AGENT_STACK_YAML = resolve(__dirname, '../../../mcp/definitions/agent_platform.yaml')
 
 interface ConciergeSpec {
     model: string
@@ -64,7 +64,7 @@ async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string
     return { spec, files }
 }
 
-async function loadAgentStackToolIds(): Promise<Set<string>> {
+async function loadAgentPlatformToolIds(): Promise<Set<string>> {
     // The yaml has shape `tools:\n    foo-bar:\n        operation: ...`.
     // Pulling the tool keys with a regex is cheaper than adding a yaml dep
     // for one assertion — the keys are stable, indented exactly 4 spaces.
@@ -95,7 +95,7 @@ describe('example: agent-concierge bundle', () => {
 
     it('every MCP tool the concierge declares matches the authoring MCP catalog', async () => {
         const { spec } = await loadBundle()
-        const catalog = await loadAgentStackToolIds()
+        const catalog = await loadAgentPlatformToolIds()
         const posthog = spec.mcps.find((m) => m.id === 'posthog')
         expect(posthog).toBeTruthy()
         for (const toolId of posthog!.tools) {

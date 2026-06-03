@@ -1,5 +1,5 @@
 """
-Activity-log integration tests for agent_stack.
+Activity-log integration tests for agent_platform.
 
 Verifies that AgentApplication + AgentRevision saves land in the central
 ActivityLog table via the standard ModelActivityMixin + receiver path,

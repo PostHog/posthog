@@ -534,7 +534,7 @@ Tracked as a follow-up: `approval-notifications.md` (TODO).
 
 ### 7.4 MCP path
 
-New MCP tools on the `agent_stack` surface:
+New MCP tools on the `agent_platform` surface:
 
 - `agent-applications-approvals-list({ application_id?, state?, limit? })` —
   returns approvals visible to the calling principal. Defaults to
@@ -653,7 +653,7 @@ allow_edit: false, ttl_ms: 86400000, allow_agent_approver: false}`.
 - ✅ Janitor sweep: `expireQueued` past `expires_at`, injects the
   synthetic expired result into `pending_inputs`, wakes the session.
 - ✅ Django proxy:
-  [`agent-applications-approvals-list`](../../../products/agent_stack/backend/api.py),
+  [`agent-applications-approvals-list`](../../../products/agent_platform/backend/api.py),
   `agent-applications-approvals-retrieve`,
   `agent-applications-approvals-decide`. Team-admin only per §6.1.
   AGENT_DB never queried directly — proxied through

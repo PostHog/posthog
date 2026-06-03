@@ -5,8 +5,8 @@
  * touch the shared client surface. Same fetch / error conventions, so
  * call sites compose naturally.
  *
- * Type shape comes from the generated `agent-stack.api.schemas.ts`
- * (synced from the Django `agent_stack` serializers via
+ * Type shape comes from the generated `agent-platform.api.schemas.ts`
+ * (synced from the Django `agent_platform` serializers via
  * `services/agent-console/bin/sync-api-schema.mjs`). When the backend
  * shape changes, rerun `hogli build:openapi` and the typed shape here
  * follows automatically.
@@ -29,7 +29,7 @@ import type {
     SkillTemplateSummaryApi,
     SkillTemplateUsageApi,
     TemplateVersionEntryApi,
-} from '@/generated/agent-stack.api.schemas'
+} from '@/generated/agent-platform.api.schemas'
 
 // ── error shape ────────────────────────────────────────────────────────────
 

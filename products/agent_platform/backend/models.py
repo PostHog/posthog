@@ -37,7 +37,7 @@ class AgentApplication(ModelActivityMixin, UUIDModel):
 
     Activity logged via `ModelActivityMixin`: every save fires
     `model_activity_signal` and the receiver in
-    `products.agent_stack.backend.activity` writes to the central
+    `products.agent_platform.backend.activity` writes to the central
     activity log. Soft-delete via `archived=True` shows up there as an
     `updated` entry diffing the archived flag — no separate delete signal.
     """

@@ -337,7 +337,7 @@ judge infrastructure, and lands a draft for human review.
 
 ### D.3 [`agent-concierge.md`](agent-concierge.md) — **Ben** (authoring AI **Ben**)
 
-The agent-stack authoring AI. Sits at the seam between **D.1**
+The agent-platform authoring AI. Sits at the seam between **D.1**
 (authoring flow) and **E.1** (console): the concierge is the chat
 dock's default agent and is itself authored as a deployed bundle in
 `services/agent-tests/src/examples/agent-concierge/`. Its

@@ -1,5 +1,5 @@
 """
-DRF serializers for the agent_stack authoring API.
+DRF serializers for the agent_platform authoring API.
 
 Two model serializers (Application, Revision) + a few request-body serializers
 for non-CRUD actions (set_env, promote). Bundle-upload + presigned-URL flow is

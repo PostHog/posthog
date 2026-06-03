@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("agent_stack", "0001_initial"),
+        ("agent_platform", "0001_initial"),
         ("posthog", "1186_activitylog_ip_address"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
@@ -95,7 +95,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="custom_tool_template_refs",
-                        to="agent_stack.agentrevision",
+                        to="agent_platform.agentrevision",
                     ),
                 ),
                 (
@@ -103,7 +103,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="revision_refs",
-                        to="agent_stack.agentcustomtooltemplate",
+                        to="agent_platform.agentcustomtooltemplate",
                     ),
                 ),
             ],
@@ -130,7 +130,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="native_tool_refs",
-                        to="agent_stack.agentrevision",
+                        to="agent_platform.agentrevision",
                     ),
                 ),
             ],
@@ -207,7 +207,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="skill_template_refs",
-                        to="agent_stack.agentrevision",
+                        to="agent_platform.agentrevision",
                     ),
                 ),
                 (
@@ -215,7 +215,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="revision_refs",
-                        to="agent_stack.agentskilltemplate",
+                        to="agent_platform.agentskilltemplate",
                     ),
                 ),
             ],
@@ -246,7 +246,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="files",
-                        to="agent_stack.agentskilltemplate",
+                        to="agent_platform.agentskilltemplate",
                     ),
                 ),
             ],

@@ -492,7 +492,7 @@ build:
             metadata from posthog/scopes.py
     build:openapi-agent-console:
         cmd: pnpm --filter=@posthog/agent-console run sync:api-schema
-        description: Snapshot the agent_stack OpenAPI types into agent-console so
+        description: Snapshot the agent_platform OpenAPI types into agent-console so
             the package builds without a cross-monorepo path import (Docker-friendly).
     build:openapi:
         steps:

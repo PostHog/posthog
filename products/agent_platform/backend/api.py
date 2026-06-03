@@ -1,5 +1,5 @@
 """
-DRF viewsets for agent_stack — the authoring surface.
+DRF viewsets for agent_platform — the authoring surface.
 
 Two model viewsets + one catalog viewset:
 
@@ -329,7 +329,7 @@ _AGENT_AGGREGATE_STATS = inline_serializer(
 )
 
 
-@extend_schema(tags=["agent_stack"])
+@extend_schema(tags=["agent_platform"])
 class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Agent applications — the deployable unit of the platform.
 
@@ -1078,7 +1078,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # ──────────────────────────── approval-gated tools ────────────────────────
     # See docs/agent-platform/plans/approval-gated-tools.md.
     #
-    # AGENT_DB is node-owned (per CLAUDE.md rule #2 in products/agent_stack).
+    # AGENT_DB is node-owned (per CLAUDE.md rule #2 in products/agent_platform).
     # Django never queries `agent_tool_approval_request` directly — these
     # actions auth-check on the Django side, then proxy through
     # janitor_client. The janitor owns the wake path (markApproving + write
@@ -1315,7 +1315,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(payload)
 
 
-@extend_schema(tags=["agent_stack"])
+@extend_schema(tags=["agent_platform"])
 class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Revisions of an agent. Created in `draft`, promoted through
     `ready → live` once the bundle has been uploaded + frozen.
@@ -1906,7 +1906,7 @@ class AgentMemoryUpdateRequest(drf_serializers.Serializer):
     tags = drf_serializers.ListField(child=drf_serializers.CharField(), required=False)
 
 
-@extend_schema(tags=["agent_stack"])
+@extend_schema(tags=["agent_platform"])
 class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """S3-backed memory files for a single agent (application).
 
@@ -2215,7 +2215,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(payload)
 
 
-@extend_schema(tags=["agent_stack"])
+@extend_schema(tags=["agent_platform"])
 class AgentNativeToolsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Read-only catalog of every `@posthog/*` native tool the runner knows.
 
@@ -2257,7 +2257,7 @@ class AgentNativeToolsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise JanitorUpstreamError(e) from e
 
 
-@extend_schema(tags=["agent_stack"])
+@extend_schema(tags=["agent_platform"])
 class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-wide agent fleet rollups.
 

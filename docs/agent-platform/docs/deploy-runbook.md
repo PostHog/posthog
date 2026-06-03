@@ -69,11 +69,11 @@ shouldn't pressure the product DB.
 
 ### Django (posthog backend)
 
-| Var                    | Required                               | Default                 | Notes                                                                                          |
-| ---------------------- | -------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `AGENT_JANITOR_URL`    | yes (when `agent_stack` API is in use) | `http://localhost:8082` | Base URL of the janitor service. Bundle / native_tools API proxies through here.               |
-| `AGENT_JANITOR_SECRET` | yes (prod)                             | unset                   | Sent as `x-internal-secret` on every janitor call. Must match the janitor's `INTERNAL_SECRET`. |
-| `ENCRYPTION_SALT_KEYS` | yes                                    | (existing)              | Same keys the worker uses to decrypt `agent_application.encrypted_env`.                        |
+| Var                    | Required                                  | Default                 | Notes                                                                                          |
+| ---------------------- | ----------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `AGENT_JANITOR_URL`    | yes (when `agent_platform` API is in use) | `http://localhost:8082` | Base URL of the janitor service. Bundle / native_tools API proxies through here.               |
+| `AGENT_JANITOR_SECRET` | yes (prod)                                | unset                   | Sent as `x-internal-secret` on every janitor call. Must match the janitor's `INTERNAL_SECRET`. |
+| `ENCRYPTION_SALT_KEYS` | yes                                       | (existing)              | Same keys the worker uses to decrypt `agent_application.encrypted_env`.                        |
 
 ## Smoke tests after deploy
 

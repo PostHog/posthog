@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from products.agent_stack.backend.registry_edits import StructuredEditError, apply_structured_edits
+from products.agent_platform.backend.registry_edits import StructuredEditError, apply_structured_edits
 
 
 class TestApplyStructuredEdits:

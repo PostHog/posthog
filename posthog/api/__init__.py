@@ -34,14 +34,14 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
-from products.agent_stack.backend.api import (
+from products.agent_platform.backend.api import (
     AgentApplicationViewSet,
     AgentFleetViewSet,
     AgentMemoryViewSet,
     AgentNativeToolsViewSet,
     AgentRevisionViewSet,
 )
-from products.agent_stack.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
+from products.agent_platform.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
@@ -159,7 +159,6 @@ from ..taxonomy import property_definition_api
 from . import (
     advanced_activity_logs,
     ai_gateway,
-    annotation,
     async_migration,
     authentication,
     cimd_verification_token,
@@ -1577,7 +1576,7 @@ projects_router.register(
     ["project_id"],
 )
 # Session reads go to the runtime DB via the janitor (GET /sessions/:id) —
-# Django's API doesn't expose them, see products/agent_stack/README.md.
+# Django's API doesn't expose them, see products/agent_platform/README.md.
 
 register_legacy_dual_route_team_nested_viewset(
     r"tracing/spans",

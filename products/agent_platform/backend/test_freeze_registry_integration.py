@@ -74,7 +74,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
 
     # ---- happy path ----
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_freeze_resolves_skill_ref_and_calls_janitor(self, mock_janitor: MagicMock) -> None:
         skill = self._make_skill("research", "# Research body")
         AgentSkillTemplateFile.objects.create(template=skill, path="examples/one.md", content="ex 1")
@@ -109,7 +109,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
         revision.refresh_from_db()
         assert revision.spec["skills"][0]["version"] == 1
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_authoring_a_from_template_pin_through_the_api_then_freeze_assembles(self, mock_janitor: MagicMock) -> None:
         # End-to-end through the *validated* authoring API (not the ORM): the
         # spec schema must accept the `from_template` registry-pin shape, and
@@ -164,7 +164,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
         # Companion file rode along under the skill directory.
         mock_janitor.return_value.put_file.assert_any_call(revision_id, "skills/acct-flow/references/deep.md", "DEEP")
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_freeze_resolves_custom_tool_and_native(self, mock_janitor: MagicMock) -> None:
         tool = self._make_tool("stripe", "src ts", "compiled js")
         revision = self._make_revision(
@@ -193,7 +193,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
         nt_join = AgentRevisionNativeTool.objects.get(revision=revision)
         assert nt_join.native_tool_id == "@posthog/query"
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_freeze_with_no_template_refs_still_calls_janitor(self, mock_janitor: MagicMock) -> None:
         # Pre-template specs continue to work — the resolver no-ops.
         revision = self._make_revision({"model": "gpt-4", "skills": [], "tools": []})
@@ -206,7 +206,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
 
     # ---- referential integrity ----
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_hard_delete_blocked_after_freeze(self, mock_janitor: MagicMock) -> None:
         skill = self._make_skill("locked", "body")
         revision = self._make_revision(
@@ -228,7 +228,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
 
     # ---- latest-pin semantics ----
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_latest_pin_uses_template_pk_not_lineage_name(self, mock_janitor: MagicMock) -> None:
         # Spec carries a specific template UUID. Even if a newer version lands
         # before freeze, the *resolved* row is the one identified by the PK —
@@ -260,7 +260,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
 
     # ---- error surfaces ----
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_freeze_with_unknown_template_returns_400(self, mock_janitor: MagicMock) -> None:
         revision = self._make_revision(
             {

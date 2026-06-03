@@ -1,4 +1,4 @@
-// AUTO-GENERATED from services/mcp/definitions/agent_stack.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from services/mcp/definitions/agent_platform.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
@@ -80,7 +80,7 @@ import {
     AgentSkillTemplatesNameUsagesListParams,
     AgentSkillTemplatesNameUsagesListQueryParams,
     AgentSkillTemplatesNameVersionsListParams,
-} from '@/generated/agent_stack/api'
+} from '@/generated/agent_platform/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 

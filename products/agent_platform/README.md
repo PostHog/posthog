@@ -1,4 +1,4 @@
-# agent_stack v2 backend
+# agent_platform v2 backend
 
 This is the Django-side data layer for the v2 agent platform refactor (see
 [docs/native-refactor.md](../../../docs/native-refactor.md)).

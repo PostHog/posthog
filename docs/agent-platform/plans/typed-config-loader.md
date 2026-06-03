@@ -193,9 +193,9 @@ Drift between runbook and code becomes impossible.
 
 1. **Django side.** Same pattern applies — Django already has
    `posthog/settings/` modules that read env vars, but several places
-   in `products/agent_stack/backend/` do direct `os.environ.get`
+   in `products/agent_platform/backend/` do direct `os.environ.get`
    reads (`janitor_client.py`'s `AGENT_JANITOR_URL` and `_SECRET`).
-   Plan: those move into a `posthog.settings.agent_stack` module
+   Plan: those move into a `posthog.settings.agent_platform` module
    that the rest of the product imports. Out of scope for v0; same
    pattern, separate work.
 2. **Secret vs config.** Currently `ANTHROPIC_API_KEY` is treated as
@@ -246,8 +246,8 @@ Drift between runbook and code becomes impossible.
 
 **v3 — Django side.** Not yet built.
 
-- `posthog.settings.agent_stack` module owns the few env reads
-  inside `products/agent_stack/backend/`.
+- `posthog.settings.agent_platform` module owns the few env reads
+  inside `products/agent_platform/backend/`.
 - `posthog/settings/` already follows this pattern for other
   products; mirror it.
 

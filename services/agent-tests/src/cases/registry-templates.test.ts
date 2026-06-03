@@ -9,7 +9,7 @@
  * `path` for skills; the file paths for custom tools).
  *
  * The Django freeze logic lives in
- * `products/agent_stack/backend/registry_freeze.py`. This case proves
+ * `products/agent_platform/backend/registry_freeze.py`. This case proves
  * the runtime side accepts the post-freeze shape end-to-end:
  *
  *   1. zod parses a spec that carries `from_template` + `alias` +

@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("agent_stack", "0002_agentcustomtooltemplate_and_more"),
+        ("agent_platform", "0002_agentcustomtooltemplate_and_more"),
     ]
 
     operations = [

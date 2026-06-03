@@ -29,7 +29,7 @@ class TestAgentApplicationStats(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/agent_applications/{self.application.id}/stats/"
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_stats_forwards_to_janitor_with_since(self, mock_janitor) -> None:
         mock_janitor.return_value.aggregate_for_application.return_value = {
             "liveCount": 2,
@@ -46,7 +46,7 @@ class TestAgentApplicationStats(APIBaseTest):
             since="2026-05-28T00:00:00Z",
         )
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_stats_omits_since_when_not_supplied(self, mock_janitor) -> None:
         # The janitor side picks the default `since` window (24h) when the
         # query param is absent — Django shouldn't fabricate one and shouldn't
@@ -72,7 +72,7 @@ class TestAgentFleetViewSet(APIBaseTest):
         self.url_stats = f"/api/projects/{self.team.id}/agent_fleet/stats/"
         self.url_live = f"/api/projects/{self.team.id}/agent_fleet/live_sessions/"
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_stats_forwards_team_id_and_since(self, mock_janitor) -> None:
         mock_janitor.return_value.aggregate_for_team.return_value = {
             "liveCount": 1,
@@ -88,7 +88,7 @@ class TestAgentFleetViewSet(APIBaseTest):
             since="2026-05-28T00:00:00Z",
         )
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_live_sessions_forwards_team_id_and_limit(self, mock_janitor) -> None:
         mock_janitor.return_value.list_live_for_team.return_value = {"results": []}
         resp = self.client.get(self.url_live, {"limit": 25})
@@ -98,7 +98,7 @@ class TestAgentFleetViewSet(APIBaseTest):
             limit=25,
         )
 
-    @patch("products.agent_stack.backend.api._janitor")
+    @patch("products.agent_platform.backend.api._janitor")
     def test_live_sessions_without_limit_defaults_to_none(self, mock_janitor) -> None:
         # The janitor picks its own 100-default; Django shouldn't impose a
         # different one.

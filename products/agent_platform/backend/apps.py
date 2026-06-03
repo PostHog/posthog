@@ -1,11 +1,11 @@
-"""Django app configuration for agent_stack."""
+"""Django app configuration for agent_platform."""
 
 from django.apps import AppConfig
 
 
-class AgentStackConfig(AppConfig):
-    name = "products.agent_stack.backend"
-    label = "agent_stack"
+class AgentPlatformConfig(AppConfig):
+    name = "products.agent_platform.backend"
+    label = "agent_platform"
 
     def ready(self) -> None:
         # Bind activity-log signal receivers for AgentApplication and

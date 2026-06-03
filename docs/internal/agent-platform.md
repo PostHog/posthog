@@ -2,18 +2,18 @@
 
 ## Context
 
-Companion to [`agent-stack/docs/agent-platform.md`](https://github.com/PostHog/agent-stack/blob/main/docs/agent-platform.md). That doc covers the full system; this one is the posthog-side build plan. Where the two conflict, this plan wins for posthog-side concerns.
+Companion to [`agent-platform/docs/agent-platform.md`](https://github.com/PostHog/agent-platform/blob/main/docs/agent-platform.md). That doc covers the full system; this one is the posthog-side build plan. Where the two conflict, this plan wins for posthog-side concerns.
 
 Two things we own here:
 
-1. **Management plane** — a new flag-gated product under `products/agent_stack/` (Django app + viewsets + frontend).
+1. **Management plane** — a new flag-gated product under `products/agent_platform/` (Django app + viewsets + frontend).
 2. **Runtime** — four TypeScript services under `services/`, deployed as independent node processes. They share **no code** with `nodejs/` (the legacy plugin-server). Anything we want from `nodejs/` we copy and adapt in `services/agent-core/`.
    - `services/agent-core/` — shared library, no process.
    - `services/agent-ingress/` — public-facing `*.agents.posthog.com` terminator.
    - `services/agent-runner/` — session executor (queue consumer + SDK).
    - `services/agent-janitor/` — operational: queue sweeps + internal HTTP surface that Django calls to read/cancel sessions. **The runtime owns session state; Django reads via this surface, never writes to `agent_sessions`.**
 
-The runtime split (ingress + runner) from the agent-stack doc still holds. This plan refines what each half looks like inside the posthog monorepo and which existing primitives we lean on conceptually (not by import).
+The runtime split (ingress + runner) from the agent-platform doc still holds. This plan refines what each half looks like inside the posthog monorepo and which existing primitives we lean on conceptually (not by import).
 
 ---
 
@@ -31,7 +31,7 @@ Working tracker for the runtime services only — the Django side is being built
 - [x] Janitor / stall recovery + poison-pill + terminal cleanup + Prom metrics ([src/queue/janitor.ts](../../services/agent-core/src/queue/janitor.ts))
 - [x] Migrations runner ([rust/bin/migrate-agent-runtime-queue](../../rust/bin/migrate-agent-runtime-queue), wired into the shared rust sqlx-migrate image)
 - [x] Pub-sub interface + Redis adapter + in-memory adapter ([src/pubsub/](../../services/agent-core/src/pubsub))
-- [x] PostHog DB reader (`agent_stack_agentapplication` / `*revision` rows) + Fernet decryptor for `encrypted_env` — replaces the old HTTP InternalApiClient. ([src/posthog-db/](../../services/agent-core/src/posthog-db/), [src/encryption/](../../services/agent-core/src/encryption/))
+- [x] PostHog DB reader (`agent_platform_agentapplication` / `*revision` rows) + Fernet decryptor for `encrypted_env` — replaces the old HTTP InternalApiClient. ([src/posthog-db/](../../services/agent-core/src/posthog-db/), [src/encryption/](../../services/agent-core/src/encryption/))
 - [x] Built-ins registry — `posthog.events.capture`, `posthog.feature_flags.evaluate`, `http.fetch` ([src/builtins/index.ts](../../services/agent-core/src/builtins/index.ts))
 - [x] Manifest reader + Zod schema + built-in id validation ([src/manifest/index.ts](../../services/agent-core/src/manifest/index.ts))
 - [x] Logger (pino) + Prom metrics ([src/logger.ts](../../services/agent-core/src/logger.ts), [src/metrics.ts](../../services/agent-core/src/metrics.ts))
@@ -152,7 +152,7 @@ A fourth service will land later for async bundle validation (see §C below). v1
 - Free hand to delete/restructure without coordinating with CDP.
 - Clean ownership boundary for codeowners / on-call.
 
-Cherry-pick what we want, leave the rest. The legacy concepts the agent-stack plan calls out (plugin VMs, worker thread topology, event-pipeline-shaped hooks) don't come with us.
+Cherry-pick what we want, leave the rest. The legacy concepts the agent-platform plan calls out (plugin VMs, worker thread topology, event-pipeline-shaped hooks) don't come with us.
 
 ### `services/agent-core/`
 
@@ -161,7 +161,7 @@ Shared library, no process of its own. Lives here:
 - TypeScript types for the session model, manifest, tool protocol, secrets.
 - Postgres client(s) — one for the main posthog DB (read app/revision/encrypted_env rows; write `AgentApplicationSession`/`AgentApplicationSandboxInstance` rows), one for the agent-runtime queue DB (jobs). Each package depends on whichever it needs.
 - **Queue primitives** — the cyclotron-v2-shaped session queue (see next section). Single `cyclotron_jobs`-style table with `available | running | completed | failed | canceled`, `FOR UPDATE SKIP LOCKED` dequeue, `lock_id` + `last_heartbeat`, `reschedule({ scheduledAt, state })`, janitor loop. The schema and ops are a clean reimplementation in this package — we own it end-to-end, no shared migrations with `cyclotron_node`.
-- PostHog DB reader — pg pool + `ApplicationsRepository` reading `agent_stack_agentapplication` / `*revision` rows directly from the main posthog Postgres. Encryption helper (copied from `nodejs/src/cdp/utils/encryption-utils.ts`) decrypts `encrypted_env` in-process. No HTTP hop to Django.
+- PostHog DB reader — pg pool + `ApplicationsRepository` reading `agent_platform_agentapplication` / `*revision` rows directly from the main posthog Postgres. Encryption helper (copied from `nodejs/src/cdp/utils/encryption-utils.ts`) decrypts `encrypted_env` in-process. No HTTP hop to Django.
 - Structured logger, Prom registry, OTel setup.
 - Manifest reader / built-ins registry (also imported by the future validator package, so the same code rejects unknown ids in both places).
 
@@ -177,7 +177,7 @@ The public-facing process. Responsibilities:
 - `/listen` subscribes to the Redis pub-sub channel `agent_session:{id}` for SSE streaming.
 - `/send` publishes a message into `agent_session:{id}:input` — runner picks it up at the next yield.
 
-**Hard rule (matches agent-stack plan):** ingress imports zero Anthropic / Claude Agent SDK / Modal code, and never decrypts a secret. Enforced by an `eslint-plugin-no-restricted-imports` rule in the package. The blast-radius win is the whole point of splitting from the runner.
+**Hard rule (matches agent-platform plan):** ingress imports zero Anthropic / Claude Agent SDK / Modal code, and never decrypts a secret. Enforced by an `eslint-plugin-no-restricted-imports` rule in the package. The blast-radius win is the whole point of splitting from the runner.
 
 ### `services/agent-runner/`
 
@@ -245,14 +245,14 @@ A separate Postgres DB owned by the agent-runtime — `agent_runtime_queue` (nam
 
 ---
 
-## Part A — `products/agent_stack/` Django app
+## Part A — `products/agent_platform/` Django app
 
 > **Direction:** the management API lives here, in Django, and stays here. Auditing, access controls, activity feed, generated TypeScript types, MCP tools, and the approval-workflow infrastructure are all worth too much to give up. The session-proxy viewset stays too — the CLI talks to Django; Django talks to `agent-janitor`. See [Part E](#part-e--considered-and-rejected-publishing-the-management-api-outside-django) for the alternatives we considered and rejected.
 
 Mirror the [`products/deployments/`](../../products/deployments) scaffold from #58421:
 
 ```text
-products/agent_stack/
+products/agent_platform/
   __init__.py
   product.yaml
   manifest.tsx
@@ -271,7 +271,7 @@ products/agent_stack/
   mcp/                  # later
 ```
 
-Bootstrap with `bin/hogli product:bootstrap agent_stack` per the [Products README](../../products/README.md), then customize. Remove the `products/db_routing.yaml` entry the bootstrap adds — these models live in the main posthog DB so they can FK to `Team` / `User`.
+Bootstrap with `bin/hogli product:bootstrap agent_platform` per the [Products README](../../products/README.md), then customize. Remove the `products/db_routing.yaml` entry the bootstrap adds — these models live in the main posthog DB so they can FK to `Team` / `User`.
 
 ### Models
 
@@ -327,7 +327,7 @@ Note: there is **no `live_revision` FK** on the application. "Which revision is 
 
 ### Migrations
 
-Standard Django migrations under `products/agent_stack/backend/migrations/`. Follow the [`django-migrations`](../../.claude/skills/django-migrations) skill — invoke it before writing the migration files.
+Standard Django migrations under `products/agent_platform/backend/migrations/`. Follow the [`django-migrations`](../../.claude/skills/django-migrations) skill — invoke it before writing the migration files.
 
 ### API (DRF + OAuth)
 
@@ -458,7 +458,7 @@ Until one of those, the CLI talks to Django; Django talks to janitor through the
 
 ## Open questions
 
-Resolutions to the agent-stack open questions + posthog-specific ones:
+Resolutions to the agent-platform open questions + posthog-specific ones:
 
 1. **Slug uniqueness** — global. Subdomain-driven; per-team would need a tenant prefix we don't want.
 2. **API ↔ worker transport** — the agent-core queue (cyclotron-v2-shaped, in its own DB). Closed.
@@ -476,7 +476,7 @@ Resolutions to the agent-stack open questions + posthog-specific ones:
 
 Each shippable behind `FEATURE_FLAGS.AGENTS`.
 
-1. **Scaffold + models.** `products/agent_stack/` skeleton, Django app, models with the **full state machine in the schema**, migrations. New scope entries. UI stub. _(unblocks parallel work)_
+1. **Scaffold + models.** `products/agent_platform/` skeleton, Django app, models with the **full state machine in the schema**, migrations. New scope entries. UI stub. _(unblocks parallel work)_
 2. **Management API.** CRUD viewsets for apps and revisions. Env upload endpoint. Activity logging wired. `complete_upload` shortcut transitions straight to `state=ready`. Promote endpoint flips `deployment_status`.
 3. **Deploy flow.** `start_deploy` → presigned PUT → `complete_upload` (auto-ready) → `promote`. End-to-end via CLI. No async work.
 4. **Runtime DB access.** Wire `agent-ingress` to read `AgentApplication` + `AgentApplicationRevision` directly; wire `agent-runner` to read `encrypted_env` and decrypt in-process via Fernet. Pass `ENCRYPTION_SALT_KEYS` to runner deployment only. Audit log emitted from runner.
@@ -494,7 +494,7 @@ Each shippable behind `FEATURE_FLAGS.AGENTS`.
 
 ## Cross-references
 
-- agent-stack plan: [`agent-stack/docs/agent-platform.md`](https://github.com/PostHog/agent-stack/blob/main/docs/agent-platform.md)
+- agent-platform plan: [`agent-platform/docs/agent-platform.md`](https://github.com/PostHog/agent-platform/blob/main/docs/agent-platform.md)
 - Reference scaffold: [`products/deployments/`](../../products/deployments) (#58421)
 - cyclotron-v2 (reference only, not a dependency): [`rust/cyclotron-core/src/`](../../rust/cyclotron-core/src/), [`nodejs/src/cdp/services/cyclotron-v2/`](../../nodejs/src/cdp/services/cyclotron-v2/)
 - Patterns to mirror in Django: `UUIDModel` ([`posthog/models/utils.py:183`](../../posthog/models/utils.py)), `EncryptedTextField` ([`posthog/helpers/encrypted_fields.py:113`](../../posthog/helpers/encrypted_fields.py)), `TeamAndOrgViewSetMixin` + `scope_object` ([`posthog/api/hog_function.py:469`](../../posthog/api/hog_function.py)), `object_storage` presigned helpers ([`posthog/storage/object_storage.py:33`](../../posthog/storage/object_storage.py)), activity logging ([`posthog/api/hog_function.py:640`](../../posthog/api/hog_function.py))

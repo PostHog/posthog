@@ -5,7 +5,7 @@
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Agent stack
-feature: agent_stack
+feature: agent_platform
 url_prefix: /agent_applications
 ui_apps: {}
 tools:

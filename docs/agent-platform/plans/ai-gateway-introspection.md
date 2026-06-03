@@ -370,9 +370,9 @@ standard team membership check the mixin enforces.
 - [`services/agent-janitor/src/index.ts`](../../services/agent-janitor/src/index.ts) +
   [`config.ts`](../../services/agent-janitor/src/config.ts) — drop env wiring that
   constructed `walletProxy`
-- [`products/agent_stack/backend/janitor_client.py`](../../products/agent_stack/backend/janitor_client.py) —
+- [`products/agent_platform/backend/janitor_client.py`](../../products/agent_platform/backend/janitor_client.py) —
   remove the corresponding Python method
-- [`products/agent_stack/backend/api.py`](../../products/agent_stack/backend/api.py) —
+- [`products/agent_platform/backend/api.py`](../../products/agent_platform/backend/api.py) —
   remove any Django-side wiring that called through
 - Search `services/agent-console/src/lib/apiClient.ts` for any wallet-via-janitor
   function and delete; the console will use the new ai_gateway endpoint instead

@@ -100,7 +100,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="revisions",
-                        to="agent_stack.agentapplication",
+                        to="agent_platform.agentapplication",
                     ),
                 ),
                 (
@@ -119,7 +119,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="children",
-                        to="agent_stack.agentrevision",
+                        to="agent_platform.agentrevision",
                     ),
                 ),
             ],
@@ -135,7 +135,7 @@ class Migration(migrations.Migration):
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="live_for",
-                to="agent_stack.agentrevision",
+                to="agent_platform.agentrevision",
             ),
         ),
         migrations.AddIndex(

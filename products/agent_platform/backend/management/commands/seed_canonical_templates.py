@@ -1,6 +1,6 @@
 """`manage.py seed_canonical_templates` — load `@posthog/*` registry rows.
 
-Reads markdown files vendored under `products/agent_stack/backend/canonical_templates/`
+Reads markdown files vendored under `products/agent_platform/backend/canonical_templates/`
 and upserts an `AgentSkillTemplate` row per file (team_id=NULL — canonical).
 Existing canonical rows with the same `(name, version)` get updated in place;
 new versions only land when the file's frontmatter explicitly bumps `version`.
@@ -42,8 +42,8 @@ from django.db import transaction
 
 import yaml
 
-from products.agent_stack.backend.models import AgentSkillTemplate, AgentSkillTemplateFile
-from products.agent_stack.backend.skill_frontmatter import SkillSpecError, validate_skill_spec
+from products.agent_platform.backend.models import AgentSkillTemplate, AgentSkillTemplateFile
+from products.agent_platform.backend.skill_frontmatter import SkillSpecError, validate_skill_spec
 
 # Vendored alongside this command so the seed is reproducible from a fresh checkout.
 DEFAULT_SOURCE_DIR = Path(__file__).resolve().parent.parent.parent / "canonical_templates"

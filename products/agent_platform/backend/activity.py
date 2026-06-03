@@ -1,4 +1,4 @@
-"""Activity-log integration for agent_stack.
+"""Activity-log integration for agent_platform.
 
 Wires `model_activity_signal` receivers for `AgentApplication` and
 `AgentRevision`. Both models mix `ModelActivityMixin` in `models.py`, so
@@ -6,7 +6,7 @@ every save fires this handler with `before_update` / `after_update`
 populated; we forward to `log_activity` with the standard
 `changes_between` diff.
 
-Receivers are imported in `apps.AgentStackConfig.ready()` so they bind
+Receivers are imported in `apps.AgentPlatformConfig.ready()` so they bind
 once at Django startup.
 """
 

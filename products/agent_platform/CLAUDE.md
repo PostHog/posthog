@@ -1,4 +1,4 @@
-# agent_stack — Django side of the v2 agent platform
+# agent_platform — Django side of the v2 agent platform
 
 This product is the **authoring + control-plane half** of the agent
 platform. The runtime is in node services at `services/agent-{ingress,runner,janitor}`.
@@ -23,7 +23,7 @@ making non-trivial changes.
 
 1. **Anything that changes a serializer or viewset shape → rerun
    `hogli build:openapi`** before testing or pushing. The MCP tool
-   surface ([services/mcp/src/tools/generated/agent_stack.ts](../../services/mcp/src/tools/generated/agent_stack.ts))
+   surface ([services/mcp/src/tools/generated/agent_platform.ts](../../services/mcp/src/tools/generated/agent_platform.ts))
    and the frontend types ([frontend/generated/api.schemas.ts](frontend/generated/api.schemas.ts))
    both regenerate from the OpenAPI spec. Skip this and the MCP tool
    schemas silently drift.

@@ -1,8 +1,8 @@
 /**
  * ⚠️ GENERATED — do not edit.
  *
- * Snapshot of the agent_stack OpenAPI types, copied from
- * products/agent_stack/frontend/generated/api.schemas.ts by
+ * Snapshot of the agent_platform OpenAPI types, copied from
+ * products/agent_platform/frontend/generated/api.schemas.ts by
  * services/agent-console/bin/sync-api-schema.mjs.
  *
  * Re-run `hogli build:openapi` (or directly:
