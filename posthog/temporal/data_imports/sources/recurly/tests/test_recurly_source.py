@@ -34,7 +34,7 @@ class TestRecurlySource:
         assert config.name.value == "Recurly"
         assert config.label == "Recurly"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/recurly.png"
         assert len(config.fields) == 2
 

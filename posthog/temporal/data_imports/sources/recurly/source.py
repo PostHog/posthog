@@ -141,6 +141,5 @@ class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
