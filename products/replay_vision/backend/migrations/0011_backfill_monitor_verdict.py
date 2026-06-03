@@ -1,21 +1,23 @@
 from django.db import migrations
 
-# Idempotent — the `jsonb_typeof = 'boolean'` guard makes a re-run a no-op.
-_BACKFILL_SQL = """
-UPDATE replay_vision_replayobservation
-SET scanner_result = jsonb_set(
-    scanner_result,
-    '{model_output,verdict}',
-    to_jsonb(CASE
-        WHEN (scanner_result->'model_output'->>'verdict')::boolean THEN 'yes'
-        ELSE 'no'
-    END)
-)
-WHERE scanner_snapshot->>'scanner_type' = 'monitor'
-  AND scanner_result IS NOT NULL
-  AND scanner_result->'model_output' ? 'verdict'
-  AND jsonb_typeof(scanner_result->'model_output'->'verdict') = 'boolean';
-"""
+
+def backfill_monitor_verdict(apps, schema_editor):
+    # Idempotent — only rows whose `verdict` is still boolean are touched.
+    ReplayObservation = apps.get_model("replay_vision", "ReplayObservation")
+    qs = ReplayObservation.objects.filter(
+        scanner_snapshot__scanner_type="monitor",
+        scanner_result__isnull=False,
+    ).iterator(chunk_size=500)
+    for obs in qs:
+        model_output = obs.scanner_result.get("model_output") if obs.scanner_result else None
+        if not isinstance(model_output, dict):
+            continue
+        verdict = model_output.get("verdict")
+        if not isinstance(verdict, bool):
+            continue
+        model_output["verdict"] = "yes" if verdict else "no"
+        obs.scanner_result["model_output"] = model_output
+        obs.save(update_fields=["scanner_result"])
 
 
 class Migration(migrations.Migration):
@@ -24,5 +26,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(sql=_BACKFILL_SQL, reverse_sql=migrations.RunSQL.noop),
+        migrations.RunPython(backfill_monitor_verdict, reverse_code=migrations.RunPython.noop),
     ]
