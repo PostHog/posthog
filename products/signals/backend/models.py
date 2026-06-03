@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -456,6 +457,15 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
         ]
+
+    def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
+        # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
+        # TeamScopedManager). Edits from Django admin / the coordinator / a shell run with no
+        # team scope set, so route the lookup through the unscoped `all_teams` manager to avoid
+        # a TeamScopeError when logging the change.
+        if not self.pk:
+            return None
+        return type(self).all_teams.filter(pk=self.pk).first()
 
 
 class SignalScoutRun(TeamScopedRootMixin, UUIDModel):

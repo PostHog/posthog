@@ -109,8 +109,11 @@ def _collect_planned_runs() -> list[PlannedRun]:
                 "signals_scout coordinator: canonical skill seed failed for team; continuing",
                 team_id=team.id,
             )
-        _register_missing_configs(team)
-        for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True):
+        live_skills = _register_missing_configs(team)
+        # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
+        # latest version: dispatching them would spawn a child workflow that fails fast in
+        # load_skill_for_run on every tick.
+        for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
             overdue_s = _overdue_seconds(config, now)
             if overdue_s is None:
                 continue
@@ -164,11 +167,12 @@ def _participating_teams() -> list[Team]:
     ]
 
 
-def _register_missing_configs(team: Team) -> None:
+def _register_missing_configs(team: Team) -> set[str]:
     """Auto-create an enabled, default-schedule config for each scout skill lacking a row.
 
     The "author a skill, get a scout" path: a user-authored `signals-scout-foo` skill gets
-    a row on the next tick with no further wiring.
+    a row on the next tick with no further wiring. Returns the set of live `signals-scout-*`
+    skill names for the team, so the caller can skip dispatching configs whose skill is gone.
     """
     skill_names = set(
         LLMSkill.objects.filter(
@@ -181,6 +185,7 @@ def _register_missing_configs(team: Team) -> None:
     existing = set(SignalScoutConfig.all_teams.filter(team_id=team.id).values_list("skill_name", flat=True))
     for name in sorted(skill_names - existing):
         SignalScoutConfig.all_teams.get_or_create(team_id=team.id, skill_name=name)
+    return skill_names
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:

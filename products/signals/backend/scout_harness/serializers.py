@@ -837,6 +837,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     )
     last_run_at = serializers.DateTimeField(
         read_only=True,
+        allow_null=True,
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
 

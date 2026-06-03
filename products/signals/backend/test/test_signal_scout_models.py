@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from django.db import IntegrityError
 from django.utils import timezone
 
+from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
@@ -169,3 +170,21 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         SignalScratchpad.objects.create(team=self.team, key="dup", content="first")
         with pytest.raises(IntegrityError):
             SignalScratchpad.objects.create(team=self.team, key="dup", content="second")
+
+
+@pytest.mark.django_db
+def test_scout_config_update_without_team_scope_logs_activity() -> None:
+    # Django admin / coordinator / shell edits run with no team context. The activity-logging
+    # prior-state lookup must use the unscoped manager, not the fail-closed `objects`, or the
+    # save raises TeamScopeError before the change is persisted. Function-style (not BaseTest)
+    # so the conftest's auto team_scope does not apply.
+    org = Organization.objects.create(name="ScoutScopeTestOrg")
+    team = Team.objects.create(organization=org, name="ScoutScopeTestTeam")
+    config = SignalScoutConfig.all_teams.create(team=team, skill_name="signals-scout-x", emit=False)
+
+    config.emit = True
+    config.save()
+
+    config.refresh_from_db()
+    assert config.emit is True
+    assert ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id), activity="updated").exists()

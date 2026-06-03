@@ -176,6 +176,20 @@ async def test_non_scout_skills_are_ignored(ateam):
     assert count == 0
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_config_whose_skill_is_gone_is_skipped(ateam):
+    # A config whose `signals-scout-*` skill was deleted (or is no longer latest) must not be
+    # dispatched — its child workflow would only fail in load_skill_for_run every tick.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-live")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-live", enabled=True)
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-ghost", enabled=True)
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-live"]
+
+
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
 
 
