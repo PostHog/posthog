@@ -80,6 +80,12 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
         if (params.questions !== undefined) {
             body['questions'] = params.questions
         }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
+        }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
@@ -294,6 +300,12 @@ const userInterviewTopicsPartialUpdate = (): ToolBase<
         }
         if (params.questions !== undefined) {
             body['questions'] = params.questions
+        }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'PATCH',

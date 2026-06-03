@@ -50,6 +50,7 @@ from posthog.models.utils import (
     mask_key_value,
 )
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
@@ -532,20 +533,22 @@ def _handle_existing_user(
                 },
                 status=400,
             )
-        validated_scopes = _validate_scopes(scopes)
-        if validated_scopes is None:
+        if not scopes_within_ceiling(scopes, partner.scopes):
             return Response(
                 {
                     "id": request_id,
                     "type": "error",
-                    "error": {"code": "invalid_scope", "message": "One or more requested scopes are not recognized"},
+                    "error": {
+                        "code": "invalid_scope",
+                        "message": "One or more requested scopes exceed the application's allowed scopes",
+                    },
                 },
                 status=400,
             )
         return _require_user_consent(
             request_id,
             user,
-            validated_scopes,
+            scopes,
             partner_account_id,
             region,
             partner,
@@ -1057,7 +1060,21 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     # Use partner's OAuth app if available, fall back to Stripe
     oauth_app = _get_oauth_app_for_code(code_data)
-    scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
+
+    # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
+    # ceiling has to be enforced here before the token is created by hand.
+    requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
+    app_scopes = oauth_app.scopes if oauth_app else []
+    if not scopes_within_ceiling(requested_scopes, app_scopes):
+        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
+        return Response(
+            {
+                "error": "invalid_scope",
+                "error_description": "Requested scopes exceed the application's allowed scopes",
+            },
+            status=400,
+        )
+    scope_str = " ".join(requested_scopes)
 
     token_expiry = (
         PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
@@ -1119,6 +1136,23 @@ def _exchange_refresh_token(request: Request) -> Response:
     scoped_teams = old_refresh.scoped_teams
     old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
+    # Cap the refreshed scope at the app's current ceiling before touching any
+    # token rows — a since-tightened ceiling must drop the removed scopes, and a
+    # token now fully outside the ceiling has to re-authorize rather than refresh.
+    # Done up front so a rejected refresh never revokes the caller's only token.
+    app_scopes = oauth_app.scopes if oauth_app else []
+    narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
+    if narrowed_scopes is None:
+        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
+        return Response(
+            {
+                "error": "invalid_grant",
+                "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
+            },
+            status=400,
+        )
+    new_scope = " ".join(narrowed_scopes)
+
     # provisioning_partner_type is a stable marker set at partner registration;
     # checking it instead of is_provisioning_partner prevents a bypass when an admin
     # clears provisioning_auth_method to disable a partner without revoking tokens.
@@ -1144,7 +1178,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         token=new_access_value,
         user=user,
         expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=old_scope,
+        scope=new_scope,
         scoped_teams=scoped_teams,
     )
 
@@ -2174,38 +2208,6 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     if request.headers.get("stripe-signature"):
         return verify_provisioning_signature(request)
     return None
-
-
-ALLOWED_PROVISIONING_SCOPES = {
-    "customer_journey:read",
-    "dashboard:write",
-    "query:read",
-    "conversation:read",
-    "conversation:write",
-    "experiment:read",
-    "feature_flag:read",
-    "insight:read",
-    "insight:write",
-    "llm_gateway:read",
-    "organization:read",
-    "person:read",
-    "project:read",
-    "ticket:read",
-    "ticket:write",
-    "user:read",
-    "hog_flow:read",
-    "hog_flow:write",
-}
-
-
-def _validate_scopes(scopes: list[str]) -> list[str] | None:
-    """Validate scopes against the allowlist. Returns filtered scopes or None if any are invalid."""
-    if not scopes:
-        return scopes
-    for scope in scopes:
-        if scope not in ALLOWED_PROVISIONING_SCOPES:
-            return None
-    return scopes
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:

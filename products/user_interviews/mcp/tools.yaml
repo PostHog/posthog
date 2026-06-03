@@ -52,6 +52,8 @@ tools:
             - topic
             - agent_context
             - questions
+            - invite_subject
+            - invite_message
         feature_flag: user-interviews
     user-interview-topics-destroy:
         operation: user_interview_topics_destroy
@@ -219,6 +221,8 @@ tools:
             - questions
             - interviewee_emails
             - interviewee_distinct_ids
+            - invite_subject
+            - invite_message
         feature_flag: user-interviews
     user-interview-topics-remove-interviewee:
         operation: user_interview_topics_remove_interviewee_create
