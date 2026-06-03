@@ -1,6 +1,8 @@
 # Design — Tailscale-backed MCP integration
 
-**Status:** draft. **Owner:** ben.
+**Status:** **parked.** The design holds, but the Node ↔ Tailscale
+integration story is rougher than expected (see new section below). Not
+worth picking up without a stronger forcing function. **Owner:** ben.
 **Sibling to:** [`runtime-mcps.md`](runtime-mcps.md) — adds a new
 `McpClient` impl alongside the existing `kind: 'external'` one.
 
