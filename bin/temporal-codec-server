@@ -28,6 +28,7 @@ import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from temporalio.api.common.v1 import Payload
@@ -117,9 +118,10 @@ class CodecHandler(BaseHTTPRequestHandler):
         if not self._is_origin_allowed():
             self.send_error(403, "Origin not allowed")
             return
-        if self.path == "/decode":
+        path = urlparse(self.path).path
+        if path == "/decode":
             self._handle_decode()
-        elif self.path == "/encode":
+        elif path == "/encode":
             self._handle_passthrough()
         else:
             self.send_error(404)
