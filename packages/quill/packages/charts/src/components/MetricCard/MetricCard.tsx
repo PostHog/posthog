@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { ChartTheme } from '../../core/types'
 import { percentage } from '../../utils/format'
-import { Sparkline } from '../Sparkline/Sparkline'
+import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
 
