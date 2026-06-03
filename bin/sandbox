@@ -1510,7 +1510,7 @@ def cmd_create(branch: str, base_branch: str = "master", *, full_clone: bool = F
     container = f"{project}-app-1"
     _seed_tool_auth(container, sandbox_tools.load_user_tools())
     health_url = f"http://localhost:{port}/_health"
-    _attach_with_health_poll(container, health_url)
+    _attach_with_health_poll(container, health_url, destroy_prompt_branch=branch)
 
 
 def _spawn_db_restore(branch: str, use_cache: bool) -> None:
@@ -1578,7 +1578,7 @@ def cmd_start(branch: str) -> None:
 
     container = f"{project}-app-1"
     health_url = f"http://localhost:{entry.port}/_health"
-    _attach_with_health_poll(container, health_url)
+    _attach_with_health_poll(container, health_url, destroy_prompt_branch=branch)
 
 
 def cmd_stop(branch: str) -> None:
@@ -1643,8 +1643,28 @@ def _sandbox_local_work(project: str) -> tuple[str, str] | None:
     return commits, dirty
 
 
+def _resolve_branch(registry: Registry, branch: str) -> str:
+    """Resolve a sandbox branch, accepting a unique prefix (like docker does).
+
+    An exact match always wins. Otherwise, if exactly one registered branch
+    starts with `branch`, use it. An ambiguous prefix is fatal; a prefix that
+    matches nothing is returned unchanged for the caller to handle.
+    """
+    branches = registry.list_all()
+    if branch in branches:
+        return branch
+    matches = sorted(b for b in branches if b.startswith(branch))
+    if len(matches) == 1:
+        info(f"'{branch}' matched sandbox '{matches[0]}'.")
+        return matches[0]
+    if len(matches) > 1:
+        fatal(f"'{branch}' matches multiple sandboxes: {', '.join(matches)}. Be more specific.")
+    return branch
+
+
 def cmd_destroy(branch: str, *, force: bool = False) -> None:
     registry = Registry()
+    branch = _resolve_branch(registry, branch)
     entry = registry.get(branch)
     slug = entry.slug if entry else slugify(branch)
     project = project_name(slug)
@@ -1763,8 +1783,30 @@ def cmd_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def _attach_tmux(container: str, target: str | None = None) -> None:
-    """Exec into the tmux session (replaces current process)."""
+def _prompt_destroy_on_exit(branch: str) -> None:
+    """After the user leaves the tmux session, offer to destroy the sandbox.
+
+    Skipped when stdin isn't a TTY (scripted runs must not block on input) or
+    when the sandbox is already gone (e.g. destroyed from another terminal).
+    """
+    if not sys.stdin.isatty():
+        return
+    if Registry().get(branch) is None:
+        return
+    print()
+    if not _confirm(f"Destroy sandbox '{branch}'?", default_yes=False):
+        info(f"Left '{branch}' running. Reattach with: sandbox shell {branch}")
+        return
+    cmd_destroy(branch)
+
+
+def _attach_tmux(container: str, target: str | None = None, *, destroy_prompt_branch: str | None = None) -> None:
+    """Attach to the tmux session.
+
+    By default this replaces the current process (execvp) and never returns.
+    When destroy_prompt_branch is set, the attach runs as a child process so
+    control returns on detach/exit and we offer to destroy that sandbox.
+    """
     cmd = [
         "docker",
         "exec",
@@ -1779,10 +1821,13 @@ def _attach_tmux(container: str, target: str | None = None) -> None:
     ]
     if target:
         cmd.extend(["-t", target])
-    os.execvp("docker", cmd)
+    if destroy_prompt_branch is None:
+        os.execvp("docker", cmd)  # replaces this process; never returns
+    subprocess.run(cmd, check=False)
+    _prompt_destroy_on_exit(destroy_prompt_branch)
 
 
-def _attach_with_health_poll(container: str, health_url: str) -> None:
+def _attach_with_health_poll(container: str, health_url: str, *, destroy_prompt_branch: str | None = None) -> None:
     """Attach to tmux; open browser in background when healthy."""
     # Launch a detached process to poll health and open the browser.
     # Separate process so the main process can execvp into tmux with a clean TTY.
@@ -1848,7 +1893,7 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
     else:
         fatal("Timed out waiting for tmux. Run `sandbox logs <branch>` to investigate.")
     info("Attaching to sandbox... (detach with Ctrl-b d, Ctrl-b 2 for setup log, Ctrl-b 3 for phrocs)")
-    _attach_tmux(container)
+    _attach_tmux(container, destroy_prompt_branch=destroy_prompt_branch)
 
 
 def cmd_shell(branch: str) -> None:
@@ -1857,7 +1902,7 @@ def cmd_shell(branch: str) -> None:
     container = f"sandbox-{entry.slug}-app-1"
 
     info(f"Attaching to sandbox in {container}... (detach with Ctrl-b d)")
-    _attach_tmux(container)
+    _attach_tmux(container, destroy_prompt_branch=branch)
 
 
 def cmd_ssh(branch: str) -> None:
@@ -2302,7 +2347,7 @@ examples:
     p = sub.add_parser(
         "destroy",
         aliases=["rm"],
-        help="Destroy a sandbox (prompts if there are unpushed commits)",
+        help="Destroy a sandbox by name or unique prefix (prompts if there are unpushed commits)",
     )
     p.add_argument("branch")
     p.add_argument(
