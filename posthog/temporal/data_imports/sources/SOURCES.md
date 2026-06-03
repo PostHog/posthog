@@ -151,7 +151,6 @@ doesn't conflict with concurrent PRs.
 - close
 - cockroachdb
 - confluence
-- convertkit
 - copper
 - datadog
 - dynamodb
