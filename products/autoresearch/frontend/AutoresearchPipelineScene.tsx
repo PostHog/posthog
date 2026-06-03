@@ -511,9 +511,6 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
                                     />
                                 </Tooltip>
                             </div>
-                            <div className="w-10 shrink-0 text-right text-xs tabular-nums text-muted">
-                                {f.importance.toFixed(2)}
-                            </div>
                         </div>
                     )
                 })}
