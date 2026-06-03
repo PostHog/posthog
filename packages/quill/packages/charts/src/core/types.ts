@@ -350,6 +350,11 @@ export interface ChartScales {
      *  band width so {@link TooltipContext.position.width} carries it through to the
      *  tooltip overlay. Point-style charts (line, scatter) leave it unset. */
     extent?: (label: string) => number | undefined
+    /** Optional cursor-aware band-slot resolver for grouped layouts. Given the hovered label
+     *  and cursor (canvas pixels), returns the band-axis center and width of the specific bar
+     *  under the cursor, so the tooltip anchors on that bar rather than the whole group. Falls
+     *  back to `x`/`extent` when absent or when it returns undefined. */
+    bandSlotAtCursor?: (label: string, cursor: { x: number; y: number }) => { center: number; width: number } | undefined
     /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
      *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
      *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.

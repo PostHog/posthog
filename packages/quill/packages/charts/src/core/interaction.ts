@@ -78,7 +78,10 @@ export function buildTooltipContext<Meta = unknown>(
     resolvePositionValue: ResolveValueFn = resolveValue,
     /** Optional horizontal data-extent centered on the categorical axis position — bar charts
      *  pass band width so the tooltip can anchor at the band edge instead of its center. */
-    positionExtent?: number
+    positionExtent?: number,
+    /** Optional per-bar anchor for grouped layouts — overrides the band-axis center and extent
+     *  so the tooltip anchors on the hovered bar rather than the whole group. */
+    bandSlot?: { center: number; width: number }
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -119,10 +122,12 @@ export function buildTooltipContext<Meta = unknown>(
         valueAnchor = interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
     }
 
+    const bandAxisCoord = bandSlot?.center ?? bandPixel
     const position: TooltipContext<Meta>['position'] =
-        interactionAxis === 'y' ? { x: valueAnchor, y: bandPixel } : { x: bandPixel, y: valueAnchor }
-    if (positionExtent != null && positionExtent > 0) {
-        position.width = positionExtent
+        interactionAxis === 'y' ? { x: valueAnchor, y: bandAxisCoord } : { x: bandAxisCoord, y: valueAnchor }
+    const extentWidth = bandSlot?.width ?? positionExtent
+    if (extentWidth != null && extentWidth > 0) {
+        position.width = extentWidth
     }
 
     return {
