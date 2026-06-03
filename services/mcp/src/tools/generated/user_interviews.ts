@@ -57,10 +57,7 @@ const userInterviewTopicsAddInterviewee = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsCreateSchema = UserInterviewTopicsCreateBody.omit({
-    invite_subject: true,
-    invite_message: true,
-})
+const UserInterviewTopicsCreateSchema = UserInterviewTopicsCreateBody
 
 const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateSchema, Schemas.UserInterviewTopic> => ({
     name: 'user-interview-topics-create',
@@ -82,6 +79,12 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
         }
         if (params.questions !== undefined) {
             body['questions'] = params.questions
+        }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
@@ -271,7 +274,7 @@ const userInterviewTopicsList = (): ToolBase<
 })
 
 const UserInterviewTopicsPartialUpdateSchema = UserInterviewTopicsPartialUpdateParams.omit({ project_id: true }).extend(
-    UserInterviewTopicsPartialUpdateBody.omit({ invite_subject: true, invite_message: true }).shape
+    UserInterviewTopicsPartialUpdateBody.shape
 )
 
 const userInterviewTopicsPartialUpdate = (): ToolBase<
@@ -297,6 +300,12 @@ const userInterviewTopicsPartialUpdate = (): ToolBase<
         }
         if (params.questions !== undefined) {
             body['questions'] = params.questions
+        }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'PATCH',
