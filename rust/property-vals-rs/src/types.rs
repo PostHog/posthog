@@ -10,6 +10,8 @@ pub struct Event {
     pub team_id: i64,
 
     #[serde(default)]
+    pub event: Option<String>,
+    #[serde(default)]
     pub properties: Option<String>,
     #[serde(default)]
     pub person_properties: Option<String>,
@@ -41,6 +43,10 @@ pub struct TupleKey {
     pub property_type: PropertyType,
     pub property_key: String,
     pub property_value: String,
+    // Source event name for event-type values, used to scope value lookups to a
+    // specific event. Empty for person/group (not event-scoped) and for event
+    // values until STAMP_EVENT_NAME is enabled.
+    pub event_name: String,
 }
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -95,6 +101,8 @@ pub struct PropertyValueMessage {
     pub property_key: String,
     pub property_value: String,
     pub property_count: u64,
+    #[serde(default)]
+    pub event_name: String,
 }
 
 impl IngestableEvent for PropertyValueMessage {

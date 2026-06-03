@@ -41,7 +41,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.tasks.exports.csv_exporter import _sanitize_formula_injection
+from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.utils import absolute_uri
 
 from ..facade.api import parse_interviewee_identifier
@@ -909,10 +909,10 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         rows = [
             {
-                "interviewee_identifier": _sanitize_formula_injection(r["identifier"]),
-                "interviewee_email": _sanitize_formula_injection(r["email"] or ""),
-                "user_name": _sanitize_formula_injection(r["user_name"]),
-                "interview_url": _sanitize_formula_injection(r["interview_url"]),
+                "interviewee_identifier": sanitize_formula_injection(r["identifier"]),
+                "interviewee_email": sanitize_formula_injection(r["email"] or ""),
+                "user_name": sanitize_formula_injection(r["user_name"]),
+                "interview_url": sanitize_formula_injection(r["interview_url"]),
             }
             for r in results
         ]

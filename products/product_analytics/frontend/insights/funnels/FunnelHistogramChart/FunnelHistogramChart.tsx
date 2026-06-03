@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo, type ErrorInfo } from 'react'
 
+import { BarChart, ValueLabels } from '@posthog/quill-charts'
+import type { BarChartConfig } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart, ValueLabels } from 'lib/hog-charts'
-import type { BarChartConfig } from 'lib/hog-charts'
 import { humanFriendlyNumber } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

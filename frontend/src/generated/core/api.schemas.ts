@@ -2175,59 +2175,6 @@ export interface SharingConfigurationApi {
     readonly share_passwords: readonly SharePasswordApi[]
 }
 
-/**
- * * `image/png` - image/png
- * `application/pdf` - application/pdf
- * `text/csv` - text/csv
- * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * `video/webm` - video/webm
- * `video/mp4` - video/mp4
- * `image/gif` - image/gif
- * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
-    TextCsv: 'text/csv',
-    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    VideoWebm: 'video/webm',
-    VideoMp4: 'video/mp4',
-    ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
-    readonly created_at: string
-    readonly has_content: boolean
-    export_context?: unknown
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
-}
-
-export interface PaginatedExportedAssetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
-}
-
 export interface FileSystemApi {
     readonly id: string
     path: string
@@ -2279,6 +2226,191 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
+}
+
+export interface FileSystemShortcutApi {
+    readonly id: string
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at: string
+}
+
+export interface PaginatedFileSystemShortcutListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemShortcutApi[]
+}
+
+export interface PatchedFileSystemShortcutApi {
+    readonly id?: string
+    /** Display path of the shortcut in the sidebar. */
+    path?: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at?: string
+}
+
+export interface FileSystemShortcutReorderApi {
+    /** IDs of the current user's shortcuts in the desired display order. */
+    ordered_ids: string[]
+}
+
+/**
+ * * `home` - Home
+ * `pinned` - Pinned
+ * `custom_products` - Custom Products
+ */
+export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
+
+export const PersistedFolderTypeEnumApi = {
+    Home: 'home',
+    Pinned: 'pinned',
+    CustomProducts: 'custom_products',
+} as const
+
+export interface PersistedFolderApi {
+    readonly id: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedPersistedFolderListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PersistedFolderApi[]
+}
+
+export interface PatchedPersistedFolderApi {
+    readonly id?: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type?: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * * `image/png` - image/png
+ * `application/pdf` - application/pdf
+ * `text/csv` - text/csv
+ * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * `video/webm` - video/webm
+ * `video/mp4` - video/mp4
+ * `image/gif` - image/gif
+ * `application/json` - application/json
+ */
+export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+
+export const ExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -3405,6 +3537,43 @@ export type OrganizationsProjectsListParams = {
     search?: string
 }
 
+export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3429,6 +3598,28 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type PersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ProjectSecretApiKeysListParams = {
