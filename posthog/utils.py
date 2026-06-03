@@ -693,7 +693,8 @@ def resolve_self_capture_team() -> Optional["Team"]:
         if user and getattr(user, "current_team", None):
             return user.current_team
         return Team.objects.first()
-    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
+    except ProgrammingError:
+        # Tables absent before migrations have run; `.first()` returns None otherwise.
         return None
 
 
