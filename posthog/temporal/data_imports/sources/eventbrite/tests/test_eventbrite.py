@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime
 from typing import Any
-from unittest import mock
 
 import pytest
+from unittest import mock
 
 from posthog.temporal.data_imports.sources.eventbrite import eventbrite as eb
 from posthog.temporal.data_imports.sources.eventbrite.eventbrite import (

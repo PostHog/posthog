@@ -1,6 +1,5 @@
-from unittest import mock
-
 import pytest
+from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
