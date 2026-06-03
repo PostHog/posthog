@@ -357,6 +357,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # Per-trace pagination key (earliest matching-span timestamp); identical for every
                 # span of a trace. Falls back to this row's timestamp on the off chance it is null.
                 "trace_start": (result[13] or result[8]).replace(tzinfo=ZoneInfo("UTC")),
+                # OTel span attributes the user set, as a key-value map.
+                "attributes": result[14],
             }
             results.append(row)
 
@@ -467,7 +469,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 duration_nano,
                 is_root_span,
                 {where} as matched_filter,
-                min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start
+                min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
+                attributes
             FROM posthog.trace_spans
             WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,

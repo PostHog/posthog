@@ -187,10 +187,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("monitor", ScannerType.MONITOR, {"prompt": "p"}),
+            ("monitor-allow-inconclusive", ScannerType.MONITOR, {"prompt": "p", "allow_inconclusive": True}),
             ("classifier", ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
             ("scorer", ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
             ("summarizer", ScannerType.SUMMARIZER, {"prompt": "p"}),
-            ("summarizer-with-embeddings", ScannerType.SUMMARIZER, {"prompt": "p", "emits_embeddings": True}),
         ]
     )
     def test_create_accepts_valid_scanner_config_per_type(
@@ -458,7 +458,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             scanner_result={
                 "model_output": {
                     "scanner_type": "monitor",
-                    "verdict": True,
+                    "verdict": "yes",
                     "reasoning": "user completed checkout",
                     "confidence": 0.9,
                 },
@@ -469,7 +469,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["scanner_result"]["signals_count"], 0)
-        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], True)
+        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], "yes")
         self.assertEqual(body["scanner_result"]["model_output"]["confidence"], 0.9)
 
     @parameterized.expand(
