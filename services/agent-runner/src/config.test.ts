@@ -18,11 +18,11 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.memoryS3Bucket).toBeUndefined()
     })
 
-    it('exposes dev MinIO defaults when NODE_ENV is not production', () => {
+    it('exposes dev SeaweedFS defaults when NODE_ENV is not production', () => {
         // vitest runs NODE_ENV=test — same branch as local dev.
         const cfg = loadAgentRunnerConfig({})
         expect(cfg.bundleS3Bucket).toBe('posthog')
-        expect(cfg.bundleS3Endpoint).toBe('http://localhost:19000')
+        expect(cfg.bundleS3Endpoint).toBe('http://localhost:8333')
         expect(cfg.memoryS3Bucket).toBe('posthog')
     })
 

@@ -28,9 +28,9 @@ import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3'
  *   "
  *
  * Env: reads AGENT_BUNDLE_S3_* — the same vars the runner and janitor use.
- * In dev, falls back to the local S3 emulator defaults below (matches the
- * isDev gates in agent-{runner,janitor}/src/config.ts). Update both if the
- * dev S3 endpoint moves (e.g. MinIO → LocalStack).
+ * In dev, falls back to the local SeaweedFS defaults below (matches the
+ * isDev gates in agent-{runner,janitor}/src/config.ts). Update all three
+ * together if the dev S3 endpoint moves again.
  */
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -38,10 +38,10 @@ import path from 'node:path'
 import { S3BundleStore } from '@posthog/agent-shared'
 
 // Keep these in sync with services/agent-{runner,janitor}/src/config.ts.
-const DEV_S3_ENDPOINT = 'http://localhost:19000'
+const DEV_S3_ENDPOINT = 'http://localhost:8333'
 const DEV_S3_BUCKET = 'posthog'
-const DEV_S3_ACCESS_KEY_ID = 'object_storage_root_user'
-const DEV_S3_SECRET_ACCESS_KEY = 'object_storage_root_password'
+const DEV_S3_ACCESS_KEY_ID = 'any'
+const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 const isDev = (): boolean => process.env.NODE_ENV !== 'production'
 
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
     const accessKeyId = process.env.AGENT_BUNDLE_S3_ACCESS_KEY_ID ?? (isDev() ? DEV_S3_ACCESS_KEY_ID : undefined)
     const secretAccessKey =
         process.env.AGENT_BUNDLE_S3_SECRET_ACCESS_KEY ?? (isDev() ? DEV_S3_SECRET_ACCESS_KEY : undefined)
-    const forcePathStyle = process.env.AGENT_BUNDLE_S3_FORCE_PATH_STYLE !== 'false' // default true (MinIO + LocalStack both need this)
+    const forcePathStyle = process.env.AGENT_BUNDLE_S3_FORCE_PATH_STYLE !== 'false' // default true (SeaweedFS + MinIO both need this)
 
     if (!bucket) {
         throw new Error('AGENT_BUNDLE_S3_BUCKET is required (no dev fallback when NODE_ENV=production)')

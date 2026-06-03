@@ -1,8 +1,8 @@
 /**
- * Real-S3 (MinIO in dev) tests for S3BundleStore.
+ * Real-S3 (SeaweedFS in dev) tests for S3BundleStore.
  *
- * Mirrors the memory store's test harness: bring up local MinIO via
- * `hogli start` / `docker compose up objectstorage`, then run the suite.
+ * Mirrors the memory store's test harness: bring up local SeaweedFS via
+ * `hogli start` / `docker compose up seaweedfs`, then run the suite.
  * Each test gets its own random prefix so concurrent suites don't collide.
  */
 
@@ -11,11 +11,11 @@ import { randomBytes } from 'node:crypto'
 
 import { S3BundleStore } from './s3-bundle-store'
 
-const TEST_S3_ENDPOINT = process.env.AGENT_BUNDLE_TEST_S3_ENDPOINT ?? 'http://localhost:19000'
+const TEST_S3_ENDPOINT = process.env.AGENT_BUNDLE_TEST_S3_ENDPOINT ?? 'http://localhost:8333'
 const TEST_S3_REGION = process.env.AGENT_BUNDLE_TEST_S3_REGION ?? 'us-east-1'
 const TEST_S3_BUCKET = process.env.AGENT_BUNDLE_TEST_S3_BUCKET ?? 'posthog'
-const TEST_S3_ACCESS_KEY_ID = process.env.AGENT_BUNDLE_TEST_S3_ACCESS_KEY_ID ?? 'object_storage_root_user'
-const TEST_S3_SECRET_ACCESS_KEY = process.env.AGENT_BUNDLE_TEST_S3_SECRET_ACCESS_KEY ?? 'object_storage_root_password'
+const TEST_S3_ACCESS_KEY_ID = process.env.AGENT_BUNDLE_TEST_S3_ACCESS_KEY_ID ?? 'any'
+const TEST_S3_SECRET_ACCESS_KEY = process.env.AGENT_BUNDLE_TEST_S3_SECRET_ACCESS_KEY ?? 'any'
 
 function buildClient(): S3Client {
     return new S3Client({
@@ -47,7 +47,7 @@ async function wipePrefix(client: S3Client, prefix: string): Promise<void> {
     } while (continuationToken)
 }
 
-describe('S3BundleStore (real S3 / MinIO)', () => {
+describe('S3BundleStore (real S3 / SeaweedFS)', () => {
     let client: S3Client
     let prefix: string
     let store: S3BundleStore

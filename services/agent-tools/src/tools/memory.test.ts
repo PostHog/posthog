@@ -1,7 +1,7 @@
 /**
  * Memory-tool tests — exercise each of the six tools through their run() against
- * a real `S3MemoryStore` pointed at MinIO. No skip-if-unreachable; bring up
- * MinIO before running.
+ * a real `S3MemoryStore` pointed at SeaweedFS. No skip-if-unreachable; bring up
+ * SeaweedFS before running.
  */
 import { S3Client } from '@aws-sdk/client-s3'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -43,7 +43,7 @@ describe('memory tools — store-unavailable envelope', () => {
     })
 })
 
-describe('memory tools (real S3 / MinIO)', () => {
+describe('memory tools (real S3 / SeaweedFS)', () => {
     let client: S3Client
     let store: S3MemoryStore
     let prefix: string

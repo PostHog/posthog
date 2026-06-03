@@ -28,7 +28,7 @@ for the wider dev flow.
   `S3MemoryStore`. Markdown + YAML frontmatter file format;
   MiniSearch-backed BM25 over file bodies for the
   `@posthog/memory-search` tool. **Tests always run against real
-  MinIO/S3, never an in-process fake** — same philosophy as the
+  SeaweedFS/S3, never an in-process fake** — same philosophy as the
   real-PG tests; a fake just hides shape drift.
 
 ## Rules of engagement

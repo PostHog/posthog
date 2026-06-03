@@ -1,8 +1,8 @@
 /**
- * Real-S3 (MinIO in dev) tests for S3MemoryStore + searchMemory.
+ * Real-S3 (SeaweedFS in dev) tests for S3MemoryStore + searchMemory.
  *
- * No skip-if-unreachable — memory is vital platform infra. Bring up MinIO
- * (`hogli start` / `docker compose up objectstorage`) before running.
+ * No skip-if-unreachable — memory is vital platform infra. Bring up SeaweedFS
+ * (`hogli start` / `docker compose up seaweedfs`) before running.
  *
  * Per-suite unique prefix isolates from siblings; afterEach wipes the prefix.
  */
@@ -66,7 +66,7 @@ describe('keyFor + prefixFor', () => {
     })
 })
 
-describe('S3MemoryStore (real S3 / MinIO)', () => {
+describe('S3MemoryStore (real S3 / SeaweedFS)', () => {
     let client: S3Client
     let store: S3MemoryStore
     let prefix: string
@@ -178,7 +178,7 @@ describe('S3MemoryStore (real S3 / MinIO)', () => {
     })
 })
 
-describe('searchMemory (real S3 / MinIO)', () => {
+describe('searchMemory (real S3 / SeaweedFS)', () => {
     let client: S3Client
     let store: S3MemoryStore
     let prefix: string

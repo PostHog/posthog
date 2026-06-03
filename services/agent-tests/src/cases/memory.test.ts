@@ -6,7 +6,7 @@
  * Wired against an `InMemoryMemoryStore` in the harness (same interface as
  * `S3MemoryStore`) so the test exercises every layer of the dispatch chain —
  * native tool registry, ToolContext.memoryStore injection, store API,
- * frontmatter serializer — without standing up MinIO/S3.
+ * frontmatter serializer — without standing up SeaweedFS/S3.
  */
 
 import request from 'supertest'

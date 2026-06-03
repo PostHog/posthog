@@ -1,18 +1,18 @@
 /**
  * Shared helpers for tests that exercise S3MemoryStore against a real
- * S3-compatible endpoint (MinIO in dev, real S3 in CI when configured).
+ * S3-compatible endpoint (SeaweedFS in dev, real S3 in CI when configured).
  *
- * Env conventions mirror nodejs/src/session-recording's S3 tests:
+ * Env conventions match session-replay v2 (SESSION_RECORDING_V2_S3_*):
  *
- *   AGENT_MEMORY_TEST_S3_ENDPOINT       (default http://localhost:19000)
+ *   AGENT_MEMORY_TEST_S3_ENDPOINT       (default http://localhost:8333)
  *   AGENT_MEMORY_TEST_S3_REGION         (default us-east-1)
  *   AGENT_MEMORY_TEST_S3_BUCKET         (default posthog)
- *   AGENT_MEMORY_TEST_S3_ACCESS_KEY_ID  (default object_storage_root_user)
- *   AGENT_MEMORY_TEST_S3_SECRET_ACCESS_KEY  (default object_storage_root_password)
+ *   AGENT_MEMORY_TEST_S3_ACCESS_KEY_ID  (default any)
+ *   AGENT_MEMORY_TEST_S3_SECRET_ACCESS_KEY  (default any)
  *
  * **No skip-if-unreachable.** Memory is core platform machinery; tests fail
  * loudly when the endpoint isn't up so silent regressions can't slip through.
- * Bring up MinIO (hogli start / docker compose up objectstorage) before
+ * Bring up SeaweedFS (hogli start / docker compose up seaweedfs) before
  * running the test suite.
  *
  * Each suite gets its own random prefix under the bucket so concurrent suites
@@ -24,11 +24,11 @@ import { randomBytes } from 'node:crypto'
 
 import { S3MemoryStore } from './s3-store'
 
-export const TEST_S3_ENDPOINT = process.env.AGENT_MEMORY_TEST_S3_ENDPOINT ?? 'http://localhost:19000'
+export const TEST_S3_ENDPOINT = process.env.AGENT_MEMORY_TEST_S3_ENDPOINT ?? 'http://localhost:8333'
 export const TEST_S3_REGION = process.env.AGENT_MEMORY_TEST_S3_REGION ?? 'us-east-1'
 export const TEST_S3_BUCKET = process.env.AGENT_MEMORY_TEST_S3_BUCKET ?? 'posthog'
-const TEST_S3_ACCESS_KEY_ID = process.env.AGENT_MEMORY_TEST_S3_ACCESS_KEY_ID ?? 'object_storage_root_user'
-const TEST_S3_SECRET_ACCESS_KEY = process.env.AGENT_MEMORY_TEST_S3_SECRET_ACCESS_KEY ?? 'object_storage_root_password'
+const TEST_S3_ACCESS_KEY_ID = process.env.AGENT_MEMORY_TEST_S3_ACCESS_KEY_ID ?? 'any'
+const TEST_S3_SECRET_ACCESS_KEY = process.env.AGENT_MEMORY_TEST_S3_SECRET_ACCESS_KEY ?? 'any'
 
 export function buildTestS3Client(): S3Client {
     return new S3Client({
