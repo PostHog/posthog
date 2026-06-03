@@ -1,8 +1,13 @@
+import random
+import pathlib
+import importlib
+import importlib.util
 from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.apps import apps
 from django.conf import settings
 from django.test import override_settings
 from django.urls import include, path
@@ -308,3 +313,105 @@ def test_router_registry_get_unknown_name_lists_known():
     registry.add("things", DefaultRouterPlusPlus().register(r"things", FooViewSet, "things"))
     with pytest.raises(KeyError, match="things"):
         registry.get("missing")
+
+
+def _registry_with_parents():
+    registry = RouterRegistry()
+    root = DefaultRouterPlusPlus()
+    registry.set_root(root)
+    registry.add("projects", root.register(r"projects", FooViewSet, "projects"))
+    registry.add("environments", root.register(r"environments", FooViewSet, "environments"))
+    return registry
+
+
+def test_register_legacy_dual_route_registers_both_surfaces():
+    registry = _registry_with_parents()
+    project_item, environment_item = registry.register_legacy_dual_route(
+        r"things", FooViewSet, "project_things", ["team_id"]
+    )
+    assert project_item is not None
+    assert environment_item is not None
+
+
+@pytest.mark.parametrize(
+    "basename,lookups,match",
+    [
+        ("project_things", [], "non-empty"),
+        ("project_things", ["project_id"], "team_id"),
+        ("things", ["team_id"], "must start with"),
+    ],
+)
+def test_register_legacy_dual_route_rejects_bad_input(basename, lookups, match):
+    registry = _registry_with_parents()
+    with pytest.raises(ValueError, match=match):
+        registry.register_legacy_dual_route(r"things", FooViewSet, basename, lookups)
+
+
+# --- Product route auto-discovery -----------------------------------------------------
+# Mirrors the discovery loop in posthog/api/__init__.py so the tests exercise the same
+# filter (products.* app whose `.routes` module exists).
+
+
+def _discover_product_route_modules():
+    modules = []
+    for app_config in apps.get_app_configs():
+        if not app_config.name.startswith("products."):
+            continue
+        module_name = f"{app_config.name}.routes"
+        if importlib.util.find_spec(module_name) is None:
+            continue
+        modules.append(importlib.import_module(module_name))
+    return modules
+
+
+def _build_product_routes(modules):
+    router = DefaultRouterPlusPlus()
+    registry = RouterRegistry()
+    registry.set_root(router)
+    registry.add("projects", router.register(r"projects", FooViewSet, "projects"))
+    registry.add("environments", router.register(r"environments", FooViewSet, "environments"))
+    registry.add("organizations", router.register(r"organizations", FooViewSet, "organizations"))
+    for module in modules:
+        module.register_routes(registry)
+    return router
+
+
+def _url_signature(router):
+    return sorted((str(pattern.pattern), pattern.name) for pattern in router.urls)
+
+
+def test_product_route_discovery_is_order_independent():
+    modules = _discover_product_route_modules()
+    assert modules, "expected to discover product route modules"
+    in_order = _url_signature(_build_product_routes(modules))
+    shuffled = modules[:]
+    random.Random(20240601).shuffle(shuffled)
+    out_of_order = _url_signature(_build_product_routes(shuffled))
+    assert in_order == out_of_order
+
+
+def test_discovery_covers_every_product_with_a_routes_module():
+    # Every routes.py on disk must be reachable through INSTALLED_APPS, otherwise the loop
+    # would silently drop it. parents[3] of .../posthog/api/test/test_routing.py is the repo root.
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    on_disk = {
+        f"products.{path.parent.parent.name}.backend.routes" for path in repo_root.glob("products/*/backend/routes.py")
+    }
+    discovered = {module.__name__ for module in _discover_product_route_modules()}
+    assert discovered == on_disk
+
+
+def test_every_discovered_routes_module_is_callable():
+    modules = _discover_product_route_modules()
+    missing = [m.__name__ for m in modules if not callable(getattr(m, "register_routes", None))]
+    assert not missing, f"routes modules without a register_routes callable: {missing}"
+
+
+def test_router_registry_add_rejects_products_caller():
+    registry = RouterRegistry()
+    item = DefaultRouterPlusPlus().register(r"things", FooViewSet, "things")
+    # Give the calling frame a products.* __name__ so the guard sees a product caller.
+    namespace = {"registry": registry, "item": item, "__name__": "products.fake.backend.routes"}
+    source = "def _caller():\n    registry.add('things', item)\n_caller()"
+    with pytest.raises(RuntimeError, match="core-owned"):
+        exec(compile(source, "products/fake/backend/routes.py", "exec"), namespace)
