@@ -40,6 +40,10 @@ export const userInterviewTopicsCreateBodyIntervieweeEmailsItemMax = 254
 
 export const userInterviewTopicsCreateBodyIntervieweeDistinctIdsItemMax = 400
 
+export const userInterviewTopicsCreateBodyInviteSubjectMax = 255
+
+export const userInterviewTopicsCreateBodyInviteMessageMax = 1000
+
 export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsCreateBodyIntervieweeEmailsItemMax))
@@ -58,6 +62,20 @@ export const UserInterviewTopicsCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Ordered list of questions the voice agent should work through during the interview.'),
+    invite_subject: zod
+        .string()
+        .max(userInterviewTopicsCreateBodyInviteSubjectMax)
+        .optional()
+        .describe(
+            'Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.'
+        ),
+    invite_message: zod
+        .string()
+        .max(userInterviewTopicsCreateBodyInviteMessageMax)
+        .optional()
+        .describe(
+            'Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.'
+        ),
 })
 
 /**
@@ -88,6 +106,10 @@ export const userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax = 254
 
 export const userInterviewTopicsPartialUpdateBodyIntervieweeDistinctIdsItemMax = 400
 
+export const userInterviewTopicsPartialUpdateBodyInviteSubjectMax = 255
+
+export const userInterviewTopicsPartialUpdateBodyInviteMessageMax = 1000
+
 export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod
         .array(zod.string().max(userInterviewTopicsPartialUpdateBodyIntervieweeEmailsItemMax))
@@ -106,6 +128,20 @@ export const UserInterviewTopicsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Ordered list of questions the voice agent should work through during the interview.'),
+    invite_subject: zod
+        .string()
+        .max(userInterviewTopicsPartialUpdateBodyInviteSubjectMax)
+        .optional()
+        .describe(
+            'Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.'
+        ),
+    invite_message: zod
+        .string()
+        .max(userInterviewTopicsPartialUpdateBodyInviteMessageMax)
+        .optional()
+        .describe(
+            'Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.'
+        ),
 })
 
 /**
@@ -199,7 +235,9 @@ export const UserInterviewTopicsSendInvitesCreateBody = /* @__PURE__ */ zod.obje
         .string()
         .max(userInterviewTopicsSendInvitesCreateBodySubjectMax)
         .optional()
-        .describe('Override the default email subject line. Defaults to a friendly prompt referencing the topic.'),
+        .describe(
+            "Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default."
+        ),
     reply_to: zod
         .email()
         .optional()

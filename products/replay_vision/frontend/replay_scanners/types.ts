@@ -121,6 +121,14 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
 }
 
+export function createdByLabel(user: ReplayScanner['created_by']): string {
+    if (!user) {
+        return ''
+    }
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+    return name || user.email || `User ${user.id}`
+}
+
 export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; description: string }[] = [
     {
         value: 'monitor',
