@@ -95,7 +95,8 @@ class AdjustSourceConfig(config.Config):
 
 @config.config
 class AircallSourceConfig(config.Config):
-    pass
+    api_id: str
+    api_token: str
 
 
 @config.config

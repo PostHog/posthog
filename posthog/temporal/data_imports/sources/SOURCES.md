@@ -44,6 +44,7 @@ the row lists both.
 
 | Source        | Comm method                 | Primary library                                                 | Tracked transport           |
 | ------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
+| aircall       | HTTP                        | requests                                                        | ✅                          |
 | attio         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
@@ -134,7 +135,6 @@ doesn't conflict with concurrent PRs.
 
 - active_campaign
 - adjust
-- aircall
 - airtable
 - amazon_ads
 - amplitude
