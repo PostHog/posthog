@@ -33,8 +33,8 @@ from cryptography.fernet import Fernet
 from temporalio.api.common.v1 import Payload
 
 REGIONS = {
-    "us": {"aws_profile": "prod-us", "aws_region": "us-east-1"},
-    "eu": {"aws_profile": "prod-eu", "aws_region": "eu-central-1"},
+    "us": {"aws_profile": "prod-us-secrets", "aws_region": "us-east-1"},
+    "eu": {"aws_profile": "prod-eu-secrets", "aws_region": "eu-central-1"},
 }
 
 AWS_SECRET_NAME = "temporal-worker-shared-secrets"
@@ -63,9 +63,10 @@ def get_fernet(region: str) -> Fernet:
         if isinstance(e, ClientError) and e.response["Error"]["Code"] not in (
             "ExpiredToken",
             "ExpiredTokenException",
+            "AccessDeniedException",
         ):
             raise
-        print(f"AWS SSO session expired for profile '{profile}', logging in...")
+        print(f"AWS SSO session not active for profile '{profile}', logging in...")
         subprocess.run(["aws", "sso", "login", "--profile", profile], check=True)
         session = boto3.Session(profile_name=profile)
         client = session.client("secretsmanager", region_name=aws_region)
