@@ -1,0 +1,10 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  stop_on_error = true
+  cmd = "go build -o ./tmp/prom-compat ."
+  bin = "./tmp/prom-compat"
+  include_ext = ["go"]
+  exclude_dir = ["tmp"]
+  delay = 1000

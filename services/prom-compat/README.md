@@ -20,10 +20,10 @@ See [`docs/internal/prom-compat/design.md`](../../docs/internal/prom-compat/desi
 
 ## Running locally
 
-Through the dev stack:
+From the repo root, via the shared Go dev runner (sets `HOST`/`PORT` and `cd`s into the service):
 
 ```bash
-hogli start-go-service prom-compat
+bin/start-go-service prom-compat
 ```
 
 Or directly:

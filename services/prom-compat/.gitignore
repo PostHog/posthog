@@ -1,0 +1,9 @@
+# Binaries
+prom-compat
+
+# Test binaries
+*.test
+*.out
+
+# air temporary build dir
+tmp/
