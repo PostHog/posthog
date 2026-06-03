@@ -664,7 +664,7 @@ class PostgresSourceConfig(config.Config):
 
 @config.config
 class PostmarkSourceConfig(config.Config):
-    pass
+    server_token: str
 
 
 @config.config
