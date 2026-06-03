@@ -57,6 +57,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { isInsightQueryWithBreakdown, isInsightVizNode } from '~/queries/utils'
 import {
     BreakdownFilter,
     DashboardFilter,
@@ -1624,6 +1625,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     effectiveEditBarFilters.breakdown_filter?.breakdowns?.length
                 )
                 return propertyFiltersCount + (hasBreakdown ? 1 : 0)
+            },
+        ],
+        breakdownIncompatibleInsightCount: [
+            (s) => [s.insightTiles, s.effectiveEditBarFilters],
+            (
+                insightTiles: DashboardTile<QueryBasedInsightModel>[],
+                effectiveEditBarFilters: DashboardFilter
+            ): number => {
+                const hasBreakdown = !!(
+                    effectiveEditBarFilters.breakdown_filter?.breakdown_type ||
+                    effectiveEditBarFilters.breakdown_filter?.breakdowns?.length
+                )
+                if (!hasBreakdown) {
+                    return 0
+                }
+                // Lifecycle, Stickiness, and Paths can't express a breakdown — the dashboard
+                // breakdown is silently dropped for them, so flag the tiles to the user.
+                return insightTiles.filter((tile) => {
+                    const query = tile.insight?.query
+                    const sourceQuery = isInsightVizNode(query) ? query.source : query
+                    return !isInsightQueryWithBreakdown(sourceQuery)
+                }).length
             },
         ],
         canEditDashboard: [

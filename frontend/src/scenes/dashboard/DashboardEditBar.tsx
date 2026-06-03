@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconCalendar } from '@posthog/icons'
+import { IconCalendar, IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -26,7 +27,8 @@ interface DashboardEditBarProps {
 }
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
-    const { dashboard, dashboardMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { dashboard, dashboardMode, hasVariables, effectiveEditBarFilters, breakdownIncompatibleInsightCount } =
+        useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -141,6 +143,15 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         size="small"
                     />
                 </BindLogic>
+                {breakdownIncompatibleInsightCount > 0 && (
+                    <Tooltip
+                        title={`This breakdown does not apply to ${breakdownIncompatibleInsightCount} ${
+                            breakdownIncompatibleInsightCount === 1 ? 'insight' : 'insights'
+                        } on this dashboard. Lifecycle, Stickiness, and Paths insights don't support breakdowns, so they'll show data without it.`}
+                    >
+                        <IconInfo className="text-muted text-base ml-1 align-middle" />
+                    </Tooltip>
+                )}
             </div>
 
             <VariablesForDashboard />
