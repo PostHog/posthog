@@ -28,12 +28,16 @@ User = get_user_model()
 # Server-owned run.metadata keys — never accept these from client input.
 # Allowing clients to set these would let them target arbitrary GitHub
 # comments for PATCH, or spoof baseline commit SHAs in the audit trail.
+# These are all written by the server itself, never by the CI runner.
+# `github_check_run_id` is deliberately NOT reserved: the CI runner is its
+# only source (from `JOB_CHECK_RUN_ID=${{ job.check_run_id }}`), and any
+# rerun it enables is fenced by `_rerun_github_job` validating the check
+# run's head_sha matches the run's commit_sha within the team's own repo.
 _RESERVED_RUN_METADATA_KEYS = frozenset(
     {
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
-        "github_check_run_id",
     }
 )
 
