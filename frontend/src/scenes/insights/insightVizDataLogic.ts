@@ -94,6 +94,7 @@ import {
     isWebOverviewQuery,
     isWebStatsTableQuery,
     nodeKindToFilterProperty,
+    supportsBarValueStacking,
     supportsPercentStackView,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
@@ -217,6 +218,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 dateRange?.date_from !== 'all',
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
+        supportsBarValueStacking: [(s) => [s.querySource], (q) => supportsBarValueStacking(q)],
         supportsValueOnSeries: [
             (s) => [s.isTrends, s.isFunnels, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isFunnels, isStickiness, isLifecycle, display) => {

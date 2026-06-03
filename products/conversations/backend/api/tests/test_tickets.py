@@ -27,9 +27,9 @@ from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
-from products.conversations.backend.api.tickets import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.role import Role
@@ -681,6 +681,127 @@ class TestTicketAPI(APIBaseTest):
                 self.assertIn("last_message_text", ticket_data)
                 self.assertIn("assignee", ticket_data)
                 self.assertIn("person", ticket_data)
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkUpdateStatus(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_status/"
+
+    def test_bulk_update_status(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["updated"], 3)
+        self.assertEqual(set(data["ids"]), set(ids))
+        for t in self.tickets:
+            t.refresh_from_db()
+            self.assertEqual(t.status, Status.OPEN)
+
+    def test_skips_tickets_already_in_target_status(self, mock_on_commit):
+        self.tickets[0].status = Status.OPEN
+        self.tickets[0].save(update_fields=["status"])
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 2)
+        self.assertNotIn(str(self.tickets[0].id), response.json()["ids"])
+
+    def test_ignores_other_team_ids(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        ids = [str(self.tickets[0].id), str(other_ticket.id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+        other_ticket.refresh_from_db()
+        self.assertEqual(other_ticket.status, Status.NEW)
+
+    def test_creates_activity_log_entries(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets[:2]]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="Ticket",
+            activity="updated",
+        )
+        self.assertEqual(logs.count(), 2)
+        logged_ids = {log.item_id for log in logs}
+        self.assertEqual(logged_ids, set(ids))
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_invalidates_cache_on_resolved_transition(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_no_cache_invalidation_without_resolved(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        mock_invalidate.assert_not_called()
+
+    def test_rejects_empty_ids(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [], "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_invalid_status(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "status": "bogus"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestTicketAssignment(APIBaseTest):

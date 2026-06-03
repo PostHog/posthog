@@ -249,6 +249,9 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             <SceneTitleSection
                                 name={cohort.name}
                                 description={cohort.description || ''}
+                                // When the SceneMenuBar renders above the title, the title's default
+                                // negative top margin pulls it up under the bar — drop it in that case.
+                                className={featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR] ? 'mt-0' : undefined}
                                 resourceType={{
                                     to: urls.cohorts(),
                                     type: RESOURCE_TYPE,
