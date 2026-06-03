@@ -122,7 +122,6 @@ Grant the read scopes for the resources you want to sync:
             iconPath="/static/services/webflow.png",
             docsUrl="https://posthog.com/docs/cdp/sources/webflow",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

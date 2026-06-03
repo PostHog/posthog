@@ -43,7 +43,7 @@ class TestWebflowSource:
         config = WebflowSource().get_source_config
         assert config.name == "Webflow"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is not True
 
         assert all(isinstance(field, SourceFieldInputConfig) for field in config.fields)
         fields = {field.name: field for field in config.fields if isinstance(field, SourceFieldInputConfig)}
