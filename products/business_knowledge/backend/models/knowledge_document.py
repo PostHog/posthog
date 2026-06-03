@@ -51,6 +51,13 @@ class KnowledgeDocument(UUIDModel):
     safety_verdict = models.CharField(max_length=16, choices=SafetyVerdict.choices, default=SafetyVerdict.UNKNOWN)
     # Human-facing one-liner explaining an `unsafe` verdict. Empty otherwise.
     safety_reason = models.TextField(blank=True, default="")
+    # How many coordinator passes have tried (and failed) to get a verdict for
+    # this doc. The classifier fails CLOSED on a model block/error/timeout —
+    # the doc stays `unknown` (excluded from search) rather than being waved
+    # through as `safe`. Without a bound, the coordinator would re-pick those
+    # docs every pass forever; once this hits CLASSIFY_MAX_ATTEMPTS we stop
+    # re-queuing (the doc stays excluded). Reset to 0 whenever content changes.
+    classification_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
 
     objects = TeamScopedManager()
 

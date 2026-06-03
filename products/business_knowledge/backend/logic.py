@@ -17,7 +17,7 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -30,11 +30,12 @@ from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
     CHUNK_HARD_MAX_CHARS,
     CHUNK_TARGET_CHARS,
+    CLASSIFY_MAX_ATTEMPTS,
+    CLASSIFY_MAX_TOTAL_CHARS,
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
     MAX_CHUNKS_PER_TEAM,
-    MAX_CLASSIFY_CHARS,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
@@ -1104,9 +1105,11 @@ def _insert_document_and_chunks(
         document.content_hash = content_hash
         document.tombstoned_at = None
         # Content changed (caller only reaches this branch on a hash diff), so
-        # the prior safety verdict no longer applies — re-queue for classification.
+        # the prior safety verdict no longer applies — re-queue for
+        # classification with a fresh attempt budget.
         document.safety_verdict = SafetyVerdict.UNKNOWN
         document.safety_reason = ""
+        document.classification_attempts = 0
         document.save(
             update_fields=[
                 "title",
@@ -1118,6 +1121,7 @@ def _insert_document_and_chunks(
                 "tombstoned_at",
                 "safety_verdict",
                 "safety_reason",
+                "classification_attempts",
                 "updated_at",
             ]
         )
@@ -1566,7 +1570,11 @@ def search_knowledge(
 # Bound how much one coordinator pass touches so a large backlog can't blow up
 # a single workflow run; the hourly cadence drains the rest on later passes.
 DUE_SOURCES_SCAN_CAP = 500
-PENDING_CLASSIFICATION_SCAN_CAP = 200
+# Kept deliberately small: each pending doc now carries up to
+# CLASSIFY_MAX_TOTAL_CHARS (~1 MB) of content so the classifier can inspect the
+# WHOLE searchable span (not just a 12 KB prefix). At 50 that's ~50 MB resident
+# in the activity worst case; raising it scales memory linearly.
+PENDING_CLASSIFICATION_SCAN_CAP = 50
 
 
 @dataclass(frozen=True)
@@ -1625,29 +1633,54 @@ def list_documents_pending_classification(
 
     Docs are only returned for orgs that approved AI data processing — we must
     not send their content to an LLM otherwise. Non-approved orgs' docs stay
-    ``unknown`` (and therefore searchable, fail-open).
+    ``unknown`` (and therefore excluded from search — fail closed).
+
+    Docs that have already burned ``CLASSIFY_MAX_ATTEMPTS`` passes without a
+    verdict are skipped: the classifier fails closed, so they stay ``unknown``
+    (excluded) but we stop re-queuing them so a permanently-unclassifiable doc
+    (e.g. content that always trips the model's own safety filter) can't loop
+    forever.
     """
-    # Only the classifier prefix is ever used — slice in SQL so a backlog of
-    # ~1 MB docs doesn't materialize in full in the activity's memory.
+    # The classifier inspects the whole document, but we cap how much we pull
+    # into memory per doc at CLASSIFY_MAX_TOTAL_CHARS + 1 — the classifier
+    # fails closed on anything longer than the cap, and the +1 lets it detect
+    # that the content was truncated here without a second Length() round-trip.
     rows = (
         KnowledgeDocument.objects.unscoped()
         .filter(
             safety_verdict=SafetyVerdict.UNKNOWN,
             tombstoned_at__isnull=True,
+            classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS,
             team__organization__is_ai_data_processing_approved=True,
         )
-        .annotate(content_prefix=Substr("content", 1, MAX_CLASSIFY_CHARS))
-        .values_list("team_id", "id", "content_prefix")[:limit]
+        .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
+        .values_list("team_id", "id", "content_capped")[:limit]
     )
     return [PendingDocument(team_id=team_id, document_id=doc_id, content=content) for team_id, doc_id, content in rows]
 
 
 @with_team_scope(canonical=True)
 def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, reason: str = "") -> None:
-    """Persist a classifier verdict on a single document (team-scoped write)."""
+    """
+    Persist a classifier outcome on a single document (team-scoped write).
+
+    A definitive ``safe`` / ``unsafe`` verdict is stored and the attempt
+    counter reset. An ``unknown`` outcome means the classifier could not get a
+    trustworthy verdict (model block, error, exhaustion, oversized doc): we
+    leave ``safety_verdict`` as ``unknown`` (still excluded from search — fail
+    closed) and only bump ``classification_attempts`` so the coordinator stops
+    re-queuing it once it has retried enough times.
+    """
+    if verdict == SafetyVerdict.UNKNOWN:
+        KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
+            classification_attempts=F("classification_attempts") + 1,
+            updated_at=timezone.now(),
+        )
+        return
     KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
         safety_verdict=verdict,
         safety_reason=reason[:1000],
+        classification_attempts=0,
         updated_at=timezone.now(),
     )
 

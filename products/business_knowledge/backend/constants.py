@@ -63,7 +63,26 @@ MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 MAX_FILE_DECOMPRESSED_BYTES = 100 * 1024 * 1024
 
 # --- Stage 5: safety classifier tunables ---
-# Only the leading slice of a document is classified — injection payloads sit
-# near the top and full docs can be ~1 MB. Sliced in SQL (not Python) when
-# loading pending docs so the coordinator never materializes whole documents.
-MAX_CLASSIFY_CHARS = 12_000
+# The classifier is a security boundary: the span it inspects MUST equal the
+# span that becomes searchable, otherwise an attacker can hide a prompt-
+# injection payload past the inspected region and still have it indexed and
+# surfaced to the agent. We therefore classify the WHOLE document in overlapping
+# windows (a doc is UNSAFE if any window is) rather than only a leading prefix.
+#
+# Window size is a cost knob, not a security knob — every window is inspected
+# regardless. Overlap guards against a payload straddling a window boundary.
+CLASSIFY_WINDOW_CHARS = 100_000
+CLASSIFY_WINDOW_OVERLAP_CHARS = 1_000
+# Hard cap on how much of one document we will classify. Documents longer than
+# this are failed CLOSED (left excluded from search) rather than partially
+# inspected and waved through — never apply a partial-document verdict to the
+# full, searchable document. Also bounds per-doc memory + LLM calls. Sized to
+# the text-source cap (MAX_TEXT_SIZE_BYTES); larger crawled/file docs are rare
+# and an operator can split them.
+CLASSIFY_MAX_TOTAL_CHARS = 1_000_000
+# How many coordinator passes may try to classify a single doc before we give
+# up and leave it excluded. The classifier fails closed, so an unclassifiable
+# doc stays `unknown` (never searchable); this only bounds the retry churn. At
+# the hourly cadence this is ~5 hours of retries — enough to ride out a
+# transient Gemini outage, bounded enough to not loop forever on poison content.
+CLASSIFY_MAX_ATTEMPTS = 5
