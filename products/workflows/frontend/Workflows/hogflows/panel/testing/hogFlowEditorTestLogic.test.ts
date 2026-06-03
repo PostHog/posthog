@@ -1,8 +1,36 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { GroupType, GroupTypeIndex } from '~/types'
 
-import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
+import { buildGroupsFromEventRow, hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
+
+describe('buildGroupsFromEventRow', () => {
+    const groupTypes = new Map<GroupTypeIndex, GroupType>([
+        [2 as GroupTypeIndex, { group_type: 'organization', group_type_index: 2 as GroupTypeIndex } as GroupType],
+    ])
+
+    it('builds the groups map keyed by type from the event group columns', () => {
+        const ids = [null, null, 'org-1', null, null]
+        const props = [null, null, { billing_plan: 'scale' }, null, null]
+        expect(buildGroupsFromEventRow(ids, props, groupTypes, 'http://localhost/project/1')).toEqual({
+            organization: {
+                id: 'org-1',
+                type: 'organization',
+                index: 2,
+                url: 'http://localhost/project/1/groups/2/org-1',
+                properties: { billing_plan: 'scale' },
+            },
+        })
+    })
+
+    it('skips empty ids and group indexes with no type mapping', () => {
+        const ids = ['', null, 'org-1', 'acct-1', null] // index 3 has no type in the map
+        const props = [{}, {}, { billing_plan: 'scale' }, { x: 1 }, {}]
+        const result = buildGroupsFromEventRow(ids, props, groupTypes, 'http://localhost/project/1')
+        expect(Object.keys(result ?? {})).toEqual(['organization'])
+    })
+})
 
 describe('hogFlowEditorTestLogic', () => {
     let logic: ReturnType<typeof hogFlowEditorTestLogic.build>

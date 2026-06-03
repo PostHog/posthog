@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 
+import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -16,6 +17,8 @@ import {
     AnyPropertyFilter,
     CyclotronJobInvocationGlobals,
     FilterLogicalOperator,
+    GroupType,
+    GroupTypeIndex,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -31,6 +34,27 @@ const STANDARD_SEARCH_DAYS = 7
 const EXTENDED_SEARCH_DAYS = 30
 const STANDARD_SEARCH_RANGE = `-${STANDARD_SEARCH_DAYS}d`
 const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
+
+// Test-event load query columns. We pull the group ids and their resolved properties alongside the
+// event so the dialog can populate `groups` from the event itself (WYSIWYG) — the filter/condition
+// layer reads `groups`, and surfacing it here means "what you see is what runs".
+// Row layout: [event(*), person, $group_0..4 (5 ids), group_0..4.properties (5 prop maps)].
+const EVENT_LOAD_SELECT = [
+    '*',
+    'person',
+    '$group_0',
+    '$group_1',
+    '$group_2',
+    '$group_3',
+    '$group_4',
+    'group_0.properties',
+    'group_1.properties',
+    'group_2.properties',
+    'group_3.properties',
+    'group_4.properties',
+]
+const GROUP_ID_COLS: [number, number] = [2, 7]
+const GROUP_PROP_COLS: [number, number] = [7, 12]
 
 export interface HogflowTestInvocation {
     globals: string
@@ -82,11 +106,43 @@ export const createExampleEvent = (
     }
 }
 
+// Build the resolved `groups` map for the test globals from an event's group association.
+// We read the canonical `$group_0..4` ids and the `group_N.properties` lazy-join (selected on the
+// load query) rather than `properties.$groups`, since ingestion consumes `$groups` into those columns.
+// Keying by group-type name (via groupsModel) matches what the filter/condition layer expects.
+export const buildGroupsFromEventRow = (
+    groupIds: any[],
+    groupProperties: any[],
+    groupTypes: Map<GroupTypeIndex, GroupType>,
+    projectUrl: string
+): CyclotronJobInvocationGlobals['groups'] => {
+    const groups: NonNullable<CyclotronJobInvocationGlobals['groups']> = {}
+    for (let index = 0; index < 5; index++) {
+        const id = groupIds[index]
+        if (typeof id !== 'string' || id === '') {
+            continue
+        }
+        const groupType = groupTypes.get(index as GroupTypeIndex)
+        if (!groupType) {
+            continue
+        }
+        groups[groupType.group_type] = {
+            id,
+            type: groupType.group_type,
+            index,
+            url: `${projectUrl}/groups/${index}/${encodeURIComponent(id)}`,
+            properties: (groupProperties[index] as Record<string, any>) ?? {},
+        }
+    }
+    return groups
+}
+
 export const createGlobalsFromResponse = (
     event: any,
     person: any,
     teamId: number,
-    workflowName?: string | null
+    workflowName?: string | null,
+    groups: CyclotronJobInvocationGlobals['groups'] = {}
 ): CyclotronJobInvocationGlobals => {
     const projectUrl = `${window.location.origin}/project/${teamId}`
     return {
@@ -109,7 +165,7 @@ export const createGlobalsFromResponse = (
                   url: `${window.location.origin}/person/${person.id}`,
               }
             : undefined,
-        groups: {},
+        groups,
         project: {
             id: teamId,
             name: 'Default project',
@@ -132,6 +188,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             ['workflow', 'workflowSanitized', 'triggerAction'],
             hogFlowEditorLogic,
             ['selectedNodeId'],
+            groupsModel,
+            ['groupTypes'],
         ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId', 'setAnimatingEdgePair']],
     })),
@@ -268,7 +326,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
-                            select: ['*', 'person'],
+                            select: EVENT_LOAD_SELECT,
                             after: timeRange,
                             limit: 10,
                             orderBy: ['timestamp DESC'],
@@ -319,10 +377,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             }
                         }
 
-                        const event = response.results[resultIndex][0]
-                        const person = response.results[resultIndex][1]
+                        const row = response.results[resultIndex]
+                        const event = row[0]
+                        const person = row[1]
+                        const groups = buildGroupsFromEventRow(
+                            row.slice(GROUP_ID_COLS[0], GROUP_ID_COLS[1]),
+                            row.slice(GROUP_PROP_COLS[0], GROUP_PROP_COLS[1]),
+                            values.groupTypes,
+                            `${window.location.origin}/project/${values.workflow.team_id}`
+                        )
 
-                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                        return createGlobalsFromResponse(
+                            event,
+                            person,
+                            values.workflow.team_id,
+                            values.workflow.name,
+                            groups
+                        )
                     } catch (e: any) {
                         if (!e.message?.includes('breakpoint')) {
                             actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
@@ -351,7 +422,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                     ],
                                 },
                             ],
-                            select: ['*', 'person'],
+                            select: EVENT_LOAD_SELECT,
                             after: timeRange,
                             limit: 1,
                             orderBy: ['timestamp DESC'],
@@ -383,12 +454,25 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             return exampleGlobals
                         }
 
-                        const event = response.results[0][0]
-                        const person = response.results[0][1]
+                        const row = response.results[0]
+                        const event = row[0]
+                        const person = row[1]
+                        const groups = buildGroupsFromEventRow(
+                            row.slice(GROUP_ID_COLS[0], GROUP_ID_COLS[1]),
+                            row.slice(GROUP_PROP_COLS[0], GROUP_PROP_COLS[1]),
+                            values.groupTypes,
+                            `${window.location.origin}/project/${values.workflow.team_id}`
+                        )
 
                         actions.setSampleGlobalsError(null)
                         actions.setCanTryExtendedSearch(false)
-                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                        return createGlobalsFromResponse(
+                            event,
+                            person,
+                            values.workflow.team_id,
+                            values.workflow.name,
+                            groups
+                        )
                     } catch {
                         actions.setSampleGlobalsError('Failed to load event. Please try again.')
                         return null
