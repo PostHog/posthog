@@ -63,6 +63,7 @@ the row lists both.
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
 | drip          | HTTP                        | requests                                                        | ✅                          |
+| freshdesk     | HTTP                        | requests                                                        | ✅                          |
 | eventbrite    | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
@@ -173,7 +174,6 @@ doesn't conflict with concurrent PRs.
 - elasticsearch
 - facebook_pages
 - firebase
-- freshdesk
 - freshsales
 - front
 - fullstory

@@ -348,7 +348,8 @@ class FirebaseSourceConfig(config.Config):
 
 @config.config
 class FreshdeskSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
