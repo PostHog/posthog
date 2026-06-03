@@ -197,6 +197,13 @@ function DataTable<TData, TValue>({
     const paginated = pageSize != null
     const [sorting, setSorting] = React.useState<SortingState>([])
     const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: pageSize ?? 10 })
+    // Keep the page size in sync when the prop changes at runtime — reset to the
+    // first page so the new size applies from a consistent offset.
+    React.useEffect(() => {
+        if (pageSize != null) {
+            setPagination((prev) => ({ ...prev, pageIndex: 0, pageSize }))
+        }
+    }, [pageSize])
     const table = useReactTable({
         data,
         columns,
