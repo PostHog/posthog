@@ -321,6 +321,11 @@ class Team(UUIDTClassicModel):
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
+    # Set the first time the team ingests an event that clearly comes from a real
+    # production environment (not the user's localhost/dev). Tracked independently of
+    # `ingested_event`. `db_default` is required because posthog_team is also written by
+    # raw INSERTs from the plugin-server/rust services that don't list this column.
+    ingested_production_event = models.BooleanField(default=False, db_default=False)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
     secret_api_token = models.CharField(

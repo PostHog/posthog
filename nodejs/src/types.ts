@@ -299,6 +299,7 @@ export interface Team {
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null
     ingested_event: boolean
+    ingested_production_event: boolean
     person_display_name_properties: string[] | null
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]

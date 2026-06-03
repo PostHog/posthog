@@ -2,6 +2,7 @@ import { Properties } from '~/plugin-scaffold'
 
 import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
+import { isProductionEventOrigin } from './event-origin'
 import { LazyLoader } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
@@ -45,37 +46,59 @@ export class TeamManager {
     }
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
+        // These two flags are tracked independently: a team's first event is usually from a
+        // dev/localhost environment, so we separately mark the first event that clearly comes
+        // from a real production environment. The production guard keeps running even after
+        // `ingested_event` is already set.
         if (!team.ingested_event) {
-            await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
-                [true, team.id],
-                'setTeamIngestedEvent'
+            await this.markTeamFlagAndCapture(team, 'ingested_event', 'first team event ingested', properties)
+        }
+        if (!team.ingested_production_event && isProductionEventOrigin(properties)) {
+            await this.markTeamFlagAndCapture(
+                team,
+                'ingested_production_event',
+                'first team production event ingested',
+                properties
             )
+        }
+    }
 
-            // Invalidate the cache for this team
-            this.lazyLoader.markForRefresh(String(team.id))
+    private async markTeamFlagAndCapture(
+        team: Team,
+        column: 'ingested_event' | 'ingested_production_event',
+        event: string,
+        properties: Properties
+    ): Promise<void> {
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            // `column` is a compile-time union literal, not user input — safe to interpolate.
+            `UPDATE posthog_team SET ${column} = $1 WHERE id = $2`,
+            [true, team.id],
+            `setTeam_${column}`
+        )
 
-            const organizationMembers = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
+        // Invalidate the cache for this team
+        this.lazyLoader.markForRefresh(String(team.id))
+
+        const organizationMembers = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+            [team.organization_id],
+            'posthog_organizationmembership'
+        )
+
+        const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+        for (const { distinct_id } of distinctIds) {
+            captureTeamEvent(
+                team,
+                event,
+                {
+                    sdk: properties.$lib,
+                    realm: properties.realm,
+                    host: properties.$host,
+                },
+                distinct_id
             )
-
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                captureTeamEvent(
-                    team,
-                    'first team event ingested',
-                    {
-                        sdk: properties.$lib,
-                        realm: properties.realm,
-                        host: properties.$host,
-                    },
-                    distinct_id
-                )
-            }
         }
     }
 
@@ -114,6 +137,7 @@ export class TeamManager {
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
                 t.ingested_event,
+                t.ingested_production_event,
                 t.person_display_name_properties,
                 t.cookieless_server_hash_mode,
                 t.timezone,

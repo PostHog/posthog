@@ -3,6 +3,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import {
     createTeam,
     getFirstTeam,
+    getTeam as getTeamFromDb,
     resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../tests/helpers/sql'
@@ -10,6 +11,7 @@ import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
 import { PostgresRouter } from './db/postgres'
+import * as posthogUtils from './posthog'
 import { TeamManager } from './team-manager'
 
 describe('TeamManager()', () => {
@@ -58,6 +60,7 @@ describe('TeamManager()', () => {
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,
+                  "ingested_production_event": true,
                   "logs_settings": null,
                   "name": "TEST PROJECT",
                   "organization_id": "<REPLACED-UUID-1>",
@@ -226,6 +229,81 @@ describe('TeamManager()', () => {
             ])
             const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(true)
+        })
+    })
+
+    describe('setTeamIngestedEvent()', () => {
+        let captureTeamEventSpy: jest.SpyInstance
+        const productionProps = { $lib: 'web', realm: 'cloud', $host: 'app.acme.com' }
+        const localhostProps = { $lib: 'web', realm: 'cloud', $host: 'localhost:3000' }
+        const serverSideProps = { $lib: 'posthog-python', realm: 'hosted' }
+
+        beforeEach(() => {
+            captureTeamEventSpy = jest.spyOn(posthogUtils, 'captureTeamEvent').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            captureTeamEventSpy.mockRestore()
+        })
+
+        const createFreshTeam = async (overrides: Record<string, any>): Promise<Team> => {
+            const newTeamId = await createTeam(postgres, organizationId, undefined, overrides)
+            const team = await getTeamFromDb(postgres, newTeamId)
+            return team!
+        }
+
+        const capturedEvents = (): string[] => captureTeamEventSpy.mock.calls.map((call) => call[1])
+
+        it('fires both events when the very first event is production', async () => {
+            const team = await createFreshTeam({ ingested_event: false, ingested_production_event: false })
+
+            await teamManager.setTeamIngestedEvent(team, productionProps)
+
+            const updated = await getTeamFromDb(postgres, team.id)
+            expect(updated!.ingested_event).toBe(true)
+            expect(updated!.ingested_production_event).toBe(true)
+            expect(capturedEvents()).toEqual(['first team event ingested', 'first team production event ingested'])
+        })
+
+        it('fires only the dev event for a localhost first event, leaving the production flag unset', async () => {
+            const team = await createFreshTeam({ ingested_event: false, ingested_production_event: false })
+
+            await teamManager.setTeamIngestedEvent(team, localhostProps)
+
+            const updated = await getTeamFromDb(postgres, team.id)
+            expect(updated!.ingested_event).toBe(true)
+            expect(updated!.ingested_production_event).toBe(false)
+            expect(capturedEvents()).toEqual(['first team event ingested'])
+        })
+
+        it('does not fire the production event for server-side events with no host', async () => {
+            const team = await createFreshTeam({ ingested_event: false, ingested_production_event: false })
+
+            await teamManager.setTeamIngestedEvent(team, serverSideProps)
+
+            const updated = await getTeamFromDb(postgres, team.id)
+            expect(updated!.ingested_event).toBe(true)
+            expect(updated!.ingested_production_event).toBe(false)
+            expect(capturedEvents()).toEqual(['first team event ingested'])
+        })
+
+        it('fires the production event later for an already-activated team', async () => {
+            const team = await createFreshTeam({ ingested_event: true, ingested_production_event: false })
+
+            await teamManager.setTeamIngestedEvent(team, productionProps)
+
+            const updated = await getTeamFromDb(postgres, team.id)
+            expect(updated!.ingested_event).toBe(true)
+            expect(updated!.ingested_production_event).toBe(true)
+            expect(capturedEvents()).toEqual(['first team production event ingested'])
+        })
+
+        it('does nothing when both flags are already set', async () => {
+            const team = await createFreshTeam({ ingested_event: true, ingested_production_event: true })
+
+            await teamManager.setTeamIngestedEvent(team, productionProps)
+
+            expect(capturedEvents()).toEqual([])
         })
     })
 })
