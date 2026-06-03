@@ -150,7 +150,9 @@ describe('actionsAndEventsToSeries', () => {
                 type: 'events',
                 order: 0,
                 name: 'item1',
-                properties: [{ type: PropertyFilterType.Event, key: 'a', value: 'x', operator: PropertyOperator.Exact }],
+                properties: [
+                    { type: PropertyFilterType.Event, key: 'a', value: 'x', operator: PropertyOperator.Exact },
+                ],
             },
         ]
 
