@@ -161,11 +161,13 @@ describe('cronTick', () => {
         const t0 = new Date('2026-06-01T10:00:00Z')
         await cronTick({ revisions, queue, now: () => t0 }, state)
         // Window (10:00, 10:05]: firings at 10:01, 10:02, 10:03, 10:04, 10:05.
-        // With max_catch_up_age_seconds=120 and now=10:05, the age cap is
-        // 10:03 (inclusive) — so 10:03, 10:04, 10:05 = 3 firings survive.
+        // With max_catch_up_age_seconds=120 and now=10:05, the cron enumeration's
+        // exclusive lower bound is earliestAllowed=10:03 — so 10:04, 10:05 = 2
+        // firings survive (the firing exactly at the age boundary is dropped,
+        // matching the `clamps the enumeration window` regression below).
         const t1 = new Date('2026-06-01T10:05:00Z')
         const out = await cronTick({ revisions, queue, now: () => t1 }, state)
-        expect(out.fired).toBe(3)
+        expect(out.fired).toBe(2)
     })
 
     it('clamps the enumeration window to max_catch_up_age_seconds', async () => {

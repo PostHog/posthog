@@ -12,6 +12,7 @@
         ".": "./src/index.ts"
     },
     "scripts": {
+        "lint": "oxlint --quiet .",
         "typescript:check": "tsc --noEmit -p .",
         "test": "vitest run"
     },

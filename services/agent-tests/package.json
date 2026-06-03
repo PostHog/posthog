@@ -7,6 +7,7 @@
     "author": "PostHog <hey@posthog.com>",
     "type": "module",
     "scripts": {
+        "lint": "oxlint --quiet .",
         "typescript:check": "tsc --noEmit -p .",
         "test": "vitest run"
     },

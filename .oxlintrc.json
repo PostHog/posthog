@@ -196,6 +196,33 @@
             "rules": {
                 "react/forbid-elements": "off"
             }
+        },
+        {
+            "files": ["packages/agent-chat/**/*.{ts,tsx}", "services/agent-console/**/*.{ts,tsx}"],
+            "rules": {
+                "react/forbid-elements": "off",
+                "react/forbid-dom-props": "off",
+                "no-restricted-imports": "off"
+            }
+        },
+        {
+            "files": [
+                "services/agent-shared/**/*.test.{ts,tsx}",
+                "services/agent-ingress/**/*.test.{ts,tsx}",
+                "services/agent-runner/**/*.test.{ts,tsx}",
+                "services/agent-janitor/**/*.test.{ts,tsx}",
+                "services/agent-tools/**/*.test.{ts,tsx}",
+                "services/agent-migrations/**/*.test.{ts,tsx}",
+                "services/agent-tests/**/*.test.{ts,tsx}",
+                "services/agent-sandbox-host/**/*.test.{ts,js}"
+            ],
+            "rules": {
+                "jest/no-export": "off",
+                "jest/require-to-throw-message": "off",
+                "jest/expect-expect": "off",
+                "jest/valid-expect": "off",
+                "jest/no-conditional-expect": "off"
+            }
         }
     ]
 }

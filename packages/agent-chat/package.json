@@ -13,6 +13,7 @@
         "./fixtures": "./src/fixtures/index.ts"
     },
     "scripts": {
+        "lint": "oxlint --quiet .",
         "typescript:check": "tsc --noEmit -p ."
     },
     "dependencies": {
@@ -23,6 +24,7 @@
         "yaml": "^2.5.1"
     },
     "devDependencies": {
+        "@storybook/react": "catalog:",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         "react": "^19.2.0",
