@@ -404,6 +404,24 @@ export function OverviewTab({
             },
         },
         {
+            title: 'Type',
+            width: 120,
+            render: function RenderType(_, featureFlag: FeatureFlagType) {
+                const label = featureFlag.is_remote_configuration
+                    ? 'Remote config'
+                    : (featureFlag.experiment_set?.length || 0) > 0
+                      ? 'Experiment'
+                      : (featureFlag.filters?.multivariate?.variants?.length || 0) > 0
+                        ? 'Multiple variants'
+                        : 'Boolean'
+                return (
+                    <LemonTag type="default" className="whitespace-nowrap">
+                        {label}
+                    </LemonTag>
+                )
+            },
+        },
+        {
             title: 'Tags',
             dataIndex: 'tags' as keyof FeatureFlagType,
             render: function Render(_, featureFlag: FeatureFlagType) {
