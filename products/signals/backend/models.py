@@ -423,8 +423,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Minutes between runs. The coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
     # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
-    # 1440 = once a day. Ceiling 43200 = 30 days.
-    run_interval_minutes = models.PositiveSmallIntegerField(
+    # 1440 = once a day. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
+    # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
+    run_interval_minutes = models.PositiveIntegerField(
         default=1440,
         db_default=1440,
         validators=[MinValueValidator(10), MaxValueValidator(43200)],

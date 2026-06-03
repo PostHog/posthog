@@ -50,7 +50,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="signalscoutconfig",
             name="run_interval_minutes",
-            field=models.PositiveSmallIntegerField(
+            field=models.PositiveIntegerField(
                 db_default=1440,
                 default=1440,
                 validators=[
