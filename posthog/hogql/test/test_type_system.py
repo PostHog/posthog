@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from posthog.hogql import ast
@@ -739,6 +740,37 @@ class TestHogQLTypeSystem:
         assert ratio_alias.expr.value == 2.0
         assert ratio_alias.expr.type == ast.FloatType(nullable=False)
         assert isinstance(unsafe_alias.expr, ast.ArithmeticOperation)
+
+    def test_type_aware_simplification_folds_safe_date_interval_arithmetic(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select(
+                    "SELECT "
+                    "toDate('2024-01-01') + toIntervalDay(2) AS plus_days, "
+                    "toDate('2024-01-08') - toIntervalWeek(1) AS minus_week, "
+                    "toDate('2024-01-31') + toIntervalMonth(1) AS unsafe_month"
+                ),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = cast(
+            ast.SelectQuery,
+            simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse"),
+        )
+
+        plus_days_alias = cast(ast.Alias, simplified.select[0])
+        minus_week_alias = cast(ast.Alias, simplified.select[1])
+        unsafe_month_alias = cast(ast.Alias, simplified.select[2])
+
+        assert isinstance(plus_days_alias.expr, ast.Constant)
+        assert plus_days_alias.expr.value == date(2024, 1, 3)
+        assert plus_days_alias.expr.type == ast.DateType(nullable=False)
+        assert isinstance(minus_week_alias.expr, ast.Constant)
+        assert minus_week_alias.expr.value == date(2024, 1, 1)
+        assert minus_week_alias.expr.type == ast.DateType(nullable=False)
+        assert isinstance(unsafe_month_alias.expr, ast.ArithmeticOperation)
 
     def test_type_aware_simplification_folds_safe_constant_casts_nulls_and_json_paths(self) -> None:
         resolved = cast(

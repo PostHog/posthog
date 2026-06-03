@@ -69,6 +69,7 @@ Completed in this branch:
 - Extended the opt-in type-aware simplifier to fold safe constant conversion calls, simplify literal `NULL` fallbacks in `ifNull(...)`/`coalesce(...)`, and fold exact-present literal JSON-path reads.
 - Fixed ClickHouse overload selection to prefer transformed first-argument types over stale call metadata, so typed DateTime property expressions do not re-enter best-effort parsing.
 - Added emitted-SQL coverage for type-aware nullability wins in generated person joins, where typed aggregate/tuple expressions no longer need defensive `ifNull(...)` wrappers.
+- Extended the opt-in type-aware simplifier to fold day/week date interval arithmetic for literal `Date` expressions while leaving month/year calendar arithmetic untouched.
 
 Still intentionally left as follow-up work:
 
@@ -594,7 +595,8 @@ TODO:
   - [ ] keep projection pushdown type-safe after pruning
 - [ ] Add constant folding for typed literals where low-risk:
   - [x] simple arithmetic
-  - [ ] date interval constants
+  - [x] day/week date interval constants
+  - [ ] month/year date interval constants
   - [x] safe casted constants and conversion calls
   - [x] exact-present literal JSON paths
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import dataclasses
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
@@ -53,7 +53,11 @@ class TypeAwareSimplifier(CloningVisitor):
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
         node = cast(ast.ArithmeticOperation, super().visit_arithmetic_operation(node))
-        return _fold_numeric_arithmetic_operation(node, self.context) or node
+        return (
+            _fold_numeric_arithmetic_operation(node, self.context)
+            or _fold_temporal_interval_arithmetic_operation(node)
+            or node
+        )
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
         node = cast(ast.Call, super().visit_call(node))
@@ -218,6 +222,49 @@ def _constant_type_from_literal(value: int | float) -> ast.ConstantType:
     return ast.FloatType(nullable=False)
 
 
+def _fold_temporal_interval_arithmetic_operation(node: ast.ArithmeticOperation) -> ast.Constant | None:
+    if node.op not in {ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub}:
+        return None
+
+    left_date = node.left.value if isinstance(node.left, ast.Constant) and isinstance(node.left.value, date) else None
+    right_date = (
+        node.right.value if isinstance(node.right, ast.Constant) and isinstance(node.right.value, date) else None
+    )
+    left_delta = _constant_day_or_week_interval(node.left)
+    right_delta = _constant_day_or_week_interval(node.right)
+
+    result: date | datetime | None = None
+    if left_date is not None and right_delta is not None:
+        result = left_date + right_delta if node.op == ast.ArithmeticOperationOp.Add else left_date - right_delta
+    elif node.op == ast.ArithmeticOperationOp.Add and left_delta is not None and right_date is not None:
+        result = right_date + left_delta
+
+    if result is None:
+        return None
+
+    if isinstance(result, datetime):
+        constant_type: ast.ConstantType = ast.DateTimeType(nullable=False)
+    else:
+        constant_type = ast.DateType(nullable=False)
+    return ast.Constant(value=result, type=constant_type, start=node.start, end=node.end)
+
+
+def _constant_day_or_week_interval(node: ast.Expr) -> timedelta | None:
+    if not isinstance(node, ast.Call) or len(node.args) != 1:
+        return None
+
+    interval_value = node.args[0].value if isinstance(node.args[0], ast.Constant) else None
+    if not isinstance(interval_value, int) or isinstance(interval_value, bool):
+        return None
+
+    normalized_name = node.name.lower()
+    if normalized_name == "tointervalday":
+        return timedelta(days=interval_value)
+    if normalized_name == "tointervalweek":
+        return timedelta(weeks=interval_value)
+    return None
+
+
 def _is_null_constant(node: ast.Expr) -> bool:
     return isinstance(node, ast.Constant) and node.value is None
 
@@ -245,6 +292,8 @@ def _fold_constant_conversion_call(node: ast.Call, dialect: HogQLDialect) -> ast
         return _fold_constant_cast(source, parse_sql_runtime_type("Int64", dialect=dialect))
     if normalized_name in {"tofloat", "tofloatorzero", "tofloatordefault"}:
         return _fold_constant_cast(source, parse_sql_runtime_type("Float64", dialect=dialect))
+    if normalized_name in {"todate", "to_date", "_todate"}:
+        return _fold_constant_cast(source, parse_sql_runtime_type("Date", dialect=dialect))
     if normalized_name == "tobool":
         return _fold_constant_cast(source, parse_sql_runtime_type("Bool", dialect=dialect))
     if normalized_name == "touuid":

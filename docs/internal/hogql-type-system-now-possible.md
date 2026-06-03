@@ -375,10 +375,11 @@ Nullability simplification:
 Constant folding:
 
 - finite integer/float literal arithmetic can fold inside the opt-in simplifier, for example `1 + 2 * 3` becomes `7`
+- day/week arithmetic on literal `Date` expressions can fold inside the opt-in simplifier, for example `toDate('2024-01-01') + toIntervalDay(2)` becomes `toDate('2024-01-03')`
 - safe constant conversions can fold inside the opt-in simplifier, for example `accurateCast('42', 'Int64')`, `toFloat(1)`, and `toBool('true')`
 - exact-present literal JSON paths can fold inside the opt-in simplifier for `JSONExtract(...)`, `JSONExtractRaw(...)`, `JSONExtractString(...)`, `JSONHas(...)`, `JSONLength(...)`, and related literal-only helpers
 - division and modulo by zero remain untouched
-- date interval constants and broad materialized JSON-path rewrites are still follow-up work
+- month/year date interval constants and broad materialized JSON-path rewrites are still follow-up work
 
 Set-query planning:
 
@@ -482,6 +483,7 @@ The simplifier currently removes conservative no-op operations:
 - literal `NULL` fallbacks in `ifNull(...)` and `coalesce(...)`
 - repeated compatible casts in those safe families
 - finite numeric literal arithmetic for typed integer and float constants
+- day/week interval arithmetic for literal date constants
 - safe constant conversion calls
 - exact-present literal JSON paths
 
