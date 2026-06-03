@@ -27,7 +27,7 @@ class TestAircallSource:
         assert config.name.value == "Aircall"
         assert config.label == "Aircall"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/aircall.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

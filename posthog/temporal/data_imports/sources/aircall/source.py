@@ -46,7 +46,6 @@ class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
 You can create an API key (API ID + API token) in your [Aircall dashboard](https://dashboard.aircall.io/integrations/api-keys). The key has read access to all of your company's data.""",
             iconPath="/static/services/aircall.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aircall",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],
