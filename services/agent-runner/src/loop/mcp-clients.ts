@@ -291,6 +291,16 @@ async function resolveTarget(
             throw new Error(`mcp_integration_host_validator_not_wired: ${ref.auth.integration}`)
         }
         const parsed = new URL(url)
+        // Smokescreen owns SSRF, but it can't guarantee the OAuth bearer isn't
+        // sent in cleartext to an allowlisted public host — it filters by
+        // destination, not scheme. The host validator below only checks
+        // `url.host`, so without this an author could set `http://api.slack.com`
+        // and have the team's token stamped onto a plaintext request. Enforce
+        // https on the credential path only; non-auth external URLs stay
+        // smokescreen's concern.
+        if (parsed.protocol !== 'https:') {
+            throw new Error(`mcp_integration_unsafe_scheme: ${ref.auth.integration} → ${parsed.protocol}`)
+        }
         if (!deps.integrationHostValidator(ref.auth.integration, parsed)) {
             throw new Error(`mcp_integration_host_not_allowed: ${ref.auth.integration} → ${parsed.host}`)
         }

@@ -290,6 +290,33 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
+    it('SECURITY: refuses to attach integration bearer over plaintext http even when the host is allowed', async () => {
+        // Smokescreen owns SSRF but filters by destination, not scheme — it
+        // won't stop the team's OAuth bearer being sent in cleartext to an
+        // allowlisted public host. The host validator only checks `url.host`,
+        // so the https-only guard is the runner's job on the credential path.
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                kind: 'external',
+                id: 'linear',
+                url: 'http://mcp.linear.app/linear',
+                secrets: [],
+                auth: { integration: 'linear:T01' },
+            },
+        ]
+        await expect(
+            openMcpClients(refs, {
+                integrations: { 'linear:T01': { kind: 'linear', access_token: 'tok_abc' } },
+                secrets: {},
+                transportFactory: factory,
+                // Host is allowed — only the scheme should reject it.
+                integrationHostValidator: () => true,
+            })
+        ).rejects.toThrow(/mcp_integration_unsafe_scheme: linear:T01 → http:/)
+        await closePairs(pairs)
+    })
+
     it('throws mcp_integration_not_resolved when the integration ref is missing', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
