@@ -55,7 +55,6 @@ class TestGranolaSource:
         assert config.name.value == "Granola"
         assert config.label == "Granola"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/granola.png"
         assert len(config.fields) == 1
 
