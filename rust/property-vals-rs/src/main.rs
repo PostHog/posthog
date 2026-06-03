@@ -146,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let excluded_events = shared_config.excluded_property_keys.clone();
     let excluded_groups = shared_config.excluded_property_keys.clone();
-    let max_property_value_len = shared_config.max_property_value_len;
+    let length_caps = shared_config.length_caps;
     let aggregate_by_event_name = shared_config.aggregate_by_event_name;
 
     tokio::spawn(worker_loop::<Event, _, _>(
@@ -154,14 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_consumer,
         events_producer,
         events_handle.clone(),
-        move |e: &Event| {
-            fan_out(
-                e,
-                &excluded_events,
-                max_property_value_len,
-                aggregate_by_event_name,
-            )
-        },
+        move |e: &Event| fan_out(e, &excluded_events, length_caps, aggregate_by_event_name),
         "events",
         ReductionConfig::default(),
     ));
@@ -170,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_consumer,
         groups_producer,
         groups_handle.clone(),
-        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups, max_property_value_len),
+        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups, length_caps),
         "groups",
         ReductionConfig::default(),
     ));
