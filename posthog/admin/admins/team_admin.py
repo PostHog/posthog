@@ -434,9 +434,8 @@ class TeamAdmin(admin.ModelAdmin):
         except Exception as exc:
             return format_html("<em>(cache read failed: {})</em>", str(exc))
         if blob is None:
-            return format_html("<em>(empty — gateway will repopulate from S3 on next request)</em>")
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, trusted JSON)
-        return mark_safe(f"<pre>{json.dumps(blob, indent=2, default=str)}</pre>")
+            return format_html("<em>(empty, gateway will repopulate from S3 on next request)</em>")
+        return format_html("<pre>{}</pre>", json.dumps(blob, indent=2, default=str))
 
     def get_urls(self):
         urls = super().get_urls()

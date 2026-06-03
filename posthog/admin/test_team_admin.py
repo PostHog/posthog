@@ -202,3 +202,14 @@ class TestTeamAdminLLMGateway(BaseTest):
         ):
             rendered = str(self.admin.policy_cache_blob(self.team))
         assert "llm_gateway_enabled_at" in rendered
+
+    def test_policy_cache_blob_escapes_html_in_values(self) -> None:
+        # api_token is settable by staff via set_api_token_view, so the
+        # cache projection can carry HTML/JS that must not render raw.
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy",
+            return_value={"id": self.team.id, "api_token": "<script>alert(1)</script>"},
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "<script>" not in rendered
+        assert "&lt;script&gt;" in rendered
