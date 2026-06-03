@@ -316,7 +316,8 @@ class TestLegacyDltTableReconciliation:
     @pytest.mark.asyncio
     async def test_v3_native_table_still_merges(self, tmp_path: Path) -> None:
         delta_path = str(tmp_path / "table")
-        schema = pa.schema([("id", pa.int64()), ("name", pa.string())])
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("name", pa.string())]
+        schema = pa.schema(fields)
         deltalake.write_deltalake(delta_path, pa.table({"id": [1, 2], "name": ["a", "b"]}, schema=schema))
 
         helper = _make_local_helper(delta_path)
