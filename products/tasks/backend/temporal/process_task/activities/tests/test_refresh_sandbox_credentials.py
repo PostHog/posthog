@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxNotRunningError
 from products.tasks.backend.services.sandbox import ExecutionResult
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError, SandboxNotRunningError
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
