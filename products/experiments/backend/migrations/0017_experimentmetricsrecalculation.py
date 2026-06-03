@@ -89,7 +89,6 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "posthog_experimentmetricsrecalculation",
                 "indexes": [
-                    models.Index(fields=["status"], name="posthog_exp_status_809ec1_idx"),
                     models.Index(
                         fields=["experiment", "status"],
                         name="posthog_exp_experim_54da5b_idx",

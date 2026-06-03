@@ -393,7 +393,6 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["status"]),
             models.Index(fields=["experiment", "status"]),
         ]
         constraints = [
