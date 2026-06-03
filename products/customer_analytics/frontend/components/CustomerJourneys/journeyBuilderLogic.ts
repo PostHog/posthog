@@ -477,8 +477,15 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 actions.setJourneyName(insight.name?.replace(INSIGHT_NAME_PREFIX, '') || '')
                 actions.setJourneyDescription(insight.description || '')
                 actions.setInsightQuery(modifiedQuery)
-            } catch (e) {
-                posthog.captureException(e)
+            } catch (e: any) {
+                if (isBreakpoint(e)) {
+                    return
+                }
+                // A 404 here is expected when the backing funnel insight is gone (deleted, wrong
+                // team, or a stale insightId in the URL) — handle it gracefully without capturing.
+                if (e?.status !== 404) {
+                    posthog.captureException(e)
+                }
                 lemonToast.error('Failed to load journey')
                 router.actions.push(urls.customerAnalyticsJourneys())
             }
