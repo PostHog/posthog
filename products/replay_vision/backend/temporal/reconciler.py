@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from temporalio import workflow
@@ -22,6 +23,9 @@ from products.replay_vision.backend.temporal.reconciler_types import (
     ReconcileScannerSchedulesResult,
     UpsertScannerScheduleActivityInputs,
 )
+
+if TYPE_CHECKING:
+    from temporalio.client import Client
 
 # `activities` pulls in Django, which the workflow sandbox can't safely re-import.
 with workflow.unsafe.imports_passed_through():
@@ -107,3 +111,49 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         # return_exceptions so one scanner's failure doesn't block the others.
         results = await asyncio.gather(*(make_coro(sid) for sid in scanner_ids), return_exceptions=True)
         return [not isinstance(r, BaseException) for r in results]
+
+
+async def create_replay_vision_reconciler_schedule(client: "Client") -> None:
+    """Upsert the global reconciler schedule. Called from worker startup."""
+    # Function-local: this module contains `@workflow.defn`, and the Temporal sandbox can't
+    # re-import django.conf or unrelated temporalio.client types when validating the workflow.
+    from django.conf import settings  # noqa: PLC0415
+
+    from temporalio.client import (  # noqa: PLC0415
+        Schedule,
+        ScheduleActionStartWorkflow,
+        ScheduleIntervalSpec,
+        ScheduleOverlapPolicy,
+        SchedulePolicy,
+        ScheduleSpec,
+    )
+
+    from posthog.temporal.common.schedule import (  # noqa: PLC0415
+        a_create_schedule,
+        a_schedule_exists,
+        a_update_schedule,
+    )
+
+    from products.replay_vision.backend.temporal.constants import (  # noqa: PLC0415
+        RECONCILER_EXECUTION_TIMEOUT,
+        RECONCILER_INTERVAL,
+        RECONCILER_SCHEDULE_ID,
+        RECONCILER_WORKFLOW_ID,
+    )
+
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            RECONCILER_WORKFLOW_NAME,
+            ReconcileScannerSchedulesInputs(),
+            id=RECONCILER_WORKFLOW_ID,
+            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+            execution_timeout=RECONCILER_EXECUTION_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=RECONCILER_INTERVAL)]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=RECONCILER_INTERVAL),
+    )
+    if await a_schedule_exists(client, RECONCILER_SCHEDULE_ID):
+        await a_update_schedule(client, RECONCILER_SCHEDULE_ID, schedule)
+    else:
+        await a_create_schedule(client, RECONCILER_SCHEDULE_ID, schedule, trigger_immediately=True)

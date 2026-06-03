@@ -475,6 +475,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -504,8 +506,12 @@ export namespace Schemas {
       accountOwner?: string | number | null;
       allRolesUnassigned?: boolean | null;
       csm?: string | number | null;
+      /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+      filterExpression?: string | null;
       kind?: 'AccountsQuery';
       limit?: number | null;
+      /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+      metrics?: string[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
@@ -4823,6 +4829,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -9872,6 +9880,47 @@ export namespace Schemas {
       notification_ids: string[];
     }
 
+    /**
+     * * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved
+     */
+    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
+
+
+    export const TicketStatusEnum = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface BulkUpdateStatusRequest {
+      /**
+         * List of ticket UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
+      status: TicketStatusEnum;
+    }
+
+    export interface BulkUpdateStatusResponse {
+      /** Number of tickets whose status actually changed. */
+      updated: number;
+      /** UUIDs of the tickets whose status changed. */
+      ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -13952,7 +14001,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14083,7 +14132,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14118,7 +14167,7 @@ export namespace Schemas {
          */
       derived_from_insight: string | null;
       /**
-         * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+         * When this specific version was last executed via the API (ISO 8601), or null if it hasn't been executed. Per-version tracking is recent, so versions that predate it read null until their next run.
          * @nullable
          */
       last_executed_at: string | null;
@@ -16473,6 +16522,18 @@ export namespace Schemas {
     };
 
     /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type ExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
+    /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
     * `append` - append
@@ -16619,6 +16680,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source: ExternalDataSchemaSource;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -17693,17 +17759,26 @@ export namespace Schemas {
 
     export interface FileSystemShortcut {
       readonly id: string;
+      /** Display path of the shortcut in the sidebar. */
       path: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -19037,98 +19112,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export type WebTrendsMetric = typeof WebTrendsMetric[keyof typeof WebTrendsMetric];
-
-
-    export const WebTrendsMetric = {
-      UniqueUsers: 'UniqueUsers',
-      PageViews: 'PageViews',
-      Sessions: 'Sessions',
-      Bounces: 'Bounces',
-      SessionDuration: 'SessionDuration',
-      TotalSessions: 'TotalSessions',
-    } as const;
-
-    export interface Metrics {
-      Bounces?: number | null;
-      PageViews?: number | null;
-      SessionDuration?: number | null;
-      Sessions?: number | null;
-      TotalSessions?: number | null;
-      UniqueUsers?: number | null;
-    }
-
-    export interface WebTrendsItem {
-      bucket: string;
-      metrics: Metrics;
-    }
-
-    export interface WebTrendsQueryResponse {
-      /** Executed ClickHouse query */
-      clickhouse?: string | null;
-      /** Returned columns */
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Query explanation output */
-      explain?: string[] | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Query metadata output */
-      metadata?: HogQLMetadataResponse | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Input query string */
-      query?: string | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: WebTrendsItem[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Types of returned columns */
-      types?: unknown[] | null;
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebTrendsQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval: IntervalType;
-      kind?: 'WebTrendsQuery';
-      limit?: number | null;
-      metrics: WebTrendsMetric[];
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebTrendsQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
     export type WebAnalyticsExternalSummaryQueryResponseData = { [key: string]: unknown };
 
     export interface WebAnalyticsExternalSummaryQueryResponse {
@@ -19865,7 +19848,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -19891,7 +19874,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -23629,9 +23612,18 @@ export namespace Schemas {
 
     export interface PersistedFolder {
       readonly id: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -24044,7 +24036,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -25789,24 +25781,6 @@ export namespace Schemas {
       previous?: string | null;
       results: ThresholdWithAlert[];
     }
-
-    /**
-     * * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved
-     */
-    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
-
-
-    export const TicketStatusEnum = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-    } as const;
 
     /**
      * * `low` - Low
@@ -28168,6 +28142,18 @@ export namespace Schemas {
       is_nullable?: boolean;
     };
 
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -28247,6 +28233,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source?: PatchedExternalDataSchemaSource;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -28346,17 +28337,26 @@ export namespace Schemas {
 
     export interface PatchedFileSystemShortcut {
       readonly id?: string;
+      /** Display path of the shortcut in the sidebar. */
       path?: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -29416,9 +29416,18 @@ export namespace Schemas {
 
     export interface PatchedPersistedFolder {
       readonly id?: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type?: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -30409,7 +30418,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -35633,6 +35642,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -36068,6 +36079,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -39178,6 +39191,11 @@ export namespace Schemas {
       detail: string;
     }
 
+    export interface _HasSpansResponse {
+      /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+      hasSpans: boolean;
+    }
+
     export interface _LogAttributeEntry {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
@@ -40693,6 +40711,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
@@ -43066,30 +43089,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat = typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateFormat = typeof EnvironmentsPersonsFunnelCorrelationCreateFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsPersonsLifecycleRetrieveParams = {
     format?: EnvironmentsPersonsLifecycleRetrieveFormat;
     };
@@ -44851,6 +44850,10 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -45571,6 +45574,43 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DesktopRecordingsListParams = {
     /**
      * Number of results to return per page.
@@ -45819,6 +45859,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
@@ -48622,30 +48667,6 @@ export namespace Schemas {
 
 
     export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type PersonsFunnelCorrelationRetrieveFormat = typeof PersonsFunnelCorrelationRetrieveFormat[keyof typeof PersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const PersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type PersonsFunnelCorrelationCreateFormat = typeof PersonsFunnelCorrelationCreateFormat[keyof typeof PersonsFunnelCorrelationCreateFormat];
-
-
-    export const PersonsFunnelCorrelationCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

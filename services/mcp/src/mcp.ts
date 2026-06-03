@@ -41,7 +41,7 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
-import { getToolDefinition } from '@/tools/toolDefinitions'
+import { getScopeGatedTools, getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
 const instructionsFormatter = new InstructionsFormatter()
@@ -744,13 +744,25 @@ export class MCP extends McpAgent<Env> {
                 )
             }
 
+            const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+            const scopeGatedTools = getScopeGatedTools(_apiKey?.scopes ?? [], {
+                features,
+                tools,
+                excludeTools,
+                readOnly,
+                featureFlags: toolFeatureFlags,
+                scopedTeams: _apiKey?.scoped_teams ?? [],
+                ...(aiConsentGiven !== undefined ? { aiConsentGiven } : {}),
+            })
+
             const execTool = createExecTool(
                 allTools,
                 context,
                 instructionsFormatter.buildExecToolDescription(),
                 commandReference,
                 this.requestProperties.mcpConsumer,
-                trackInnerCall
+                trackInnerCall,
+                scopeGatedTools
             )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))

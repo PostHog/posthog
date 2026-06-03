@@ -1143,6 +1143,28 @@ export interface AssistantPathsFilter {
      * Filters out high-traffic paths to focus on less common journeys.
      */
     maxEdgeWeight?: integer
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **departed from** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`.
+     * Take the value verbatim from a `source` field of a `query-paths` result row. Combine with
+     * `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the
+     * path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.
+     */
+    pathStartKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`.
+     * Take the value verbatim from a `target` field of a `query-paths` result row. Combine with
+     * `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by
+     * non-actors paths queries.
+     */
+    pathEndKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific
+     * node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with
+     * `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.
+     */
+    pathDropoffKey?: string
 }
 
 export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
@@ -1291,6 +1313,32 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+}
+
+/**
+ * Drills into a paths insight to list the persons behind it. Returned rows are `distinct_id`,
+ * `name`, `email`, `event_count`, and optionally matched session recordings.
+ *
+ * There are no per-cell selectors like `day` or `series` — everything is configured on the `source`
+ * paths query. Two modes:
+ * - Whole path: set `pathsFilter.startPoint` / `endPoint` (plus `includeEventTypes`, date range,
+ *   property filters) to return every actor on that path.
+ * - Specific node/edge: set `pathsFilter.pathEndKey` (arrived at a node), `pathStartKey` (departed
+ *   from a node), both together (a single `source → target` edge), or `pathDropoffKey` (dropped off).
+ *   The key value is `<stepIndex>_<value>`, taken verbatim from a `query-paths` result row's
+ *   `target` / `source`.
+ */
+export interface AssistantPathsActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source paths insight query whose actors we are listing. */
+    source: AssistantPathsQuery
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**
