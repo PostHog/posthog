@@ -12,6 +12,7 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
+import { EditAccountLinksButton } from './EditAccountLinksButton'
 
 const PREVIEW_MAX_CHARS = 200
 
@@ -36,7 +37,10 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
     const { links, accountLoading } = useValues(accountLinksLogic({ accountId }))
     return (
         <div className="flex flex-col gap-1">
-            <h4 className="secondary uppercase text-secondary mb-1">Useful links</h4>
+            <div className="flex items-center gap-1 mb-1">
+                <h4 className="secondary uppercase text-secondary mb-0">Useful links</h4>
+                <EditAccountLinksButton accountId={accountId} />
+            </div>
             {accountLoading ? (
                 <>
                     <LemonSkeleton className="h-7 w-32" />
