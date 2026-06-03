@@ -15,7 +15,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY
+from contextlib import ExitStack, nullcontext
+from unittest.mock import ANY, patch
 
 from django.utils.timezone import now
 
@@ -4534,7 +4535,18 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
             wait_for_materialized_columns()
 
-        with self.settings(
+        # Pin materialization state to avoid non-deterministic snapshots when
+        # leftover materialized columns exist in the CI ClickHouse instance.
+        mat_mock = (
+            nullcontext()
+            if materialize_person_props
+            else patch(
+                "ee.clickhouse.materialized_columns.columns.get_materialized_columns",
+                return_value={},
+            )
+        )
+
+        with mat_mock, self.settings(
             PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
             PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
             ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
@@ -4621,7 +4633,16 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
 
-        with self.settings(
+        mat_mock = (
+            nullcontext()
+            if materialize_person_props
+            else patch(
+                "ee.clickhouse.materialized_columns.columns.get_materialized_columns",
+                return_value={},
+            )
+        )
+
+        with mat_mock, self.settings(
             PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
             PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
             ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
