@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
@@ -13,11 +13,12 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import {
     visionScannersCreate,
     visionScannersDestroy,
+    visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
 } from '../generated/api'
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import type { EstimateResponseApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { readFixedTags, readFreeformTags, readModelOutput, readTags, readVerdict } from '../utils/observation'
 import type { replayScannerLogicType } from './replayScannerLogicType'
@@ -40,7 +41,7 @@ export interface ReplayScannerLogicProps {
 
 export type ObservationStatusValue = ReplayObservationApi['status']
 export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
-export type ObservationVerdictValue = 'yes' | 'no'
+export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
 function quantile(sorted: number[], q: number): number {
     if (sorted.length === 1) {
@@ -59,7 +60,7 @@ function currentTemplateKey(): string | null {
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
     if (scannerType === 'summarizer') {
-        return { prompt: '', length: 'medium', emits_embeddings: false }
+        return { prompt: '', length: 'medium' }
     }
     if (scannerType === 'classifier') {
         return { prompt: '', tags: [], multi_label: true }
@@ -130,6 +131,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationTagFilter: (values: string[]) => ({ values }),
         clearObservationFilters: true,
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        requestScannerEstimate: true,
+        loadScannerEstimate: true,
+        loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
+        loadScannerEstimateFailure: true,
     }),
 
     forms(({ props }) => ({
@@ -208,6 +213,28 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadObservationsFailure: () => false,
             },
         ],
+        scannerEstimate: [
+            null as EstimateResponseApi | null,
+            {
+                loadScannerEstimateSuccess: (_, { estimate }) => estimate,
+                loadScannerEstimateFailure: () => null,
+            },
+        ],
+        scannerEstimateLoading: [
+            false,
+            {
+                requestScannerEstimate: () => true,
+                loadScannerEstimate: () => true,
+                loadScannerEstimateSuccess: () => false,
+                loadScannerEstimateFailure: () => false,
+            },
+        ],
+        estimateRequestVersion: [
+            0,
+            {
+                requestScannerEstimate: (state: number) => state + 1,
+            },
+        ],
         observationStatusFilter: [
             [] as ObservationStatusValue[],
             {
@@ -280,7 +307,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (verdictFilter.length > 0) {
                         const verdict = readVerdict(o)
-                        if (verdict === null || !verdictFilter.includes(verdict ? 'yes' : 'no')) {
+                        if (verdict === null || !verdictFilter.includes(verdict)) {
                             return false
                         }
                     }
@@ -370,18 +397,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         ],
         monitorStats: [
             (s) => [s.succeededObservations],
-            (observations: ReplayObservationApi[]): { yesTotal: number; noTotal: number } => {
+            (
+                observations: ReplayObservationApi[]
+            ): { yesTotal: number; noTotal: number; inconclusiveTotal: number } => {
                 let yesTotal = 0
                 let noTotal = 0
+                let inconclusiveTotal = 0
                 for (const obs of observations) {
                     const v = readVerdict(obs)
-                    if (v === true) {
+                    if (v === 'yes') {
                         yesTotal += 1
-                    } else if (v === false) {
+                    } else if (v === 'no') {
                         noTotal += 1
+                    } else if (v === 'inconclusive') {
+                        inconclusiveTotal += 1
                     }
                 }
-                return { yesTotal, noTotal }
+                return { yesTotal, noTotal, inconclusiveTotal }
             },
         ],
         classifierTagStats: [
@@ -524,10 +556,55 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
         loadScannerSuccess: ({ scanner }) => {
             actions.setScannerValues(scanner)
+            actions.requestScannerEstimate()
         },
 
         setScannerType: ({ scannerType }) => {
             actions.setScannerValues({ scanner_type: scannerType, scanner_config: defaultConfigForType(scannerType) })
+        },
+
+        // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags
+        // and rapid filter edits don't fire one request per tick.
+        setScannerValue: () => actions.requestScannerEstimate(),
+        setScannerValues: () => actions.requestScannerEstimate(),
+        submitScannerSuccess: () => actions.requestScannerEstimate(),
+
+        requestScannerEstimate: () => {
+            cache.disposables.add(() => {
+                const id = setTimeout(() => actions.loadScannerEstimate(), 300)
+                return () => clearTimeout(id)
+            }, 'scannerEstimateDebounce')
+        },
+
+        loadScannerEstimate: async (_, breakpoint) => {
+            const teamId = teamLogic.values.currentTeamId
+            const scanner = values.scanner
+            if (!teamId || !scanner) {
+                actions.loadScannerEstimateFailure()
+                return
+            }
+            const version = values.estimateRequestVersion
+            try {
+                const response = await visionScannersEstimateCreate(String(teamId), {
+                    query: scanner.query ?? undefined,
+                    sampling_rate: scanner.sampling_rate,
+                })
+                breakpoint()
+                if (values.estimateRequestVersion !== version) {
+                    return
+                }
+                actions.loadScannerEstimateSuccess(response)
+            } catch (error) {
+                if (error instanceof Error && isBreakpoint(error)) {
+                    throw error
+                }
+                // eslint-disable-next-line no-console
+                console.warn('[replay-vision] scanner estimate failed', error)
+                if (values.estimateRequestVersion !== version) {
+                    return
+                }
+                actions.loadScannerEstimateFailure()
+            }
         },
 
         deleteScanner: async () => {

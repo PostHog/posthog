@@ -58,7 +58,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -87,6 +87,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -106,7 +110,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -3886,6 +3890,55 @@ export namespace Schemas {
       filterTestAccounts?: boolean;
     }
 
+    /**
+     * * `activity_score` - activity_score
+    * `click_count` - click_count
+    * `console_error_count` - console_error_count
+    * `duration` - duration
+    * `recording_duration` - recording_duration
+    * `start_time` - start_time
+     */
+    export type SessionReplayListWidgetConfigOrderByEnum = typeof SessionReplayListWidgetConfigOrderByEnum[keyof typeof SessionReplayListWidgetConfigOrderByEnum];
+
+
+    export const SessionReplayListWidgetConfigOrderByEnum = {
+      ActivityScore: 'activity_score',
+      ClickCount: 'click_count',
+      ConsoleErrorCount: 'console_error_count',
+      Duration: 'duration',
+      RecordingDuration: 'recording_duration',
+      StartTime: 'start_time',
+    } as const;
+
+    export interface SessionReplayListWidgetConfig {
+      /**
+         * Maximum number of recordings to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Recording ranking column.
+
+      * `activity_score` - activity_score
+      * `click_count` - click_count
+      * `console_error_count` - console_error_count
+      * `duration` - duration
+      * `recording_duration` - recording_duration
+      * `start_time` - start_time */
+      orderBy?: SessionReplayListWidgetConfigOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
+    }
+
+    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+
     export interface TileLayoutBox {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
@@ -3906,12 +3959,12 @@ export namespace Schemas {
 
     export interface AddDashboardWidgetRequest {
       /**
-         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+         * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
          * @maxLength 64
          */
       widget_type: string;
-      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
-      config: ErrorTrackingListWidgetConfig;
+      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
+      config: DashboardWidgetConfig;
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -4536,7 +4589,6 @@ export namespace Schemas {
 
     export const IntegrationKind = {
       Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -6826,7 +6878,7 @@ export namespace Schemas {
       /** Optional markdown description shown on the dashboard tile when enabled. */
       description?: string;
       /** Widget-specific configuration JSON for this widget type. */
-      config?: ErrorTrackingListWidgetConfig;
+      config?: DashboardWidgetConfig;
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       readonly last_modified_at: string;
       team: number;
@@ -9878,6 +9930,47 @@ export namespace Schemas {
          * @maxItems 500
          */
       notification_ids: string[];
+    }
+
+    /**
+     * * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved
+     */
+    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
+
+
+    export const TicketStatusEnum = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface BulkUpdateStatusRequest {
+      /**
+         * List of ticket UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
+      status: TicketStatusEnum;
+    }
+
+    export interface BulkUpdateStatusResponse {
+      /** Number of tickets whose status actually changed. */
+      updated: number;
+      /** UUIDs of the tickets whose status changed. */
+      ids: string[];
     }
 
     export interface BulkUpdateTagsError {
@@ -13960,7 +14053,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14091,7 +14184,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14126,7 +14219,7 @@ export namespace Schemas {
          */
       derived_from_insight: string | null;
       /**
-         * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+         * When this specific version was last executed via the API (ISO 8601), or null if it hasn't been executed. Per-version tracking is recent, so versions that predate it read null until their next run.
          * @nullable
          */
       last_executed_at: string | null;
@@ -17718,17 +17811,26 @@ export namespace Schemas {
 
     export interface FileSystemShortcut {
       readonly id: string;
+      /** Display path of the shortcut in the sidebar. */
       path: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -18363,6 +18465,48 @@ export namespace Schemas {
       output_variable?: unknown;
     }
 
+    /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `completed` - Completed
+     */
+    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
+
+
+    export const HogFlowScheduleStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Completed: 'completed',
+    } as const;
+
+    export interface HogFlowSchedule {
+      readonly id: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface HogFlow {
       readonly id: string;
       /**
@@ -18404,6 +18548,50 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+    }
+
+    /**
+     * * `waiting` - Waiting
+    * `queued` - Queued
+    * `active` - Active
+    * `completed` - Completed
+    * `cancelled` - Cancelled
+    * `failed` - Failed
+     */
+    export type HogFlowBatchJobStatusEnum = typeof HogFlowBatchJobStatusEnum[keyof typeof HogFlowBatchJobStatusEnum];
+
+
+    export const HogFlowBatchJobStatusEnum = {
+      Waiting: 'waiting',
+      Queued: 'queued',
+      Active: 'active',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    export interface HogFlowBatchJob {
+      readonly id: string;
+      /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+
+      * `waiting` - Waiting
+      * `queued` - Queued
+      * `active` - Active
+      * `completed` - Completed
+      * `cancelled` - Cancelled
+      * `failed` - Failed */
+      status?: HogFlowBatchJobStatusEnum;
+      /** ID of the workflow this batch run belongs to. */
+      hog_flow: string;
+      /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
+      filters?: unknown;
+      /** Variable value overrides applied to this run. */
+      variables?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
     }
 
     /**
@@ -18442,34 +18630,6 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
-    }
-
-    /**
-     * * `active` - Active
-    * `paused` - Paused
-    * `completed` - Completed
-     */
-    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
-
-
-    export const HogFlowScheduleStatusEnum = {
-      Active: 'active',
-      Paused: 'paused',
-      Completed: 'completed',
-    } as const;
-
-    export interface HogFlowSchedule {
-      readonly id: string;
-      rrule: string;
-      starts_at: string;
-      /** @maxLength 64 */
-      timezone?: string;
-      variables?: unknown;
-      readonly status: HogFlowScheduleStatusEnum;
-      /** @nullable */
-      readonly next_run_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     /**
@@ -19056,98 +19216,6 @@ export namespace Schemas {
       samplingFactor?: number | null;
       searchTerm?: string | null;
       stripQueryParams?: boolean | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type WebTrendsMetric = typeof WebTrendsMetric[keyof typeof WebTrendsMetric];
-
-
-    export const WebTrendsMetric = {
-      UniqueUsers: 'UniqueUsers',
-      PageViews: 'PageViews',
-      Sessions: 'Sessions',
-      Bounces: 'Bounces',
-      SessionDuration: 'SessionDuration',
-      TotalSessions: 'TotalSessions',
-    } as const;
-
-    export interface Metrics {
-      Bounces?: number | null;
-      PageViews?: number | null;
-      SessionDuration?: number | null;
-      Sessions?: number | null;
-      TotalSessions?: number | null;
-      UniqueUsers?: number | null;
-    }
-
-    export interface WebTrendsItem {
-      bucket: string;
-      metrics: Metrics;
-    }
-
-    export interface WebTrendsQueryResponse {
-      /** Executed ClickHouse query */
-      clickhouse?: string | null;
-      /** Returned columns */
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Query explanation output */
-      explain?: string[] | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Query metadata output */
-      metadata?: HogQLMetadataResponse | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Input query string */
-      query?: string | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: WebTrendsItem[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Types of returned columns */
-      types?: unknown[] | null;
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebTrendsQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval: IntervalType;
-      kind?: 'WebTrendsQuery';
-      limit?: number | null;
-      metrics: WebTrendsMetric[];
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebTrendsQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
@@ -19890,7 +19958,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -19916,7 +19984,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -21925,6 +21993,13 @@ export namespace Schemas {
       id: number;
     }
 
+    export interface MoveTileRequest {
+      /** Destination dashboard ID. */
+      to_dashboard: number;
+      /** Tile to move, identified by its dashboard tile ID. */
+      tile: MoveTileTile;
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -23258,15 +23333,6 @@ export namespace Schemas {
       results: HogFlowMinimal[];
     }
 
-    export interface PaginatedHogFlowScheduleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HogFlowSchedule[];
-    }
-
     export interface PaginatedHogFlowTemplateList {
       count: number;
       /** @nullable */
@@ -23654,9 +23720,18 @@ export namespace Schemas {
 
     export interface PersistedFolder {
       readonly id: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -24069,7 +24144,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -25816,24 +25891,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved
-     */
-    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
-
-
-    export const TicketStatusEnum = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-    } as const;
-
-    /**
      * * `low` - Low
     * `medium` - Medium
     * `high` - High
@@ -26213,6 +26270,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PaginatedUserInterviewTopicList {
@@ -26597,7 +26664,7 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -26626,6 +26693,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -26645,7 +26716,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -28388,17 +28459,26 @@ export namespace Schemas {
 
     export interface PatchedFileSystemShortcut {
       readonly id?: string;
+      /** Display path of the shortcut in the sidebar. */
       path?: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -28564,6 +28644,36 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowSchedule {
+      readonly id?: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule?: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at?: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status?: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -29458,9 +29568,18 @@ export namespace Schemas {
 
     export interface PatchedPersistedFolder {
       readonly id?: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type?: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -30451,7 +30570,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -32261,6 +32380,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PatchedUserProductList {
@@ -36661,7 +36790,7 @@ export namespace Schemas {
 
     export interface SendInvitesRequest {
       /**
-         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
          * @maxLength 200
          */
       subject?: string;
@@ -40210,6 +40339,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsMoveTileCreateParams = {
+    format?: EnvironmentsDashboardsMoveTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsMoveTileCreateFormat = typeof EnvironmentsDashboardsMoveTileCreateFormat[keyof typeof EnvironmentsDashboardsMoveTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsMoveTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -40744,6 +40885,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
@@ -41367,66 +41513,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type EnvironmentsHogFunctionsListParams = {
@@ -43113,30 +43199,6 @@ export namespace Schemas {
 
 
     export const EnvironmentsPersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat = typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateFormat = typeof EnvironmentsPersonsFunnelCorrelationCreateFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -44902,6 +44964,14 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean;
+    /**
+     * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
+     */
+    hide_behavioral_cohorts?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -45314,6 +45384,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsMoveTileCreateParams = {
+    format?: DashboardsMoveTileCreateFormat;
+    };
+
+    export type DashboardsMoveTileCreateFormat = typeof DashboardsMoveTileCreateFormat[keyof typeof DashboardsMoveTileCreateFormat];
+
+
+    export const DashboardsMoveTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -45622,6 +45704,43 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DesktopRecordingsListParams = {
     /**
      * Number of results to return per page.
@@ -45870,6 +45989,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
@@ -46775,66 +46899,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type HogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
-
-
-    export const HogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type HogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
-
-
-    export const HogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type HogFunctionTemplatesListParams = {
@@ -48673,30 +48737,6 @@ export namespace Schemas {
 
 
     export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type PersonsFunnelCorrelationRetrieveFormat = typeof PersonsFunnelCorrelationRetrieveFormat[keyof typeof PersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const PersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type PersonsFunnelCorrelationCreateFormat = typeof PersonsFunnelCorrelationCreateFormat[keyof typeof PersonsFunnelCorrelationCreateFormat];
-
-
-    export const PersonsFunnelCorrelationCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
