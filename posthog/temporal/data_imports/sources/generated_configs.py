@@ -266,7 +266,7 @@ class ConfluenceSourceConfig(config.Config):
 
 @config.config
 class ConvertKitSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

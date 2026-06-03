@@ -52,6 +52,7 @@ the row lists both.
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse    | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| convertkit    | HTTP                        | requests                                                        | ✅                          |
 | convex        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
@@ -150,7 +151,6 @@ doesn't conflict with concurrent PRs.
 - close
 - cockroachdb
 - confluence
-- convertkit
 - copper
 - datadog
 - dynamodb
