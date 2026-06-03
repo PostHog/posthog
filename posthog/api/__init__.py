@@ -1,3 +1,8 @@
+import importlib
+import importlib.util
+
+from django.apps import apps
+
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
@@ -7,138 +12,22 @@ from posthog.api import data_color_theme, metalytics, my_notifications, project,
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
-from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
-from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
+from posthog.settings import EE_AVAILABLE
 
-import products.logs.backend.api as logs
-import products.links.backend.api as link
-import products.tasks.backend.api as tasks
-import products.endpoints.backend.api as endpoints
-import products.signals.backend.views as signals
-import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
-import products.conversations.backend.api as conversations
-import products.live_debugger.backend.api as live_debugger
-import products.web_analytics.backend.api as web_analytics_api
-import products.surveys.backend.api.survey as survey
-import products.revenue_analytics.backend.api as revenue_analytics
-import products.business_knowledge.backend.api as business_knowledge
-import products.marketing_analytics.backend.api as marketing_analytics
-import products.metrics.backend.presentation.api as metrics
-import products.early_access_features.backend.api as early_access_feature
-import products.wizard.backend.presentation.views as wizard_sessions
-import products.customer_analytics.backend.api.views as customer_analytics
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-import products.mcp_store.backend.presentation.views as mcp_store
-import products.legal_documents.backend.presentation.views as legal_documents
-from products.ai_observability.backend.api import (
-    AIObservabilityClusteringRunViewSet,
-    AIObservabilityOfflineEvaluationsViewSet,
-    AIObservabilitySentimentViewSet,
-    AIObservabilitySummarizationViewSet,
-    AIObservabilityTextReprViewSet,
-    AIObservabilityTranslateViewSet,
-    ClusteringConfigViewSet,
-    ClusteringJobViewSet,
-    DatasetItemViewSet,
-    DatasetViewSet,
-    EvaluationConfigViewSet,
-    EvaluationReportViewSet,
-    EvaluationRunViewSet,
-    EvaluationViewSet,
-    LLMEvaluationSummaryViewSet,
-    LLMModelsViewSet,
-    LLMProviderKeyValidationViewSet,
-    LLMProviderKeyViewSet,
-    LLMProxyViewSet,
-    PersonalSpendViewSet,
-    ReviewQueueItemViewSet,
-    ReviewQueueViewSet,
-    ScoreDefinitionViewSet,
-    TaggerViewSet,
-    TraceReviewViewSet,
-)
-from products.ai_observability.backend.api.skills import LLMSkillViewSet
 from products.annotations.backend.api import annotation
 from products.batch_exports.backend.api import (
     batch_export as batch_exports,
     file_download,
 )
 from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
-from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.dashboards.backend.api import dashboard, dashboard_templates
-from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
-from products.data_warehouse.backend.api import (
-    data_modeling_job,
-    data_warehouse,
-    external_data_schema,
-    external_data_source,
-    managed_viewset,
-    modeling,
-    query_tab_state,
-    saved_query,
-    saved_query_draft,
-    table,
-    view_link,
-)
-from products.data_warehouse.backend.api.lineage import LineageViewSet
-from products.desktop_recordings.backend.api import DesktopRecordingViewSet
-from products.error_tracking.backend.api import (
-    ErrorTrackingAssignmentRuleViewSet,
-    ErrorTrackingExternalReferenceViewSet,
-    ErrorTrackingFingerprintViewSet,
-    ErrorTrackingGroupingRuleViewSet,
-    ErrorTrackingIssueViewSet,
-    ErrorTrackingQueryViewSet,
-    ErrorTrackingRecommendationViewSet,
-    ErrorTrackingReleaseViewSet,
-    ErrorTrackingSettingsViewSet,
-    ErrorTrackingSpikeDetectionConfigViewSet,
-    ErrorTrackingSpikeEventViewSet,
-    ErrorTrackingStackFrameViewSet,
-    ErrorTrackingSuppressionRuleViewSet,
-    ErrorTrackingSymbolSetViewSet,
-    GitProviderFileLinksViewSet,
-)
 from products.exports.backend.api import exports
-from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
-from products.messaging.backend.api.message_categories import MessageCategoryViewSet
-from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
-from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
-from products.notifications.backend.presentation.views import NotificationsViewSet
-from products.posthog_ai.backend.api import MCPToolsViewSet
-from products.product_tours.backend.api import ProductTourViewSet
-from products.replay_vision.backend.api import (
-    ReplayObservationViewSet,
-    ReplayScannerViewSet,
-    SessionReplayObservationViewSet,
-    VisionQuotaViewSet,
-)
-from products.signals.backend.views import SignalViewSet
-from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.presentation.views import (
-    IntervieweeContextViewSet,
-    UserInterviewTopicViewSet,
-    UserInterviewViewSet,
-)
-from products.visual_review.backend.presentation.views import (
-    RepoRunsViewSet as VisualReviewRepoRunsViewSet,
-    RepoViewSet as VisualReviewRepoViewSet,
-    RunViewSet as VisualReviewRunViewSet,
-    SnapshotViewSet as VisualReviewSnapshotViewSet,
-)
-from products.web_analytics.backend.api.heatmaps_api import (
-    HeatmapScreenshotViewSet,
-    HeatmapViewSet,
-    LegacyHeatmapViewSet,
-    SavedHeatmapViewSet,
-)
-from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
-from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -209,27 +98,24 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
+# Shared router handles, addressable by name, that products nest onto from their own
+# `register_routes(routers)`. See posthog/api/routing.py:RouterRegistry.
+routers = RouterRegistry()
+routers.set_root(router)
 
 # Legacy endpoints shared (to be removed eventually)
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet, "legacy_dashboards")  # Should be completely unused now
 router.register(
     r"dashboard_item", dashboard.LegacyInsightViewSet, "legacy_insights"
 )  # To be deleted - unified into insight viewset
-router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
-# Personal LLM spend data lives only in PostHog Cloud US's internal team — register
-# the endpoint there plus dev/test envs so it stays reachable in development. EU
-# adds a redirect (declared in posthog/urls.py) so callers get a discoverable
-# pointer instead of a silent 404.
-if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
-    router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
-router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
-projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
+projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
-environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
+environments_router = routers.add(
+    "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
+)
+project_notebooks_router = projects_router.register(r"notebooks", NotebookViewSet, "project_notebooks", ["project_id"])
 
 
 def register_legacy_dual_route_team_nested_viewset(
@@ -267,60 +153,8 @@ def register_legacy_dual_route_team_nested_viewset(
 
     Returns (project_nested, environment_nested).
     """
-    if parents_query_lookups[0] != "team_id":
-        raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
-    if basename.startswith("project_"):
-        stem = basename.removeprefix("project_")
-    elif basename.startswith("environment_"):
-        stem = basename.removeprefix("environment_")
-    else:
-        raise ValueError("basename must start with `project_` or `environment_`")
-    project_nested = projects_router.register(prefix, viewset, "project_" + stem, parents_query_lookups)
-    environment_nested = environments_router.register(prefix, viewset, "environment_" + stem, parents_query_lookups)
-    return project_nested, environment_nested
+    return routers.register_legacy_dual_route(prefix, viewset, basename, parents_query_lookups)
 
-
-legacy_project_plugins_configs_router, environment_plugins_configs_router = (
-    register_legacy_dual_route_team_nested_viewset(
-        r"plugin_configs", plugin.PluginConfigViewSet, "environment_plugin_configs", ["team_id"]
-    )
-)
-environment_plugins_configs_router.register(
-    r"logs",
-    plugin_log_entry.PluginLogEntryViewSet,
-    "environment_plugin_config_logs",
-    ["team_id", "plugin_config_id"],
-)
-legacy_project_plugins_configs_router.register(
-    r"logs",
-    plugin_log_entry.PluginLogEntryViewSet,
-    "project_plugin_config_logs",
-    ["team_id", "plugin_config_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_transformation_configs",
-    plugin.PipelineTransformationsConfigsViewSet,
-    "environment_pipeline_transformation_configs",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_destination_configs",
-    plugin.PipelineDestinationsConfigsViewSet,
-    "environment_pipeline_destination_configs",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_frontend_apps_configs",
-    plugin.PipelineFrontendAppsConfigsViewSet,
-    "environment_pipeline_frontend_apps_configs",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_import_apps_configs",
-    plugin.PipelineImportAppsConfigsViewSet,
-    "environment_pipeline_import_apps_configs",
-    ["team_id"],
-)
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
@@ -342,40 +176,12 @@ projects_router.register(
     "project_my_notifications",
     ["project_id"],
 )
-project_feature_flags_router = projects_router.register(
-    r"feature_flags",
-    feature_flag.FeatureFlagViewSet,
-    "project_feature_flags",
-    ["project_id"],
-)
-project_features_router = projects_router.register(
-    r"early_access_feature",
-    early_access_feature.EarlyAccessFeatureViewSet,
-    "project_early_access_feature",
-    ["project_id"],
-)
-projects_router.register(
-    r"wizard/sessions",
-    wizard_sessions.WizardSessionViewSet,
-    "project_wizard_sessions",
-    ["project_id"],
-)
+
 # Tasks endpoints
-project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
-project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
-projects_router.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
-projects_router.register(
-    r"sandbox_environments",
-    tasks.SandboxEnvironmentViewSet,
-    "project_sandbox_environments",
-    ["team_id"],
-)
 
 # PostHog Code invites (not project-scoped)
-router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Seats (proxied to billing service)
-router.register(r"seats", seats.SeatViewSet, "seats")
 
 # Quota limits (project-scoped — backs the LLM gateway's QuotaResolver)
 projects_router.register(
@@ -385,8 +191,7 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
-projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
+# product-local route registration via RouterRegistry).
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -425,12 +230,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_skills",
-    LLMSkillViewSet,
-    "project_llm_skills",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"]
@@ -445,39 +244,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"customer_profile_configs",
-    customer_analytics.CustomerProfileConfigViewSet,
-    "project_customer_profile_configs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"customer_journeys",
-    customer_analytics.CustomerJourneyViewSet,
-    "project_customer_journeys",
-    ["team_id"],
-)
-
-project_accounts_router, environment_accounts_router = register_legacy_dual_route_team_nested_viewset(
-    r"accounts",
-    customer_analytics.AccountViewSet,
-    "project_accounts",
-    ["team_id"],
-)
-
-environment_accounts_router.register(
-    r"notebooks",
-    customer_analytics.AccountNotebookViewSet,
-    "environment_account_notebooks",
-    ["team_id", "account_id"],
-)
-project_accounts_router.register(
-    r"notebooks",
-    customer_analytics.AccountNotebookViewSet,
-    "project_account_notebooks",
-    ["team_id", "account_id"],
-)
 
 projects_router.register(
     r"data_management",
@@ -493,12 +259,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
-    r"scheduled_changes",
-    scheduled_change.ScheduledChangeViewSet,
-    "project_scheduled_changes",
-    ["project_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
@@ -577,30 +337,6 @@ legacy_project_batch_exports_router.register(
     ["team_id", "batch_export_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_saved_query_folders",
-    saved_query.DataWarehouseSavedQueryFolderViewSet,
-    "environment_warehouse_saved_query_folders",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_saved_queries",
-    saved_query.DataWarehouseSavedQueryViewSet,
-    "environment_warehouse_saved_queries",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_view_links",
-    view_link.ViewLinkViewSet,
-    "environment_warehouse_view_links",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_view_link", view_link.ViewLinkViewSet, "environment_warehouse_view_link", ["team_id"]
-)
 
 projects_router.register(
     r"event_definitions",
@@ -639,90 +375,11 @@ projects_router.register(
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 register_legacy_dual_route_team_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
-# External data resources
-register_legacy_dual_route_team_nested_viewset(
-    r"external_data_sources",
-    external_data_source.ExternalDataSourceViewSet,
-    "environment_external_data_sources",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"data_warehouse",
-    data_warehouse.DataWarehouseViewSet,
-    "environment_data_warehouse",
-    ["team_id"],
-)
-projects_router.register(
-    r"warehouse_dag",
-    modeling.DataWarehouseModelDagViewSet,
-    "project_warehouse_dag",
-    ["team_id"],
-)
-projects_router.register(
-    r"warehouse_model_paths",
-    modeling.DataWarehouseModelPathViewSet,
-    "project_warehouse_model_paths",
-    ["team_id"],
-)
-projects_router.register(
-    r"query_tab_state",
-    query_tab_state.QueryTabStateViewSet,
-    "project_query_tab_state",
-    ["project_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"external_data_schemas",
-    external_data_schema.ExternalDataSchemaViewset,
-    "environment_external_data_schemas",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"fix_hogql",
-    fix_hogql.FixHogQLViewSet,
-    "project_fix_hogql",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_saved_query_drafts",
-    saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
-    "project_warehouse_saved_query_drafts",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"managed_viewsets",
-    managed_viewset.DataWarehouseManagedViewSetViewSet,
-    "project_managed_viewsets",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_dags",
-    DAGViewSet,
-    "project_data_modeling_dags",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_nodes",
-    NodeViewSet,
-    "project_data_modeling_nodes",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_edges",
-    EdgeViewSet,
-    "project_data_modeling_edges",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"notifications",
-    NotificationsViewSet,
-    "project_notifications",
-    ["team_id"],
-)
 
 # Organizations nested endpoints
-organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organizations_router = routers.add(
+    "organizations", router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+)
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"integrations",
@@ -738,33 +395,6 @@ organizations_router.register(
 )
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
-)
-organization_plugins_router = organizations_router.register(
-    r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
-)
-organizations_router.register(
-    r"pipeline_transformations",
-    plugin.PipelineTransformationsViewSet,
-    "organization_pipeline_transformations",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"pipeline_destinations",
-    plugin.PipelineDestinationsViewSet,
-    "organization_pipeline_destinations",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"pipeline_frontend_apps",
-    plugin.PipelineFrontendAppsViewSet,
-    "organization_pipeline_frontend_apps",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"pipeline_import_apps",
-    plugin.PipelineImportAppsViewSet,
-    "organization_pipeline_import_apps",
-    ["organization_id"],
 )
 organizations_router.register(
     r"members",
@@ -791,21 +421,9 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
-    r"legal_documents",
-    legal_documents.LegalDocumentViewSet,
-    "organization_legal_documents",
-    ["organization_id"],
-)
-organizations_router.register(
     r"proxy_records",
     proxy_record.ProxyRecordViewset,
     "proxy_records",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"feature_flags",
-    organization_feature_flag.OrganizationFeatureFlagView,
-    "organization_feature_flags",
     ["organization_id"],
 )
 organizations_router.register(
@@ -878,19 +496,16 @@ from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
-from products.actions.backend.api.action import ActionViewSet  # noqa: E402
 from products.product_analytics.backend.api.insight import InsightViewSet  # noqa: E402
 from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
 router.register(r"element", LegacyElementViewSet, basename="element")
-router.register(r"heatmap", LegacyHeatmapViewSet, basename="heatmap")
 router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 register_legacy_dual_route_team_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
-projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 
@@ -924,11 +539,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
-register_legacy_dual_route_team_nested_viewset(
-    r"heatmap_screenshots", HeatmapScreenshotViewSet, "environment_heatmap_screenshots", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(r"saved", SavedHeatmapViewSet, "environment_saved", ["team_id"])
 register_legacy_dual_route_team_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
@@ -1042,12 +652,6 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-project_notebooks_router = projects_router.register(
-    r"notebooks",
-    NotebookViewSet,
-    "project_notebooks",
-    ["project_id"],
-)
 
 project_notebooks_router.register(
     r"sharing",
@@ -1063,203 +667,6 @@ projects_router.register(
     ["project_id"],
 )
 
-# Env side is team-scoped (team_id) while project side below is genuinely
-# project-scoped (project_id); register_legacy_dual_route_team_nested_viewset
-# assumes both sides share the same parent lookup, so these stay as manual
-# dual-registrations.
-# nosemgrep: no-environments-router-register
-environments_router.register(
-    r"error_tracking/releases",
-    ErrorTrackingReleaseViewSet,
-    "environment_error_tracking_release",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"error_tracking/releases",
-    ErrorTrackingReleaseViewSet,
-    "project_error_tracking_release",
-    ["project_id"],
-)
-
-# Same shape as error_tracking/releases above (env team_id vs project project_id).
-# nosemgrep: no-environments-router-register
-environments_router.register(
-    r"error_tracking/symbol_sets",
-    ErrorTrackingSymbolSetViewSet,
-    "environment_error_tracking_symbol_set",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"error_tracking/symbol_sets",
-    ErrorTrackingSymbolSetViewSet,
-    "project_error_tracking_symbol_set",
-    ["project_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/assignment_rules",
-    ErrorTrackingAssignmentRuleViewSet,
-    "project_error_tracking_assignment_rule",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/grouping_rules",
-    ErrorTrackingGroupingRuleViewSet,
-    "project_error_tracking_grouping_rule",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/suppression_rules",
-    ErrorTrackingSuppressionRuleViewSet,
-    "project_error_tracking_suppression_rule",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/recommendations",
-    ErrorTrackingRecommendationViewSet,
-    "project_error_tracking_recommendation",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/fingerprints",
-    ErrorTrackingFingerprintViewSet,
-    "project_error_tracking_fingerprint",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/issues",
-    ErrorTrackingIssueViewSet,
-    "project_error_tracking_issue",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/query",
-    ErrorTrackingQueryViewSet,
-    "project_error_tracking_query",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/external_references",
-    ErrorTrackingExternalReferenceViewSet,
-    "project_error_tracking_external_references",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/stack_frames",
-    ErrorTrackingStackFrameViewSet,
-    "project_error_tracking_stack_frames",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/spike_detection_config",
-    ErrorTrackingSpikeDetectionConfigViewSet,
-    "project_error_tracking_spike_detection_config",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/settings",
-    ErrorTrackingSettingsViewSet,
-    "project_error_tracking_settings",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/spike_events",
-    ErrorTrackingSpikeEventViewSet,
-    "project_error_tracking_spike_events",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/git-provider-file-links",
-    GitProviderFileLinksViewSet,
-    "project_error_tracking_git_provider_file_links",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"signals",
-    SignalViewSet,
-    "project_signals",
-    ["team_id"],
-)
-signal_reports_router = projects_router.register(
-    r"signals/reports",
-    signals.SignalReportViewSet,
-    "environment_signal_reports",
-    ["team_id"],
-)
-signal_reports_router.register(
-    r"tasks",
-    signals.SignalReportTaskViewSet,
-    "environment_signal_report_tasks",
-    ["team_id", "report_id"],
-)
-signal_reports_router.register(
-    r"artefacts",
-    signals.SignalReportArtefactViewSet,
-    "environment_signal_report_artefacts",
-    ["team_id", "report_id"],
-)
-projects_router.register(
-    r"signals/source_configs",
-    signals.SignalSourceConfigViewSet,
-    "environment_signal_source_configs",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/config",
-    signals.SignalTeamConfigViewSet,
-    "environment_signal_config",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/processing",
-    signals.SignalProcessingViewSet,
-    "environment_signal_processing",
-    ["team_id"],
-)
-
-# Signals agent HTTP surface — exposed via MCP as `signals-scout-*` tools. Reads (runs,
-# memory, project profile) are public-grantable via `signal_scout:read`; writes (findings,
-# memory create/delete) are sandbox-scope only via `signal_scout_internal:write`, which
-# lives in `INTERNAL_API_SCOPE_OBJECTS` and so is not selectable in the personal-API-key UI.
-from products.signals.backend.scout_harness.views import (  # noqa: E402
-    SignalProjectProfileViewSet,
-    SignalScoutRunViewSet,
-    SignalScratchpadViewSet,
-)
-
-projects_router.register(
-    r"signals/scout/runs",
-    SignalScoutRunViewSet,
-    "environment_signals_scout_runs",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/scout/scratchpad",
-    SignalScratchpadViewSet,
-    "environment_signals_scout_scratchpad",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/scout/project_profile",
-    SignalProjectProfileViewSet,
-    "environment_signals_scout_project_profile",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"quick_filters",
@@ -1268,12 +675,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
-    r"live_debugger_breakpoints",
-    live_debugger.LiveDebuggerBreakpointViewSet,
-    "project_live_debugger_breakpoints",
-    ["project_id"],
-)
 
 projects_router.register(
     r"comments",
@@ -1282,56 +683,6 @@ projects_router.register(
     ["project_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"hog_functions",
-    hog_function.HogFunctionViewSet,
-    "environment_hog_functions",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"hog_flows",
-    hog_flow.HogFlowViewSet,
-    "environment_hog_flows",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"hog_flow_templates",
-    hog_flow_template.HogFlowTemplateViewSet,
-    "environment_hog_flow_templates",
-    ["team_id"],
-)
-
-projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
-
-projects_router.register(
-    r"business_knowledge/sources",
-    business_knowledge.KnowledgeSourceViewSet,
-    "environment_business_knowledge_sources",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"conversations/tickets",
-    conversations.TicketViewSet,
-    "environment_conversations_tickets",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"conversations/views",
-    conversations.TicketViewViewSet,
-    "project_conversations_views",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"hog_function_templates",
-    hog_function_template.PublicHogFunctionTemplateViewSet,
-    "project_hog_function_templates",
-    ["project_id"],
-)
 
 projects_router.register(
     r"managed_migrations",
@@ -1387,149 +738,9 @@ register_legacy_dual_route_team_nested_viewset(
     "project_web_vitals",
     ["team_id"],
 )
-register_legacy_dual_route_team_nested_viewset(
-    r"web_analytics_filter_presets",
-    WebAnalyticsFilterPresetViewSet,
-    "project_web_analytics_filter_preset",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"web_analytics",
-    web_analytics_api.WebAnalyticsViewSet,
-    "project_web_analytics",
-    ["team_id"],
-)
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_jobs",
-    data_modeling_job.DataModelingJobViewSet,
-    "environment_data_modeling_jobs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"lineage",
-    LineageViewSet,
-    "project_lineage",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"messaging_templates",
-    MessageTemplatesViewSet,
-    "project_messaging_templates",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"messaging_categories",
-    MessageCategoryViewSet,
-    "project_messaging_categories",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"messaging_preferences",
-    MessagePreferencesViewSet,
-    "project_messaging_preferences",
-    ["team_id"],
-)
-
-# Logs endpoints
-register_legacy_dual_route_team_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/views",
-    logs.LogsViewViewSet,
-    "project_logs_views",
-    ["team_id"],
-)
-
-# Metrics endpoints
-register_legacy_dual_route_team_nested_viewset(r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"])
-
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/explainLogWithAI",
-    logs.LogExplainViewSet,
-    "project_logs_explain_with_ai",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"user_interviews",
-    UserInterviewViewSet,
-    "project_user_interviews",
-    ["team_id"],
-)
-
-project_user_interview_topics_router, user_interview_topics_router = register_legacy_dual_route_team_nested_viewset(
-    r"user_interview_topics",
-    UserInterviewTopicViewSet,
-    "project_user_interview_topics",
-    ["team_id"],
-)
-user_interview_topics_router.register(
-    r"interviewees",
-    IntervieweeContextViewSet,
-    "environment_user_interview_topic_interviewees",
-    ["team_id", "topic_id"],
-)
-project_user_interview_topics_router.register(
-    r"interviewees",
-    IntervieweeContextViewSet,
-    "project_user_interview_topic_interviewees",
-    ["team_id", "topic_id"],
-)
-
-visual_review_repos_router = projects_router.register(
-    r"visual_review/repos",
-    VisualReviewRepoViewSet,
-    "project_visual_review_repos",
-    ["project_id"],
-)
-visual_review_repos_router.register(
-    r"snapshots",
-    VisualReviewSnapshotViewSet,
-    "project_visual_review_snapshots",
-    ["project_id", "repo_id"],
-)
-visual_review_repos_router.register(
-    r"runs",
-    VisualReviewRepoRunsViewSet,
-    "project_visual_review_repo_runs",
-    ["project_id", "repo_id"],
-)
-projects_router.register(
-    r"visual_review/runs",
-    VisualReviewRunViewSet,
-    "project_visual_review_runs",
-    ["project_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"tracing/spans",
-    TracingSpansViewSet,
-    "project_tracing_spans",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"desktop_recordings",
-    DesktopRecordingViewSet,
-    "project_desktop_recordings",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"csp-reporting",
@@ -1538,227 +749,9 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"marketing_analytics",
-    marketing_analytics.MarketingAnalyticsViewSet,
-    "project_marketing_analytics",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"revenue_analytics/taxonomy",
-    revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
-    "project_revenue_analytics_taxonomy",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"revenue_analytics/joins",
-    revenue_analytics.RevenueAnalyticsJoinViewSet,
-    "project_revenue_analytics_joins",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"flag_value",
-    flag_value.FlagValueViewSet,
-    "project_flag_value",
-    ["project_id"],
-)
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
-register_legacy_dual_route_team_nested_viewset(
-    r"datasets",
-    DatasetViewSet,
-    "environment_datasets",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"dataset_items",
-    DatasetItemViewSet,
-    "environment_dataset_items",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"evaluations",
-    EvaluationViewSet,
-    "project_evaluations",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"taggers",
-    TaggerViewSet,
-    "project_taggers",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"evaluation_runs",
-    EvaluationRunViewSet,
-    "project_evaluation_runs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/text_repr",
-    AIObservabilityTextReprViewSet,
-    "project_llm_analytics_text_repr",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/summarization",
-    AIObservabilitySummarizationViewSet,
-    "project_llm_analytics_summarization",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/evaluation_summary",
-    LLMEvaluationSummaryViewSet,
-    "project_llm_analytics_evaluation_summary",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/translate",
-    AIObservabilityTranslateViewSet,
-    "project_llm_analytics_translate",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/provider_keys",
-    LLMProviderKeyViewSet,
-    "project_llm_analytics_provider_keys",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/provider_key_validations",
-    LLMProviderKeyValidationViewSet,
-    "project_llm_analytics_provider_key_validations",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/models",
-    LLMModelsViewSet,
-    "project_llm_analytics_models",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/evaluation_config",
-    EvaluationConfigViewSet,
-    "project_llm_analytics_evaluation_config",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/clustering_runs",
-    AIObservabilityClusteringRunViewSet,
-    "project_llm_analytics_clustering_runs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/clustering_config",
-    ClusteringConfigViewSet,
-    "project_llm_analytics_clustering_config",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/clustering_jobs",
-    ClusteringJobViewSet,
-    "project_llm_analytics_clustering_jobs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/sentiment",
-    AIObservabilitySentimentViewSet,
-    "project_llm_analytics_sentiment",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/offline_evaluations",
-    AIObservabilityOfflineEvaluationsViewSet,
-    "project_llm_analytics_offline_evaluations",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/review_queue_items",
-    ReviewQueueItemViewSet,
-    "project_llm_analytics_review_queue_items",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/review_queues",
-    ReviewQueueViewSet,
-    "project_llm_analytics_review_queues",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/score_definitions",
-    ScoreDefinitionViewSet,
-    "project_llm_analytics_score_definitions",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/trace_reviews",
-    TraceReviewViewSet,
-    "project_llm_analytics_trace_reviews",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/evaluation_reports",
-    EvaluationReportViewSet,
-    "project_llm_analytics_evaluation_reports",
-    ["team_id"],
-)
-
-project_vision_scanners_router, environment_vision_scanners_router = register_legacy_dual_route_team_nested_viewset(
-    r"vision/scanners",
-    ReplayScannerViewSet,
-    "project_vision_scanners",
-    ["team_id"],
-)
-environment_vision_scanners_router.register(
-    r"observations",
-    ReplayObservationViewSet,
-    "environment_vision_scanner_observations",
-    ["team_id", "scanner_id"],
-)
-project_vision_scanners_router.register(
-    r"observations",
-    ReplayObservationViewSet,
-    "project_vision_scanner_observations",
-    ["team_id", "scanner_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"vision/observations",
-    SessionReplayObservationViewSet,
-    "project_vision_observations",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"vision/quota",
-    VisionQuotaViewSet,
-    "project_vision_quota",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"change_requests",
@@ -1781,23 +774,42 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"mcp_tools",
-    MCPToolsViewSet,
-    "project_mcp_tools",
-    ["team_id"],
-)
 
-register_legacy_dual_route_team_nested_viewset(
-    r"mcp_servers",
-    mcp_store.MCPServerViewSet,
-    "project_mcp_servers",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"mcp_server_installations",
-    mcp_store.MCPServerInstallationViewSet,
-    "project_mcp_server_installations",
-    ["team_id"],
-)
+# --- Product route auto-discovery -----------------------------------------------------
+# Every parent above (root + projects + environments + organizations) and all of core's
+# own routes are registered before this loop. Migrated products then register themselves
+# by exposing `register_routes(routers)` in `products/<name>/backend/routes.py`; the loop
+# finds them via INSTALLED_APPS, so adding a product needs no edit here.
+#
+# Why a loop here, and why eager (not AppConfig.ready()):
+#   - ROOT_URLCONF is imported lazily on first URL resolution, not during django.setup().
+#     `posthog/urls.py` imports this module, so the whole API surface loads at first
+#     request and never at boot — Celery workers and management commands that never
+#     resolve a URL never import it. We keep that.
+#   - ready()-based self-registration would run inside django.setup() in every process,
+#     and registering a route imports its viewset class — so it would drag the entire
+#     product API into setup() everywhere, regressing that laziness. Running the loop at
+#     import of `posthog.api` (i.e. first request) keeps the API out of setup().
+#   - Net: core still triggers registration (via the existing `posthog.api` import) rather
+#     than products self-pushing — you can have "core imports nothing statically" OR "API
+#     stays out of setup()", not both; we keep the API lazy.
+#
+# Order-independence: products only nest onto the four core-owned parents and never onto
+# each other, and all parents exist before this loop, so iteration order does not affect
+# the resolved route set. `RouterRegistry.add()` rejects product callers, making
+# "parents stay core-owned" an enforced invariant rather than a convention.
+#
+# Accepted cost: routes are imported dynamically here, so the core->product import edges
+# are not statically visible to import tooling (tach/grimp). Accepted on purpose — it
+# removes the hand-maintained product list that duplicated PRODUCTS_APPS.
+for _app_config in apps.get_app_configs():
+    if not _app_config.name.startswith("products."):
+        continue
+    _routes_module = f"{_app_config.name}.routes"
+    # find_spec (not try/except ImportError) so a real ImportError inside a routes.py
+    # surfaces instead of being silently swallowed as "no routes module".
+    if importlib.util.find_spec(_routes_module) is None:
+        continue
+    _register_routes = getattr(importlib.import_module(_routes_module), "register_routes", None)
+    if callable(_register_routes):
+        _register_routes(routers)

@@ -2,8 +2,7 @@
 
 A single Dagster job that pre-warms the lazy precompute cache for the
 Web analytics dashboard's main tile matrix over the trailing 28 days,
-for every team belonging to an organization rolled out on the
-`web-analytics-precompute-toggle` feature flag.
+for every team in the hardcoded `EAGER_BASELINE_TEAM_IDS` list.
 
 The job is intentionally thin: it enumerates the dashboard's query
 families and dispatches each through `get_query_runner(...).run(...)`.
@@ -21,31 +20,14 @@ cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-Source of truth is the `web-analytics-precompute-toggle` feature flag,
-the same flag the runtime lazy read path checks before serving from the
-precompute cache. The flag is structured as one group per enrolled
-organization (`Match organizations against id equals <uuid>`).
-
-The flag definition is read from the `posthoganalytics` SDK's local
-evaluation cache (`feature_flag_definitions()`), which mirrors the
-server's `/api/feature_flag/local_evaluation/` payload — same JSON shape
-the Django `FeatureFlag` model stores. Reading via the SDK keeps this
-module self-contained within `products.web_analytics`'s allowed tach
-dependencies and avoids any cross-product import.
-
-Reusing the runtime flag for the audience guarantees the eager warming
-audience never drifts from the audience the read path will actually
-serve — there is no second flag to keep in sync.
+The audience is a hardcoded `EAGER_BASELINE_TEAM_IDS` tuple kept in
+source. To enroll or remove a team, open a PR editing the constant.
+The list intentionally mirrors `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`
+on the runtime read path so warmer and reader stay in sync; do not
+silently let them drift.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
-where the SDK isn't configured against PostHog Cloud's project.
-
-Composition with the lazy read path
------------------------------------
-This job and the lazy read path consult the same flag, so an
-organization rolled out on the flag is both warmed by this job and
-served from the warmed cache at request time. No two-flag coordination
-needed.
+since the lazy precompute infrastructure is Cloud-only.
 
 This job is complementary to `cache_warming.py`, which replays whatever
 queries users actually ran. The eager job covers the fixed UI matrix;
@@ -54,7 +36,6 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 
 import dagster
 import structlog
-import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.schema import WebStatsBreakdown
@@ -73,7 +54,11 @@ from products.web_analytics.dags.web_preaggregated_utils import check_for_concur
 logger = structlog.get_logger(__name__)
 
 
-EAGER_FLAG_KEY = "web-analytics-precompute-toggle"
+# Audience: teams that should have the dashboard's main tile matrix
+# perpetually warmed. Keep this in sync with the runtime read-path
+# `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env var on Django pods —
+# warming a team here that the reader doesn't serve is wasted compute.
+EAGER_BASELINE_TEAM_IDS: tuple[int, ...] = (2,)
 
 # Single warming window: the trailing 28 days. The lazy precompute path
 # stores per-day buckets, so a 28-day warm naturally serves any user
@@ -124,93 +109,20 @@ EAGER_PRECOMPUTE_BASELINE_FAILED = Counter(
 )
 
 
-def _extract_organization_ids_from_flag(flag: dict) -> list[str]:
-    """Pull `id equals <uuid>` values out of a flag definition's filter groups.
-
-    Expects org-aggregated flags shaped as one group per enrolled org
-    with a `{type: "group", key: "id", operator: "exact", value: <uuid>}`
-    property — the shape the product UI produces for "Match organizations
-    against id equals <uuid>" conditions. Trusts the shape since the flag
-    is internal config.
-    """
-    org_ids: list[str] = []
-    for group in flag.get("filters", {}).get("groups", []):
-        for prop in group.get("properties", []):
-            if prop.get("type") != "group" or prop.get("key") != "id":
-                continue
-            # `exact` is the default operator when not specified.
-            if prop.get("operator", "exact") != "exact":
-                continue
-            value = prop.get("value")
-            if isinstance(value, list):
-                org_ids.extend(v for v in value if v)
-            elif value:
-                org_ids.append(value)
-    return org_ids
-
-
-def _find_flag_definition(key: str) -> dict | None:
-    """Look up `key` in the posthoganalytics SDK's local flag-definition cache.
-
-    The cache is populated by the SDK's background poller against the
-    PostHog project the cloud deployment is configured for, so this
-    avoids importing the `FeatureFlag` Django model from another product
-    and stays self-contained within `products.web_analytics`'s allowed
-    tach dependencies.
-    """
-    for flag in posthoganalytics.feature_flag_definitions() or []:
-        if flag.get("key") != key:
-            continue
-        if flag.get("deleted") or flag.get("active") is False:
-            continue
-        return flag
-    return None
-
-
 def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     """Resolve the audience and return a structured trace of which gate
     fired. Returns `(team_ids, gate_reason, diagnostics)`.
 
-    `gate_reason` is one of: `not_cloud`, `flag_not_found`,
-    `flag_no_org_conditions`, `no_teams_for_orgs`, `ok`. The
-    `diagnostics` dict carries the inputs each gate saw — enough to
-    explain a `teams=0` run without re-running the job.
+    `gate_reason` is one of: `not_cloud`, `no_teams_configured`, `ok`.
     """
     if not is_cloud():
-        return [], "not_cloud", {"flag_key": EAGER_FLAG_KEY}
+        return [], "not_cloud", {}
 
-    flag = _find_flag_definition(EAGER_FLAG_KEY)
-    if flag is None:
-        flag_count = len(posthoganalytics.feature_flag_definitions() or [])
-        return [], "flag_not_found", {"flag_key": EAGER_FLAG_KEY, "flags_in_cache": flag_count}
-
-    org_ids = _extract_organization_ids_from_flag(flag)
-    if not org_ids:
-        group_count = len(flag.get("filters", {}).get("groups", []))
-        return (
-            [],
-            "flag_no_org_conditions",
-            {"flag_key": EAGER_FLAG_KEY, "flag_groups": group_count},
-        )
-
-    team_ids = list(
-        Team.objects.filter(organization_id__in=org_ids).values_list("pk", flat=True).distinct().order_by("pk")
-    )
-    diag = {
-        "flag_key": EAGER_FLAG_KEY,
-        "org_ids_in_flag": len(org_ids),
-        "teams_resolved": len(team_ids),
-    }
+    team_ids = list(EAGER_BASELINE_TEAM_IDS)
+    diag = {"teams_configured": len(team_ids)}
     if not team_ids:
-        return [], "no_teams_for_orgs", diag
+        return [], "no_teams_configured", diag
     return team_ids, "ok", diag
-
-
-def get_eager_team_ids() -> list[int]:
-    """Thin wrapper kept for external callers and tests; see
-    `_resolve_eager_audience` for the gate-by-gate logic."""
-    team_ids, _, _ = _resolve_eager_audience()
-    return team_ids
 
 
 def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> tuple[int, int]:
@@ -282,22 +194,9 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
     return warmed, failed
 
 
-@dagster.op(required_resource_keys={"posthoganalytics"})
+@dagster.op
 def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    """Run the baseline tile matrix against every flag-enrolled team.
-
-    Declaring the `posthoganalytics` resource ensures Dagster runs
-    `PostHogAnalyticsResource.create_resource` first, which sets
-    `posthoganalytics.personal_api_key` from `EnvVar("PERSONAL_API_KEY")`.
-    The op then forces a synchronous load of flag definitions — the
-    SDK's background poller runs on a 90s interval and would not fire
-    before this short-lived op subprocess exits.
-    """
-    try:
-        posthoganalytics.load_feature_flags()
-    except Exception:
-        context.log.exception("eager_baseline_warming_load_feature_flags_failed")
-
+    """Run the baseline tile matrix against every team in `EAGER_BASELINE_TEAM_IDS`."""
     team_ids, gate_reason, diagnostics = _resolve_eager_audience()
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
     context.log.info(
@@ -333,10 +232,9 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 @dagster.job(
     description=(
         "Hourly pre-warmer for Web analytics: runs the dashboard's main tile matrix over the last "
-        f"{BASELINE_WINDOW_DAYS} days for every team belonging to an organization rolled out on the "
-        f"`{EAGER_FLAG_KEY}` flag. Each query is dispatched through its standard runner, which routes "
-        f"through the family's lazy precompute path — the runner decides what's stale and inserts only "
-        f"what's missing."
+        f"{BASELINE_WINDOW_DAYS} days for every team in `EAGER_BASELINE_TEAM_IDS`. Each query is "
+        "dispatched through its standard runner, which routes through the family's lazy precompute "
+        "path — the runner decides what's stale and inserts only what's missing."
     ),
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
