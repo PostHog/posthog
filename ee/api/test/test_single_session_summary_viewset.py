@@ -1,12 +1,16 @@
 import copy
 from datetime import UTC, datetime
 
+import pytest
 from posthog.test.base import APIBaseTest
 
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
+from ee.models.rbac.access_control import AccessControl
 from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
 
 
@@ -155,6 +159,44 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         ids = {row["session_id"] for row in response.json()["results"]}
         self.assertEqual(ids, {"session-a"})
 
+    def test_list_date_bounds_are_inclusive(self) -> None:
+        boundary = self._make_summary("session-boundary")
+        boundary.created_at = datetime(2026, 3, 1, tzinfo=UTC)
+        boundary.save(update_fields=["created_at"])
+        earlier = self._make_summary("session-earlier")
+        earlier.created_at = datetime(2026, 2, 1, tzinfo=UTC)
+        earlier.save(update_fields=["created_at"])
+
+        # date_from equal to the boundary timestamp must include that row (inclusive lower bound).
+        response = self.client.get(self._url(), {"date_from": "2026-03-01"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertIn("session-boundary", ids)
+        self.assertNotIn("session-earlier", ids)
+
+        # date_to equal to the boundary timestamp must include that row (inclusive upper bound).
+        response = self.client.get(self._url(), {"date_to": "2026-03-01"})
+        ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertIn("session-boundary", ids)
+        self.assertIn("session-earlier", ids)
+
+    def test_list_orders_by_allowed_field(self) -> None:
+        short = self._make_summary("session-short", session_duration=10)
+        long = self._make_summary("session-long", session_duration=999)
+
+        response = self.client.get(self._url(), {"order": "-session_duration"})
+
+        self.assertEqual(response.status_code, 200)
+        ordered_ids = [row["session_id"] for row in response.json()["results"]]
+        self.assertEqual(ordered_ids, [long.session_id, short.session_id])
+
+    def test_list_rejects_unknown_order_field(self) -> None:
+        self._make_summary("session-a")
+
+        response = self.client.get(self._url(), {"order": "created_by__email"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "order")
+
     def test_retrieve_returns_full_summary(self) -> None:
         self._make_summary(
             "session-a",
@@ -251,3 +293,89 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self.assertEqual(body["session_id"], "session-a")
         self.assertIn("segments", body["summary"])
         self.assertEqual(body["extra_summary_context"], {"focus_area": "checkout"})
+
+
+@pytest.mark.ee
+class TestSingleSessionSummaryViewSetAccessControl(APIBaseTest):
+    """A summary's access must follow the underlying recording's, even though `SingleSessionSummary`
+    is not itself a mapped access-control resource. Without per-recording gating, a user with object-level
+    access to one recording could read summaries for every recording in the team."""
+
+    def _url(self, session_id: str | None = None) -> str:
+        base = f"/api/projects/{self.team.id}/single_session_summaries/"
+        return base if session_id is None else f"{base}{session_id}/"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.viewer_user = User.objects.create_and_join(self.organization, "viewer@posthog.com", "testtest")
+
+        # Two recordings + their persisted summaries, created by the admin (not the viewer).
+        self.recording_allowed = SessionRecording.objects.create(
+            team=self.team, session_id="rec-allowed", distinct_id="u1", deleted=False
+        )
+        self.recording_denied = SessionRecording.objects.create(
+            team=self.team, session_id="rec-denied", distinct_id="u2", deleted=False
+        )
+        for session_id in ("rec-allowed", "rec-denied"):
+            SingleSessionSummary.objects.create(
+                team=self.team,
+                session_id=session_id,
+                summary=copy.deepcopy(get_mock_enriched_llm_json_response(session_id)),
+                exception_event_ids=[],
+                run_metadata={"model_used": "gpt-4o", "visual_confirmation": False},
+                session_start_time=datetime(2026, 1, 1, tzinfo=UTC),
+                created_by=self.user,
+            )
+
+        # Viewer can see only `rec-allowed`: object-level grant + resource-level "none".
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="session_recording",
+            resource_id=str(self.recording_allowed.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="session_recording",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(self.viewer_user)
+
+    def test_list_only_returns_summaries_for_accessible_recordings(self) -> None:
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        session_ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(session_ids, {"rec-allowed"})
+
+    def test_retrieve_accessible_recording_summary_succeeds(self) -> None:
+        response = self.client.get(self._url("rec-allowed"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["session_id"], "rec-allowed")
+
+    def test_retrieve_inaccessible_recording_summary_is_forbidden(self) -> None:
+        response = self.client.get(self._url("rec-denied"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_full_recording_access_sees_all_summaries(self) -> None:
+        # A user with team-wide viewer access takes the fast path (no per-recording filtering).
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        AccessControl.objects.filter(team=self.team, organization_member=membership, resource_id=None).update(
+            access_level="viewer"
+        )
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        session_ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(session_ids, {"rec-allowed", "rec-denied"})

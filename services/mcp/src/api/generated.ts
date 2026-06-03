@@ -24812,8 +24812,11 @@ export namespace Schemas {
       readonly exception_count: number;
       /** True if the summary surfaced any exception events. */
       readonly has_exceptions: boolean;
-      /** LLM model identifier that generated this summary, if recorded in run metadata. */
-      readonly model_used: string;
+      /**
+         * LLM model identifier that generated this summary, if recorded in run metadata.
+         * @nullable
+         */
+      readonly model_used: string | null;
       /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
       readonly visual_confirmation: boolean;
       /**
@@ -37157,7 +37160,6 @@ export namespace Schemas {
       readonly run_metadata: SingleSessionSummaryRunMetadata;
       readonly created_at: string;
       readonly created_by: UserBasic;
-      readonly team: number;
     }
 
     export interface SlackChannel {
@@ -49325,7 +49327,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Ordering field, defaults to `-created_at` (most recent first).
+     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
      */
     order?: string;
     /**

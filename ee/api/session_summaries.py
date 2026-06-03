@@ -9,6 +9,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet, Subquery
+from django.db.models.fields.json import KeyTransform
 from django.http import StreamingHttpResponse
 
 import structlog
@@ -35,6 +36,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
 from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo, SessionSummaryStreamUpdate
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
@@ -824,7 +826,12 @@ class SingleSessionSummaryMinimalSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(_SESSION_OUTCOME_SCHEMA)
     def get_session_outcome(self, obj: SingleSessionSummary) -> dict | None:
-        outcome = obj.summary.get("session_outcome") if isinstance(obj.summary, dict) else None
+        # The list queryset annotates `session_outcome_json` and defers the heavy `summary`
+        # column, so a page of rows never hydrates the full ~50 KB summary JSON just to read
+        # the outcome. Fall back to the in-memory column for any non-list/deferred-free path.
+        outcome = getattr(obj, "session_outcome_json", None)
+        if outcome is None and "summary" not in obj.get_deferred_fields() and isinstance(obj.summary, dict):
+            outcome = obj.summary.get("session_outcome")
         return outcome if isinstance(outcome, dict) else None
 
     @extend_schema_field(OpenApiTypes.INT)
@@ -835,7 +842,7 @@ class SingleSessionSummaryMinimalSerializer(serializers.ModelSerializer):
     def get_has_exceptions(self, obj: SingleSessionSummary) -> bool:
         return bool(obj.exception_event_ids)
 
-    @extend_schema_field(OpenApiTypes.STR)
+    @extend_schema_field({"type": "string", "nullable": True})
     def get_model_used(self, obj: SingleSessionSummary) -> str | None:
         meta = obj.run_metadata or {}
         return meta.get("model_used") if isinstance(meta, dict) else None
@@ -887,7 +894,6 @@ class SingleSessionSummarySerializer(serializers.ModelSerializer):
             "run_metadata",
             "created_at",
             "created_by",
-            "team",
         ]
         read_only_fields = fields
 
@@ -913,7 +919,19 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         obj = queryset.filter(session_id=self.kwargs[self.lookup_field]).order_by("-created_at").first()
         if obj is None:
             raise exceptions.NotFound("No stored summary found for this session.")
+        # `SingleSessionSummary` is not a mapped access-control resource, so the resource-level
+        # `scope_object` check admits users who only hold object-level grants to *some* recording.
+        # Gate on the underlying recording so summary access mirrors `SessionRecordingViewSet`.
+        recording = SessionRecording.get_or_build(session_id=obj.session_id, team=self.team)
+        if not self.user_access_control.check_access_level_for_object(recording, required_level="viewer"):
+            raise exceptions.PermissionDenied("You do not have access to this recording.")
         return obj
+
+    # Ordering is forwarded straight to `.order_by()`, so it must be allowlisted: an arbitrary value
+    # would raise an unhandled `FieldError` (500), and a related-field path would add a silent JOIN.
+    ALLOWED_ORDER_FIELDS = frozenset(
+        f"{prefix}{field}" for field in ("created_at", "session_start_time", "session_duration") for prefix in ("", "-")
+    )
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team).select_related("created_by", "team")
@@ -924,16 +942,46 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         # Deduplicate to the latest summary per session_id, then re-order by recency. The latest-per-session
         # subquery has to use `ORDER BY session_id, -created_at` to be valid with `DISTINCT ON (session_id)`.
         latest_ids = queryset.order_by("session_id", "-created_at").distinct("session_id").values("id")
-        deduped = SingleSessionSummary.objects.filter(id__in=Subquery(latest_ids)).select_related("created_by", "team")
+        # Defer the heavy `summary` column and project just `session_outcome` so a page of rows doesn't
+        # pull the full ~50 KB summary JSON per row (see `SingleSessionSummaryMinimalSerializer`).
+        deduped = (
+            SingleSessionSummary.objects.filter(id__in=Subquery(latest_ids))
+            .select_related("created_by", "team")
+            .defer("summary")
+            .annotate(session_outcome_json=KeyTransform("session_outcome", "summary"))
+        )
+        deduped = self._restrict_to_accessible_recordings(deduped)
+
         order = self.request.GET.get("order") or "-created_at"
+        if order not in self.ALLOWED_ORDER_FIELDS:
+            raise exceptions.ValidationError(
+                {"order": f"Invalid order field. Allowed values: {', '.join(sorted(self.ALLOWED_ORDER_FIELDS))}."}
+            )
         return deduped.order_by(order)
+
+    def _restrict_to_accessible_recordings(self, queryset: QuerySet) -> QuerySet:
+        """Mirror `SessionRecordingViewSet` object-level access for the list path.
+
+        When the user has team-wide recording access (the common case, incl. when advanced access
+        controls are off) this is a no-op. Otherwise they reached the endpoint via object-level grants,
+        so restrict summaries to the recordings they can actually view.
+        """
+        uac = self.user_access_control
+        if uac.check_access_level_for_resource("session_recording", required_level="viewer"):
+            return queryset
+        session_ids = list(queryset.values_list("session_id", flat=True))
+        accessible_recordings = uac.filter_queryset_by_access_level(
+            SessionRecording.objects.filter(team=self.team, session_id__in=session_ids)
+        )
+        accessible_session_ids = set(accessible_recordings.values_list("session_id", flat=True))
+        return queryset.filter(session_id__in=accessible_session_ids)
 
     def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         params = request.GET
         if date_from := params.get("date_from"):
-            queryset = queryset.filter(created_at__gt=relative_date_parse(date_from, self.team.timezone_info))
+            queryset = queryset.filter(created_at__gte=relative_date_parse(date_from, self.team.timezone_info))
         if date_to := params.get("date_to"):
-            queryset = queryset.filter(created_at__lt=relative_date_parse(date_to, self.team.timezone_info))
+            queryset = queryset.filter(created_at__lte=relative_date_parse(date_to, self.team.timezone_info))
         if distinct_id := params.get("distinct_id"):
             queryset = queryset.filter(distinct_id=distinct_id)
         if created_by := params.get("created_by"):
@@ -1030,7 +1078,11 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                 name="order",
                 type=str,
                 required=False,
-                description="Ordering field, defaults to `-created_at` (most recent first).",
+                enum=sorted(ALLOWED_ORDER_FIELDS),
+                description=(
+                    "Ordering field, defaults to `-created_at` (most recent first). Allowed: "
+                    "`created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending)."
+                ),
             ),
         ],
     )
