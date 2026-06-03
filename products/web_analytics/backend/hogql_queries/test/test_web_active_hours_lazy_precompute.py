@@ -11,8 +11,10 @@ from posthog.schema import (
     CalendarHeatmapFilter,
     CalendarHeatmapQuery,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
+    PropertyOperator,
     SessionsV2JoinMode,
 )
 
@@ -249,5 +251,50 @@ class TestWebActiveHoursLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed_session_spanning_midnight()
         with self._enable_lazy():
             self._run(self._build_query(date_from="2023-01-01", date_to="2024-01-07"))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_series_level_host_filter_engages_precompute_with_distinct_cache_key(self):
+        # The web analytics tile sets `webAnalyticsFilters` on `series[0].properties`.
+        # The gate must count those as user filters (so single $host filter is
+        # accepted), and the INSERT must include them in the WHERE clause —
+        # producing a cache key distinct from the unfiltered query.
+        self._seed_session_spanning_midnight()
+
+        with self._enable_lazy():
+            unfiltered = self._build_query(math="dau")
+            self._run(unfiltered)
+            unfiltered_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            filtered = self._build_query(math="dau")
+            filtered.series[0].properties = [
+                EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
+            ]
+            self._run(filtered)
+            filtered_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert unfiltered_hashes and filtered_hashes
+        assert unfiltered_hashes.isdisjoint(filtered_hashes), (
+            f"series-level filter must produce a distinct cache key, got overlap: {unfiltered_hashes & filtered_hashes}"
+        )
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_too_many_combined_filters_falls_through(self):
+        # Gate caps user filters at 1. Combined top-level + series[0] filter
+        # count must respect that — otherwise a single top-level filter plus a
+        # single series filter (the realistic dashboard shape) would silently
+        # exceed the cap inside the INSERT.
+        self._seed_session_spanning_midnight()
+
+        query = self._build_query(math="dau")
+        query.properties = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
+        query.series[0].properties = [
+            EventPropertyFilter(key="$pathname", value="/home", operator=PropertyOperator.EXACT)
+        ]
+
+        with self._enable_lazy():
+            self._run(query)
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0

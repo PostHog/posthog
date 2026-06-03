@@ -130,6 +130,33 @@ def can_use_lazy_precompute(runner: "CalendarHeatmapQueryRunner") -> bool:
     return True
 
 
+def _combined_user_properties(query: CalendarHeatmapQuery) -> list:
+    """Mirror `CalendarHeatmapQueryRunner._all_properties()`: combine top-level
+    `query.properties` with `series[0].properties`. The web analytics tile sets
+    `webAnalyticsFilters` on the series, so the gate and INSERT filter both
+    need to look at series-level filters — otherwise filtered dashboards slip
+    past the gate's `len(properties) <= 1` check and the precomputed rows
+    ignore the filter, producing inflated counts vs. the raw HogQL path.
+
+    `PropertyGroupFilter` (rare; the schema allows it but the gate rejects
+    non-`EventPropertyFilter` entries) is forwarded unchanged so the existing
+    `NonEventPropertyFilter` rejection still fires for it.
+    """
+    combined: list = []
+    top_level = query.properties or []
+    if isinstance(top_level, list):
+        combined.extend(top_level)
+    else:
+        combined.append(top_level)
+    if query.series:
+        series_props = getattr(query.series[0], "properties", None) or []
+        if isinstance(series_props, list):
+            combined.extend(series_props)
+        else:
+            combined.append(series_props)
+    return combined
+
+
 def _check_eligible(runner: "CalendarHeatmapQueryRunner") -> None:
     query = runner.query
     assert isinstance(query, CalendarHeatmapQuery), "_check_eligible called on non-CalendarHeatmap runner"
@@ -167,7 +194,7 @@ def _check_eligible(runner: "CalendarHeatmapQueryRunner") -> None:
         # this modifier, so the gate effectively only fires when someone opts
         # into UUID mode by hand (same behaviour as the sibling lazy paths).
         modifiers=query.modifiers,
-        properties=query.properties or [],
+        properties=_combined_user_properties(query),
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
     )
 
@@ -241,9 +268,24 @@ def _user_filter_expr(runner: "CalendarHeatmapQueryRunner") -> ast.Expr:
     # `property_to_expr` handles every event/session/person filter type and
     # operator HogQL supports. Empty list returns `True` so the INSERT WHERE
     # remains valid.
-    if not runner.query.properties:
+    #
+    # Mirror `CalendarHeatmapQueryRunner._all_properties()` and AND together
+    # top-level and series[0] filters. Both must end up in the INSERT AST so
+    # `ensure_precomputed` hashes filtered/unfiltered jobs into distinct
+    # cache keys — without this, filtered queries collide with the unfiltered
+    # precomputed rows and overcount.
+    exprs: list[ast.Expr] = []
+    if runner.query.properties:
+        exprs.append(property_to_expr(runner.query.properties, team=runner.team))
+    if runner.query.series:
+        series_props = getattr(runner.query.series[0], "properties", None)
+        if series_props:
+            exprs.append(property_to_expr(series_props, team=runner.team))
+    if not exprs:
         return ast.Constant(value=True)
-    return property_to_expr(runner.query.properties, team=runner.team)
+    if len(exprs) == 1:
+        return exprs[0]
+    return ast.Call(name="and", args=exprs)
 
 
 def _test_account_filter_for_runner(runner: "CalendarHeatmapQueryRunner") -> ast.Expr:
