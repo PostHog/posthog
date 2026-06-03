@@ -67,7 +67,7 @@ STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
-    from posthog.models import ExportedAsset
+    from products.exports.backend.models.exported_asset import ExportedAsset
 
     ExportedAsset.delete_expired_assets()
 
