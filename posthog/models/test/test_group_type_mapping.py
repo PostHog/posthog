@@ -638,7 +638,8 @@ class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
 
 class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
     def setUp(self):
-        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._mock_client = MagicMock()
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=self._mock_client)
         self._client_patcher.start()
 
     def tearDown(self):
@@ -660,12 +661,9 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         mock_count_2.team_id = 2
         mock_count_2.count = 5
 
-        from posthog.personhog_client.client import get_personhog_client
-
-        mock_client = get_personhog_client()
         mock_resp = MagicMock()
         mock_resp.counts = [mock_count_1, mock_count_2]
-        mock_client.count_group_type_mappings.return_value = mock_resp
+        self._mock_client.count_group_type_mappings.return_value = mock_resp
 
         result = count_group_type_mappings_per_team()
 
@@ -685,10 +683,7 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         mock_routing_counter,
         mock_objects,
     ):
-        from posthog.personhog_client.client import get_personhog_client
-
-        mock_client = get_personhog_client()
-        mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
+        self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
 
         orm_data = [{"team_id": 1, "total": 3}]
         mock_qs = MagicMock()
@@ -732,7 +727,8 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         mock_errors_counter.labels.assert_not_called()
 
         no_client_patcher.stop()
-        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._mock_client = MagicMock()
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=self._mock_client)
         self._client_patcher.start()
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
@@ -746,10 +742,7 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
     ):
         from django.db import DatabaseError
 
-        from posthog.personhog_client.client import get_personhog_client
-
-        mock_client = get_personhog_client()
-        mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
+        self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
 
         mock_qs = MagicMock()
         mock_qs.annotate.return_value.order_by.side_effect = DatabaseError("db is down")
