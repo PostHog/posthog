@@ -1,8 +1,9 @@
+import { parseMarkdownToTipTap } from 'lib/utils/parseMarkdownToTipTap'
+
 import {
     detectMarkdown,
     detectTabularFormat,
     isTabularData,
-    parseMarkdownToTipTap,
     parseTabularDataToTipTapTable,
 } from './DropAndPasteHandlerExtension'
 

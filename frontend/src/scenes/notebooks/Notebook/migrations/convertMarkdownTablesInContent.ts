@@ -1,13 +1,6 @@
 import { JSONContent } from '@tiptap/core'
-import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
-import { MarkdownManager } from '@tiptap/markdown'
-import StarterKit from '@tiptap/starter-kit'
 
-import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
-
-const markdownManager = new MarkdownManager({
-    extensions: [StarterKit, Table, TableRow, TableHeader, TableCell],
-})
+import { parseMarkdownToTipTap } from 'lib/utils/parseMarkdownToTipTap'
 
 // Plain text of an unstyled, text-only paragraph. Returns null for anything else
 // (non-paragraphs, empty paragraphs, paragraphs with marks or non-text children) so
@@ -65,9 +58,7 @@ export function convertMarkdownTablesInContent(content: JSONContent[]): JSONCont
             i++
         }
 
-        const markdown = expandFlattenedMarkdownTables(texts.join('\n'))
-        const parsed = markdownManager.parse(markdown) as JSONContent
-        const parsedContent = (parsed.content as JSONContent[] | undefined) ?? []
+        const parsedContent = parseMarkdownToTipTap(texts.join('\n'))
         const isTable = parsedContent.length > 0 && parsedContent.every((node) => node.type === 'table')
 
         result.push(...(isTable ? parsedContent : run))

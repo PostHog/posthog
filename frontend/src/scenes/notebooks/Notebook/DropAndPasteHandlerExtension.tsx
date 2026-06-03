@@ -1,17 +1,12 @@
 import { JSONContent } from '@tiptap/core'
-import { Link } from '@tiptap/extension-link'
-import { TaskItem, TaskList } from '@tiptap/extension-list'
-import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
-import { MarkdownManager } from '@tiptap/markdown'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Extension } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
 import Papa from 'papaparse'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
+import { parseMarkdownToTipTap } from 'lib/utils/parseMarkdownToTipTap'
 
 import { NotebookNodeType } from '../types'
 
@@ -83,27 +78,6 @@ export function detectMarkdown(text: string): boolean {
         return false
     }
     return MARKDOWN_BLOCK_PATTERNS.some((pattern) => pattern.test(text))
-}
-
-const markdownManager = new MarkdownManager({
-    extensions: [
-        StarterKit.configure({ link: false }),
-        Link,
-        Table,
-        TableRow,
-        TableHeader,
-        TableCell,
-        TaskList,
-        TaskItem.configure({ nested: true }),
-    ],
-})
-
-export function parseMarkdownToTipTap(markdown: string): JSONContent[] {
-    if (!markdown || markdown.trim() === '') {
-        return []
-    }
-    const doc = markdownManager.parse(expandFlattenedMarkdownTables(markdown)) as JSONContent
-    return (doc.content as JSONContent[]) || []
 }
 
 export const DropAndPasteHandlerExtension = Extension.create({
