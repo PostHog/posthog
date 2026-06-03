@@ -72,6 +72,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
+from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
@@ -81,7 +82,7 @@ from products.dashboards.backend.api.dashboard_ai import generate_refresh_analys
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
-from products.dashboards.backend.api.widget_openapi_serializers import ErrorTrackingListWidgetConfigSerializer
+from products.dashboards.backend.api.widget_openapi_serializers import DashboardWidgetConfigField
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -100,6 +101,7 @@ from products.dashboards.backend.widget_layouts import (
 )
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
+    SESSION_REPLAY_LIST_WIDGET_TYPE,
     get_widget_registry_entry,
     validate_widget_config,
 )
@@ -476,13 +478,12 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text=WIDGET_TYPE_API_HELP,
     )
-    config = ErrorTrackingListWidgetConfigSerializer(
+    config = DashboardWidgetConfigField(
         required=False,
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for other types. "
-            f"For error_tracking_list, use the schema below (currently the only supported type: "
-            f"{', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
+            "see dashboard-widget-catalog-list for config_schema_hints. "
+            f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
     name = serializers.CharField(
@@ -500,12 +501,11 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
 
 
 class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
-    config = ErrorTrackingListWidgetConfigSerializer(
+    config = DashboardWidgetConfigField(
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for other types. "
-            f"For error_tracking_list, use the schema below (currently the only supported type: "
-            f"{', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
+            "see dashboard-widget-catalog-list for config_schema_hints. "
+            f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
     layouts = TileLayoutsSerializer(
@@ -665,7 +665,7 @@ class DashboardWidgetSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text="Optional markdown description shown on the dashboard tile when enabled.",
     )
-    config = ErrorTrackingListWidgetConfigSerializer(
+    config = DashboardWidgetConfigField(
         required=False,
         help_text="Widget-specific configuration JSON for this widget type.",
     )
@@ -2637,6 +2637,17 @@ class DashboardsViewSet(
                     "error": scope_error,
                 }
                 continue
+
+            if widget.widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
+                throttle_error = get_replay_listing_throttle_error(request, self)
+                if throttle_error:
+                    results_by_id[tile_id] = {
+                        "tile_id": tile_id,
+                        "widget_type": widget.widget_type,
+                        "result": None,
+                        "error": throttle_error,
+                    }
+                    continue
 
             query_work_items.append(
                 {
