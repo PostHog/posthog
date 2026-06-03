@@ -145,6 +145,29 @@ export interface RetentionResultItem {
 
 export type RetentionResult = RetentionResultItem[]
 
+export interface PathsQuery {
+    kind: 'PathsQuery'
+    pathsFilter?: {
+        includeEventTypes?: string[]
+        startPoint?: string
+        endPoint?: string
+    }
+}
+
+/**
+ * A single edge in a paths result. `source`/`target` are node keys of the form
+ * `<stepIndex>_<value>` (e.g. `2_https://example.com/pricing`); `value` is the user
+ * count on the edge; `average_conversion_time` is in milliseconds.
+ */
+export interface PathsResultItem {
+    source: string
+    target: string
+    value: number
+    average_conversion_time?: number
+}
+
+export type PathsResult = PathsResultItem[]
+
 // ============================================================================
 // Tool result payloads
 // The visualization type is inferred from the data structure, not a discriminator
@@ -201,4 +224,9 @@ export interface TableVisualizerProps {
 export interface RetentionVisualizerProps {
     query: RetentionQuery | undefined
     results: RetentionResult
+}
+
+export interface PathsVisualizerProps {
+    query: PathsQuery | undefined
+    results: PathsResult
 }

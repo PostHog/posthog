@@ -5,6 +5,7 @@ import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } f
 
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
+import { PathsVisualizer } from './PathsVisualizer'
 import { RetentionVisualizer } from './RetentionVisualizer'
 import { TableVisualizer } from './TableVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
@@ -14,13 +15,15 @@ import type {
     HogQLResult,
     LifecycleQuery,
     LifecycleResult,
+    PathsQuery,
+    PathsResult,
     RetentionQuery,
     RetentionResult,
     TrendsQuery,
     TrendsResult,
 } from './types'
 
-type VisualizationType = 'trends' | 'funnel' | 'lifecycle' | 'retention' | 'table'
+type VisualizationType = 'trends' | 'funnel' | 'lifecycle' | 'retention' | 'paths' | 'table'
 
 /**
  * Lifecycle results share the trends shape but each item carries a `status` field
@@ -108,6 +111,24 @@ function isRetentionResult(results: unknown): results is RetentionResult {
 }
 
 /**
+ * Paths results are an array of edges, each with string `source`/`target` node keys
+ * (`<stepIndex>_<value>`) and a numeric `value` (user count).
+ */
+function isPathsResult(results: unknown): results is PathsResult {
+    if (!Array.isArray(results) || results.length === 0) {
+        return false
+    }
+    const first = results[0] as Record<string, unknown>
+    return (
+        typeof first === 'object' &&
+        first !== null &&
+        typeof first.source === 'string' &&
+        typeof first.target === 'string' &&
+        typeof first.value === 'number'
+    )
+}
+
+/**
  * Check if results look like HogQLResult (object with columns and results arrays).
  */
 function isHogQLResult(results: unknown): results is HogQLResult {
@@ -143,6 +164,10 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
     if (isLifecycleResult(results)) {
         return 'lifecycle'
     }
+    // Paths must come before trends/funnel — its edge rows match neither, but keep it explicit.
+    if (isPathsResult(results)) {
+        return 'paths'
+    }
     if (isTrendsResult(results)) {
         return 'trends'
     }
@@ -164,6 +189,9 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
     if (query?.kind === 'RetentionQuery') {
         return 'retention'
     }
+    if (query?.kind === 'PathsQuery') {
+        return 'paths'
+    }
     if (query?.kind === 'HogQLQuery') {
         return 'table'
     }
@@ -173,8 +201,8 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 
 /** Data payload from MCP tools */
 interface DataPayload {
-    query?: TrendsQuery | FunnelsQuery | LifecycleQuery | RetentionQuery | Record<string, unknown>
-    results: TrendsResult | FunnelResult | LifecycleResult | RetentionResult | HogQLResult
+    query?: TrendsQuery | FunnelsQuery | LifecycleQuery | RetentionQuery | PathsQuery | Record<string, unknown>
+    results: TrendsResult | FunnelResult | LifecycleResult | RetentionResult | PathsResult | HogQLResult
     _posthogUrl?: string
 }
 
@@ -234,6 +262,9 @@ export function Component({ data }: ComponentProps): ReactElement {
                     />
                 )
 
+            case 'paths':
+                return <PathsVisualizer query={payload.query as PathsQuery} results={payload.results as PathsResult} />
+
             case 'table':
                 return <TableVisualizer results={payload.results as HogQLResult} />
 
@@ -252,6 +283,8 @@ export function Component({ data }: ComponentProps): ReactElement {
                 return 'Lifecycle'
             case 'retention':
                 return 'Retention'
+            case 'paths':
+                return 'Paths'
             case 'table':
                 return 'Query results'
             default:
