@@ -5,15 +5,10 @@
 //! map, and issues pipelined `HINCRBY`s to Redis. On graceful shutdown a
 //! final flush runs before the service exits.
 //!
-//! # Mode
-//!
-//! `AggregatorMode::Shadow` writes `…:shadow`-suffixed keys for offline
-//! reconciliation against the per-request synchronous HINCRBY path; both
-//! writes happen on every billable request. `AggregatorMode::Authoritative`
-//! writes the production billing keys directly and the per-request path is
-//! skipped — at this point `flags_billing_pending_records` and
-//! `flags_billing_seconds_since_successful_flush` are billing-critical
-//! signals, not just reconciliation hygiene.
+//! The aggregator is the authoritative writer for the production billing
+//! keyspace — there is no per-request synchronous HINCRBY. That makes
+//! `flags_billing_pending_records` and
+//! `flags_billing_seconds_since_successful_flush` billing-critical signals.
 //!
 //! # Durability trade-off
 //!
@@ -88,7 +83,6 @@ use tokio::task::JoinHandle;
 
 use crate::flags::flag_analytics::{
     current_bucket, get_team_request_key, get_team_request_library_key,
-    get_team_request_library_shadow_key, get_team_request_shadow_key,
 };
 use crate::flags::flag_request::FlagRequestType;
 use crate::handler::types::Library;
@@ -229,39 +223,6 @@ pub struct AggregationKey {
     pub bucket: u64,
 }
 
-/// Which Redis keyspace the aggregator writes to.
-///
-/// `Shadow` writes `…:shadow`-suffixed keys that run in parallel with the
-/// authoritative per-request HINCRBY in `flag_analytics::increment_request_count`,
-/// so its counts can be reconciled before cutover. `Authoritative` writes the
-/// production billing keys directly — at that point the per-request HINCRBY is
-/// skipped (see `handler::billing::record_billing_increment`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AggregatorMode {
-    Shadow,
-    Authoritative,
-}
-
-impl AggregatorMode {
-    fn team_key(self, team_id: i32, request_type: FlagRequestType) -> String {
-        match self {
-            AggregatorMode::Shadow => get_team_request_shadow_key(team_id, request_type),
-            AggregatorMode::Authoritative => get_team_request_key(team_id, request_type),
-        }
-    }
-
-    fn library_key(self, team_id: i32, request_type: FlagRequestType, library: Library) -> String {
-        match self {
-            AggregatorMode::Shadow => {
-                get_team_request_library_shadow_key(team_id, request_type, library)
-            }
-            AggregatorMode::Authoritative => {
-                get_team_request_library_key(team_id, request_type, library)
-            }
-        }
-    }
-}
-
 /// Policy for handling a chunk error during a flush. The flusher's normal
 /// tick uses `BailOnError` (if Redis is rejecting, save RTTs and retry next
 /// interval). The shutdown path uses `BestEffort` — it's our last chance to
@@ -335,7 +296,6 @@ pub struct BillingAggregator {
 
 struct Inner {
     config: BillingAggregatorConfig,
-    mode: AggregatorMode,
     redis: Arc<dyn RedisClient + Send + Sync>,
     pending: Mutex<HashMap<AggregationKey, u64>>,
     /// Running sum of `pending.values()`. Updated under the `pending` lock so
@@ -369,11 +329,9 @@ impl Inner {
     fn new(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
-        mode: AggregatorMode,
     ) -> Arc<Self> {
         Arc::new(Self {
             config,
-            mode,
             redis,
             pending: Mutex::new(HashMap::new()),
             pending_total: AtomicU64::new(0),
@@ -408,7 +366,6 @@ impl BillingAggregator {
     pub fn start(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
-        mode: AggregatorMode,
     ) -> Arc<Self> {
         // Fail fast on misconfiguration. A misconfigured FLAGS_BILLING_*
         // env var would otherwise panic the flusher task silently, or silently
@@ -421,7 +378,7 @@ impl BillingAggregator {
         let max_pending_entries = config.max_pending_entries;
         let per_flush_batch_size = config.per_flush_batch_size;
 
-        let inner = Inner::new(redis, config, mode);
+        let inner = Inner::new(redis, config);
         let flusher = tokio::spawn(run_flusher(inner.clone()));
         let metrics_sampler = tokio::spawn(run_metrics_sampler(inner.clone()));
 
@@ -429,7 +386,6 @@ impl BillingAggregator {
             flush_interval_ms,
             max_pending_entries,
             per_flush_batch_size,
-            mode = ?mode,
             "BillingAggregator started"
         );
 
@@ -601,27 +557,11 @@ impl BillingAggregator {
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
     ) -> Arc<Self> {
-        Self::for_tests_with_mode(redis, config, AggregatorMode::Shadow)
-    }
-
-    #[doc(hidden)]
-    pub fn for_tests_with_mode(
-        redis: Arc<dyn RedisClient + Send + Sync>,
-        config: BillingAggregatorConfig,
-        mode: AggregatorMode,
-    ) -> Arc<Self> {
         Arc::new(Self {
-            inner: Inner::new(redis, config, mode),
+            inner: Inner::new(redis, config),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         })
-    }
-
-    /// Read-only accessor used by `record_billing_increment` to decide whether
-    /// to skip the per-request HINCRBY (`Authoritative` mode) or run today's
-    /// dual-write coupling (`Shadow` mode).
-    pub fn mode(&self) -> AggregatorMode {
-        self.inner.mode
     }
 }
 
@@ -858,15 +798,13 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
         // into the team command without an extra clone.
         if let Some(library) = key.library {
             buffer.push(PipelineCommand::HIncrBy {
-                key: inner
-                    .mode
-                    .library_key(key.team_id, key.request_type, library),
+                key: get_team_request_library_key(key.team_id, key.request_type, library),
                 field: field.clone(),
                 count: count_i64,
             });
         }
         buffer.push(PipelineCommand::HIncrBy {
-            key: inner.mode.team_key(key.team_id, key.request_type),
+            key: get_team_request_key(key.team_id, key.request_type),
             field,
             count: count_i64,
         });
@@ -1213,9 +1151,6 @@ fn pick_jitter(flush_interval: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flags::flag_analytics::{
-        get_team_request_library_shadow_key, get_team_request_shadow_key,
-    };
     use common_redis::{MockRedisClient, MockRedisValue};
     use rstest::rstest;
 
@@ -1242,7 +1177,7 @@ mod tests {
     ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
         let redis = Arc::new(redis);
         let agg = Arc::new(BillingAggregator {
-            inner: Inner::new(redis.clone(), config, AggregatorMode::Shadow),
+            inner: Inner::new(redis.clone(), config),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         });
@@ -1276,6 +1211,21 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         panic!("wait_until: condition not satisfied within 1s");
+    }
+
+    /// Paused-time counterpart of `wait_until`. `tokio::time::advance` wakes
+    /// timer-blocked tasks but does not poll them; each `yield_now` lets the
+    /// runtime schedule a ready task. `wait_until`'s 1ms sleep would itself
+    /// block forever under paused time. Bounded so a stuck condition fails
+    /// loudly rather than hanging the test.
+    async fn yield_until(mut cond: impl FnMut() -> bool) {
+        for _ in 0..1000 {
+            if cond() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("yield_until: condition not satisfied after 1000 yields");
     }
 
     /// Record `n` Decide requests for teams `1..=n` with the PosthogJs library.
@@ -1425,15 +1375,15 @@ mod tests {
 
         let expected_team_42_team = format!(
             "{}:{bucket}",
-            get_team_request_shadow_key(42, FlagRequestType::Decide)
+            get_team_request_key(42, FlagRequestType::Decide)
         );
         let expected_team_42_sdk = format!(
             "{}:{bucket}",
-            get_team_request_library_shadow_key(42, FlagRequestType::Decide, Library::PosthogJs)
+            get_team_request_library_key(42, FlagRequestType::Decide, Library::PosthogJs)
         );
         let expected_team_7_team = format!(
             "{}:{bucket}",
-            get_team_request_shadow_key(7, FlagRequestType::Decide)
+            get_team_request_key(7, FlagRequestType::Decide)
         );
 
         assert!(
@@ -1462,37 +1412,6 @@ mod tests {
             FlagRequestType::FlagDefinitions,
             Some(Library::PosthogJs),
         );
-
-        let bucket = current_bucket();
-        flush_once(&agg.inner, FlushPolicy::BailOnError).await;
-
-        let calls = hincrby_calls(&redis);
-        let expected_team = format!("posthog:local_evaluation_requests:42:shadow:{bucket}");
-        let expected_sdk =
-            format!("posthog:local_evaluation_requests:sdk:42:posthog-js:shadow:{bucket}");
-        assert_eq!(calls.len(), 2);
-        assert!(calls.contains(&(expected_team, 1)));
-        assert!(calls.contains(&(expected_sdk, 1)));
-    }
-
-    /// Cutover-mode counterpart to `test_flush_once_writes_flag_definitions_keys`:
-    /// in `Authoritative` mode the aggregator writes the production billing
-    /// keys without the `:shadow` suffix, so the existing
-    /// `calculate_decide_usage` reader picks them up unchanged.
-    #[tokio::test]
-    async fn test_flush_once_authoritative_writes_non_shadow_keys() {
-        let redis = Arc::new(MockRedisClient::new());
-        let agg = BillingAggregator::for_tests_with_mode(
-            redis.clone(),
-            test_config(),
-            AggregatorMode::Authoritative,
-        );
-
-        agg.record(
-            42,
-            FlagRequestType::FlagDefinitions,
-            Some(Library::PosthogJs),
-        );
         agg.record(7, FlagRequestType::Decide, None);
 
         let bucket = current_bucket();
@@ -1508,13 +1427,13 @@ mod tests {
         assert!(calls.contains(&(expected_sdk_42_def, 1)));
         assert!(calls.contains(&(expected_team_7_decide, 1)));
 
-        // Belt-and-braces: no key the aggregator writes in authoritative mode
-        // should ever carry the `:shadow` suffix. A regression here would
-        // double-count once the per-request HINCRBY is removed.
+        // Belt-and-braces: the aggregator must never write `:shadow`-suffixed
+        // keys. A regression here would mean we're writing into the
+        // reconciliation keyspace that has no reader.
         for (key, _) in &calls {
             assert!(
                 !key.contains(":shadow"),
-                "authoritative mode wrote a shadow-suffixed key: {key}"
+                "aggregator wrote a shadow-suffixed key: {key}"
             );
         }
     }
@@ -1593,6 +1512,87 @@ mod tests {
         }
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn test_flusher_swallows_initial_tick_then_flushes_on_interval() {
+        // The only test exercising `run_flusher`'s timing path — every other
+        // test calls `flush_once` directly. Pins two invariants that the
+        // direct-flush tests can't reach:
+        //
+        //   1. The first immediate tick from `tokio::time::interval` is
+        //      swallowed deliberately; no flush fires within the jitter
+        //      window or at interval creation.
+        //   2. Subsequent ticks drive flushes on the configured cadence.
+        //
+        // Paused-time timing model. Jitter is in [0, 100ms] for
+        // flush_interval = 1s. We yield *before* advancing so the flusher
+        // parks on its `sleep(jitter)` at virtual t=0 — otherwise the
+        // sleep deadline would be set relative to whatever virtual time
+        // we'd already advanced to. Advancing past max_jitter wakes the
+        // sleep; after the flusher resumes (via yield), it creates its
+        // interval at virtual time ≈ 101ms, so the first *real* tick
+        // fires at ≈ 1101ms.
+        let flush_interval = Duration::from_secs(1);
+        let redis = Arc::new(MockRedisClient::new());
+        let agg = BillingAggregator::start(
+            redis.clone(),
+            BillingAggregatorConfig {
+                flush_interval,
+                ..test_config()
+            },
+        );
+
+        agg.record(1, FlagRequestType::Decide, None);
+
+        // Park the flusher on its jitter sleep before any advance.
+        tokio::task::yield_now().await;
+
+        // Advance past max jitter so the sleep wakes; the flusher then
+        // installs its interval and swallows the immediate first tick.
+        tokio::time::advance(Duration::from_millis(101)).await;
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            hincrby_calls(&redis).len(),
+            0,
+            "the first immediate interval tick must be swallowed — a flush \
+             here would mean the flusher fired at t ≈ jitter, before any \
+             real tick had a chance to elapse"
+        );
+
+        // Just before the first real tick (at ≈ 1101ms).
+        tokio::time::advance(Duration::from_millis(998)).await;
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            hincrby_calls(&redis).len(),
+            0,
+            "no flush before flush_interval elapses from interval creation"
+        );
+
+        // Cross the first real tick.
+        tokio::time::advance(Duration::from_millis(10)).await;
+        yield_until(|| !hincrby_calls(&redis).is_empty()).await;
+        assert_eq!(
+            hincrby_calls(&redis).len(),
+            1,
+            "first real interval tick should drive exactly one flush"
+        );
+
+        // Pin the cadence: a second record + another full interval should
+        // produce a second flush. Catches a regression that fired once and
+        // then stopped, or lost its interval state between ticks.
+        agg.record(2, FlagRequestType::Decide, None);
+        tokio::time::advance(flush_interval).await;
+        yield_until(|| hincrby_calls(&redis).len() >= 2).await;
+        assert_eq!(
+            hincrby_calls(&redis).len(),
+            2,
+            "a second flush should fire on the next interval tick"
+        );
+    }
+
     #[tokio::test]
     async fn test_shutdown_flushes_then_stops() {
         let redis = Arc::new(MockRedisClient::new());
@@ -1603,7 +1603,6 @@ mod tests {
                 flush_interval: Duration::from_secs(60),
                 ..test_config()
             },
-            AggregatorMode::Shadow,
         );
 
         agg.record(1, FlagRequestType::Decide, None);
@@ -1616,7 +1615,7 @@ mod tests {
         assert_eq!(calls.len(), 1, "shutdown should trigger one HIncrBy");
         let expected_key = format!(
             "{}:{bucket}",
-            get_team_request_shadow_key(1, FlagRequestType::Decide)
+            get_team_request_key(1, FlagRequestType::Decide)
         );
         assert_eq!(calls[0], (expected_key, 2));
     }
@@ -1630,7 +1629,6 @@ mod tests {
                 flush_interval: Duration::from_secs(60),
                 ..test_config()
             },
-            AggregatorMode::Shadow,
         );
         agg.record(1, FlagRequestType::Decide, None);
 
@@ -1658,7 +1656,6 @@ mod tests {
                 shutdown_flush_timeout: Duration::from_millis(100),
                 ..test_config()
             },
-            AggregatorMode::Shadow,
         );
         agg.record(1, FlagRequestType::Decide, None);
 
@@ -2064,7 +2061,6 @@ mod tests {
                 per_flush_batch_size: 2,
                 ..test_config()
             },
-            AggregatorMode::Shadow,
         );
 
         record_n_decide_with_library(&agg, 5);
@@ -2145,7 +2141,7 @@ mod tests {
 
         // The mock records calls as "{key}:{field}", so a per-bucket HINCRBY
         // shows up under "{team_key}:{bucket}".
-        let team_key = get_team_request_shadow_key(1, FlagRequestType::Decide);
+        let team_key = get_team_request_key(1, FlagRequestType::Decide);
         let calls = hincrby_calls(&redis);
         let bucket_100_key = format!("{team_key}:100");
         let bucket_101_key = format!("{team_key}:101");
@@ -2208,7 +2204,7 @@ mod tests {
             shutdown_flush_timeout: Duration::from_millis(50),
             ..test_config()
         };
-        let agg = BillingAggregator::start(redis, config, AggregatorMode::Shadow);
+        let agg = BillingAggregator::start(redis, config);
 
         for _ in 0..7 {
             agg.record(1, FlagRequestType::Decide, None);
@@ -2538,7 +2534,6 @@ mod tests {
                 flush_interval: Duration::ZERO,
                 ..test_config()
             },
-            AggregatorMode::Shadow,
         );
     }
 }

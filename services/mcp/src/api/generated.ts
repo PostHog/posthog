@@ -456,6 +456,8 @@ export namespace Schemas {
       message: string;
       /** Name of the ExternalDataSchema responsible for syncing the table */
       schema_name: string;
+      /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+      source_id?: string | null;
       /** Source type, e.g. "Stripe", "Hubspot" */
       source_type: string;
       /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -473,6 +475,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -502,8 +506,12 @@ export namespace Schemas {
       accountOwner?: string | number | null;
       allRolesUnassigned?: boolean | null;
       csm?: string | number | null;
+      /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+      filterExpression?: string | null;
       kind?: 'AccountsQuery';
       limit?: number | null;
+      /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+      metrics?: string[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
@@ -2173,6 +2181,8 @@ export namespace Schemas {
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
       smoothingIntervals?: number | null;
+      /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+      stackBreakdownValues?: boolean | null;
       /** Custom label rendered under the X axis. */
       xAxisLabel?: string | null;
       /** Custom label rendered alongside the Y axis. */
@@ -3756,6 +3766,3096 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `last_seen` - last_seen
+    * `first_seen` - first_seen
+    * `occurrences` - occurrences
+    * `users` - users
+    * `sessions` - sessions
+     */
+    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
+
+
+    export const ErrorTrackingIssueOrderByEnum = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * * `ASC` - ASC
+    * `DESC` - DESC
+     */
+    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
+
+
+    export const OrderDirectionEnum = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * * `archived` - archived
+    * `active` - active
+    * `resolved` - resolved
+    * `pending_release` - pending_release
+    * `suppressed` - suppressed
+    * `all` - all
+     */
+    export type ErrorTrackingIssueStatusEnum = typeof ErrorTrackingIssueStatusEnum[keyof typeof ErrorTrackingIssueStatusEnum];
+
+
+    export const ErrorTrackingIssueStatusEnum = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `-14d` - -14d
+    * `-1h` - -1h
+    * `-24h` - -24h
+    * `-30d` - -30d
+    * `-3h` - -3h
+    * `-7d` - -7d
+    * `-90d` - -90d
+     */
+    export type DateFromEnum = typeof DateFromEnum[keyof typeof DateFromEnum];
+
+
+    export const DateFromEnum = {
+      '14d': '-14d',
+      '1h': '-1h',
+      '24h': '-24h',
+      '30d': '-30d',
+      '3h': '-3h',
+      '7d': '-7d',
+      '90d': '-90d',
+    } as const;
+
+    export interface WidgetDateRange {
+      /** Relative lookback window (for example '-7d'). Omit to use the project default range.
+
+      * `-14d` - -14d
+      * `-1h` - -1h
+      * `-24h` - -24h
+      * `-30d` - -30d
+      * `-3h` - -3h
+      * `-7d` - -7d
+      * `-90d` - -90d */
+      date_from?: DateFromEnum | null;
+    }
+
+    export interface ErrorTrackingListWidgetConfig {
+      /**
+         * Maximum number of issues to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Issue ranking column.
+
+      * `first_seen` - first_seen
+      * `last_seen` - last_seen
+      * `occurrences` - occurrences
+      * `sessions` - sessions
+      * `users` - users */
+      orderBy?: ErrorTrackingIssueOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Issue status filter.
+
+      * `archived` - archived
+      * `active` - active
+      * `resolved` - resolved
+      * `pending_release` - pending_release
+      * `suppressed` - suppressed
+      * `all` - all */
+      status?: ErrorTrackingIssueStatusEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
+    }
+
+    export interface TileLayoutBox {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface TileLayouts {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: TileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: TileLayoutBox;
+    }
+
+    export interface AddDashboardWidgetRequest {
+      /**
+         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+         * @maxLength 64
+         */
+      widget_type: string;
+      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
+      config: ErrorTrackingListWidgetConfig;
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: TileLayouts;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+    }
+
+    export interface AddDashboardWidgetsBatchRequest {
+      /**
+         * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
+         * @minItems 1
+         * @maxItems 10
+         */
+      widgets: AddDashboardWidgetRequest[];
+    }
+
+    export type InsightVizNodeKind = typeof InsightVizNodeKind[keyof typeof InsightVizNodeKind];
+
+
+    export const InsightVizNodeKind = {
+      InsightVizNode: 'InsightVizNode',
+    } as const;
+
+    export interface Retention {
+      hideLineGraph?: boolean | null;
+      hideSizeColumn?: boolean | null;
+      useSmallLayout?: boolean | null;
+    }
+
+    export interface VizSpecificOptions {
+      ActionsPie?: ActionsPie | null;
+      RETENTION?: Retention | null;
+    }
+
+    export interface InsightVizNode {
+      /** Query is embedded inside another bordered component */
+      embedded?: boolean | null;
+      /** Show with most visual options enabled. Used in insight scene. */
+      full?: boolean | null;
+      hidePersonsModal?: boolean | null;
+      hideTooltipOnScroll?: boolean | null;
+      kind: InsightVizNodeKind;
+      showCorrelationTable?: boolean | null;
+      showFilters?: boolean | null;
+      showHeader?: boolean | null;
+      showLastComputation?: boolean | null;
+      showLastComputationRefresh?: boolean | null;
+      showResults?: boolean | null;
+      showTable?: boolean | null;
+      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
+      suppressSessionAnalysisWarning?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+      vizSpecificOptions?: VizSpecificOptions | null;
+    }
+
+    export type DataTableNodeViewPropsContextType = typeof DataTableNodeViewPropsContextType[keyof typeof DataTableNodeViewPropsContextType];
+
+
+    export const DataTableNodeViewPropsContextType = {
+      EventDefinition: 'event_definition',
+      TeamColumns: 'team_columns',
+    } as const;
+
+    export interface DataTableNodeViewPropsContext {
+      eventDefinitionId?: string | null;
+      type: DataTableNodeViewPropsContextType;
+    }
+
+    export type DataTableNodeKind = typeof DataTableNodeKind[keyof typeof DataTableNodeKind];
+
+
+    export const DataTableNodeKind = {
+      DataTableNode: 'DataTableNode',
+    } as const;
+
+    export interface Response {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Cursor for fetching the next page of results */
+      nextCursor?: string | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types: string[];
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response1 {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      limit: number;
+      missing_actors_count?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: string[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response2 {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      kind?: 'GroupsQuery';
+      limit: number;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types: string[];
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response3 {
+      /** Executed ClickHouse query */
+      clickhouse?: string | null;
+      /** Returned columns */
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Query explanation output */
+      explain?: string[] | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Query metadata output */
+      metadata?: HogQLMetadataResponse | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Input query string */
+      query?: string | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Types of returned columns */
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response4 {
+      dateFrom?: string | null;
+      dateTo?: string | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: WebOverviewItem[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
+      usedPreAggregatedTables?: boolean | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response5 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
+      usedPreAggregatedTables?: boolean | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response6 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response7 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface WebVitalsPathBreakdownResultItem {
+      path: string;
+      value: number;
+    }
+
+    export interface WebVitalsPathBreakdownResult {
+      good: WebVitalsPathBreakdownResultItem[];
+      needs_improvements: WebVitalsPathBreakdownResultItem[];
+      poor: WebVitalsPathBreakdownResultItem[];
+    }
+
+    export interface Response8 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      /**
+         * @minItems 1
+         * @maxItems 1
+         */
+      results: WebVitalsPathBreakdownResult[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response9 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response10 {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types: string[];
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response11 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response12 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueAnalyticsMRRQueryResultItem {
+      churn: unknown;
+      contraction: unknown;
+      expansion: unknown;
+      new: unknown;
+      total: unknown;
+    }
+
+    export interface Response13 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: RevenueAnalyticsMRRQueryResultItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type RevenueAnalyticsOverviewItemKey = typeof RevenueAnalyticsOverviewItemKey[keyof typeof RevenueAnalyticsOverviewItemKey];
+
+
+    export const RevenueAnalyticsOverviewItemKey = {
+      Revenue: 'revenue',
+      PayingCustomerCount: 'paying_customer_count',
+      AvgRevenuePerCustomer: 'avg_revenue_per_customer',
+    } as const;
+
+    export interface RevenueAnalyticsOverviewItem {
+      key: RevenueAnalyticsOverviewItemKey;
+      value: number;
+    }
+
+    export interface Response14 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: RevenueAnalyticsOverviewItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response15 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response16 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface MarketingAnalyticsItem {
+      changeFromPreviousPct?: number | null;
+      hasComparison?: boolean | null;
+      isIncreaseBad?: boolean | null;
+      key: string;
+      kind: WebAnalyticsItemKind;
+      previous?: number | string | null;
+      value?: number | string | null;
+    }
+
+    export interface Response18 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MarketingAnalyticsItem[][];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type Response19Results = {[key: string]: MarketingAnalyticsItem};
+
+    export interface Response19 {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: Response19Results;
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response20 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MarketingAnalyticsItem[][];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface VolumeBucket {
+      label: string;
+      value: number;
+    }
+
+    export interface ErrorTrackingIssueAggregations {
+      occurrences: number;
+      sessions: number;
+      users: number;
+      volumeRange?: number[] | null;
+      volume_buckets: VolumeBucket[];
+    }
+
+    export type ErrorTrackingIssueAssigneeType = typeof ErrorTrackingIssueAssigneeType[keyof typeof ErrorTrackingIssueAssigneeType];
+
+
+    export const ErrorTrackingIssueAssigneeType = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface ErrorTrackingIssueAssignee {
+      id: string | number;
+      type: ErrorTrackingIssueAssigneeType;
+    }
+
+    export interface ErrorTrackingIssueCohort {
+      id: number;
+      name: string;
+    }
+
+    export type IntegrationKind = typeof IntegrationKind[keyof typeof IntegrationKind];
+
+
+    export const IntegrationKind = {
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Salesforce: 'salesforce',
+      Hubspot: 'hubspot',
+      GooglePubsub: 'google-pubsub',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GoogleAds: 'google-ads',
+      GoogleSheets: 'google-sheets',
+      LinkedinAds: 'linkedin-ads',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      Intercom: 'intercom',
+      Email: 'email',
+      Twilio: 'twilio',
+      Linear: 'linear',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      MetaAds: 'meta-ads',
+      Clickup: 'clickup',
+      RedditAds: 'reddit-ads',
+      Databricks: 'databricks',
+      TiktokAds: 'tiktok-ads',
+      BingAds: 'bing-ads',
+      Vercel: 'vercel',
+      AzureBlob: 'azure-blob',
+      Firebase: 'firebase',
+      Jira: 'jira',
+      PinterestAds: 'pinterest-ads',
+      CustomerioApp: 'customerio-app',
+      CustomerioWebhook: 'customerio-webhook',
+      CustomerioTrack: 'customerio-track',
+    } as const;
+
+    export interface ErrorTrackingExternalReferenceIntegration {
+      display_name: string;
+      id: number;
+      kind: IntegrationKind;
+    }
+
+    export interface ErrorTrackingExternalReference {
+      external_url: string;
+      id: string;
+      integration: ErrorTrackingExternalReferenceIntegration;
+    }
+
+    export interface FirstEvent {
+      distinct_id: string;
+      properties: string;
+      timestamp: string;
+      uuid: string;
+    }
+
+    export interface LastEvent {
+      distinct_id: string;
+      properties: string;
+      timestamp: string;
+      uuid: string;
+    }
+
+    export type ErrorTrackingIssueStatus = typeof ErrorTrackingIssueStatus[keyof typeof ErrorTrackingIssueStatus];
+
+
+    export const ErrorTrackingIssueStatus = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssue {
+      aggregations?: ErrorTrackingIssueAggregations | null;
+      assignee?: ErrorTrackingIssueAssignee | null;
+      cohort?: ErrorTrackingIssueCohort | null;
+      description?: string | null;
+      external_issues?: ErrorTrackingExternalReference[] | null;
+      first_event?: FirstEvent | null;
+      first_seen: string;
+      function?: string | null;
+      id: string;
+      last_event?: LastEvent | null;
+      last_seen: string;
+      library?: string | null;
+      name?: string | null;
+      source?: string | null;
+      status: ErrorTrackingIssueStatus;
+    }
+
+    export interface Response21 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: ErrorTrackingIssue[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Population {
+      both: number;
+      exception_only: number;
+      neither: number;
+      success_only: number;
+    }
+
+    export interface ErrorTrackingCorrelatedIssue {
+      assignee?: ErrorTrackingIssueAssignee | null;
+      cohort?: ErrorTrackingIssueCohort | null;
+      description?: string | null;
+      event: string;
+      external_issues?: ErrorTrackingExternalReference[] | null;
+      first_seen: string;
+      id: string;
+      last_seen: string;
+      library?: string | null;
+      name?: string | null;
+      odds_ratio: number;
+      population: Population;
+      status: ErrorTrackingIssueStatus;
+    }
+
+    export interface Response22 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: ErrorTrackingCorrelatedIssue[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type Response23CredibleIntervals = {[key: string]: number[]};
+
+    export type Response23InsightItemItem = { [key: string]: unknown };
+
+    export type Response23Probability = {[key: string]: number};
+
+    export interface Response23 {
+      credible_intervals: Response23CredibleIntervals;
+      expected_loss: number;
+      funnels_query?: FunnelsQuery | null;
+      insight: Response23InsightItemItem[][];
+      kind?: 'ExperimentFunnelsQuery';
+      probability: Response23Probability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantFunnelsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type Response24CredibleIntervals = {[key: string]: number[]};
+
+    export type Response24InsightItem = { [key: string]: unknown };
+
+    export type Response24Probability = {[key: string]: number};
+
+    export interface Response24 {
+      count_query?: TrendsQuery | null;
+      credible_intervals: Response24CredibleIntervals;
+      exposure_query?: TrendsQuery | null;
+      insight: Response24InsightItem[];
+      kind?: 'ExperimentTrendsQuery';
+      p_value: number;
+      probability: Response24Probability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantTrendsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type LLMTraceEventProperties = { [key: string]: unknown };
+
+    export interface LLMTraceEvent {
+      createdAt: string;
+      event: AIEventType | string;
+      id: string;
+      properties: LLMTraceEventProperties;
+    }
+
+    export type LLMTracePersonProperties = { [key: string]: unknown };
+
+    export interface LLMTracePerson {
+      created_at: string;
+      distinct_id: string;
+      properties: LLMTracePersonProperties;
+      uuid: string;
+    }
+
+    export interface LLMTrace {
+      aiSessionId?: string | null;
+      createdAt: string;
+      distinctId: string;
+      errorCount?: number | null;
+      events: LLMTraceEvent[];
+      id: string;
+      inputCost?: number | null;
+      inputState?: unknown;
+      inputTokens?: number | null;
+      isSupportTrace?: boolean | null;
+      outputCost?: number | null;
+      outputState?: unknown;
+      outputTokens?: number | null;
+      person?: LLMTracePerson | null;
+      requestCost?: number | null;
+      tools?: string[] | null;
+      totalCost?: number | null;
+      totalLatency?: number | null;
+      traceName?: string | null;
+      webSearchCost?: number | null;
+    }
+
+    export interface Response25 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: LLMTrace[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response26 {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface Response27 {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      kind?: 'AccountsQuery';
+      limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types: string[];
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type TaxonomicFilterGroupType = typeof TaxonomicFilterGroupType[keyof typeof TaxonomicFilterGroupType];
+
+
+    export const TaxonomicFilterGroupType = {
+      Metadata: 'metadata',
+      Actions: 'actions',
+      Cohorts: 'cohorts',
+      CohortsWithAll: 'cohorts_with_all',
+      DataWarehouse: 'data_warehouse',
+      DataWarehouseProperties: 'data_warehouse_properties',
+      DataWarehousePersonProperties: 'data_warehouse_person_properties',
+      Elements: 'elements',
+      Events: 'events',
+      InternalEvents: 'internal_events',
+      InternalEventProperties: 'internal_event_properties',
+      EventProperties: 'event_properties',
+      EventFeatureFlags: 'event_feature_flags',
+      EventMetadata: 'event_metadata',
+      NumericalEventProperties: 'numerical_event_properties',
+      PersonProperties: 'person_properties',
+      PageviewUrls: 'pageview_urls',
+      PageviewEvents: 'pageview_events',
+      Screens: 'screens',
+      ScreenEvents: 'screen_events',
+      EmailAddresses: 'email_addresses',
+      AutocaptureEvents: 'autocapture_events',
+      CustomEvents: 'custom_events',
+      Wildcard: 'wildcard',
+      Groups: 'groups',
+      Persons: 'persons',
+      FeatureFlags: 'feature_flags',
+      Insights: 'insights',
+      Experiments: 'experiments',
+      Plugins: 'plugins',
+      Dashboards: 'dashboards',
+      NameGroups: 'name_groups',
+      SessionProperties: 'session_properties',
+      HogqlExpression: 'hogql_expression',
+      Notebooks: 'notebooks',
+      LogEntries: 'log_entries',
+      ErrorTrackingIssues: 'error_tracking_issues',
+      Logs: 'logs',
+      LogAttributes: 'log_attributes',
+      LogResourceAttributes: 'log_resource_attributes',
+      Spans: 'spans',
+      SpanAttributes: 'span_attributes',
+      SpanResourceAttributes: 'span_resource_attributes',
+      Replay: 'replay',
+      ReplaySavedFilters: 'replay_saved_filters',
+      RevenueAnalyticsProperties: 'revenue_analytics_properties',
+      Resources: 'resources',
+      ErrorTrackingProperties: 'error_tracking_properties',
+      ActivityLogProperties: 'activity_log_properties',
+      MaxAiContext: 'max_ai_context',
+      WorkflowVariables: 'workflow_variables',
+      SuggestedFilters: 'suggested_filters',
+      RecentFilters: 'recent_filters',
+      PinnedFilters: 'pinned_filters',
+      Empty: 'empty',
+    } as const;
+
+    export type HrefMatching = typeof HrefMatching[keyof typeof HrefMatching];
+
+
+    export const HrefMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export type TextMatching = typeof TextMatching[keyof typeof TextMatching];
+
+
+    export const TextMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export type UrlMatching = typeof UrlMatching[keyof typeof UrlMatching];
+
+
+    export const UrlMatching = {
+      Contains: 'contains',
+      Exact: 'exact',
+      Regex: 'regex',
+    } as const;
+
+    export interface EventsQueryActionStep {
+      event?: string | null;
+      href?: string | null;
+      href_matching?: HrefMatching | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      selector?: string | null;
+      tag_name?: string | null;
+      text?: string | null;
+      text_matching?: TextMatching | null;
+      url?: string | null;
+      url_matching?: UrlMatching | null;
+    }
+
+    export interface EventsQueryResponse {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Cursor for fetching the next page of results */
+      nextCursor?: string | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types: string[];
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface EventsQuery {
+      /** Show events matching a given action */
+      actionId?: number | null;
+      /** Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set. */
+      actionSteps?: EventsQueryActionStep[] | null;
+      /** Only fetch events that happened after this timestamp */
+      after?: string | null;
+      /** Only fetch events that happened before this timestamp */
+      before?: string | null;
+      /** Limit to events matching this string */
+      event?: string | null;
+      /** Filter to events matching any of these event names */
+      events?: string[] | null;
+      /** Filter test accounts */
+      filterTestAccounts?: boolean | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      kind?: 'EventsQuery';
+      /** Number of rows to return */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Number of rows to skip before returning rows */
+      offset?: number | null;
+      /** Columns to order by */
+      orderBy?: string[] | null;
+      /** Show events for a given person */
+      personId?: string | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: EventsQueryResponse | null;
+      /** Return a limited set of data. Required. */
+      select: string[];
+      /** source for querying events for insights */
+      source?: InsightActorsQuery | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+      /** HogQL filters to apply on returned data */
+      where?: string[] | null;
+    }
+
+    export type PersonsNodeResponse = { [key: string]: unknown } | null;
+
+    export interface PersonsNode {
+      cohort?: number | null;
+      distinctId?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      kind?: 'PersonsNode';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: PersonsNodeResponse;
+      search?: string | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface GroupsQueryResponse {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      kind?: 'GroupsQuery';
+      limit: number;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types: string[];
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface GroupsQuery {
+      group_type_index: number;
+      kind?: 'GroupsQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      orderBy?: string[] | null;
+      properties?: (GroupPropertyFilter | HogQLPropertyFilter)[] | null;
+      response?: GroupsQueryResponse | null;
+      search?: string | null;
+      select?: string[] | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface WebExternalClicksTableQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface WebExternalClicksTableQuery {
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+      aggregation_group_type_index?: number | null;
+      compareFilter?: CompareFilter | null;
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+      dataColorTheme?: number | null;
+      dateRange?: DateRange | null;
+      doPathCleaning?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      includeRevenue?: boolean | null;
+      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+      interval?: IntervalType | null;
+      kind?: 'WebExternalClicksTableQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
+      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
+      response?: WebExternalClicksTableQueryResponse | null;
+      sampling?: WebAnalyticsSampling | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      stripQueryParams?: boolean | null;
+      tags?: QueryLogTags | null;
+      useSessionsTable?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface WebGoalsQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Whether the response was served from the lazy precompute path. */
+      usedLazyPrecompute?: boolean | null;
+      /** Whether the response was served from a precomputed table. */
+      usedPreAggregatedTables?: boolean | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface WebGoalsQuery {
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+      aggregation_group_type_index?: number | null;
+      compareFilter?: CompareFilter | null;
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+      dataColorTheme?: number | null;
+      dateRange?: DateRange | null;
+      doPathCleaning?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      includeRevenue?: boolean | null;
+      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+      interval?: IntervalType | null;
+      kind?: 'WebGoalsQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
+      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
+      response?: WebGoalsQueryResponse | null;
+      sampling?: WebAnalyticsSampling | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      tags?: QueryLogTags | null;
+      useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface WebVitalsQuery {
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+      aggregation_group_type_index?: number | null;
+      compareFilter?: CompareFilter | null;
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+      dataColorTheme?: number | null;
+      dateRange?: DateRange | null;
+      doPathCleaning?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      includeRevenue?: boolean | null;
+      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+      interval?: IntervalType | null;
+      kind?: 'WebVitalsQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
+      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
+      response?: WebGoalsQueryResponse | null;
+      sampling?: WebAnalyticsSampling | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
+      tags?: QueryLogTags | null;
+      useSessionsTable?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type WebVitalsMetric = typeof WebVitalsMetric[keyof typeof WebVitalsMetric];
+
+
+    export const WebVitalsMetric = {
+      Inp: 'INP',
+      Lcp: 'LCP',
+      Cls: 'CLS',
+      Fcp: 'FCP',
+    } as const;
+
+    export type WebVitalsPercentile = typeof WebVitalsPercentile[keyof typeof WebVitalsPercentile];
+
+
+    export const WebVitalsPercentile = {
+      P75: 'p75',
+      P90: 'p90',
+      P99: 'p99',
+    } as const;
+
+    export interface WebVitalsPathBreakdownQueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      /**
+         * @minItems 1
+         * @maxItems 1
+         */
+      results: WebVitalsPathBreakdownResult[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface WebVitalsPathBreakdownQuery {
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+      aggregation_group_type_index?: number | null;
+      compareFilter?: CompareFilter | null;
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+      dataColorTheme?: number | null;
+      dateRange?: DateRange | null;
+      doPathCleaning?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      includeRevenue?: boolean | null;
+      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+      interval?: IntervalType | null;
+      kind?: 'WebVitalsPathBreakdownQuery';
+      metric: WebVitalsMetric;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
+      percentile: WebVitalsPercentile;
+      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
+      response?: WebVitalsPathBreakdownQueryResponse | null;
+      sampling?: WebAnalyticsSampling | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      tags?: QueryLogTags | null;
+      /**
+         * @minItems 2
+         * @maxItems 2
+         */
+      thresholds: number[];
+      useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface Filters {
+      dateRange?: DateRange | null;
+      properties?: SessionPropertyFilter[] | null;
+    }
+
+    export type SessionAttributionGroupBy = typeof SessionAttributionGroupBy[keyof typeof SessionAttributionGroupBy];
+
+
+    export const SessionAttributionGroupBy = {
+      ChannelType: 'ChannelType',
+      Medium: 'Medium',
+      Source: 'Source',
+      Campaign: 'Campaign',
+      AdIds: 'AdIds',
+      ReferringDomain: 'ReferringDomain',
+      InitialURL: 'InitialURL',
+    } as const;
+
+    export interface SessionAttributionExplorerQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface SessionAttributionExplorerQuery {
+      filters?: Filters | null;
+      groupBy: SessionAttributionGroupBy[];
+      kind?: 'SessionAttributionExplorerQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      response?: SessionAttributionExplorerQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface SessionsQueryResponse {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types: string[];
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface SessionsQuery {
+      /** Filter sessions by action - sessions that contain events matching this action */
+      actionId?: number | null;
+      /** Only fetch sessions that started after this timestamp */
+      after?: string | null;
+      /** Only fetch sessions that started before this timestamp */
+      before?: string | null;
+      /** Filter sessions by event name - sessions that contain this event */
+      event?: string | null;
+      /** Event property filters - filters sessions that contain events matching these properties */
+      eventProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** Filter test accounts */
+      filterTestAccounts?: boolean | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      kind?: 'SessionsQuery';
+      /** Number of rows to return */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Number of rows to skip before returning rows */
+      offset?: number | null;
+      /** Columns to order by */
+      orderBy?: string[] | null;
+      /** Show sessions for a given person */
+      personId?: string | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: SessionsQueryResponse | null;
+      /** Return a limited set of data. Required. */
+      select: string[];
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+      /** HogQL filters to apply on returned data */
+      where?: string[] | null;
+    }
+
+    export interface RevenueAnalyticsBreakdown {
+      property: string;
+      type?: 'revenue_analytics';
+    }
+
+    export type SimpleIntervalType = typeof SimpleIntervalType[keyof typeof SimpleIntervalType];
+
+
+    export const SimpleIntervalType = {
+      Day: 'day',
+      Month: 'month',
+    } as const;
+
+    export interface RevenueAnalyticsGrossRevenueQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueAnalyticsGrossRevenueQuery {
+      breakdown: RevenueAnalyticsBreakdown[];
+      dateRange?: DateRange | null;
+      interval: SimpleIntervalType;
+      kind?: 'RevenueAnalyticsGrossRevenueQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      properties: RevenueAnalyticsPropertyFilter[];
+      response?: RevenueAnalyticsGrossRevenueQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface RevenueAnalyticsMetricsQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueAnalyticsMetricsQuery {
+      breakdown: RevenueAnalyticsBreakdown[];
+      dateRange?: DateRange | null;
+      interval: SimpleIntervalType;
+      kind?: 'RevenueAnalyticsMetricsQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      properties: RevenueAnalyticsPropertyFilter[];
+      response?: RevenueAnalyticsMetricsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface RevenueAnalyticsMRRQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: RevenueAnalyticsMRRQueryResultItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueAnalyticsMRRQuery {
+      breakdown: RevenueAnalyticsBreakdown[];
+      dateRange?: DateRange | null;
+      interval: SimpleIntervalType;
+      kind?: 'RevenueAnalyticsMRRQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      properties: RevenueAnalyticsPropertyFilter[];
+      response?: RevenueAnalyticsMRRQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface RevenueAnalyticsOverviewQueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: RevenueAnalyticsOverviewItem[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueAnalyticsOverviewQuery {
+      dateRange?: DateRange | null;
+      kind?: 'RevenueAnalyticsOverviewQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      properties: RevenueAnalyticsPropertyFilter[];
+      response?: RevenueAnalyticsOverviewQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type RevenueAnalyticsTopCustomersGroupBy = typeof RevenueAnalyticsTopCustomersGroupBy[keyof typeof RevenueAnalyticsTopCustomersGroupBy];
+
+
+    export const RevenueAnalyticsTopCustomersGroupBy = {
+      Month: 'month',
+      All: 'all',
+    } as const;
+
+    export interface RevenueAnalyticsTopCustomersQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueAnalyticsTopCustomersQuery {
+      dateRange?: DateRange | null;
+      groupBy: RevenueAnalyticsTopCustomersGroupBy;
+      kind?: 'RevenueAnalyticsTopCustomersQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      properties: RevenueAnalyticsPropertyFilter[];
+      response?: RevenueAnalyticsTopCustomersQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface RevenueExampleEventsQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueExampleEventsQuery {
+      kind?: 'RevenueExampleEventsQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      response?: RevenueExampleEventsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface RevenueExampleDataWarehouseTablesQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface RevenueExampleDataWarehouseTablesQuery {
+      kind?: 'RevenueExampleDataWarehouseTablesQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      response?: RevenueExampleDataWarehouseTablesQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ConversionGoalFilter1Response = { [key: string]: unknown } | null;
+
+    export type ConversionGoalFilter1SchemaMap = {[key: string]: string | unknown};
+
+    export interface ConversionGoalFilter1 {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      custom_name?: string | null;
+      /** The event or `null` for all events. */
+      event?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      kind?: 'EventsNode';
+      limit?: number | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Columns to order by */
+      orderBy?: string[] | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: ConversionGoalFilter1Response;
+      schema_map: ConversionGoalFilter1SchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ConversionGoalFilter2Response = { [key: string]: unknown } | null;
+
+    export type ConversionGoalFilter2SchemaMap = {[key: string]: string | unknown};
+
+    export interface ConversionGoalFilter2 {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      custom_name?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id: number;
+      kind?: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: ConversionGoalFilter2Response;
+      schema_map: ConversionGoalFilter2SchemaMap;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ConversionGoalFilter3Response = { [key: string]: unknown } | null;
+
+    export type ConversionGoalFilter3SchemaMap = {[key: string]: string | unknown};
+
+    export interface ConversionGoalFilter3 {
+      conversion_goal_id: string;
+      conversion_goal_name: string;
+      custom_name?: string | null;
+      distinct_id_field: string;
+      dw_source_type?: string | null;
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      id: string;
+      id_field: string;
+      kind?: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      math_hogql?: string | null;
+      math_multiplier?: number | null;
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      math_property_type?: string | null;
+      name?: string | null;
+      optionalInFunnel?: boolean | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: ConversionGoalFilter3Response;
+      schema_map: ConversionGoalFilter3SchemaMap;
+      table_name: string;
+      timestamp_field: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type MarketingAnalyticsDrillDownLevel = typeof MarketingAnalyticsDrillDownLevel[keyof typeof MarketingAnalyticsDrillDownLevel];
+
+
+    export const MarketingAnalyticsDrillDownLevel = {
+      Channel: 'channel',
+      Source: 'source',
+      Campaign: 'campaign',
+      AdGroup: 'ad_group',
+      Ad: 'ad',
+      Medium: 'medium',
+      Content: 'content',
+      Term: 'term',
+    } as const;
+
+    export interface IntegrationFilter {
+      /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
+      integrationSourceIds?: string[] | null;
+    }
+
+    export type MarketingAnalyticsOrderByEnum = typeof MarketingAnalyticsOrderByEnum[keyof typeof MarketingAnalyticsOrderByEnum];
+
+
+    export const MarketingAnalyticsOrderByEnum = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export interface MarketingAnalyticsTableQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MarketingAnalyticsItem[][];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface MarketingAnalyticsTableQuery {
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+      aggregation_group_type_index?: number | null;
+      /** Compare to date range */
+      compareFilter?: CompareFilter | null;
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+      dataColorTheme?: number | null;
+      dateRange?: DateRange | null;
+      doPathCleaning?: boolean | null;
+      /** Draft conversion goal that can be set in the UI without saving */
+      draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
+      /** Drill-down hierarchy level: channel, source, or campaign (default) */
+      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
+      /** Filter test accounts */
+      filterTestAccounts?: boolean | null;
+      includeRevenue?: boolean | null;
+      /** Filter by integration type */
+      integrationFilter?: IntegrationFilter | null;
+      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+      interval?: IntervalType | null;
+      kind?: 'MarketingAnalyticsTableQuery';
+      /** Number of rows to return */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Number of rows to skip before returning rows */
+      offset?: number | null;
+      /** Columns to order by - similar to EventsQuery format */
+      orderBy?: ((string | MarketingAnalyticsOrderByEnum)[])[] | null;
+      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
+      response?: MarketingAnalyticsTableQueryResponse | null;
+      sampling?: WebAnalyticsSampling | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      /** Return a limited set of data. Will use default columns if empty. */
+      select?: string[] | null;
+      tags?: QueryLogTags | null;
+      useSessionsTable?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
+
+    export interface MarketingAnalyticsAggregatedQueryResponse {
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MarketingAnalyticsAggregatedQueryResponseResults;
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface MarketingAnalyticsAggregatedQuery {
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+      aggregation_group_type_index?: number | null;
+      compareFilter?: CompareFilter | null;
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+      dataColorTheme?: number | null;
+      dateRange?: DateRange | null;
+      doPathCleaning?: boolean | null;
+      /** Draft conversion goal that can be set in the UI without saving */
+      draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
+      /** Drill-down hierarchy level: channel, source, or campaign (default) */
+      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
+      filterTestAccounts?: boolean | null;
+      includeRevenue?: boolean | null;
+      /** Filter by integration IDs */
+      integrationFilter?: IntegrationFilter | null;
+      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+      interval?: IntervalType | null;
+      kind?: 'MarketingAnalyticsAggregatedQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
+      response?: MarketingAnalyticsAggregatedQueryResponse | null;
+      sampling?: WebAnalyticsSampling | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      /** Return a limited set of data. Will use default columns if empty. */
+      select?: string[] | null;
+      tags?: QueryLogTags | null;
+      useSessionsTable?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface NonIntegratedConversionsTableQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: MarketingAnalyticsItem[][];
+      samplingRate?: SamplingRate | null;
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface NonIntegratedConversionsTableQuery {
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+      aggregation_group_type_index?: number | null;
+      /** Compare to date range */
+      compareFilter?: CompareFilter | null;
+      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+      dataColorTheme?: number | null;
+      dateRange?: DateRange | null;
+      doPathCleaning?: boolean | null;
+      /** Draft conversion goal that can be set in the UI without saving */
+      draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
+      /** Filter test accounts */
+      filterTestAccounts?: boolean | null;
+      includeRevenue?: boolean | null;
+      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+      interval?: IntervalType | null;
+      kind?: 'NonIntegratedConversionsTableQuery';
+      /** Number of rows to return */
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Number of rows to skip before returning rows */
+      offset?: number | null;
+      /** Columns to order by */
+      orderBy?: ((string | MarketingAnalyticsOrderByEnum)[])[] | null;
+      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
+      response?: NonIntegratedConversionsTableQueryResponse | null;
+      sampling?: WebAnalyticsSampling | null;
+      /** Sampling rate */
+      samplingFactor?: number | null;
+      /** Return a limited set of data. Will use default columns if empty. */
+      select?: string[] | null;
+      tags?: QueryLogTags | null;
+      useSessionsTable?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
+
+
+    export const ErrorTrackingOrderBy = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+    } as const;
+
+    export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
+
+
+    export const OrderDirection2 = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
+      assigned_role_id?: string | null;
+      assigned_user_id?: number | null;
+      fingerprint: string;
+      /** ISO 8601 datetime string. */
+      first_seen: string;
+      is_deleted: number;
+      issue_description?: string | null;
+      issue_id: string;
+      issue_name?: string | null;
+      issue_status: string;
+      /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+      version: number;
+    }
+
+    export interface ErrorTrackingQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: ErrorTrackingIssue[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface ErrorTrackingQuery {
+      assignee?: ErrorTrackingIssueAssignee | null;
+      /** Date range to filter results. */
+      dateRange: DateRange;
+      filterGroup?: PropertyGroupFilter | null;
+      /** Whether to filter out test accounts. */
+      filterTestAccounts?: boolean | null;
+      groupKey?: string | null;
+      groupTypeIndex?: number | null;
+      /** Filter to a specific error tracking issue by ID. */
+      issueId?: string | null;
+      kind?: 'ErrorTrackingQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Field to sort results by. */
+      orderBy: ErrorTrackingOrderBy;
+      /** Sort direction. */
+      orderDirection?: OrderDirection2 | null;
+      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
+      pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
+      personId?: string | null;
+      response?: ErrorTrackingQueryResponse | null;
+      /** Free-text search across exception type, message, and stack frames. */
+      searchQuery?: string | null;
+      /** Filter by issue status. */
+      status?: ErrorTrackingIssueStatus | string | null;
+      tags?: QueryLogTags | null;
+      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
+      useQueryV2?: boolean | null;
+      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+      useQueryV3?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+      volumeResolution: number;
+      withAggregations?: boolean | null;
+      withFirstEvent?: boolean | null;
+      withLastEvent?: boolean | null;
+    }
+
+    export interface ErrorTrackingIssueCorrelationQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: ErrorTrackingCorrelatedIssue[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface ErrorTrackingIssueCorrelationQuery {
+      events: string[];
+      kind?: 'ErrorTrackingIssueCorrelationQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: ErrorTrackingIssueCorrelationQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ExperimentFunnelsQueryResponseCredibleIntervals = {[key: string]: number[]};
+
+    export type ExperimentFunnelsQueryResponseInsightItemItem = { [key: string]: unknown };
+
+    export type ExperimentFunnelsQueryResponseProbability = {[key: string]: number};
+
+    export interface ExperimentFunnelsQueryResponse {
+      credible_intervals: ExperimentFunnelsQueryResponseCredibleIntervals;
+      expected_loss: number;
+      funnels_query?: FunnelsQuery | null;
+      insight: ExperimentFunnelsQueryResponseInsightItemItem[][];
+      kind?: 'ExperimentFunnelsQuery';
+      probability: ExperimentFunnelsQueryResponseProbability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantFunnelsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface ExperimentFunnelsQuery {
+      experiment_id?: number | null;
+      fingerprint?: string | null;
+      funnels_query: FunnelsQuery;
+      kind?: 'ExperimentFunnelsQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      name?: string | null;
+      response?: ExperimentFunnelsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      uuid?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type ExperimentTrendsQueryResponseCredibleIntervals = {[key: string]: number[]};
+
+    export type ExperimentTrendsQueryResponseInsightItem = { [key: string]: unknown };
+
+    export type ExperimentTrendsQueryResponseProbability = {[key: string]: number};
+
+    export interface ExperimentTrendsQueryResponse {
+      count_query?: TrendsQuery | null;
+      credible_intervals: ExperimentTrendsQueryResponseCredibleIntervals;
+      exposure_query?: TrendsQuery | null;
+      insight: ExperimentTrendsQueryResponseInsightItem[];
+      kind?: 'ExperimentTrendsQuery';
+      p_value: number;
+      probability: ExperimentTrendsQueryResponseProbability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantTrendsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface ExperimentTrendsQuery {
+      count_query: TrendsQuery;
+      experiment_id?: number | null;
+      exposure_query?: TrendsQuery | null;
+      fingerprint?: string | null;
+      kind?: 'ExperimentTrendsQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      name?: string | null;
+      response?: ExperimentTrendsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      uuid?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface TracesQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: LLMTrace[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface TracesQuery {
+      dateRange?: DateRange | null;
+      filterSupportTraces?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      groupKey?: string | null;
+      groupTypeIndex?: number | null;
+      kind?: 'TracesQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Person who performed the event */
+      personId?: string | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
+      randomOrder?: boolean | null;
+      response?: TracesQueryResponse | null;
+      showColumnConfigurator?: boolean | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface TraceQueryResponse {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: LLMTrace[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface TraceQuery {
+      dateRange?: DateRange | null;
+      kind?: 'TraceQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Properties configurable in the interface */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      response?: TraceQueryResponse | null;
+      tags?: QueryLogTags | null;
+      traceId: string;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type EndpointsUsageBreakdown = typeof EndpointsUsageBreakdown[keyof typeof EndpointsUsageBreakdown];
+
+
+    export const EndpointsUsageBreakdown = {
+      Endpoint: 'Endpoint',
+      MaterializationType: 'MaterializationType',
+      ApiKey: 'ApiKey',
+      Status: 'Status',
+    } as const;
+
+    export type MaterializationType = typeof MaterializationType[keyof typeof MaterializationType];
+
+
+    export const MaterializationType = {
+      Materialized: 'materialized',
+      Inline: 'inline',
+    } as const;
+
+    export type EndpointsUsageOrderByField = typeof EndpointsUsageOrderByField[keyof typeof EndpointsUsageOrderByField];
+
+
+    export const EndpointsUsageOrderByField = {
+      Requests: 'requests',
+      BytesRead: 'bytes_read',
+      CpuSeconds: 'cpu_seconds',
+      AvgQueryDurationMs: 'avg_query_duration_ms',
+      ErrorRate: 'error_rate',
+    } as const;
+
+    export type EndpointsUsageOrderByDirection = typeof EndpointsUsageOrderByDirection[keyof typeof EndpointsUsageOrderByDirection];
+
+
+    export const EndpointsUsageOrderByDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export interface EndpointsUsageTableQueryResponse {
+      columns?: unknown[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: unknown[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface EndpointsUsageTableQuery {
+      breakdownBy: EndpointsUsageBreakdown;
+      dateRange?: DateRange | null;
+      /** Filter to specific endpoints by name */
+      endpointNames?: string[] | null;
+      kind?: 'EndpointsUsageTableQuery';
+      limit?: number | null;
+      /** Filter by materialization type */
+      materializationType?: MaterializationType | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      orderBy?: (EndpointsUsageOrderByField | EndpointsUsageOrderByDirection)[] | null;
+      response?: EndpointsUsageTableQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | Response27 | null;
+
+    export interface DataTableNode {
+      /** Can the user click on column headers to sort the table? (default: true) */
+      allowSorting?: boolean | null;
+      /** Columns shown in the table, unless the `source` provides them. */
+      columns?: string[] | null;
+      /** Context for the table, used by components like ColumnConfigurator */
+      context?: DataTableNodeViewPropsContext | null;
+      /** Context key for universal column configuration (e.g., "survey:123") */
+      contextKey?: string | null;
+      /** Default columns to use when resetting column configuration */
+      defaultColumns?: string[] | null;
+      /** Uses the embedded version of LemonTable */
+      embedded?: boolean | null;
+      /** Can expand row to show raw event data (default: true) */
+      expandable?: boolean | null;
+      /** Show with most visual options enabled. Used in scenes. */
+      full?: boolean | null;
+      /** Columns that aren't shown in the table, even if in columns or returned data */
+      hiddenColumns?: string[] | null;
+      kind: DataTableNodeKind;
+      /** Columns that are sticky when scrolling horizontally */
+      pinnedColumns?: string[] | null;
+      /** Link properties via the URL (default: false) */
+      propertiesViaUrl?: boolean | null;
+      response?: DataTableNodeResponse;
+      /** Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources. */
+      showAbsoluteTime?: boolean | null;
+      /** Show the kebab menu at the end of the row */
+      showActions?: boolean | null;
+      /** Show a button to configure the table's columns if possible */
+      showColumnConfigurator?: boolean | null;
+      /** Show count of total and filtered results */
+      showCount?: boolean | null;
+      /** Show date range selector */
+      showDateRange?: boolean | null;
+      /** Show the time it takes to run a query */
+      showElapsedTime?: boolean | null;
+      /** Include an event filter above the table (EventsNode only) */
+      showEventFilter?: boolean | null;
+      /** Include an events filter above the table to filter by multiple events (EventsQuery only) */
+      showEventsFilter?: boolean | null;
+      /** Show the export button */
+      showExport?: boolean | null;
+      /** Include a HogQL query editor above HogQL tables */
+      showHogQLEditor?: boolean | null;
+      /** Show a button to open the current query as a new insight. (default: true) */
+      showOpenEditorButton?: boolean | null;
+      /** Show a button to configure and persist the table's default columns if possible */
+      showPersistentColumnConfigurator?: boolean | null;
+      /** Include a property filter above the table */
+      showPropertyFilter?: boolean | TaxonomicFilterGroupType[] | null;
+      /** Show a recording column for events with session recordings */
+      showRecordingColumn?: boolean | null;
+      /** Show a reload button */
+      showReload?: boolean | null;
+      /** Show a results table */
+      showResultsTable?: boolean | null;
+      /** Show saved filters feature for this table (requires uniqueKey) */
+      showSavedFilters?: boolean | null;
+      /** Shows a list of saved queries */
+      showSavedQueries?: boolean | null;
+      /** Include a free text search field (PersonsNode only) */
+      showSearch?: boolean | null;
+      /** Show actors query options and back to source */
+      showSourceQueryOptions?: boolean | null;
+      /** Show table views feature for this table (requires uniqueKey) */
+      showTableViews?: boolean | null;
+      /** Show filter to exclude test accounts */
+      showTestAccountFilters?: boolean | null;
+      /** Show a detailed query timing breakdown */
+      showTimings?: boolean | null;
+      /** Source of the events */
+      source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | GroupsQuery | HogQLQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | SessionAttributionExplorerQuery | SessionsQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | ErrorTrackingQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | TracesQuery | TraceQuery | EndpointsUsageTableQuery | AccountsQuery;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface HeatmapGradientStop {
+      color: string;
+      value: number;
+    }
+
+    export type GradientScaleMode = typeof GradientScaleMode[keyof typeof GradientScaleMode];
+
+
+    export const GradientScaleMode = {
+      Absolute: 'absolute',
+      Relative: 'relative',
+    } as const;
+
+    export type HeatmapSortOrder = typeof HeatmapSortOrder[keyof typeof HeatmapSortOrder];
+
+
+    export const HeatmapSortOrder = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
+    export interface HeatmapSettings {
+      gradient?: HeatmapGradientStop[] | null;
+      gradientPreset?: string | null;
+      gradientScaleMode?: GradientScaleMode | null;
+      nullLabel?: string | null;
+      nullValue?: string | null;
+      sortColumn?: string | null;
+      sortOrder?: HeatmapSortOrder | null;
+      valueColumn?: string | null;
+      xAxisColumn?: string | null;
+      xAxisLabel?: string | null;
+      yAxisColumn?: string | null;
+      yAxisLabel?: string | null;
+    }
+
+    export type Scale = typeof Scale[keyof typeof Scale];
+
+
+    export const Scale = {
+      Linear: 'linear',
+      Logarithmic: 'logarithmic',
+    } as const;
+
+    export interface YAxisSettings {
+      label?: string | null;
+      scale?: Scale | null;
+      showGridLines?: boolean | null;
+      showTicks?: boolean | null;
+      /** Whether the Y axis should start at zero */
+      startAtZero?: boolean | null;
+    }
+
+    export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
+
+
+    export const DisplayType = {
+      Auto: 'auto',
+      Line: 'line',
+      Bar: 'bar',
+      Area: 'area',
+    } as const;
+
+    export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
+
+
+    export const YAxisPosition = {
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
+    export interface ChartSettingsDisplay {
+      color?: string | null;
+      displayType?: DisplayType | null;
+      label?: string | null;
+      trendLine?: boolean | null;
+      yAxisPosition?: YAxisPosition | null;
+    }
+
+    export type Style = typeof Style[keyof typeof Style];
+
+
+    export const Style = {
+      None: 'none',
+      Number: 'number',
+      Short: 'short',
+      Percent: 'percent',
+    } as const;
+
+    export interface ChartSettingsFormatting {
+      decimalPlaces?: number | null;
+      prefix?: string | null;
+      style?: Style | null;
+      suffix?: string | null;
+    }
+
+    export interface Settings {
+      display?: ChartSettingsDisplay | null;
+      formatting?: ChartSettingsFormatting | null;
+    }
+
+    export interface ChartAxis {
+      column: string;
+      settings?: Settings | null;
+    }
+
+    /**
+     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+     */
+    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
+
+    export interface ChartSettings {
+      goalLines?: GoalLine[] | null;
+      heatmap?: HeatmapSettings | null;
+      leftYAxisSettings?: YAxisSettings | null;
+      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+      resultCustomizations?: ChartSettingsResultCustomizations;
+      rightYAxisSettings?: YAxisSettings | null;
+      seriesBreakdownColumn?: string | null;
+      showLegend?: boolean | null;
+      showNullsAsZero?: boolean | null;
+      showPieTotal?: boolean | null;
+      showTotalRow?: boolean | null;
+      showValuesOnSeries?: boolean | null;
+      showXAxisBorder?: boolean | null;
+      showXAxisTicks?: boolean | null;
+      showYAxisBorder?: boolean | null;
+      /** Whether we fill the bars to 100% in stacked mode */
+      stackBars100?: boolean | null;
+      xAxis?: ChartAxis | null;
+      xAxisLabel?: string | null;
+      yAxis?: ChartAxis[] | null;
+      /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
+      yAxisAtZero?: boolean | null;
+    }
+
+    export type DataVisualizationNodeKind = typeof DataVisualizationNodeKind[keyof typeof DataVisualizationNodeKind];
+
+
+    export const DataVisualizationNodeKind = {
+      DataVisualizationNode: 'DataVisualizationNode',
+    } as const;
+
+    export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
+
+
+    export const ColorMode = {
+      Light: 'light',
+      Dark: 'dark',
+    } as const;
+
+    export interface ConditionalFormattingRule {
+      bytecode: unknown[];
+      color: string;
+      colorMode?: ColorMode | null;
+      columnName: string;
+      id: string;
+      input: string;
+      templateId: string;
+    }
+
+    export interface TableSettings {
+      columns?: ChartAxis[] | null;
+      conditionalFormatting?: ConditionalFormattingRule[] | null;
+      pinnedColumns?: string[] | null;
+      transpose?: boolean | null;
+    }
+
+    export interface DataVisualizationNode {
+      chartSettings?: ChartSettings | null;
+      display?: ChartDisplayType | null;
+      kind: DataVisualizationNodeKind;
+      source: HogQLQuery;
+      tableSettings?: TableSettings | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type HogQueryKind = typeof HogQueryKind[keyof typeof HogQueryKind];
+
+
+    export const HogQueryKind = {
+      HogQuery: 'HogQuery',
+    } as const;
+
+    export interface HogQueryResponse {
+      bytecode?: unknown[] | null;
+      coloredBytecode?: unknown[] | null;
+      results: unknown;
+      stdout?: string | null;
+    }
+
+    export interface HogQuery {
+      code?: string | null;
+      kind: HogQueryKind;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: HogQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * The query definition for this insight. The `kind` field determines the query type:
+    - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+    - `DataVisualizationNode` — SQL insights using HogQL
+    - `DataTableNode` — raw data tables
+    - `HogQuery` — Hog language queries
+     */
+    export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | HogQuery;
+
+    export interface DashboardTileBasic {
+      readonly id: number;
+      readonly dashboard_id: number;
+      /** @nullable */
+      deleted?: boolean | null;
+    }
+
+    export type EffectivePrivilegeLevelEnum = typeof EffectivePrivilegeLevelEnum[keyof typeof EffectivePrivilegeLevelEnum];
+
+
+    export const EffectivePrivilegeLevelEnum = {
+      Number21: 21,
+      Number37: 37,
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type InsightResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * Simplified serializer to speed response times when loading large amounts of objects.
+     */
+    export interface Insight {
+      readonly id: number;
+      readonly short_id: string;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      derived_name?: string | null;
+      query?: _InsightQuerySchema | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      order?: number | null;
+      deleted?: boolean;
+      /**
+              DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+              A dashboard ID for each of the dashboards that this insight is displayed on.
+               */
+      dashboards?: number[];
+      /**
+          A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+           */
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      /**
+         *
+          The datetime this insight's results were generated.
+          If added to one or more dashboards the insight can be refreshed separately on each.
+          Returns the appropriate last_refresh datetime for the context the insight is viewed in
+          (see from_dashboard query parameter).
+
+         * @nullable
+         */
+      readonly last_refresh: string | null;
+      /**
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
+      readonly cache_target_age: string | null;
+      /**
+         *
+          The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+          by querying the database.
+
+         * @nullable
+         */
+      readonly next_allowed_client_refresh: string | null;
+      readonly result: unknown;
+      /** @nullable */
+      readonly hasMore: boolean | null;
+      /** @nullable */
+      readonly columns: readonly string[] | null;
+      /** @nullable */
+      readonly created_at: string | null;
+      readonly created_by: UserBasic;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+      readonly updated_at: string;
+      tags?: unknown[];
+      favorited?: boolean;
+      readonly last_modified_at: string;
+      readonly last_modified_by: UserBasic;
+      readonly is_sample: boolean;
+      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
+      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /**
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
+      readonly timezone: string | null;
+      readonly is_cached: boolean;
+      readonly query_status: unknown;
+      /** @nullable */
+      readonly hogql: string | null;
+      /** @nullable */
+      readonly types: readonly unknown[] | null;
+      /** @nullable */
+      readonly resolved_date_range: InsightResolvedDateRange;
+      _create_in_folder?: string;
+      readonly alerts: readonly unknown[];
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+    }
+
+    export interface Text {
+      readonly id: number;
+      readonly created_by: UserBasic;
+      readonly last_modified_by: UserBasic;
+      /**
+         * @maxLength 4000
+         * @nullable
+         */
+      body?: string | null;
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      readonly last_modified_at: string;
+      team: number;
+    }
+
+    /**
+     * * `left` - left
+    * `right` - right
+     */
+    export type PlacementEnum = typeof PlacementEnum[keyof typeof PlacementEnum];
+
+
+    export const PlacementEnum = {
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
+    /**
+     * * `primary` - Primary
+    * `secondary` - Secondary
+     */
+    export type StyleEnum = typeof StyleEnum[keyof typeof StyleEnum];
+
+
+    export const StyleEnum = {
+      Primary: 'primary',
+      Secondary: 'secondary',
+    } as const;
+
+    export interface ButtonTile {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly last_modified_by: UserBasic;
+      /** @maxLength 2000 */
+      url: string;
+      /** @maxLength 200 */
+      text: string;
+      placement?: PlacementEnum;
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      style?: StyleEnum;
+      readonly last_modified_at: string;
+      team: number;
+    }
+
+    export interface DashboardWidget {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly last_modified_by: UserBasic;
+      /**
+         * Widget type identifier from the dashboard widget catalog.
+         * @maxLength 64
+         */
+      widget_type: string;
+      /**
+         * Optional custom display name for this widget tile. Falls back to the widget catalog label when unset.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown on the dashboard tile when enabled. */
+      description?: string;
+      /** Widget-specific configuration JSON for this widget type. */
+      config?: ErrorTrackingListWidgetConfig;
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      readonly last_modified_at: string;
+      team: number;
+    }
+
+    export interface DashboardTile {
+      id?: number;
+      insight: Insight;
+      text: Text;
+      button_tile: ButtonTile;
+      widget?: DashboardWidget | null;
+      layouts?: unknown;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      filters_overrides?: unknown;
+      /** @nullable */
+      show_description?: boolean | null;
+      /** @nullable */
+      transparent_background?: boolean | null;
+    }
+
+    export interface AddDashboardWidgetsBatchResponse {
+      /** Created dashboard widget tiles in request order. */
+      tiles: DashboardTile[];
+    }
+
     export interface AddOptOutRequest {
       /**
          * The recipient identifier to opt out (e.g. email address).
@@ -4483,12 +7583,8 @@ export namespace Schemas {
     }
 
     export interface ApproveRunRequestInput {
-      /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
-      snapshots?: ApproveSnapshotInput[];
-      /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
-      approve_all?: boolean;
-      /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
-      commit_to_github?: boolean;
+      /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+      snapshots: ApproveSnapshotInput[];
     }
 
     export interface Artifact {
@@ -4545,54 +7641,6 @@ export namespace Schemas {
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
     } as const;
-
-    export interface UserBasicInfo {
-      id: number;
-      first_name: string;
-      email: string;
-    }
-
-    export interface RunSummary {
-      total: number;
-      changed: number;
-      new: number;
-      removed: number;
-      unchanged: number;
-      unresolved?: number;
-      tolerated_matched?: number;
-    }
-
-    export type RunMetadata = { [key: string]: unknown };
-
-    export interface Run {
-      approved_by?: UserBasicInfo | null;
-      id: string;
-      repo_id: string;
-      status: string;
-      run_type: string;
-      commit_sha: string;
-      branch: string;
-      /** @nullable */
-      pr_number: number | null;
-      approved: boolean;
-      /** @nullable */
-      approved_at: string | null;
-      summary: RunSummary;
-      /** @nullable */
-      error_message: string | null;
-      created_at: string;
-      /** @nullable */
-      completed_at: string | null;
-      is_stale?: boolean;
-      /** @nullable */
-      superseded_by_id?: string | null;
-      metadata?: RunMetadata;
-    }
-
-    export interface AutoApproveResult {
-      run: Run;
-      baseline_content: string;
-    }
 
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
@@ -5236,6 +8284,12 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface UserBasicInfo {
+      id: number;
+      first_name: string;
+      email: string;
+    }
+
     export interface QuarantineSourceRun {
       id: string;
       branch: string;
@@ -5350,6 +8404,8 @@ export namespace Schemas {
 
     /**
      * * `S3` - S3
+    * `AwsS3` - Aws S3
+    * `S3Compatible` - S3 Compatible
     * `Snowflake` - Snowflake
     * `Postgres` - Postgres
     * `Redshift` - Redshift
@@ -5366,6 +8422,8 @@ export namespace Schemas {
 
     export const BatchExportDestinationTypeEnum = {
       S3: 'S3',
+      AwsS3: 'AwsS3',
+      S3Compatible: 'S3Compatible',
       Snowflake: 'Snowflake',
       Postgres: 'Postgres',
       Redshift: 'Redshift',
@@ -5445,6 +8503,8 @@ export namespace Schemas {
       /** A choice of supported BatchExportDestination types.
 
       * `S3` - S3
+      * `AwsS3` - Aws S3
+      * `S3Compatible` - S3 Compatible
       * `Snowflake` - Snowflake
       * `Postgres` - Postgres
       * `Redshift` - Redshift
@@ -6865,52 +9925,6 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
-    /**
-     * * `left` - left
-    * `right` - right
-     */
-    export type PlacementEnum = typeof PlacementEnum[keyof typeof PlacementEnum];
-
-
-    export const PlacementEnum = {
-      Left: 'left',
-      Right: 'right',
-    } as const;
-
-    export interface DashboardTileBasic {
-      readonly id: number;
-      readonly dashboard_id: number;
-      /** @nullable */
-      deleted?: boolean | null;
-    }
-
-    /**
-     * * `primary` - Primary
-    * `secondary` - Secondary
-     */
-    export type StyleEnum = typeof StyleEnum[keyof typeof StyleEnum];
-
-
-    export const StyleEnum = {
-      Primary: 'primary',
-      Secondary: 'secondary',
-    } as const;
-
-    export interface ButtonTile {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      readonly last_modified_by: UserBasic;
-      /** @maxLength 2000 */
-      url: string;
-      /** @maxLength 200 */
-      text: string;
-      placement?: PlacementEnum;
-      readonly dashboard_tiles: readonly DashboardTileBasic[];
-      style?: StyleEnum;
-      readonly last_modified_at: string;
-      team: number;
-    }
-
     export interface CIMDVerificationToken {
       readonly id: string;
       /** @maxLength 40 */
@@ -7295,142 +10309,6 @@ export namespace Schemas {
       Teams: 'teams',
       Github: 'github',
     } as const;
-
-    export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
-
-
-    export const DisplayType = {
-      Auto: 'auto',
-      Line: 'line',
-      Bar: 'bar',
-      Area: 'area',
-    } as const;
-
-    export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
-
-
-    export const YAxisPosition = {
-      Left: 'left',
-      Right: 'right',
-    } as const;
-
-    export interface ChartSettingsDisplay {
-      color?: string | null;
-      displayType?: DisplayType | null;
-      label?: string | null;
-      trendLine?: boolean | null;
-      yAxisPosition?: YAxisPosition | null;
-    }
-
-    export type Style = typeof Style[keyof typeof Style];
-
-
-    export const Style = {
-      None: 'none',
-      Number: 'number',
-      Short: 'short',
-      Percent: 'percent',
-    } as const;
-
-    export interface ChartSettingsFormatting {
-      decimalPlaces?: number | null;
-      prefix?: string | null;
-      style?: Style | null;
-      suffix?: string | null;
-    }
-
-    export interface Settings {
-      display?: ChartSettingsDisplay | null;
-      formatting?: ChartSettingsFormatting | null;
-    }
-
-    export interface ChartAxis {
-      column: string;
-      settings?: Settings | null;
-    }
-
-    /**
-     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
-     */
-    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
-
-    export interface HeatmapGradientStop {
-      color: string;
-      value: number;
-    }
-
-    export type GradientScaleMode = typeof GradientScaleMode[keyof typeof GradientScaleMode];
-
-
-    export const GradientScaleMode = {
-      Absolute: 'absolute',
-      Relative: 'relative',
-    } as const;
-
-    export type HeatmapSortOrder = typeof HeatmapSortOrder[keyof typeof HeatmapSortOrder];
-
-
-    export const HeatmapSortOrder = {
-      Asc: 'asc',
-      Desc: 'desc',
-    } as const;
-
-    export interface HeatmapSettings {
-      gradient?: HeatmapGradientStop[] | null;
-      gradientPreset?: string | null;
-      gradientScaleMode?: GradientScaleMode | null;
-      nullLabel?: string | null;
-      nullValue?: string | null;
-      sortColumn?: string | null;
-      sortOrder?: HeatmapSortOrder | null;
-      valueColumn?: string | null;
-      xAxisColumn?: string | null;
-      xAxisLabel?: string | null;
-      yAxisColumn?: string | null;
-      yAxisLabel?: string | null;
-    }
-
-    export type Scale = typeof Scale[keyof typeof Scale];
-
-
-    export const Scale = {
-      Linear: 'linear',
-      Logarithmic: 'logarithmic',
-    } as const;
-
-    export interface YAxisSettings {
-      label?: string | null;
-      scale?: Scale | null;
-      showGridLines?: boolean | null;
-      showTicks?: boolean | null;
-      /** Whether the Y axis should start at zero */
-      startAtZero?: boolean | null;
-    }
-
-    export interface ChartSettings {
-      goalLines?: GoalLine[] | null;
-      heatmap?: HeatmapSettings | null;
-      leftYAxisSettings?: YAxisSettings | null;
-      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
-      resultCustomizations?: ChartSettingsResultCustomizations;
-      rightYAxisSettings?: YAxisSettings | null;
-      seriesBreakdownColumn?: string | null;
-      showLegend?: boolean | null;
-      showNullsAsZero?: boolean | null;
-      showPieTotal?: boolean | null;
-      showTotalRow?: boolean | null;
-      showValuesOnSeries?: boolean | null;
-      showXAxisBorder?: boolean | null;
-      showXAxisTicks?: boolean | null;
-      showYAxisBorder?: boolean | null;
-      /** Whether we fill the bars to 100% in stacked mode */
-      stackBars100?: boolean | null;
-      xAxis?: ChartAxis | null;
-      xAxisLabel?: string | null;
-      yAxis?: ChartAxis[] | null;
-      /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
-      yAxisAtZero?: boolean | null;
-    }
 
     export interface CheckDatabaseNameResponse {
       name: string;
@@ -8052,14 +10930,6 @@ export namespace Schemas {
       previous: string | null;
     }
 
-    export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
-
-
-    export const ColorMode = {
-      Light: 'light',
-      Dark: 'dark',
-    } as const;
-
     /**
      * * `private` - Private (only visible to creator)
     * `shared` - Shared with team
@@ -8178,16 +11048,6 @@ export namespace Schemas {
       StoppedEarly: 'stopped_early',
       Invalid: 'invalid',
     } as const;
-
-    export interface ConditionalFormattingRule {
-      bytecode: unknown[];
-      color: string;
-      colorMode?: ColorMode | null;
-      columnName: string;
-      id: string;
-      input: string;
-      templateId: string;
-    }
 
     /**
      * Response containing a JWT token for direct sandbox connection
@@ -8313,102 +11173,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
-    }
-
-    export type ConversionGoalFilter1Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter1SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter1 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      /** The event or `null` for all events. */
-      event?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: 'EventsNode';
-      limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Columns to order by */
-      orderBy?: string[] | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter1Response;
-      schema_map: ConversionGoalFilter1SchemaMap;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ConversionGoalFilter2Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter2SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter2 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      id: number;
-      kind?: 'ActionsNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter2Response;
-      schema_map: ConversionGoalFilter2SchemaMap;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ConversionGoalFilter3Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter3SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter3 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      distinct_id_field: string;
-      dw_source_type?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      id: string;
-      id_field: string;
-      kind?: 'DataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter3Response;
-      schema_map: ConversionGoalFilter3SchemaMap;
-      table_name: string;
-      timestamp_field: string;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
     }
 
     /**
@@ -8911,24 +11675,6 @@ export namespace Schemas {
       text: string;
     }
 
-    export interface TileLayoutBox {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface TileLayouts {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: TileLayoutBox;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: TileLayoutBox;
-    }
-
     export interface CreateTextTileRequest {
       /**
          * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
@@ -9077,14 +11823,6 @@ export namespace Schemas {
 
 
     export const RestrictionLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    export type EffectivePrivilegeLevelEnum = typeof EffectivePrivilegeLevelEnum[keyof typeof EffectivePrivilegeLevelEnum];
-
-
-    export const EffectivePrivilegeLevelEnum = {
       Number21: 21,
       Number37: 37,
     } as const;
@@ -9266,2611 +12004,6 @@ export namespace Schemas {
       is_featured?: boolean;
     }
 
-    export type InsightVizNodeKind = typeof InsightVizNodeKind[keyof typeof InsightVizNodeKind];
-
-
-    export const InsightVizNodeKind = {
-      InsightVizNode: 'InsightVizNode',
-    } as const;
-
-    export interface Retention {
-      hideLineGraph?: boolean | null;
-      hideSizeColumn?: boolean | null;
-      useSmallLayout?: boolean | null;
-    }
-
-    export interface VizSpecificOptions {
-      ActionsPie?: ActionsPie | null;
-      RETENTION?: Retention | null;
-    }
-
-    export interface InsightVizNode {
-      /** Query is embedded inside another bordered component */
-      embedded?: boolean | null;
-      /** Show with most visual options enabled. Used in insight scene. */
-      full?: boolean | null;
-      hidePersonsModal?: boolean | null;
-      hideTooltipOnScroll?: boolean | null;
-      kind: InsightVizNodeKind;
-      showCorrelationTable?: boolean | null;
-      showFilters?: boolean | null;
-      showHeader?: boolean | null;
-      showLastComputation?: boolean | null;
-      showLastComputationRefresh?: boolean | null;
-      showResults?: boolean | null;
-      showTable?: boolean | null;
-      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
-      suppressSessionAnalysisWarning?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-      vizSpecificOptions?: VizSpecificOptions | null;
-    }
-
-    export type DataTableNodeViewPropsContextType = typeof DataTableNodeViewPropsContextType[keyof typeof DataTableNodeViewPropsContextType];
-
-
-    export const DataTableNodeViewPropsContextType = {
-      EventDefinition: 'event_definition',
-      TeamColumns: 'team_columns',
-    } as const;
-
-    export interface DataTableNodeViewPropsContext {
-      eventDefinitionId?: string | null;
-      type: DataTableNodeViewPropsContextType;
-    }
-
-    export type DataTableNodeKind = typeof DataTableNodeKind[keyof typeof DataTableNodeKind];
-
-
-    export const DataTableNodeKind = {
-      DataTableNode: 'DataTableNode',
-    } as const;
-
-    export interface Response {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Cursor for fetching the next page of results */
-      nextCursor?: string | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response1 {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      limit: number;
-      missing_actors_count?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset: number;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: string[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response2 {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      kind?: 'GroupsQuery';
-      limit: number;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset: number;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response3 {
-      /** Executed ClickHouse query */
-      clickhouse?: string | null;
-      /** Returned columns */
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Query explanation output */
-      explain?: string[] | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Query metadata output */
-      metadata?: HogQLMetadataResponse | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Input query string */
-      query?: string | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Types of returned columns */
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response4 {
-      dateFrom?: string | null;
-      dateTo?: string | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: WebOverviewItem[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response5 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      usedLazyPrecompute?: boolean | null;
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response6 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response7 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Whether the response was served from the lazy precompute path. */
-      usedLazyPrecompute?: boolean | null;
-      /** Whether the response was served from a precomputed table. */
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebVitalsPathBreakdownResultItem {
-      path: string;
-      value: number;
-    }
-
-    export interface WebVitalsPathBreakdownResult {
-      good: WebVitalsPathBreakdownResultItem[];
-      needs_improvements: WebVitalsPathBreakdownResultItem[];
-      poor: WebVitalsPathBreakdownResultItem[];
-    }
-
-    export interface Response8 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      /**
-         * @minItems 1
-         * @maxItems 1
-         */
-      results: WebVitalsPathBreakdownResult[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response9 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response10 {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response11 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response12 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueAnalyticsMRRQueryResultItem {
-      churn: unknown;
-      contraction: unknown;
-      expansion: unknown;
-      new: unknown;
-      total: unknown;
-    }
-
-    export interface Response13 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: RevenueAnalyticsMRRQueryResultItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type RevenueAnalyticsOverviewItemKey = typeof RevenueAnalyticsOverviewItemKey[keyof typeof RevenueAnalyticsOverviewItemKey];
-
-
-    export const RevenueAnalyticsOverviewItemKey = {
-      Revenue: 'revenue',
-      PayingCustomerCount: 'paying_customer_count',
-      AvgRevenuePerCustomer: 'avg_revenue_per_customer',
-    } as const;
-
-    export interface RevenueAnalyticsOverviewItem {
-      key: RevenueAnalyticsOverviewItemKey;
-      value: number;
-    }
-
-    export interface Response14 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: RevenueAnalyticsOverviewItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response15 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response16 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface MarketingAnalyticsItem {
-      changeFromPreviousPct?: number | null;
-      hasComparison?: boolean | null;
-      isIncreaseBad?: boolean | null;
-      key: string;
-      kind: WebAnalyticsItemKind;
-      previous?: number | string | null;
-      value?: number | string | null;
-    }
-
-    export interface Response18 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MarketingAnalyticsItem[][];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type Response19Results = {[key: string]: MarketingAnalyticsItem};
-
-    export interface Response19 {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: Response19Results;
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response20 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MarketingAnalyticsItem[][];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface VolumeBucket {
-      label: string;
-      value: number;
-    }
-
-    export interface ErrorTrackingIssueAggregations {
-      occurrences: number;
-      sessions: number;
-      users: number;
-      volumeRange?: number[] | null;
-      volume_buckets: VolumeBucket[];
-    }
-
-    export type ErrorTrackingIssueAssigneeType = typeof ErrorTrackingIssueAssigneeType[keyof typeof ErrorTrackingIssueAssigneeType];
-
-
-    export const ErrorTrackingIssueAssigneeType = {
-      User: 'user',
-      Role: 'role',
-    } as const;
-
-    export interface ErrorTrackingIssueAssignee {
-      id: string | number;
-      type: ErrorTrackingIssueAssigneeType;
-    }
-
-    export interface ErrorTrackingIssueCohort {
-      id: number;
-      name: string;
-    }
-
-    export type IntegrationKind = typeof IntegrationKind[keyof typeof IntegrationKind];
-
-
-    export const IntegrationKind = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      LinkedinAds: 'linkedin-ads',
-      Snapchat: 'snapchat',
-      Stripe: 'stripe',
-      Intercom: 'intercom',
-      Email: 'email',
-      Twilio: 'twilio',
-      Linear: 'linear',
-      Github: 'github',
-      Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Clickup: 'clickup',
-      RedditAds: 'reddit-ads',
-      Databricks: 'databricks',
-      TiktokAds: 'tiktok-ads',
-      BingAds: 'bing-ads',
-      Vercel: 'vercel',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
-      Jira: 'jira',
-      PinterestAds: 'pinterest-ads',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
-    } as const;
-
-    export interface ErrorTrackingExternalReferenceIntegration {
-      display_name: string;
-      id: number;
-      kind: IntegrationKind;
-    }
-
-    export interface ErrorTrackingExternalReference {
-      external_url: string;
-      id: string;
-      integration: ErrorTrackingExternalReferenceIntegration;
-    }
-
-    export interface FirstEvent {
-      distinct_id: string;
-      properties: string;
-      timestamp: string;
-      uuid: string;
-    }
-
-    export interface LastEvent {
-      distinct_id: string;
-      properties: string;
-      timestamp: string;
-      uuid: string;
-    }
-
-    export type ErrorTrackingIssueStatus = typeof ErrorTrackingIssueStatus[keyof typeof ErrorTrackingIssueStatus];
-
-
-    export const ErrorTrackingIssueStatus = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-    } as const;
-
-    export interface ErrorTrackingIssue {
-      aggregations?: ErrorTrackingIssueAggregations | null;
-      assignee?: ErrorTrackingIssueAssignee | null;
-      cohort?: ErrorTrackingIssueCohort | null;
-      description?: string | null;
-      external_issues?: ErrorTrackingExternalReference[] | null;
-      first_event?: FirstEvent | null;
-      first_seen: string;
-      function?: string | null;
-      id: string;
-      last_event?: LastEvent | null;
-      last_seen: string;
-      library?: string | null;
-      name?: string | null;
-      source?: string | null;
-      status: ErrorTrackingIssueStatus;
-    }
-
-    export interface Response21 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: ErrorTrackingIssue[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Population {
-      both: number;
-      exception_only: number;
-      neither: number;
-      success_only: number;
-    }
-
-    export interface ErrorTrackingCorrelatedIssue {
-      assignee?: ErrorTrackingIssueAssignee | null;
-      cohort?: ErrorTrackingIssueCohort | null;
-      description?: string | null;
-      event: string;
-      external_issues?: ErrorTrackingExternalReference[] | null;
-      first_seen: string;
-      id: string;
-      last_seen: string;
-      library?: string | null;
-      name?: string | null;
-      odds_ratio: number;
-      population: Population;
-      status: ErrorTrackingIssueStatus;
-    }
-
-    export interface Response22 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: ErrorTrackingCorrelatedIssue[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type Response23CredibleIntervals = {[key: string]: number[]};
-
-    export type Response23InsightItemItem = { [key: string]: unknown };
-
-    export type Response23Probability = {[key: string]: number};
-
-    export interface Response23 {
-      credible_intervals: Response23CredibleIntervals;
-      expected_loss: number;
-      funnels_query?: FunnelsQuery | null;
-      insight: Response23InsightItemItem[][];
-      kind?: 'ExperimentFunnelsQuery';
-      probability: Response23Probability;
-      significance_code: ExperimentSignificanceCode;
-      significant: boolean;
-      stats_version?: number | null;
-      variants: ExperimentVariantFunnelsBaseStats[];
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type Response24CredibleIntervals = {[key: string]: number[]};
-
-    export type Response24InsightItem = { [key: string]: unknown };
-
-    export type Response24Probability = {[key: string]: number};
-
-    export interface Response24 {
-      count_query?: TrendsQuery | null;
-      credible_intervals: Response24CredibleIntervals;
-      exposure_query?: TrendsQuery | null;
-      insight: Response24InsightItem[];
-      kind?: 'ExperimentTrendsQuery';
-      p_value: number;
-      probability: Response24Probability;
-      significance_code: ExperimentSignificanceCode;
-      significant: boolean;
-      stats_version?: number | null;
-      variants: ExperimentVariantTrendsBaseStats[];
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type LLMTraceEventProperties = { [key: string]: unknown };
-
-    export interface LLMTraceEvent {
-      createdAt: string;
-      event: AIEventType | string;
-      id: string;
-      properties: LLMTraceEventProperties;
-    }
-
-    export type LLMTracePersonProperties = { [key: string]: unknown };
-
-    export interface LLMTracePerson {
-      created_at: string;
-      distinct_id: string;
-      properties: LLMTracePersonProperties;
-      uuid: string;
-    }
-
-    export interface LLMTrace {
-      aiSessionId?: string | null;
-      createdAt: string;
-      distinctId: string;
-      errorCount?: number | null;
-      events: LLMTraceEvent[];
-      id: string;
-      inputCost?: number | null;
-      inputState?: unknown;
-      inputTokens?: number | null;
-      isSupportTrace?: boolean | null;
-      outputCost?: number | null;
-      outputState?: unknown;
-      outputTokens?: number | null;
-      person?: LLMTracePerson | null;
-      requestCost?: number | null;
-      tools?: string[] | null;
-      totalCost?: number | null;
-      totalLatency?: number | null;
-      traceName?: string | null;
-      webSearchCost?: number | null;
-    }
-
-    export interface Response25 {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: LLMTrace[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response26 {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface Response27 {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      kind?: 'AccountsQuery';
-      limit: number;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset: number;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type TaxonomicFilterGroupType = typeof TaxonomicFilterGroupType[keyof typeof TaxonomicFilterGroupType];
-
-
-    export const TaxonomicFilterGroupType = {
-      Metadata: 'metadata',
-      Actions: 'actions',
-      Cohorts: 'cohorts',
-      CohortsWithAll: 'cohorts_with_all',
-      DataWarehouse: 'data_warehouse',
-      DataWarehouseProperties: 'data_warehouse_properties',
-      DataWarehousePersonProperties: 'data_warehouse_person_properties',
-      Elements: 'elements',
-      Events: 'events',
-      InternalEvents: 'internal_events',
-      InternalEventProperties: 'internal_event_properties',
-      EventProperties: 'event_properties',
-      EventFeatureFlags: 'event_feature_flags',
-      EventMetadata: 'event_metadata',
-      NumericalEventProperties: 'numerical_event_properties',
-      PersonProperties: 'person_properties',
-      PageviewUrls: 'pageview_urls',
-      PageviewEvents: 'pageview_events',
-      Screens: 'screens',
-      ScreenEvents: 'screen_events',
-      EmailAddresses: 'email_addresses',
-      AutocaptureEvents: 'autocapture_events',
-      CustomEvents: 'custom_events',
-      Wildcard: 'wildcard',
-      Groups: 'groups',
-      Persons: 'persons',
-      FeatureFlags: 'feature_flags',
-      Insights: 'insights',
-      Experiments: 'experiments',
-      Plugins: 'plugins',
-      Dashboards: 'dashboards',
-      NameGroups: 'name_groups',
-      SessionProperties: 'session_properties',
-      HogqlExpression: 'hogql_expression',
-      Notebooks: 'notebooks',
-      LogEntries: 'log_entries',
-      ErrorTrackingIssues: 'error_tracking_issues',
-      Logs: 'logs',
-      LogAttributes: 'log_attributes',
-      LogResourceAttributes: 'log_resource_attributes',
-      Spans: 'spans',
-      SpanAttributes: 'span_attributes',
-      SpanResourceAttributes: 'span_resource_attributes',
-      Replay: 'replay',
-      ReplaySavedFilters: 'replay_saved_filters',
-      RevenueAnalyticsProperties: 'revenue_analytics_properties',
-      Resources: 'resources',
-      ErrorTrackingProperties: 'error_tracking_properties',
-      ActivityLogProperties: 'activity_log_properties',
-      MaxAiContext: 'max_ai_context',
-      WorkflowVariables: 'workflow_variables',
-      SuggestedFilters: 'suggested_filters',
-      RecentFilters: 'recent_filters',
-      PinnedFilters: 'pinned_filters',
-      Empty: 'empty',
-    } as const;
-
-    export type HrefMatching = typeof HrefMatching[keyof typeof HrefMatching];
-
-
-    export const HrefMatching = {
-      Contains: 'contains',
-      Exact: 'exact',
-      Regex: 'regex',
-    } as const;
-
-    export type TextMatching = typeof TextMatching[keyof typeof TextMatching];
-
-
-    export const TextMatching = {
-      Contains: 'contains',
-      Exact: 'exact',
-      Regex: 'regex',
-    } as const;
-
-    export type UrlMatching = typeof UrlMatching[keyof typeof UrlMatching];
-
-
-    export const UrlMatching = {
-      Contains: 'contains',
-      Exact: 'exact',
-      Regex: 'regex',
-    } as const;
-
-    export interface EventsQueryActionStep {
-      event?: string | null;
-      href?: string | null;
-      href_matching?: HrefMatching | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      selector?: string | null;
-      tag_name?: string | null;
-      text?: string | null;
-      text_matching?: TextMatching | null;
-      url?: string | null;
-      url_matching?: UrlMatching | null;
-    }
-
-    export interface EventsQueryResponse {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Cursor for fetching the next page of results */
-      nextCursor?: string | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface EventsQuery {
-      /** Show events matching a given action */
-      actionId?: number | null;
-      /** Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set. */
-      actionSteps?: EventsQueryActionStep[] | null;
-      /** Only fetch events that happened after this timestamp */
-      after?: string | null;
-      /** Only fetch events that happened before this timestamp */
-      before?: string | null;
-      /** Limit to events matching this string */
-      event?: string | null;
-      /** Filter to events matching any of these event names */
-      events?: string[] | null;
-      /** Filter test accounts */
-      filterTestAccounts?: boolean | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: 'EventsQuery';
-      /** Number of rows to return */
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Number of rows to skip before returning rows */
-      offset?: number | null;
-      /** Columns to order by */
-      orderBy?: string[] | null;
-      /** Show events for a given person */
-      personId?: string | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: EventsQueryResponse | null;
-      /** Return a limited set of data. Required. */
-      select: string[];
-      /** source for querying events for insights */
-      source?: InsightActorsQuery | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-      /** HogQL filters to apply on returned data */
-      where?: string[] | null;
-    }
-
-    export type PersonsNodeResponse = { [key: string]: unknown } | null;
-
-    export interface PersonsNode {
-      cohort?: number | null;
-      distinctId?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: 'PersonsNode';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: PersonsNodeResponse;
-      search?: string | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface GroupsQueryResponse {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      kind?: 'GroupsQuery';
-      limit: number;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset: number;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface GroupsQuery {
-      group_type_index: number;
-      kind?: 'GroupsQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      orderBy?: string[] | null;
-      properties?: (GroupPropertyFilter | HogQLPropertyFilter)[] | null;
-      response?: GroupsQueryResponse | null;
-      search?: string | null;
-      select?: string[] | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface WebExternalClicksTableQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebExternalClicksTableQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval?: IntervalType | null;
-      kind?: 'WebExternalClicksTableQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebExternalClicksTableQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      stripQueryParams?: boolean | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface WebGoalsQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Whether the response was served from the lazy precompute path. */
-      usedLazyPrecompute?: boolean | null;
-      /** Whether the response was served from a precomputed table. */
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebGoalsQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval?: IntervalType | null;
-      kind?: 'WebGoalsQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebGoalsQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
-      useWebAnalyticsPrecompute?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface WebVitalsQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval?: IntervalType | null;
-      kind?: 'WebVitalsQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebGoalsQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type WebVitalsMetric = typeof WebVitalsMetric[keyof typeof WebVitalsMetric];
-
-
-    export const WebVitalsMetric = {
-      Inp: 'INP',
-      Lcp: 'LCP',
-      Cls: 'CLS',
-      Fcp: 'FCP',
-    } as const;
-
-    export type WebVitalsPercentile = typeof WebVitalsPercentile[keyof typeof WebVitalsPercentile];
-
-
-    export const WebVitalsPercentile = {
-      P75: 'p75',
-      P90: 'p90',
-      P99: 'p99',
-    } as const;
-
-    export interface WebVitalsPathBreakdownQueryResponse {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      /**
-         * @minItems 1
-         * @maxItems 1
-         */
-      results: WebVitalsPathBreakdownResult[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      usedLazyPrecompute?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebVitalsPathBreakdownQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval?: IntervalType | null;
-      kind?: 'WebVitalsPathBreakdownQuery';
-      metric: WebVitalsMetric;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      percentile: WebVitalsPercentile;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebVitalsPathBreakdownQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      tags?: QueryLogTags | null;
-      /**
-         * @minItems 2
-         * @maxItems 2
-         */
-      thresholds: number[];
-      useSessionsTable?: boolean | null;
-      /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
-      useWebAnalyticsPrecompute?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface Filters {
-      dateRange?: DateRange | null;
-      properties?: SessionPropertyFilter[] | null;
-    }
-
-    export type SessionAttributionGroupBy = typeof SessionAttributionGroupBy[keyof typeof SessionAttributionGroupBy];
-
-
-    export const SessionAttributionGroupBy = {
-      ChannelType: 'ChannelType',
-      Medium: 'Medium',
-      Source: 'Source',
-      Campaign: 'Campaign',
-      AdIds: 'AdIds',
-      ReferringDomain: 'ReferringDomain',
-      InitialURL: 'InitialURL',
-    } as const;
-
-    export interface SessionAttributionExplorerQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface SessionAttributionExplorerQuery {
-      filters?: Filters | null;
-      groupBy: SessionAttributionGroupBy[];
-      kind?: 'SessionAttributionExplorerQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      response?: SessionAttributionExplorerQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface SessionsQueryResponse {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types: string[];
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface SessionsQuery {
-      /** Filter sessions by action - sessions that contain events matching this action */
-      actionId?: number | null;
-      /** Only fetch sessions that started after this timestamp */
-      after?: string | null;
-      /** Only fetch sessions that started before this timestamp */
-      before?: string | null;
-      /** Filter sessions by event name - sessions that contain this event */
-      event?: string | null;
-      /** Event property filters - filters sessions that contain events matching these properties */
-      eventProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** Filter test accounts */
-      filterTestAccounts?: boolean | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: 'SessionsQuery';
-      /** Number of rows to return */
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Number of rows to skip before returning rows */
-      offset?: number | null;
-      /** Columns to order by */
-      orderBy?: string[] | null;
-      /** Show sessions for a given person */
-      personId?: string | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: SessionsQueryResponse | null;
-      /** Return a limited set of data. Required. */
-      select: string[];
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-      /** HogQL filters to apply on returned data */
-      where?: string[] | null;
-    }
-
-    export interface RevenueAnalyticsBreakdown {
-      property: string;
-      type?: 'revenue_analytics';
-    }
-
-    export type SimpleIntervalType = typeof SimpleIntervalType[keyof typeof SimpleIntervalType];
-
-
-    export const SimpleIntervalType = {
-      Day: 'day',
-      Month: 'month',
-    } as const;
-
-    export interface RevenueAnalyticsGrossRevenueQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueAnalyticsGrossRevenueQuery {
-      breakdown: RevenueAnalyticsBreakdown[];
-      dateRange?: DateRange | null;
-      interval: SimpleIntervalType;
-      kind?: 'RevenueAnalyticsGrossRevenueQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      properties: RevenueAnalyticsPropertyFilter[];
-      response?: RevenueAnalyticsGrossRevenueQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface RevenueAnalyticsMetricsQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueAnalyticsMetricsQuery {
-      breakdown: RevenueAnalyticsBreakdown[];
-      dateRange?: DateRange | null;
-      interval: SimpleIntervalType;
-      kind?: 'RevenueAnalyticsMetricsQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      properties: RevenueAnalyticsPropertyFilter[];
-      response?: RevenueAnalyticsMetricsQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface RevenueAnalyticsMRRQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: RevenueAnalyticsMRRQueryResultItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueAnalyticsMRRQuery {
-      breakdown: RevenueAnalyticsBreakdown[];
-      dateRange?: DateRange | null;
-      interval: SimpleIntervalType;
-      kind?: 'RevenueAnalyticsMRRQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      properties: RevenueAnalyticsPropertyFilter[];
-      response?: RevenueAnalyticsMRRQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface RevenueAnalyticsOverviewQueryResponse {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: RevenueAnalyticsOverviewItem[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueAnalyticsOverviewQuery {
-      dateRange?: DateRange | null;
-      kind?: 'RevenueAnalyticsOverviewQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      properties: RevenueAnalyticsPropertyFilter[];
-      response?: RevenueAnalyticsOverviewQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type RevenueAnalyticsTopCustomersGroupBy = typeof RevenueAnalyticsTopCustomersGroupBy[keyof typeof RevenueAnalyticsTopCustomersGroupBy];
-
-
-    export const RevenueAnalyticsTopCustomersGroupBy = {
-      Month: 'month',
-      All: 'all',
-    } as const;
-
-    export interface RevenueAnalyticsTopCustomersQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueAnalyticsTopCustomersQuery {
-      dateRange?: DateRange | null;
-      groupBy: RevenueAnalyticsTopCustomersGroupBy;
-      kind?: 'RevenueAnalyticsTopCustomersQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      properties: RevenueAnalyticsPropertyFilter[];
-      response?: RevenueAnalyticsTopCustomersQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface RevenueExampleEventsQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueExampleEventsQuery {
-      kind?: 'RevenueExampleEventsQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      response?: RevenueExampleEventsQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface RevenueExampleDataWarehouseTablesQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface RevenueExampleDataWarehouseTablesQuery {
-      kind?: 'RevenueExampleDataWarehouseTablesQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      response?: RevenueExampleDataWarehouseTablesQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type MarketingAnalyticsDrillDownLevel = typeof MarketingAnalyticsDrillDownLevel[keyof typeof MarketingAnalyticsDrillDownLevel];
-
-
-    export const MarketingAnalyticsDrillDownLevel = {
-      Channel: 'channel',
-      Source: 'source',
-      Campaign: 'campaign',
-      AdGroup: 'ad_group',
-      Ad: 'ad',
-      Medium: 'medium',
-      Content: 'content',
-      Term: 'term',
-    } as const;
-
-    export interface IntegrationFilter {
-      /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
-      integrationSourceIds?: string[] | null;
-    }
-
-    export type MarketingAnalyticsOrderByEnum = typeof MarketingAnalyticsOrderByEnum[keyof typeof MarketingAnalyticsOrderByEnum];
-
-
-    export const MarketingAnalyticsOrderByEnum = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    export interface MarketingAnalyticsTableQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MarketingAnalyticsItem[][];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface MarketingAnalyticsTableQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      /** Compare to date range */
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      /** Draft conversion goal that can be set in the UI without saving */
-      draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
-      /** Drill-down hierarchy level: channel, source, or campaign (default) */
-      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
-      /** Filter test accounts */
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Filter by integration type */
-      integrationFilter?: IntegrationFilter | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval?: IntervalType | null;
-      kind?: 'MarketingAnalyticsTableQuery';
-      /** Number of rows to return */
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Number of rows to skip before returning rows */
-      offset?: number | null;
-      /** Columns to order by - similar to EventsQuery format */
-      orderBy?: ((string | MarketingAnalyticsOrderByEnum)[])[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: MarketingAnalyticsTableQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      /** Return a limited set of data. Will use default columns if empty. */
-      select?: string[] | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
-
-    export interface MarketingAnalyticsAggregatedQueryResponse {
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MarketingAnalyticsAggregatedQueryResponseResults;
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface MarketingAnalyticsAggregatedQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      /** Draft conversion goal that can be set in the UI without saving */
-      draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
-      /** Drill-down hierarchy level: channel, source, or campaign (default) */
-      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Filter by integration IDs */
-      integrationFilter?: IntegrationFilter | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval?: IntervalType | null;
-      kind?: 'MarketingAnalyticsAggregatedQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: MarketingAnalyticsAggregatedQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      /** Return a limited set of data. Will use default columns if empty. */
-      select?: string[] | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface NonIntegratedConversionsTableQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: MarketingAnalyticsItem[][];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface NonIntegratedConversionsTableQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      /** Compare to date range */
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      /** Draft conversion goal that can be set in the UI without saving */
-      draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
-      /** Filter test accounts */
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval?: IntervalType | null;
-      kind?: 'NonIntegratedConversionsTableQuery';
-      /** Number of rows to return */
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Number of rows to skip before returning rows */
-      offset?: number | null;
-      /** Columns to order by */
-      orderBy?: ((string | MarketingAnalyticsOrderByEnum)[])[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: NonIntegratedConversionsTableQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
-      /** Return a limited set of data. Will use default columns if empty. */
-      select?: string[] | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
-
-
-    export const ErrorTrackingOrderBy = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-    } as const;
-
-    export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
-
-
-    export const OrderDirection2 = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
-      assigned_role_id?: string | null;
-      assigned_user_id?: number | null;
-      fingerprint: string;
-      /** ISO 8601 datetime string. */
-      first_seen: string;
-      is_deleted: number;
-      issue_description?: string | null;
-      issue_id: string;
-      issue_name?: string | null;
-      issue_status: string;
-      /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
-      version: number;
-    }
-
-    export interface ErrorTrackingQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: ErrorTrackingIssue[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface ErrorTrackingQuery {
-      assignee?: ErrorTrackingIssueAssignee | null;
-      /** Date range to filter results. */
-      dateRange: DateRange;
-      filterGroup?: PropertyGroupFilter | null;
-      /** Whether to filter out test accounts. */
-      filterTestAccounts?: boolean | null;
-      groupKey?: string | null;
-      groupTypeIndex?: number | null;
-      /** Filter to a specific error tracking issue by ID. */
-      issueId?: string | null;
-      kind?: 'ErrorTrackingQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Field to sort results by. */
-      orderBy: ErrorTrackingOrderBy;
-      /** Sort direction. */
-      orderDirection?: OrderDirection2 | null;
-      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
-      pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
-      personId?: string | null;
-      response?: ErrorTrackingQueryResponse | null;
-      /** Free-text search across exception type, message, and stack frames. */
-      searchQuery?: string | null;
-      /** Filter by issue status. */
-      status?: ErrorTrackingIssueStatus | string | null;
-      tags?: QueryLogTags | null;
-      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
-      useQueryV2?: boolean | null;
-      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
-      useQueryV3?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-      volumeResolution: number;
-      withAggregations?: boolean | null;
-      withFirstEvent?: boolean | null;
-      withLastEvent?: boolean | null;
-    }
-
-    export interface ErrorTrackingIssueCorrelationQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: ErrorTrackingCorrelatedIssue[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface ErrorTrackingIssueCorrelationQuery {
-      events: string[];
-      kind?: 'ErrorTrackingIssueCorrelationQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      response?: ErrorTrackingIssueCorrelationQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ExperimentFunnelsQueryResponseCredibleIntervals = {[key: string]: number[]};
-
-    export type ExperimentFunnelsQueryResponseInsightItemItem = { [key: string]: unknown };
-
-    export type ExperimentFunnelsQueryResponseProbability = {[key: string]: number};
-
-    export interface ExperimentFunnelsQueryResponse {
-      credible_intervals: ExperimentFunnelsQueryResponseCredibleIntervals;
-      expected_loss: number;
-      funnels_query?: FunnelsQuery | null;
-      insight: ExperimentFunnelsQueryResponseInsightItemItem[][];
-      kind?: 'ExperimentFunnelsQuery';
-      probability: ExperimentFunnelsQueryResponseProbability;
-      significance_code: ExperimentSignificanceCode;
-      significant: boolean;
-      stats_version?: number | null;
-      variants: ExperimentVariantFunnelsBaseStats[];
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface ExperimentFunnelsQuery {
-      experiment_id?: number | null;
-      fingerprint?: string | null;
-      funnels_query: FunnelsQuery;
-      kind?: 'ExperimentFunnelsQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      name?: string | null;
-      response?: ExperimentFunnelsQueryResponse | null;
-      tags?: QueryLogTags | null;
-      uuid?: string | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ExperimentTrendsQueryResponseCredibleIntervals = {[key: string]: number[]};
-
-    export type ExperimentTrendsQueryResponseInsightItem = { [key: string]: unknown };
-
-    export type ExperimentTrendsQueryResponseProbability = {[key: string]: number};
-
-    export interface ExperimentTrendsQueryResponse {
-      count_query?: TrendsQuery | null;
-      credible_intervals: ExperimentTrendsQueryResponseCredibleIntervals;
-      exposure_query?: TrendsQuery | null;
-      insight: ExperimentTrendsQueryResponseInsightItem[];
-      kind?: 'ExperimentTrendsQuery';
-      p_value: number;
-      probability: ExperimentTrendsQueryResponseProbability;
-      significance_code: ExperimentSignificanceCode;
-      significant: boolean;
-      stats_version?: number | null;
-      variants: ExperimentVariantTrendsBaseStats[];
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface ExperimentTrendsQuery {
-      count_query: TrendsQuery;
-      experiment_id?: number | null;
-      exposure_query?: TrendsQuery | null;
-      fingerprint?: string | null;
-      kind?: 'ExperimentTrendsQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      name?: string | null;
-      response?: ExperimentTrendsQueryResponse | null;
-      tags?: QueryLogTags | null;
-      uuid?: string | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface TracesQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: LLMTrace[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface TracesQuery {
-      dateRange?: DateRange | null;
-      filterSupportTraces?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      groupKey?: string | null;
-      groupTypeIndex?: number | null;
-      kind?: 'TracesQuery';
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Person who performed the event */
-      personId?: string | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
-      randomOrder?: boolean | null;
-      response?: TracesQueryResponse | null;
-      showColumnConfigurator?: boolean | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface TraceQueryResponse {
-      columns?: string[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: LLMTrace[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface TraceQuery {
-      dateRange?: DateRange | null;
-      kind?: 'TraceQuery';
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: TraceQueryResponse | null;
-      tags?: QueryLogTags | null;
-      traceId: string;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type EndpointsUsageBreakdown = typeof EndpointsUsageBreakdown[keyof typeof EndpointsUsageBreakdown];
-
-
-    export const EndpointsUsageBreakdown = {
-      Endpoint: 'Endpoint',
-      MaterializationType: 'MaterializationType',
-      ApiKey: 'ApiKey',
-      Status: 'Status',
-    } as const;
-
-    export type MaterializationType = typeof MaterializationType[keyof typeof MaterializationType];
-
-
-    export const MaterializationType = {
-      Materialized: 'materialized',
-      Inline: 'inline',
-    } as const;
-
-    export type EndpointsUsageOrderByField = typeof EndpointsUsageOrderByField[keyof typeof EndpointsUsageOrderByField];
-
-
-    export const EndpointsUsageOrderByField = {
-      Requests: 'requests',
-      BytesRead: 'bytes_read',
-      CpuSeconds: 'cpu_seconds',
-      AvgQueryDurationMs: 'avg_query_duration_ms',
-      ErrorRate: 'error_rate',
-    } as const;
-
-    export type EndpointsUsageOrderByDirection = typeof EndpointsUsageOrderByDirection[keyof typeof EndpointsUsageOrderByDirection];
-
-
-    export const EndpointsUsageOrderByDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    export interface EndpointsUsageTableQueryResponse {
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: unknown[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface EndpointsUsageTableQuery {
-      breakdownBy: EndpointsUsageBreakdown;
-      dateRange?: DateRange | null;
-      /** Filter to specific endpoints by name */
-      endpointNames?: string[] | null;
-      kind?: 'EndpointsUsageTableQuery';
-      limit?: number | null;
-      /** Filter by materialization type */
-      materializationType?: MaterializationType | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      orderBy?: (EndpointsUsageOrderByField | EndpointsUsageOrderByDirection)[] | null;
-      response?: EndpointsUsageTableQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | Response27 | null;
-
-    export interface DataTableNode {
-      /** Can the user click on column headers to sort the table? (default: true) */
-      allowSorting?: boolean | null;
-      /** Columns shown in the table, unless the `source` provides them. */
-      columns?: string[] | null;
-      /** Context for the table, used by components like ColumnConfigurator */
-      context?: DataTableNodeViewPropsContext | null;
-      /** Context key for universal column configuration (e.g., "survey:123") */
-      contextKey?: string | null;
-      /** Default columns to use when resetting column configuration */
-      defaultColumns?: string[] | null;
-      /** Uses the embedded version of LemonTable */
-      embedded?: boolean | null;
-      /** Can expand row to show raw event data (default: true) */
-      expandable?: boolean | null;
-      /** Show with most visual options enabled. Used in scenes. */
-      full?: boolean | null;
-      /** Columns that aren't shown in the table, even if in columns or returned data */
-      hiddenColumns?: string[] | null;
-      kind: DataTableNodeKind;
-      /** Columns that are sticky when scrolling horizontally */
-      pinnedColumns?: string[] | null;
-      /** Link properties via the URL (default: false) */
-      propertiesViaUrl?: boolean | null;
-      response?: DataTableNodeResponse;
-      /** Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources. */
-      showAbsoluteTime?: boolean | null;
-      /** Show the kebab menu at the end of the row */
-      showActions?: boolean | null;
-      /** Show a button to configure the table's columns if possible */
-      showColumnConfigurator?: boolean | null;
-      /** Show count of total and filtered results */
-      showCount?: boolean | null;
-      /** Show date range selector */
-      showDateRange?: boolean | null;
-      /** Show the time it takes to run a query */
-      showElapsedTime?: boolean | null;
-      /** Include an event filter above the table (EventsNode only) */
-      showEventFilter?: boolean | null;
-      /** Include an events filter above the table to filter by multiple events (EventsQuery only) */
-      showEventsFilter?: boolean | null;
-      /** Show the export button */
-      showExport?: boolean | null;
-      /** Include a HogQL query editor above HogQL tables */
-      showHogQLEditor?: boolean | null;
-      /** Show a button to open the current query as a new insight. (default: true) */
-      showOpenEditorButton?: boolean | null;
-      /** Show a button to configure and persist the table's default columns if possible */
-      showPersistentColumnConfigurator?: boolean | null;
-      /** Include a property filter above the table */
-      showPropertyFilter?: boolean | TaxonomicFilterGroupType[] | null;
-      /** Show a recording column for events with session recordings */
-      showRecordingColumn?: boolean | null;
-      /** Show a reload button */
-      showReload?: boolean | null;
-      /** Show a results table */
-      showResultsTable?: boolean | null;
-      /** Show saved filters feature for this table (requires uniqueKey) */
-      showSavedFilters?: boolean | null;
-      /** Shows a list of saved queries */
-      showSavedQueries?: boolean | null;
-      /** Include a free text search field (PersonsNode only) */
-      showSearch?: boolean | null;
-      /** Show actors query options and back to source */
-      showSourceQueryOptions?: boolean | null;
-      /** Show table views feature for this table (requires uniqueKey) */
-      showTableViews?: boolean | null;
-      /** Show filter to exclude test accounts */
-      showTestAccountFilters?: boolean | null;
-      /** Show a detailed query timing breakdown */
-      showTimings?: boolean | null;
-      /** Source of the events */
-      source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | GroupsQuery | HogQLQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | SessionAttributionExplorerQuery | SessionsQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | ErrorTrackingQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | TracesQuery | TraceQuery | EndpointsUsageTableQuery | AccountsQuery;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type DataVisualizationNodeKind = typeof DataVisualizationNodeKind[keyof typeof DataVisualizationNodeKind];
-
-
-    export const DataVisualizationNodeKind = {
-      DataVisualizationNode: 'DataVisualizationNode',
-    } as const;
-
-    export interface TableSettings {
-      columns?: ChartAxis[] | null;
-      conditionalFormatting?: ConditionalFormattingRule[] | null;
-      pinnedColumns?: string[] | null;
-      transpose?: boolean | null;
-    }
-
-    export interface DataVisualizationNode {
-      chartSettings?: ChartSettings | null;
-      display?: ChartDisplayType | null;
-      kind: DataVisualizationNodeKind;
-      source: HogQLQuery;
-      tableSettings?: TableSettings | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type HogQueryKind = typeof HogQueryKind[keyof typeof HogQueryKind];
-
-
-    export const HogQueryKind = {
-      HogQuery: 'HogQuery',
-    } as const;
-
-    export interface HogQueryResponse {
-      bytecode?: unknown[] | null;
-      coloredBytecode?: unknown[] | null;
-      results: unknown;
-      stdout?: string | null;
-    }
-
-    export interface HogQuery {
-      code?: string | null;
-      kind: HogQueryKind;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      response?: HogQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    /**
-     * The query definition for this insight. The `kind` field determines the query type:
-    - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
-    - `DataVisualizationNode` — SQL insights using HogQL
-    - `DataTableNode` — raw data tables
-    - `HogQuery` — Hog language queries
-     */
-    export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | HogQuery;
-
-    /**
-     * @nullable
-     */
-    export type InsightResolvedDateRange = {
-      readonly date_from?: string;
-      readonly date_to?: string;
-    } | null;
-
-    /**
-     * Simplified serializer to speed response times when loading large amounts of objects.
-     */
-    export interface Insight {
-      readonly id: number;
-      readonly short_id: string;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      derived_name?: string | null;
-      query?: _InsightQuerySchema | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      order?: number | null;
-      deleted?: boolean;
-      /**
-              DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-              A dashboard ID for each of the dashboards that this insight is displayed on.
-               */
-      dashboards?: number[];
-      /**
-          A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-           */
-      readonly dashboard_tiles: readonly DashboardTileBasic[];
-      /**
-         *
-          The datetime this insight's results were generated.
-          If added to one or more dashboards the insight can be refreshed separately on each.
-          Returns the appropriate last_refresh datetime for the context the insight is viewed in
-          (see from_dashboard query parameter).
-
-         * @nullable
-         */
-      readonly last_refresh: string | null;
-      /**
-         * The target age of the cached results for this insight.
-         * @nullable
-         */
-      readonly cache_target_age: string | null;
-      /**
-         *
-          The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-          by querying the database.
-
-         * @nullable
-         */
-      readonly next_allowed_client_refresh: string | null;
-      readonly result: unknown;
-      /** @nullable */
-      readonly hasMore: boolean | null;
-      /** @nullable */
-      readonly columns: readonly string[] | null;
-      /** @nullable */
-      readonly created_at: string | null;
-      readonly created_by: UserBasic;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      description?: string | null;
-      readonly updated_at: string;
-      tags?: unknown[];
-      favorited?: boolean;
-      readonly last_modified_at: string;
-      readonly last_modified_by: UserBasic;
-      readonly is_sample: boolean;
-      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
-      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      /**
-         * The timezone this chart is displayed in.
-         * @nullable
-         */
-      readonly timezone: string | null;
-      readonly is_cached: boolean;
-      readonly query_status: unknown;
-      /** @nullable */
-      readonly hogql: string | null;
-      /** @nullable */
-      readonly types: readonly unknown[] | null;
-      /** @nullable */
-      readonly resolved_date_range: InsightResolvedDateRange;
-      _create_in_folder?: string;
-      readonly alerts: readonly unknown[];
-      /** @nullable */
-      readonly last_viewed_at: string | null;
-    }
-
-    export interface Text {
-      readonly id: number;
-      readonly created_by: UserBasic;
-      readonly last_modified_by: UserBasic;
-      /**
-         * @maxLength 4000
-         * @nullable
-         */
-      body?: string | null;
-      readonly dashboard_tiles: readonly DashboardTileBasic[];
-      readonly last_modified_at: string;
-      team: number;
-    }
-
-    export interface Nested {
-      readonly id: string;
-      /** @maxLength 64 */
-      widget_type: string;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      description?: string;
-      config?: unknown;
-      last_modified_at?: string;
-      /** @nullable */
-      created_by?: number | null;
-      /** @nullable */
-      last_modified_by?: number | null;
-      team: number;
-    }
-
-    export interface DashboardTile {
-      id?: number;
-      insight: Insight;
-      text: Text;
-      button_tile: ButtonTile;
-      layouts?: unknown;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      color?: string | null;
-      filters_overrides?: unknown;
-      /** @nullable */
-      show_description?: boolean | null;
-      /** @nullable */
-      transparent_background?: boolean | null;
-      readonly widget: Nested;
-    }
-
     /**
      * InsightSerializer restricted to identifiers + result only.
      */
@@ -11890,6 +12023,23 @@ export namespace Schemas {
     export interface DashboardTileResult {
       id?: number;
       insight: InsightResult;
+    }
+
+    export interface DashboardWidgetRunResult {
+      /** Dashboard tile ID for this widget result. */
+      tile_id: number;
+      /**
+         * Widget type identifier, or null when the tile was not found.
+         * @nullable
+         */
+      widget_type: string | null;
+      /** Live widget query result payload. */
+      result: unknown;
+      /**
+         * Error message when the widget could not be run.
+         * @nullable
+         */
+      error: string | null;
     }
 
     export interface DataColorTheme {
@@ -11962,7 +12112,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
      */
     export type DataWarehouseSavedQueryQuery = {
       kind?: DataWarehouseSavedQueryQueryKind;
@@ -12017,7 +12167,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -12583,6 +12733,7 @@ export namespace Schemas {
     * `Plain` - Plain
     * `Resend` - Resend
     * `PgAnalyze` - PgAnalyze
+    * `WorkOS` - WorkOS
     * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -12734,6 +12885,7 @@ export namespace Schemas {
       Plain: 'Plain',
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
+      WorkOS: 'WorkOS',
       Custom: 'Custom',
     } as const;
 
@@ -12892,6 +13044,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -12996,430 +13149,6 @@ export namespace Schemas {
       name: string;
     }
 
-    /**
-     * * `dispatch` - Dispatch
-    * `clone` - Clone
-    * `install` - Install
-    * `build` - Build
-    * `publish` - Publish
-     */
-    export type ErrorStepEnum = typeof ErrorStepEnum[keyof typeof ErrorStepEnum];
-
-
-    export const ErrorStepEnum = {
-      Dispatch: 'dispatch',
-      Clone: 'clone',
-      Install: 'install',
-      Build: 'build',
-      Publish: 'publish',
-    } as const;
-
-    export const DeploymentErrorStep = {...ErrorStepEnum,...BlankEnum,} as const
-    /**
-     * * `queued` - Queued
-    * `initializing` - Initializing
-    * `building` - Building
-    * `ready` - Ready
-    * `error` - Error
-    * `cancelled` - Cancelled
-     */
-    export type DeploymentStatusEnum = typeof DeploymentStatusEnum[keyof typeof DeploymentStatusEnum];
-
-
-    export const DeploymentStatusEnum = {
-      Queued: 'queued',
-      Initializing: 'initializing',
-      Building: 'building',
-      Ready: 'ready',
-      Error: 'error',
-      Cancelled: 'cancelled',
-    } as const;
-
-    /**
-     * * `manual` - Manual
-    * `git` - Git
-    * `redeploy` - Redeploy
-    * `rollback` - Rollback
-    * `seed` - Seed
-     */
-    export type TriggerKindEnum = typeof TriggerKindEnum[keyof typeof TriggerKindEnum];
-
-
-    export const TriggerKindEnum = {
-      Manual: 'manual',
-      Git: 'git',
-      Redeploy: 'redeploy',
-      Rollback: 'rollback',
-      Seed: 'seed',
-    } as const;
-
-    export interface Deployment {
-      /** Unique identifier for the deployment. */
-      readonly id: string;
-      /** The deployment project this deployment belongs to. */
-      readonly project: string;
-      /** Current pipeline stage. Valid values: queued, initializing, building, ready, error, cancelled.
-
-      * `queued` - Queued
-      * `initializing` - Initializing
-      * `building` - Building
-      * `ready` - Ready
-      * `error` - Error
-      * `cancelled` - Cancelled */
-      status: DeploymentStatusEnum;
-      /**
-         * When the pipeline started building. Null while still queued.
-         * @nullable
-         */
-      started_at?: string | null;
-      /**
-         * When the pipeline finished (regardless of outcome). Null while still running.
-         * @nullable
-         */
-      finished_at?: string | null;
-      /** When the deployment row was created (~ queued_at). */
-      readonly created_at: string;
-      /**
-         * Git commit SHA the deployment was built from.
-         * @maxLength 64
-         */
-      commit_sha?: string;
-      /** Commit message associated with the commit SHA. */
-      commit_message?: string;
-      /**
-         * Display name of the commit author.
-         * @maxLength 255
-         */
-      commit_author_name?: string;
-      /**
-         * Email address of the commit author. Used by the Author filter on the list page.
-         * @maxLength 255
-         */
-      commit_author_email?: string;
-      /**
-         * HTTPS URL of the source repository. Captured at deploy time.
-         * @maxLength 1024
-         */
-      repo_url?: string;
-      /**
-         * Source branch the deployment was built from.
-         * @maxLength 255
-         */
-      branch?: string;
-      /**
-         * Public URL serving the built site once ready.
-         * @maxLength 1024
-         */
-      deployment_url?: string;
-      /**
-         * URL of the captured site screenshot, used in the list/card view.
-         * @maxLength 1024
-         */
-      preview_image_url?: string;
-      /**
-         * The deployment this one was triggered from (for rollbacks and redeploys).
-         * @nullable
-         */
-      readonly triggered_by_deployment: string | null;
-      /**
-         * Posthog user id of the user who clicked Deploy/Redeploy/Rollback. Null for git-triggered or seed rows.
-         * @nullable
-         */
-      readonly triggered_by_user_id: number | null;
-      /** What caused this deployment to start: manual | git | redeploy | rollback | seed.
-
-      * `manual` - Manual
-      * `git` - Git
-      * `redeploy` - Redeploy
-      * `rollback` - Rollback
-      * `seed` - Seed */
-      trigger_kind: TriggerKindEnum;
-      /** Failure detail set when status=error. Empty for successful or in-flight deployments. */
-      readonly error_message: string;
-      /** Build step that failed: dispatch | clone | install | build | publish. Empty when status != error.
-
-      * `dispatch` - Dispatch
-      * `clone` - Clone
-      * `install` - Install
-      * `build` - Build
-      * `publish` - Publish */
-      error_step?: typeof DeploymentErrorStep[keyof typeof DeploymentErrorStep];
-      /** Cloudflare Pages deployment id, set once the publish step succeeds. */
-      readonly cloudflare_deployment_id: string;
-      /** Temporal workflow id for this build. Used for cancellation signalling. */
-      readonly temporal_workflow_id: string;
-      /** True if this deployment is currently serving production traffic for its project. */
-      readonly is_current: boolean;
-      /** Build duration in seconds (finished_at - started_at). 0 while still running. */
-      readonly duration_seconds: number;
-    }
-
-    /**
-     * Response shape for one-off action endpoints (cancel, refresh_preview).
-     */
-    export interface DeploymentActionResponse {
-      /** Short human-readable confirmation message. */
-      detail: string;
-    }
-
-    /**
-     * Response shape returned with HTTP 409 when an active deploy exists.
-     */
-    export interface DeploymentConflictResponse {
-      /** Reason for the conflict. */
-      detail: string;
-      /** The deployment currently in-flight for the project. Frontend can poll this id. */
-      active_deployment_id: string;
-    }
-
-    /**
-     * Body of POST /api/projects/{}/deployment_projects/{}/deployments/.
-     */
-    export interface DeploymentCreateInput {
-      /**
-         * Optional commit SHA. If omitted, the build worker resolves HEAD of `branch` (or the project's default_branch).
-         * @maxLength 64
-         */
-      commit_sha?: string;
-      /**
-         * Optional branch override. If omitted, uses the project's `default_branch`.
-         * @maxLength 255
-         */
-      branch?: string;
-    }
-
-    export interface DeploymentEvent {
-      /** Unique identifier for the event row. */
-      readonly id: string;
-      /** The deployment this event belongs to. */
-      readonly deployment: string;
-      /**
-         * Event category, e.g. `status_changed`, `preview_captured`, `dispatched`.
-         * @maxLength 50
-         */
-      event_type: string;
-      /** Arbitrary structured payload for the event. Shape varies by event_type. */
-      payload: unknown;
-      /** When the event occurred (server time). */
-      readonly occurred_at: string;
-    }
-
-    /**
-     * One line of build output emitted by the build worker as a `$log` event.
-     */
-    export interface DeploymentLogEntry {
-      /** When the line was emitted by the build worker. */
-      timestamp: string;
-      /**
-         * Log level: "info" | "warn" | "error". Null if the event did not carry one.
-         * @nullable
-         */
-      level: string | null;
-      /**
-         * Pipeline step: "clone" | "install" | "build" | "publish". Null if the event did not carry one.
-         * @nullable
-         */
-      step: string | null;
-      /**
-         * The log line itself (a single line of stdout or stderr).
-         * @nullable
-         */
-      line: string | null;
-      /**
-         * Set on the last line of a step; null on all other lines.
-         * @nullable
-         */
-      exit_code: number | null;
-    }
-
-    /**
-     * Response shape for GET /deployments/{id}/logs/.
-     */
-    export interface DeploymentLogsResponse {
-      /** Log lines for the deployment, oldest first. */
-      results: DeploymentLogEntry[];
-      /** True if the row limit was hit and older lines may exist beyond this page. */
-      has_more: boolean;
-      /** The hard cap applied by the server. */
-      row_limit: number;
-    }
-
-    export interface DeploymentProject {
-      /** Unique identifier for the deployment project. */
-      readonly id: string;
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug: string;
-      /**
-         * HTTPS URL of the connected GitHub repository, resolved from the selected repository id.
-         * @maxLength 1024
-         */
-      readonly repo_url: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /**
-         * Existing PostHog GitHub integration id used for repository access.
-         * @nullable
-         */
-      github_integration_id?: number | null;
-      /**
-         * Stable GitHub repository identifier selected from the existing integration's repository list.
-         * @nullable
-         */
-      github_repo_id?: number | null;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
-      /** Cloudflare Pages project name, assigned during provisioning. */
-      readonly cloudflare_project_name: string;
-      /** Public subdomain at which deployments of this project serve. */
-      readonly subdomain: string;
-      /**
-         * Timestamp when the Cloudflare project was fully provisioned and ready to receive deploys.
-         * @nullable
-         */
-      readonly cloudflare_ready_at: string | null;
-      /**
-         * The deployment currently serving traffic for this project. Null if no deployment has ever succeeded.
-         * @nullable
-         */
-      readonly current_deployment: string | null;
-      /** True when the project has both a provisioned Cloudflare backend and a configured GitHub credential — meaning a deploy can be triggered right now. */
-      readonly is_ready_to_deploy: boolean;
-      /** Timestamp when the project was created. */
-      readonly created_at: string;
-      /** Timestamp when the project was last modified. */
-      readonly updated_at: string;
-    }
-
-    export interface DeploymentProjectCreate {
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /** Existing PostHog GitHub integration id used for repository access. */
-      github_integration_id: number;
-      /** Stable GitHub repository identifier selected from the existing integration's repository list. */
-      github_repo_id: number;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
-    }
-
-    /**
-     * Response shape for refreshing a deployment project's GitHub branch.
-     */
-    export interface DeploymentProjectRefreshResponse {
-      /** Human-readable explanation of the refresh result. */
-      detail: string;
-      /** HTTPS URL of the connected GitHub repository. */
-      repo_url: string;
-      /** Branch checked by the refresh action. */
-      default_branch: string;
-      /** Current GitHub HEAD SHA for default_branch. */
-      commit_sha: string;
-    }
-
-    export interface DeploymentProjectWrite {
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /**
-         * Existing PostHog GitHub integration id used for repository access.
-         * @nullable
-         */
-      github_integration_id?: number | null;
-      /**
-         * Stable GitHub repository identifier selected from the existing integration's repository list.
-         * @nullable
-         */
-      github_repo_id?: number | null;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
-    }
-
     export interface DeprovisionWarehouseResponse {
       status: string;
       team: string;
@@ -13496,69 +13225,6 @@ export namespace Schemas {
       completed_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    /**
-     * Inputs the `/detect/` endpoint needs to suggest a project config.
-
-    Decouples detection from any one git provider — callers fetch
-    `package.json` and the list of lockfiles however they like (GitHub
-    raw content via the team's existing integration, a temporary clone,
-    user-pasted JSON during early development) and pass them here.
-     */
-    export interface DetectConfigRequest {
-      /** Parsed contents of the repo's `package.json`. Pass null or omit if the repo doesn't have one — the response is then the plain-HTML fallback. */
-      package_json?: unknown;
-      /** Filenames of package-manager lockfiles found in the repo root (e.g. ["pnpm-lock.yaml"]). Used to pick the package manager. */
-      lockfiles?: string[];
-    }
-
-    /**
-     * * `npm` - npm
-    * `pnpm` - pnpm
-    * `yarn` - yarn
-    * `bun` - bun
-     */
-    export type PackageManagerEnum = typeof PackageManagerEnum[keyof typeof PackageManagerEnum];
-
-
-    export const PackageManagerEnum = {
-      Npm: 'npm',
-      Pnpm: 'pnpm',
-      Yarn: 'yarn',
-      Bun: 'bun',
-    } as const;
-
-    /**
-     * Suggested project config. Every field is overridable in the connect-repo UI.
-
-    `build_command`, `output_dir`, and `framework` map directly to the
-    `DeploymentProject` model fields. `package_manager`, `install_command`,
-    and `node_version` are informational hints — the model doesn't store
-    them today, but the UI can display them so the user knows what the
-    build worker will end up running.
-     */
-    export interface DetectConfigResponse {
-      /** Detected package manager from lockfile presence.
-
-      * `npm` - npm
-      * `pnpm` - pnpm
-      * `yarn` - yarn
-      * `bun` - bun */
-      package_manager: PackageManagerEnum;
-      /** Suggested install command, or empty when no install is needed. */
-      install_command: string;
-      /** Suggested build command, or empty when no known framework matched. */
-      build_command: string;
-      /** Suggested output directory relative to repo root. */
-      output_dir: string;
-      /** Suggested Node major version, parsed from `engines.node` or defaulted to 20. */
-      node_version: string;
-      /**
-         * Detected framework hint (e.g. `nextjs`, `vite`, `astro`) to write into `DeploymentProject.framework`. Null when no framework matched — leaving the field null lets the build worker fall back to its own auto-detection.
-         * @nullable
-         */
-      framework: string | null;
     }
 
     /**
@@ -15108,18 +14774,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `ASC` - ASC
-    * `DESC` - DESC
-     */
-    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
-
-
-    export const OrderDirectionEnum = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    /**
      * * `summary` - summary
     * `stack` - stack
     * `raw` - raw
@@ -15277,24 +14931,6 @@ export namespace Schemas {
       success: boolean;
     }
 
-    /**
-     * * `last_seen` - last_seen
-    * `first_seen` - first_seen
-    * `occurrences` - occurrences
-    * `users` - users
-    * `sessions` - sessions
-     */
-    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
-
-
-    export const ErrorTrackingIssueOrderByEnum = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-    } as const;
-
     export interface ErrorTrackingIssueQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
@@ -15333,26 +14969,6 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
-    /**
-     * * `archived` - archived
-    * `active` - active
-    * `resolved` - resolved
-    * `pending_release` - pending_release
-    * `suppressed` - suppressed
-    * `all` - all
-     */
-    export type ErrorTrackingIssuesListQueryRequestStatusEnum = typeof ErrorTrackingIssuesListQueryRequestStatusEnum[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnum];
-
-
-    export const ErrorTrackingIssuesListQueryRequestStatusEnum = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-      All: 'all',
-    } as const;
-
     export interface ErrorTrackingIssuesListQueryRequest {
       /** Date range for issue aggregates. Defaults to the last 7 days. */
       dateRange?: ErrorTrackingDateRange;
@@ -15364,7 +14980,7 @@ export namespace Schemas {
       * `pending_release` - pending_release
       * `suppressed` - suppressed
       * `all` - all */
-      status?: ErrorTrackingIssuesListQueryRequestStatusEnum;
+      status?: ErrorTrackingIssueStatusEnum;
       /** Filter by issue assignee. Omit to include all assignees. */
       assignee?: ErrorTrackingAssignee | null;
       /** When true, exclude internal/test account data from results. Defaults to true. */
@@ -16865,6 +16481,18 @@ export namespace Schemas {
     };
 
     /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type ExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
+    /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
     * `append` - append
@@ -17011,6 +16639,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source: ExternalDataSchemaSource;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -17223,6 +16856,7 @@ export namespace Schemas {
       * `Plain` - Plain
       * `Resend` - Resend
       * `PgAnalyze` - PgAnalyze
+      * `WorkOS` - WorkOS
       * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -18084,17 +17718,26 @@ export namespace Schemas {
 
     export interface FileSystemShortcut {
       readonly id: string;
+      /** Display path of the shortcut in the sidebar. */
       path: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -18105,6 +17748,55 @@ export namespace Schemas {
     export interface FileSystemShortcutReorder {
       /** IDs of the current user's shortcuts in the desired display order. */
       ordered_ids: string[];
+    }
+
+    export interface RunSummary {
+      total: number;
+      changed: number;
+      new: number;
+      removed: number;
+      unchanged: number;
+      unresolved?: number;
+      tolerated_matched?: number;
+    }
+
+    export type RunMetadata = { [key: string]: unknown };
+
+    export interface Run {
+      approved_by?: UserBasicInfo | null;
+      id: string;
+      repo_id: string;
+      status: string;
+      run_type: string;
+      commit_sha: string;
+      branch: string;
+      /** @nullable */
+      pr_number: number | null;
+      approved: boolean;
+      /** @nullable */
+      approved_at: string | null;
+      summary: RunSummary;
+      /** @nullable */
+      error_message: string | null;
+      created_at: string;
+      /** @nullable */
+      completed_at: string | null;
+      is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
+      metadata?: RunMetadata;
+    }
+
+    export interface FinalizeResult {
+      run: Run;
+      baseline_content: string;
+    }
+
+    export interface FinalizeRunRequestInput {
+      /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
+      approve_all?: boolean;
+      /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
+      commit_to_github?: boolean;
     }
 
     export interface FlagValueItem {
@@ -18524,6 +18216,14 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
     }
 
+    export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
+
+
+    export const HideViewedRecordings = {
+      CurrentUser: 'current-user',
+      AnyUser: 'any-user',
+    } as const;
+
     /**
      * Variable: {key, type: string|number|boolean, default}.
      */
@@ -18919,6 +18619,7 @@ export namespace Schemas {
     * `posthog_assignee` - posthog_assignee
     * `posthog_ticket_tags` - posthog_ticket_tags
     * `posthog_business_hours` - posthog_business_hours
+    * `non_failure_status_codes` - non_failure_status_codes
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -18937,6 +18638,7 @@ export namespace Schemas {
       PosthogAssignee: 'posthog_assignee',
       PosthogTicketTags: 'posthog_ticket_tags',
       PosthogBusinessHours: 'posthog_business_hours',
+      NonFailureStatusCodes: 'non_failure_status_codes',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -20012,6 +19714,8 @@ export namespace Schemas {
       events?: RecordingsQueryEvents;
       filter_test_accounts?: boolean | null;
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+      hide_viewed_recordings?: HideViewedRecordings | null;
       kind?: 'RecordingsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -22225,6 +21929,11 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface MoveTileTile {
+      /** Dashboard tile ID to move. */
+      id: number;
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -23225,33 +22934,6 @@ export namespace Schemas {
       results: Dataset[];
     }
 
-    export interface PaginatedDeploymentEventList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DeploymentEvent[];
-    }
-
-    export interface PaginatedDeploymentList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Deployment[];
-    }
-
-    export interface PaginatedDeploymentProjectList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DeploymentProject[];
-    }
-
     export interface PaginatedDesktopRecordingList {
       count: number;
       /** @nullable */
@@ -23981,9 +23663,18 @@ export namespace Schemas {
 
     export interface PersistedFolder {
       readonly id: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -27611,7 +27302,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
      */
     export type PatchedDataWarehouseSavedQueryQuery = {
       kind?: PatchedDataWarehouseSavedQueryQueryKind;
@@ -27634,7 +27325,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -27784,53 +27475,6 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       readonly created_by?: UserBasic;
       readonly team?: number;
-    }
-
-    export interface PatchedDeploymentProjectWrite {
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name?: string;
-      /**
-         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug?: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /**
-         * Existing PostHog GitHub integration id used for repository access.
-         * @nullable
-         */
-      github_integration_id?: number | null;
-      /**
-         * Stable GitHub repository identifier selected from the existing integration's repository list.
-         * @nullable
-         */
-      github_repo_id?: number | null;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
     }
 
     export interface PatchedDesktopRecording {
@@ -28567,6 +28211,18 @@ export namespace Schemas {
       is_nullable?: boolean;
     };
 
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -28646,6 +28302,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source?: PatchedExternalDataSchemaSource;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -28745,17 +28406,26 @@ export namespace Schemas {
 
     export interface PatchedFileSystemShortcut {
       readonly id?: string;
+      /** Display path of the shortcut in the sidebar. */
       path?: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -29569,6 +29239,13 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    export interface PatchedMoveTileRequest {
+      /** Destination dashboard ID. */
+      to_dashboard?: number;
+      /** Tile to move, identified by its dashboard tile ID. */
+      tile?: MoveTileTile;
+    }
+
     export interface PatchedNode {
       readonly id?: string;
       /** @maxLength 2048 */
@@ -29808,9 +29485,18 @@ export namespace Schemas {
 
     export interface PatchedPersistedFolder {
       readonly id?: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type?: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -29982,7 +29668,8 @@ export namespace Schemas {
       readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token?: string | null;
-      readonly updated_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
       readonly uuid?: string;
       readonly api_token?: string;
       app_urls?: (string | null)[];
@@ -33016,7 +32703,8 @@ export namespace Schemas {
       readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token: string | null;
-      readonly updated_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
       readonly uuid: string;
       readonly api_token: string;
       app_urls?: (string | null)[];
@@ -34252,6 +33940,14 @@ export namespace Schemas {
       source_version: string;
       /** Structured profile content. v1 has `inventory` only. */
       payload: ProjectProfilePayload;
+    }
+
+    export interface PromotedProductIntent {
+      /**
+         * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+         * @nullable
+         */
+      product_key: string | null;
     }
 
     export interface Property {
@@ -36015,6 +35711,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -36450,6 +36148,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -36791,6 +36491,11 @@ export namespace Schemas {
     export interface RunInsightsResponse {
       /** Results for each insight tile on the dashboard. */
       results: DashboardTileResult[];
+    }
+
+    export interface RunWidgetsResponse {
+      /** Per-tile widget run results. */
+      results: DashboardWidgetRunResult[];
     }
 
     /**
@@ -37179,6 +36884,39 @@ export namespace Schemas {
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
       release_to_everyone?: boolean;
+    }
+
+    /**
+     * * `suppressed` - suppressed
+    * `potential` - potential
+     */
+    export type SignalReportStateRequestStateEnum = typeof SignalReportStateRequestStateEnum[keyof typeof SignalReportStateRequestStateEnum];
+
+
+    export const SignalReportStateRequestStateEnum = {
+      Suppressed: 'suppressed',
+      Potential: 'potential',
+    } as const;
+
+    export interface SignalReportStateRequest {
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+
+      * `suppressed` - suppressed
+      * `potential` - potential */
+      state: SignalReportStateRequestStateEnum;
+      /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
+      dismissal_reason?: string;
+      /**
+         * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      dismissal_note?: string;
+      /**
+         * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+         * @minimum 1
+         * @maximum 100000
+         */
+      snooze_for?: number;
     }
 
     /**
@@ -39466,6 +39204,31 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
+    export interface WidgetCatalogEntry {
+      /** Stable widget type identifier used in API requests. */
+      widget_type: string;
+      /** Product area key for grouping related widget variants. */
+      group_id: string;
+      /** Human-readable product area label. */
+      group_label: string;
+      /** Widget variant label within the product area. */
+      label: string;
+      /** Short description of what the widget shows. */
+      description: string;
+      /** JSON schema hints for config fields (types, choices, bounds). Not a strict validator. */
+      config_schema_hints: unknown;
+      /**
+         * Product access resource required to view or run this widget, if any.
+         * @nullable
+         */
+      required_product_access?: string | null;
+    }
+
+    export interface WidgetCatalogResponse {
+      /** Registered dashboard widget types available when dashboard-widgets is enabled. */
+      results: WidgetCatalogEntry[];
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -39495,6 +39258,11 @@ export namespace Schemas {
     export interface _ErrorResponse {
       /** Human-readable error description from DRF. */
       detail: string;
+    }
+
+    export interface _HasSpansResponse {
+      /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+      hasSpans: boolean;
     }
 
     export interface _LogAttributeEntry {
@@ -40547,6 +40315,22 @@ export namespace Schemas {
       ForceCache: 'force_cache',
     } as const;
 
+    export type EnvironmentsDashboardsRunWidgetsRetrieveParams = {
+    format?: EnvironmentsDashboardsRunWidgetsRetrieveFormat;
+    /**
+     * Comma-separated dashboard tile IDs to run widgets for.
+     */
+    tile_ids: string;
+    };
+
+    export type EnvironmentsDashboardsRunWidgetsRetrieveFormat = typeof EnvironmentsDashboardsRunWidgetsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunWidgetsRetrieveFormat];
+
+
+    export const EnvironmentsDashboardsRunWidgetsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsSnapshotCreateParams = {
     format?: EnvironmentsDashboardsSnapshotCreateFormat;
     };
@@ -40603,6 +40387,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsWidgetsBatchCreateParams = {
+    format?: EnvironmentsDashboardsWidgetsBatchCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsWidgetsBatchCreateFormat = typeof EnvironmentsDashboardsWidgetsBatchCreateFormat[keyof typeof EnvironmentsDashboardsWidgetsBatchCreateFormat];
+
+
+    export const EnvironmentsDashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
     format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
     };
@@ -40635,6 +40431,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsWidgetCatalogRetrieveParams = {
+    format?: EnvironmentsDashboardsWidgetCatalogRetrieveFormat;
+    };
+
+    export type EnvironmentsDashboardsWidgetCatalogRetrieveFormat = typeof EnvironmentsDashboardsWidgetCatalogRetrieveFormat[keyof typeof EnvironmentsDashboardsWidgetCatalogRetrieveFormat];
+
+
+    export const EnvironmentsDashboardsWidgetCatalogRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -43345,30 +43153,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat = typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateFormat = typeof EnvironmentsPersonsFunnelCorrelationCreateFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsPersonsLifecycleRetrieveParams = {
     format?: EnvironmentsPersonsLifecycleRetrieveFormat;
     };
@@ -43784,6 +43568,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string;
+    /**
      * Session recording id to return observations for.
      */
     session_id: string;
@@ -43808,17 +43596,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-    * `name` - Name
-    * `-name` - Name (descending)
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `updated_at` - Updated at
-    * `-updated_at` - Updated at (descending)
-    * `scanner_type` - Scanner type
-    * `-scanner_type` - Scanner type (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
@@ -43851,17 +43630,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `started_at` - Started at
-    * `-started_at` - Started at (descending)
-    * `completed_at` - Completed at
-    * `-completed_at` - Completed at (descending)
-    * `status` - Status
-    * `-status` - Status (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter to observations of a specific session recording.
      */
@@ -44669,6 +44439,7 @@ export namespace Schemas {
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
     * `LogsExclusionRule` - LogsExclusionRule
+    * `DashboardWidget` - DashboardWidget
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
@@ -44746,6 +44517,7 @@ export namespace Schemas {
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
+      DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
@@ -44809,6 +44581,7 @@ export namespace Schemas {
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
     * `LogsExclusionRule` - LogsExclusionRule
+    * `DashboardWidget` - DashboardWidget
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
@@ -44874,6 +44647,7 @@ export namespace Schemas {
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
+      DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
@@ -45621,6 +45395,22 @@ export namespace Schemas {
       ForceCache: 'force_cache',
     } as const;
 
+    export type DashboardsRunWidgetsRetrieveParams = {
+    format?: DashboardsRunWidgetsRetrieveFormat;
+    /**
+     * Comma-separated dashboard tile IDs to run widgets for.
+     */
+    tile_ids: string;
+    };
+
+    export type DashboardsRunWidgetsRetrieveFormat = typeof DashboardsRunWidgetsRetrieveFormat[keyof typeof DashboardsRunWidgetsRetrieveFormat];
+
+
+    export const DashboardsRunWidgetsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsSnapshotCreateParams = {
     format?: DashboardsSnapshotCreateFormat;
     };
@@ -45677,6 +45467,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsWidgetsBatchCreateParams = {
+    format?: DashboardsWidgetsBatchCreateFormat;
+    };
+
+    export type DashboardsWidgetsBatchCreateFormat = typeof DashboardsWidgetsBatchCreateFormat[keyof typeof DashboardsWidgetsBatchCreateFormat];
+
+
+    export const DashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsBulkUpdateTagsCreateParams = {
     format?: DashboardsBulkUpdateTagsCreateFormat;
     };
@@ -45709,6 +45511,18 @@ export namespace Schemas {
 
 
     export const DashboardsCreateUnlistedDashboardCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsWidgetCatalogRetrieveParams = {
+    format?: DashboardsWidgetCatalogRetrieveFormat;
+    };
+
+    export type DashboardsWidgetCatalogRetrieveFormat = typeof DashboardsWidgetCatalogRetrieveFormat[keyof typeof DashboardsWidgetCatalogRetrieveFormat];
+
+
+    export const DashboardsWidgetCatalogRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -45820,7 +45634,7 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type DeploymentProjectsListParams = {
+    export type DesktopFileSystemListParams = {
     /**
      * Number of results to return per page.
      */
@@ -45829,17 +45643,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
     /**
      * A search term.
      */
     search?: string;
     };
 
-    export type DeploymentProjectsDeploymentsListParams = {
+    export type DesktopFileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
      */
@@ -45848,17 +45658,9 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
-    export type DeploymentProjectsDeploymentsEventsListParams = {
+    export type DesktopPersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */
@@ -45867,14 +45669,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type DesktopRecordingsListParams = {
@@ -46333,6 +46127,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type ExperimentsListParams = {
@@ -48928,30 +48726,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type PersonsFunnelCorrelationRetrieveFormat = typeof PersonsFunnelCorrelationRetrieveFormat[keyof typeof PersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const PersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type PersonsFunnelCorrelationCreateFormat = typeof PersonsFunnelCorrelationCreateFormat[keyof typeof PersonsFunnelCorrelationCreateFormat];
-
-
-    export const PersonsFunnelCorrelationCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsLifecycleRetrieveParams = {
     format?: PersonsLifecycleRetrieveFormat;
     };
@@ -49858,6 +49632,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     */
+    order_by?: string;
+    /**
      * Session recording id to return observations for.
      */
     session_id: string;
@@ -49882,17 +49660,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-    * `name` - Name
-    * `-name` - Name (descending)
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `updated_at` - Updated at
-    * `-updated_at` - Updated at (descending)
-    * `scanner_type` - Scanner type
-    * `-scanner_type` - Scanner type (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
@@ -49925,17 +49694,8 @@ export namespace Schemas {
     offset?: number;
     /**
      * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `started_at` - Started at
-    * `-started_at` - Started at (descending)
-    * `completed_at` - Completed at
-    * `-completed_at` - Completed at (descending)
-    * `status` - Status
-    * `-status` - Status (descending)
      */
-    order_by?: string[];
+    order_by?: string;
     /**
      * Filter to observations of a specific session recording.
      */
