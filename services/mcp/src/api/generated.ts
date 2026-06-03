@@ -3886,6 +3886,55 @@ export namespace Schemas {
       filterTestAccounts?: boolean;
     }
 
+    /**
+     * * `activity_score` - activity_score
+    * `click_count` - click_count
+    * `console_error_count` - console_error_count
+    * `duration` - duration
+    * `recording_duration` - recording_duration
+    * `start_time` - start_time
+     */
+    export type SessionReplayListWidgetConfigOrderByEnum = typeof SessionReplayListWidgetConfigOrderByEnum[keyof typeof SessionReplayListWidgetConfigOrderByEnum];
+
+
+    export const SessionReplayListWidgetConfigOrderByEnum = {
+      ActivityScore: 'activity_score',
+      ClickCount: 'click_count',
+      ConsoleErrorCount: 'console_error_count',
+      Duration: 'duration',
+      RecordingDuration: 'recording_duration',
+      StartTime: 'start_time',
+    } as const;
+
+    export interface SessionReplayListWidgetConfig {
+      /**
+         * Maximum number of recordings to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Recording ranking column.
+
+      * `activity_score` - activity_score
+      * `click_count` - click_count
+      * `console_error_count` - console_error_count
+      * `duration` - duration
+      * `recording_duration` - recording_duration
+      * `start_time` - start_time */
+      orderBy?: SessionReplayListWidgetConfigOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
+    }
+
+    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+
     export interface TileLayoutBox {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
@@ -3906,12 +3955,12 @@ export namespace Schemas {
 
     export interface AddDashboardWidgetRequest {
       /**
-         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+         * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
          * @maxLength 64
          */
       widget_type: string;
-      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
-      config: ErrorTrackingListWidgetConfig;
+      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
+      config: DashboardWidgetConfig;
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -6826,7 +6875,7 @@ export namespace Schemas {
       /** Optional markdown description shown on the dashboard tile when enabled. */
       description?: string;
       /** Widget-specific configuration JSON for this widget type. */
-      config?: ErrorTrackingListWidgetConfig;
+      config?: DashboardWidgetConfig;
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       readonly last_modified_at: string;
       team: number;

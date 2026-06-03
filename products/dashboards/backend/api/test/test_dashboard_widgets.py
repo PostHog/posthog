@@ -700,6 +700,28 @@ class TestDashboardWidgets(APIBaseTest):
         assert "widget_id" in widget_added_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_add_session_replay_widget_fires_dashboard_widget_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "session_replay_list", "config": {"limit": 5}, "name": "Recent replays"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "session_replay_list"
+
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_batch_create_widget_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
