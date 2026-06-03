@@ -14,7 +14,14 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import {
+    AnyPropertyFilter,
+    AppContext,
+    PropertyDefinition,
+    PropertyFilterType,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
@@ -1025,60 +1032,97 @@ describe('infiniteListLogic', () => {
             expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
         })
 
-        describe('recent Persons items', () => {
-            // Persons items are stored stripped ({name, id?}) — distinct_ids is not persisted.
-            // Both selection paths (click in InfiniteListRow, keyboard in selectSelected) fall back
-            // to _recentContext.sourceValue instead of calling Persons.getValue (which would return
-            // undefined for the stripped item). Shared setup records the recent and mounts the list.
-            let listLogic: ReturnType<typeof infiniteListLogic.build>
+        describe('recent items resolved by sourceValue', () => {
+            // Recent items are stored stripped, so a source group whose getValue reads a field the
+            // stripped recent does not carry returns undefined. Without the _recentContext.sourceValue
+            // fallback, both selection paths (click in InfiniteListRow, keyboard in selectSelected)
+            // dispatch null. The reported crash was an event_metadata "Distinct ID = X" property-filter
+            // recent — propertyFilterLogic stores it as { name } with no id — reused as a breakdown,
+            // which produced { property: null, type: 'event_metadata' } and crashed BreakdownTag.startsWith.
+            // The click path already had this fallback (#60931).
+            const recentItemCases: {
+                name: string
+                recent: {
+                    groupType: TaxonomicFilterGroupType
+                    groupName: string
+                    value: string
+                    item: { name: string }
+                    propertyFilter?: AnyPropertyFilter
+                }
+            }[] = [
+                {
+                    name: 'Persons (getValue reads distinct_ids)',
+                    recent: {
+                        groupType: TaxonomicFilterGroupType.Persons,
+                        groupName: 'Persons',
+                        value: 'user-distinct-id',
+                        item: { name: 'Jane Doe' },
+                    },
+                },
+                {
+                    name: 'event_metadata property filter (getValue reads id)',
+                    recent: {
+                        groupType: TaxonomicFilterGroupType.EventMetadata,
+                        groupName: 'Event metadata',
+                        value: 'distinct_id',
+                        item: { name: 'distinct_id' },
+                        propertyFilter: {
+                            type: PropertyFilterType.EventMetadata,
+                            key: 'distinct_id',
+                            value: 'user-distinct-id',
+                            operator: PropertyOperator.Exact,
+                        },
+                    },
+                },
+            ]
 
-            beforeEach(() => {
+            const mountRecentList = (
+                recent: (typeof recentItemCases)[number]['recent']
+            ): ReturnType<typeof infiniteListLogic.build> => {
                 const recentLogic = recentTaxonomicFiltersLogic.build()
                 recentLogic.mount()
-                recentLogic.actions.recordRecentFilter({
-                    groupType: TaxonomicFilterGroupType.Persons,
-                    groupName: 'Persons',
-                    value: 'user-distinct-id',
-                    item: { name: 'Jane Doe' },
-                })
+                recentLogic.actions.recordRecentFilter(recent)
 
-                listLogic = infiniteListLogic({
-                    taxonomicFilterLogicKey: 'persons-recents-test',
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'recents-source-value-test',
                     listGroupType: TaxonomicFilterGroupType.RecentFilters,
-                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
+                    taxonomicGroupTypes: [recent.groupType, TaxonomicFilterGroupType.RecentFilters],
                     showNumericalPropsOnly: false,
                 })
                 listLogic.mount()
-            })
+                return listLogic
+            }
 
-            it('records sourceValue at storage time so the row resolves the correct distinct_id', () => {
-                const personItems = listLogic.values.contextFilteredRecentItems
+            it.each(recentItemCases)('records sourceValue at storage time for $name', ({ recent }) => {
+                const listLogic = mountRecentList(recent)
+                const items = listLogic.values.contextFilteredRecentItems
                     .filter(onlyWithRecentContext)
-                    .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons)
+                    .filter((i) => i._recentContext.sourceGroupType === recent.groupType)
 
-                expect(personItems).toHaveLength(1)
-                expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
+                expect(items).toHaveLength(1)
+                expect((items[0] as any)._recentContext.sourceValue).toBe(recent.value)
             })
 
-            it('selects a recent item by its sourceValue when chosen with the keyboard', async () => {
-                // Keyboard selection (Enter) routes through selectSelected, not the row's onClick.
-                // Without the sourceValue fallback it dispatched a null value, producing a null
-                // breakdown that crashed BreakdownTag.
-                const recentIndex = listLogic.values.results.findIndex(
-                    (item) =>
-                        onlyWithRecentContext(item) &&
-                        item._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons
-                )
-                expect(recentIndex).toBeGreaterThanOrEqual(0)
+            it.each(recentItemCases)(
+                'selects the recent by its sourceValue, not null, when chosen with the keyboard for $name',
+                async ({ recent }) => {
+                    // Keyboard selection (Enter) routes through selectSelected, not the row's onClick.
+                    const listLogic = mountRecentList(recent)
+                    const recentIndex = listLogic.values.results.findIndex(
+                        (item) =>
+                            onlyWithRecentContext(item) && item._recentContext.sourceGroupType === recent.groupType
+                    )
+                    expect(recentIndex).toBeGreaterThanOrEqual(0)
 
-                await expectLogic(listLogic, () => {
-                    listLogic.actions.setIndex(recentIndex)
-                    listLogic.actions.selectSelected()
-                }).toDispatchActions([
-                    ({ type, payload }) =>
-                        type === listLogic.actionTypes.selectItem && payload.value === 'user-distinct-id',
-                ])
-            })
+                    await expectLogic(listLogic, () => {
+                        listLogic.actions.setIndex(recentIndex)
+                        listLogic.actions.selectSelected()
+                    }).toDispatchActions([
+                        ({ type, payload }) =>
+                            type === listLogic.actionTypes.selectItem && payload.value === recent.value,
+                    ])
+                }
+            )
         })
     })
 })
