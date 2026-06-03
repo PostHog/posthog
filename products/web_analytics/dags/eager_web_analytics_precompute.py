@@ -282,9 +282,22 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
     return warmed, failed
 
 
-@dagster.op
+@dagster.op(required_resource_keys={"posthoganalytics"})
 def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    """Run the baseline tile matrix against every flag-enrolled team."""
+    """Run the baseline tile matrix against every flag-enrolled team.
+
+    Declaring the `posthoganalytics` resource ensures Dagster runs
+    `PostHogAnalyticsResource.create_resource` first, which sets
+    `posthoganalytics.personal_api_key` from `EnvVar("PERSONAL_API_KEY")`.
+    The op then forces a synchronous load of flag definitions — the
+    SDK's background poller runs on a 90s interval and would not fire
+    before this short-lived op subprocess exits.
+    """
+    try:
+        posthoganalytics.load_feature_flags()
+    except Exception:
+        context.log.exception("eager_baseline_warming_load_feature_flags_failed")
+
     team_ids, gate_reason, diagnostics = _resolve_eager_audience()
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
     context.log.info(
