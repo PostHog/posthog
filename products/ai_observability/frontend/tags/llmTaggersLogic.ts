@@ -38,7 +38,14 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
     key((props) => props.tabId ?? 'default'),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], aiObservabilitySharedLogic, ['dateFilter']],
-        actions: [teamLogic, ['addProductIntent'], aiObservabilitySharedLogic, ['setDates']],
+        actions: [
+            teamLogic,
+            ['addProductIntent'],
+            aiObservabilitySharedLogic,
+            ['setDates'],
+            llmProviderKeysLogic,
+            ['loadProviderKeys'],
+        ],
     })),
 
     actions({
@@ -299,6 +306,6 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
             actions.setDates('-24h', null)
         }
         actions.loadTaggers()
-        llmProviderKeysLogic.actions.loadProviderKeys()
+        actions.loadProviderKeys()
     }),
 ])
