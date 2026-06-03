@@ -100,7 +100,24 @@ class TestSchemaHelpers(TestCase):
 
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
 
-    def test_trends_filter_ignores_unknown_properties(self):
+    @parameterized.expand(
+        [
+            ("trends_filter", TrendsFilter),
+            ("assistant_trends_filter", AssistantTrendsFilter),
+        ]
+    )
+    def test_trends_filters_ignore_unknown_properties(self, _name, filter_cls):
+        filter_model = filter_cls.model_validate(
+            {
+                "xAxisLabel": None,
+                "yAxis": {"label": "Leaked chart setting"},
+            }
+        )
+
+        self.assertEqual(filter_model, filter_cls(xAxisLabel=None))
+        self.assertEqual(filter_model.model_dump(exclude_defaults=True, exclude_none=True), {})
+
+    def test_trends_query_serializes_unknown_filter_properties(self):
         query = TrendsQuery(
             **{
                 **base_trends,
@@ -111,19 +128,7 @@ class TestSchemaHelpers(TestCase):
             }
         )
 
-        self.assertEqual(query.trendsFilter, TrendsFilter(xAxisLabel=None))
         self.assertEqual(to_dict(query), {"kind": "TrendsQuery", "series": []})
-
-    def test_assistant_trends_filter_ignores_unknown_properties(self):
-        filter_model = AssistantTrendsFilter.model_validate(
-            {
-                "xAxisLabel": None,
-                "yAxis": {"label": "Leaked chart setting"},
-            }
-        )
-
-        self.assertEqual(filter_model, AssistantTrendsFilter(xAxisLabel=None))
-        self.assertEqual(filter_model.model_dump(exclude_defaults=True, exclude_none=True), {})
 
     def test_serializes_retention_filter_without_frontend_only_props(self):
         query = RetentionQuery(

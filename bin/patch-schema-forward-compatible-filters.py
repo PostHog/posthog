@@ -13,42 +13,55 @@ SCHEMA_PY = Path("posthog/schema.py")
 FORWARD_COMPATIBLE_FILTERS = ("AssistantTrendsFilter", "TrendsFilter")
 
 
-def _patch_filter_extra_handling(source: str, class_name: str) -> tuple[str, int]:
+def _patch_filter_extra_handling(source: str, class_name: str) -> tuple[str, int, bool]:
     class_re = re.compile(
         r"(?P<prefix>class "
         + re.escape(class_name)
         + r"\(BaseModel\):\n"
         + r"    model_config = ConfigDict\(\n"
-        + r"        extra=\")forbid(?P<suffix>\",\n"
+        + r"        extra=)(?P<quote>[\"'])forbid(?P=quote)(?P<suffix>,\n"
         + r"    \)\n)"
     )
 
-    source, replacements = class_re.subn(r"\g<prefix>ignore\g<suffix>", source, count=1)
+    def replace(match: re.Match[str]) -> str:
+        quote = match.group("quote")
+        return f"{match.group('prefix')}{quote}ignore{quote}{match.group('suffix')}"
+
+    source, replacements = class_re.subn(replace, source, count=1)
     if replacements:
-        return source, replacements
+        return source, replacements, True
 
     already_patched_re = re.compile(
         r"class "
         + re.escape(class_name)
         + r"\(BaseModel\):\n"
         + r"    model_config = ConfigDict\(\n"
-        + r"        extra=\"ignore\",\n"
+        + r"        extra=[\"']ignore[\"'],\n"
         + r"    \)\n"
     )
     if already_patched_re.search(source):
-        return source, 0
+        return source, 0, True
 
-    print(f"warning: no forward-compatible filter patch site matched for {class_name}", file=sys.stderr)
-    return source, 0
+    return source, 0, False
 
 
 def main() -> int:
     source = SCHEMA_PY.read_text()
     total_replacements = 0
+    failed_class_names: list[str] = []
 
     for class_name in FORWARD_COMPATIBLE_FILTERS:
-        source, replacements = _patch_filter_extra_handling(source, class_name)
+        source, replacements, matched = _patch_filter_extra_handling(source, class_name)
         total_replacements += replacements
+        if not matched:
+            failed_class_names.append(class_name)
+
+    if failed_class_names:
+        print(
+            "failed to patch forward-compatible filter model configs: " + ", ".join(failed_class_names),
+            file=sys.stderr,
+        )
+        return 1
 
     if total_replacements:
         SCHEMA_PY.write_text(source)
