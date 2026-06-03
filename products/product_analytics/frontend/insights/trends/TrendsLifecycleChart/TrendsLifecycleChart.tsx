@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
+import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from 'lib/hog-charts'
-import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'

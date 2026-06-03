@@ -19,13 +19,13 @@ from posthog.schema import (
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.models.assistant import Conversation
 
 
 class EvalInput(TypedDict):

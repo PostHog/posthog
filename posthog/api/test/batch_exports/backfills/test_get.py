@@ -8,7 +8,8 @@ from rest_framework import status
 
 from posthog.api.test.batch_exports.fixtures import create_backfill, create_batch_export, create_destination, create_run
 from posthog.api.test.batch_exports.operations import get_batch_export_backfill_ok
-from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
+
+from products.batch_exports.backend.models.batch_export import BatchExportBackfill, BatchExportRun
 
 pytestmark = [
     pytest.mark.django_db,

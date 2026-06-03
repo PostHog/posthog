@@ -9880,6 +9880,47 @@ export namespace Schemas {
       notification_ids: string[];
     }
 
+    /**
+     * * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved
+     */
+    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
+
+
+    export const TicketStatusEnum = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface BulkUpdateStatusRequest {
+      /**
+         * List of ticket UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
+      status: TicketStatusEnum;
+    }
+
+    export interface BulkUpdateStatusResponse {
+      /** Number of tickets whose status actually changed. */
+      updated: number;
+      /** UUIDs of the tickets whose status changed. */
+      ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -24087,7 +24128,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -25832,24 +25873,6 @@ export namespace Schemas {
       previous?: string | null;
       results: ThresholdWithAlert[];
     }
-
-    /**
-     * * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved
-     */
-    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
-
-
-    export const TicketStatusEnum = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-    } as const;
 
     /**
      * * `low` - Low
@@ -30487,7 +30510,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -40781,6 +40804,11 @@ export namespace Schemas {
      */
     ref?: string;
     /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
+    /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
     * `all` - all
@@ -44914,6 +44942,10 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -45919,6 +45951,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
