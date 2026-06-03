@@ -7,10 +7,10 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
 import { InsightShortId, SubscriptionType } from '~/types'
 
-// Keep in sync with PROMPT_MAX_LENGTH in posthog/temporal/subscriptions/ai_subscription/spec_generator.py.
-export const AI_PROMPT_MAX_LENGTH = 4000
+export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
 export interface SubscriptionBaseProps {
     dashboardId?: number

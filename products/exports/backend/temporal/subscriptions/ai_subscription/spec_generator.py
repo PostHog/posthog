@@ -6,7 +6,7 @@ from django.db.models import F, Q
 
 import structlog
 
-from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
+from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -26,7 +26,9 @@ from ee.hogai.llm import MaxChatOpenAI
 logger = structlog.get_logger(__name__)
 
 
-PROMPT_MAX_LENGTH = 4000
+# Single source of truth lives in the generated schema (frontend/src/queries/schema/schema-general.ts),
+# so the backend limit and the frontend's cannot drift.
+PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength().root
 EVENT_NAMES_SAMPLE_LIMIT = 20
 # bounds the Postgres scan + context size for the dormant-events list
 NO_DATA_EVENT_NAMES_LIMIT = 25
