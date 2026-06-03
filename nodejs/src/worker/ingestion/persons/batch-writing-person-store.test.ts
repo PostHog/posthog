@@ -2652,5 +2652,34 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
             expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
+
+        it('should resolve (not reject) when the batch fetch fails', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            mockRepo.fetchPersonsByDistinctIds.mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+
+            // Prefetch is fired without being awaited by its pipeline step, so a rejection here would
+            // surface as an unhandled rejection and crash the worker. It must resolve instead.
+            await expect(
+                personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+            ).resolves.toBeUndefined()
+
+            // Nothing should have been cached for the failed entry
+            expect(personStoreForBatch.getCheckCache().has(`${teamId}:user-1`)).toBe(false)
+        })
+
+        it('should let fetchForUpdate fall back to an on-demand fetch after a failed prefetch', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            mockRepo.fetchPersonsByDistinctIds.mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // The failed prefetch left the caches empty, so fetchForUpdate must do its own fetch.
+            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            expect(result).toEqual(person)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
+        })
     })
 })

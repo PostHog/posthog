@@ -683,6 +683,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return fetchPromise
     }
 
+    /**
+     * Best-effort cache warmer for the given distinct IDs. Resolves successfully even when the
+     * underlying batch fetch fails: callers fire this without awaiting it, so a rejection would
+     * become an unhandled rejection and crash the worker. On failure the caches are left empty and
+     * fetchForChecking/fetchForUpdate fall back to an on-demand fetch (with their own retry/error
+     * handling), so this method never throws.
+     */
     async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void> {
         if (teamDistinctIds.length === 0) {
             return
@@ -747,6 +754,18 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
 
                 return personsByKey
+            })
+            .catch((error) => {
+                // Prefetch is best-effort and is fired without being awaited by its pipeline step.
+                // A rejection here would otherwise become an unhandled rejection and crash the worker
+                // (both this chain and the per-key promises registered below would reject). On failure
+                // (e.g. transient persons-Postgres unavailability) leave the caches empty and resolve to
+                // an empty map: fetchForChecking/fetchForUpdate then fall back to an on-demand fetch,
+                // which carries its own retry/error handling in the per-distinct-id pipeline.
+                logger.warn('⚠️', 'prefetchPersons failed, falling back to on-demand fetch', {
+                    error: String(error),
+                })
+                return new Map<string, InternalPerson>()
             })
             .finally(() => {
                 // Clean up the promises after completion
