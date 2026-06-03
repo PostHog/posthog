@@ -42,7 +42,6 @@ class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
             name=SchemaExternalDataSourceType.BREVO,
             label="Brevo",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Brevo API key to automatically pull your Brevo (formerly Sendinblue) data into the PostHog Data warehouse.
 
 You can create an API key in your [Brevo account settings](https://app.brevo.com/settings/keys/api).""",

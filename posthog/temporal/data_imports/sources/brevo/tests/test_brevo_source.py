@@ -44,7 +44,7 @@ class TestBrevoSource:
     def test_source_config_basics(self) -> None:
         config = BrevoSource().get_source_config
         assert config.label == "Brevo"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.releaseStatus == "alpha"
         assert config.iconPath == "/static/services/brevo.png"
 
