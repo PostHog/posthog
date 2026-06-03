@@ -6,6 +6,12 @@ import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../wid
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
 import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTrackingWidgetModal'
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
+import { parseErrorTrackingWidgetConfigApiError } from './error_tracking/errorTrackingWidgetConfigValidation'
+
+export type DashboardWidgetConfigApiErrorParser = (
+    error: unknown,
+    config: Record<string, unknown>
+) => Record<string, string | undefined> | null
 
 export type DashboardWidgetRegistryLookupContext = {
     tileId?: number
@@ -53,6 +59,8 @@ export type DashboardWidgetDefinition = {
     Component: ComponentType<DashboardWidgetComponentProps>
     EditModal?: ComponentType<DashboardWidgetEditModalProps>
     productAccess?: DashboardWidgetProductAccess
+    /** Maps dashboard PATCH API errors to edit-modal field errors for this widget type. */
+    parseConfigApiError: DashboardWidgetConfigApiErrorParser
     /** Fallback when catalog `availability` is unmet; defaults to `WidgetAvailabilitySetupPrompt`. */
     unavailableContentFallback?: ComponentType<{ availability: WidgetAvailabilityConfig }>
 }
@@ -92,6 +100,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         Component: ErrorTrackingWidget,
         EditModal: EditErrorTrackingWidgetModal,
         productAccess: 'error_tracking',
+        parseConfigApiError: parseErrorTrackingWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 
@@ -108,4 +117,12 @@ export function getDashboardWidgetDefinition(
         return undefined
     }
     return DASHBOARD_WIDGET_REGISTRY[widgetType]
+}
+
+export function parseDashboardWidgetConfigApiError(
+    widgetType: string,
+    error: unknown,
+    config: Record<string, unknown>
+): Record<string, string | undefined> | null {
+    return getDashboardWidgetDefinition(widgetType)?.parseConfigApiError(error, config) ?? null
 }

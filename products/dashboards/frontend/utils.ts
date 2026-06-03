@@ -2,7 +2,7 @@ import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
 import type { PatchedDashboardApi } from './generated/api.schemas'
-import { parseErrorTrackingWidgetConfigApiError } from './widgets/error_tracking/errorTrackingWidgetConfigValidation'
+import { parseDashboardWidgetConfigApiError } from './widgets/registry'
 
 export type WidgetFieldErrors = Record<string, string | undefined>
 
@@ -18,19 +18,6 @@ export class WidgetConfigValidationError extends Error {
 
 export function isWidgetConfigValidationError(error: unknown): error is WidgetConfigValidationError {
     return error instanceof WidgetConfigValidationError
-}
-
-function parseWidgetConfigApiError(
-    widgetType: string,
-    error: unknown,
-    config: Record<string, unknown>
-): WidgetFieldErrors | null {
-    switch (widgetType) {
-        case 'error_tracking_list':
-            return parseErrorTrackingWidgetConfigApiError(error, config)
-        default:
-            return null
-    }
 }
 
 export async function updateDashboardWidgetTile({
@@ -89,7 +76,7 @@ export async function updateDashboardWidgetTile({
         return updatedTile as unknown as DashboardTile<QueryBasedInsightModel>
     } catch (error) {
         if (config !== undefined) {
-            const fieldErrors = parseWidgetConfigApiError(tile.widget.widget_type, error, config)
+            const fieldErrors = parseDashboardWidgetConfigApiError(tile.widget.widget_type, error, config)
             if (fieldErrors && Object.keys(fieldErrors).length > 0) {
                 throw new WidgetConfigValidationError(fieldErrors)
             }

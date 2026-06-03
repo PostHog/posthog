@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { DASHBOARD_WIDGET_CATALOG } from '../widget_types/catalog'
-import { getDashboardWidgetDefinition } from './registry'
+import { getDashboardWidgetDefinition, parseDashboardWidgetConfigApiError } from './registry'
 import { resetDashboardWidgetRegistryReportingForTests } from './registry'
 
 jest.mock('posthog-js', () => ({
@@ -22,7 +22,13 @@ describe('dashboard widget registry', () => {
         expect(definition?.Component).toBeTruthy()
         expect(definition?.EditModal).toBeTruthy()
         expect(definition?.productAccess).toBe('error_tracking')
+        expect(definition?.parseConfigApiError).toBeTruthy()
         expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    it('delegates config api error parsing to the widget registry entry', () => {
+        expect(parseDashboardWidgetConfigApiError('unknown_widget_type', new Error('nope'), {})).toBeNull()
+        expect(parseDashboardWidgetConfigApiError('error_tracking_list', new Error('nope'), {})).toBeNull()
     })
 
     it('registers every catalog key', () => {
