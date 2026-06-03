@@ -30,7 +30,12 @@ from posthog.models import Team
 
 from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
-from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.frequentist.method import (
+    DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
+    FrequentistConfig,
+    FrequentistMethod,
+    TestType,
+)
 from products.experiments.stats.shared.cuped import CupedData, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
@@ -433,15 +438,52 @@ def _apply_cuped_adjustment_if_enabled(
     )
 
 
+def _resolve_sequential_settings(
+    frequentist_config: dict,
+    team_default_enabled: bool,
+    team_default_tuning_parameter: int | None,
+) -> tuple[bool, float]:
+    """Resolve sequential testing settings using precedence: experiment > team default > hardcoded.
+
+    Mirrors the CUPED resolution pattern: an experiment value of `False` deliberately
+    overrides a team default of `True` (explicit opt-out wins).
+    """
+    if "sequential_testing_enabled" in frequentist_config:
+        enabled = bool(frequentist_config["sequential_testing_enabled"])
+    else:
+        enabled = team_default_enabled
+
+    team_fallback = (
+        _validate_numeric_range(team_default_tuning_parameter, 1, 1_000_000_000, DEFAULT_SEQUENTIAL_TUNING_PARAMETER)
+        if team_default_tuning_parameter is not None
+        else DEFAULT_SEQUENTIAL_TUNING_PARAMETER
+    )
+    tuning_parameter = _validate_numeric_range(
+        frequentist_config.get("sequential_tuning_parameter", team_fallback),
+        1,
+        1_000_000_000,
+        team_fallback,
+    )
+    return enabled, tuning_parameter
+
+
 def get_frequentist_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
     cuped_config: CupedQueryConfig | None = None,
+    team_default_sequential_testing_enabled: bool = False,
+    team_default_sequential_tuning_parameter: int | None = None,
 ) -> ExperimentQueryResponse:
     frequentist_config = stats_config.get("frequentist", {}) if stats_config else {}
     resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
+
+    sequential_testing_enabled, sequential_tuning_parameter = _resolve_sequential_settings(
+        frequentist_config,
+        team_default_enabled=team_default_sequential_testing_enabled,
+        team_default_tuning_parameter=team_default_sequential_tuning_parameter,
+    )
 
     config = FrequentistConfig(
         alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
@@ -449,6 +491,8 @@ def get_frequentist_experiment_result(
         difference_type=_parse_enum_config(
             frequentist_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
+        sequential_testing_enabled=sequential_testing_enabled,
+        sequential_tuning_parameter=sequential_tuning_parameter,
     )
     method = FrequentistMethod(config)
 

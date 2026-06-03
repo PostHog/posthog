@@ -48,12 +48,14 @@ the row lists both.
 | bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
+| calendly      | HTTP                        | requests                                                        | ✅                          |
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse    | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | convex        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
+| drip          | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -62,6 +64,7 @@ the row lists both.
 | linear        | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads  | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailjet       | HTTP                        | requests                                                        | ✅                          |
 | meta_ads      | HTTP                        | requests                                                        | ✅                          |
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
@@ -78,6 +81,7 @@ the row lists both.
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shopify       | HTTP                        | requests                                                        | ✅                          |
+| shortcut      | HTTP                        | requests                                                        | ✅                          |
 | slack         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snapchat_ads  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake     | DB protocol                 | snowflake-connector-python                                      | ➖                          |
@@ -119,14 +123,14 @@ These are registered in `__init__.py` with `unreleasedSource=True` and a stub `s
 sync logic yet — picking up any of them means following the [implementing-warehouse-sources skill](/.agents/skills/implementing-warehouse-sources/SKILL.md).
 
 active_campaign, adjust, aircall, airtable, amazon_ads, amplitude, apple_search_ads, appsflyer, asana,
-ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, calendly, campaign_monitor,
+ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, campaign_monitor,
 chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, copper, datadog,
-drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
+dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
-instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
+instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
-recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
+recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, smartsheet,
 square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
 youtube_analytics, zoho_crm, zoom, zuora.
 
