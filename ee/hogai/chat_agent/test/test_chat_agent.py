@@ -51,6 +51,7 @@ from posthog.schema import (
 )
 
 from products.actions.backend.models.action import Action
+from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.chat_agent.graph import AssistantGraph
@@ -66,7 +67,6 @@ from ee.hogai.test.base import BaseAssistantTest
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, ReplaceMessages
-from ee.models.assistant import Conversation, CoreMemory
 
 title_generator_mock = patch(
     "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",

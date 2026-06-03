@@ -39,7 +39,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("servers", spec)
         self.assertEqual(len(spec["servers"]), 1)
 
-        run_path = f"/api/environments/{self.team.id}/endpoints/basic-endpoint/run"
+        run_path = f"/api/projects/{self.team.id}/endpoints/basic-endpoint/run"
         self.assertIn(run_path, spec["paths"])
 
         post_op = spec["paths"][run_path]["post"]

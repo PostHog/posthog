@@ -6,6 +6,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from posthoganalytics.client import Client
 
+from posthog.models import Team
+
 from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 
 
@@ -71,6 +73,20 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
     )
     def test_get_flag_definitions_returns_none_on_circular_import(self, _mock):
         assert self.provider.get_flag_definitions() is None
+
+    @patch("products.feature_flags.backend.sdk_cache_provider.logger")
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_get_flag_definitions_returns_none_on_missing_team(self, mock_hypercache, mock_logger):
+        # The self team (POSTHOG_SELF_TEAM_ID, default 2) is absent on most local/self-hosted instances.
+        # Team.DoesNotExist subclasses ObjectDoesNotExist, so it must be caught and logged at debug, not error.
+        self.provider._hypercache = None
+        mock_hypercache.get_from_cache.side_effect = Team.DoesNotExist("Team matching query does not exist.")
+
+        result = self.provider.get_flag_definitions()
+
+        assert result is None
+        mock_logger.debug.assert_called_once_with("hypercache_flag_provider_team_missing", team_id=2)
+        mock_logger.exception.assert_not_called()
 
     @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
     def test_caches_hypercache_reference(self, mock_hypercache):

@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import Any, NotRequired, TypedDict
 
 from products.dashboards.backend.constants import (
-    DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT,
+    DEFAULT_WIDGET_LIST_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     WIDGET_DATE_FROM_VALUES,
 )
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
+from products.dashboards.backend.widgets.session_replay_list import SESSION_REPLAY_ORDER_BY
 
 
 class WidgetCatalogEntry(TypedDict):
@@ -35,7 +36,7 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
                 "type": "integer",
                 "min": 1,
                 "max": MAX_WIDGET_RESULT_LIMIT,
-                "default": DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT,
+                "default": DEFAULT_WIDGET_LIST_LIMIT,
             },
             "orderBy": {
                 "type": "string",
@@ -68,6 +69,46 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
         "required_product_access": "error_tracking",
         "product_access_denied_message": "You do not have access to error tracking.",
         "availability_requirements": ["exception_autocapture"],
+    },
+    "session_replay_list": {
+        "widget_type": "session_replay_list",
+        "group_id": "session_replay",
+        "group_label": "Session replay",
+        "label": "Recent recordings",
+        "description": "Recent session recordings you can open in the replay player.",
+        "config_schema_hints": {
+            "limit": {
+                "type": "integer",
+                "min": 1,
+                "max": MAX_WIDGET_RESULT_LIMIT,
+                "default": DEFAULT_WIDGET_LIST_LIMIT,
+            },
+            "orderBy": {
+                "type": "string",
+                "choices": sorted(SESSION_REPLAY_ORDER_BY),
+                "default": "start_time",
+            },
+            "orderDirection": {
+                "type": "string",
+                "choices": ["ASC", "DESC"],
+                "default": "DESC",
+            },
+            "dateRange": {
+                "date_from": {
+                    "type": "string",
+                    "choices": sorted(WIDGET_DATE_FROM_VALUES),
+                    "optional": True,
+                },
+            },
+            "filterTestAccounts": {
+                "type": "boolean",
+                "optional": True,
+                "uses_project_default": True,
+            },
+        },
+        "required_product_access": "session_recording",
+        "product_access_denied_message": "You do not have access to session replay.",
+        "availability_requirements": ["session_replay_enabled"],
     },
 }
 

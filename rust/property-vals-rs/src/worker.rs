@@ -173,20 +173,23 @@ pub(crate) async fn flush<P: Producer>(
     }
 }
 
-/// Cap each (team, type, key) to its `k` highest-count values, dropping the
-/// rest. Keys with `<= k` distinct values are untouched, so low-cardinality
+/// Cap each (team, type, key, event) to its `k` highest-count values, dropping
+/// the rest. Keys with `<= k` distinct values are untouched, so low-cardinality
 /// keys keep everything; only high-cardinality keys lose their long tail.
+type CapGroup = (i64, PropertyType, String, String);
+
 fn cap_top_k(
     snapshot: Vec<(TupleKey, u64)>,
     k: usize,
     worker: &'static str,
 ) -> Vec<(TupleKey, u64)> {
-    let mut by_key: HashMap<(i64, PropertyType, String), Vec<(TupleKey, u64)>> = HashMap::new();
+    let mut by_key: HashMap<CapGroup, Vec<(TupleKey, u64)>> = HashMap::new();
     for entry in snapshot {
         let group = (
             entry.0.team_id,
             entry.0.property_type,
             entry.0.property_key.clone(),
+            entry.0.event_name.clone(),
         );
         by_key.entry(group).or_default().push(entry);
     }
@@ -279,6 +282,7 @@ mod tests {
             property_type: PropertyType::Event,
             property_key: key.to_string(),
             property_value: value.to_string(),
+            event_name: String::new(),
         }
     }
 
@@ -642,8 +646,9 @@ mod tests {
             property_type in arb_property_type(),
             property_key in "[a-c]{1,2}",
             property_value in "[x-z]{1,2}",
+            event_name in "[a-b]{0,2}",
         ) -> TupleKey {
-            TupleKey { team_id, property_type, property_key, property_value }
+            TupleKey { team_id, property_type, property_key, property_value, event_name }
         }
     }
 

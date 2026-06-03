@@ -41,7 +41,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return {
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
-            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
             # type. Delta Lake can't widen an existing column in place, so retrying won't help —
