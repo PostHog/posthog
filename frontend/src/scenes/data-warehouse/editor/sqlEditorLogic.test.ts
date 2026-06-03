@@ -1390,13 +1390,10 @@ describe('sqlEditorLogic', () => {
         }
 
         function createMonacoWithModel(model: any): any {
-            return {
-                Uri: { parse: (uri: string) => ({ toString: () => uri, path: uri }) },
-                editor: {
-                    getModel: () => model,
-                    createModel: () => model,
-                },
-            }
+            const monaco = createMockMonaco()
+            monaco.editor.getModel = () => model
+            monaco.editor.createModel = () => model
+            return monaco
         }
 
         function mountWithModel(model: any): any {

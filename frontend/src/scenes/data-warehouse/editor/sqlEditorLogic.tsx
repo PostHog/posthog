@@ -367,13 +367,23 @@ export function activeTabMatchesUrlTarget(
     return !activeTab?.draft && !activeTab?.view && !activeTab?.insight
 }
 
+// The Monaco model URI string for a tab's editor content. QueryWindow binds the editor to
+// this `path` and createTab creates the model at it — they must agree, so both derive it here.
+export function tabModelPath(tabId: string): string {
+    return `tab-${tabId}`
+}
+
 // Apply `text` to the tab's persistent Monaco model as a single undoable edit. The model is
 // kept alive across the diff <-> editor swap by `keepCurrentModel` (see QueryWindow), so its
 // full undo history survives — pushEditOperations adds one more undoable step rather than
 // wiping the stack. This also keeps the editor content in sync after accepting/rejecting a
 // suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
-// the `value` prop, so the content has to be written onto the model directly.
-function applyUndoableModelEdit(monaco: Monaco, uri: Uri, text: string): void {
+// the `value` prop, so the content has to be written onto the model directly. No-ops when the
+// editor isn't mounted yet or the content already matches.
+function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | undefined, text: string): void {
+    if (!monaco || !uri) {
+        return
+    }
     const model = monaco.editor.getModel(uri)
     if (!model || model.getValue() === text) {
         return
@@ -932,9 +942,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // edit. The model survives the diff <-> editor swap (keepCurrentModel), so its
                 // existing undo history is preserved and cmd+z walks back through the accepted
                 // query to the pre-AI query and the rest of the edit history.
-                if (props.monaco && values.activeTab) {
-                    applyUndoableModelEdit(props.monaco, values.activeTab.uri, values.queryInput ?? '')
-                }
+                applyUndoableModelEdit(props.monaco, values.activeTab?.uri, values.queryInput ?? '')
 
                 posthog.capture('sql-editor-accepted-suggestion', {
                     source: values.suggestedSource,
@@ -947,9 +955,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // Keep the persistent model's content in sync with the reverted query (the
                 // suggestion was shown in a throwaway diff model, not this one). This is a
                 // no-op when the model already matches, so rejecting adds no undo step.
-                if (props.monaco && values.activeTab) {
-                    applyUndoableModelEdit(props.monaco, values.activeTab.uri, values.queryInput ?? '')
-                }
+                applyUndoableModelEdit(props.monaco, values.activeTab?.uri, values.queryInput ?? '')
 
                 posthog.capture('sql-editor-rejected-suggestion', {
                     source: values.suggestedSource,
@@ -972,7 +978,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     : undefined
 
                 if (props.monaco) {
-                    const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
+                    const uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
                     let model = props.monaco.editor.getModel(uri)
                     if (!model) {
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
