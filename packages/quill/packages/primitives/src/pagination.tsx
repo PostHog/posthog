@@ -133,8 +133,8 @@ function getPaginationRange(pageCount: number, pageIndex: number, siblingCount =
     const leftSibling = Math.max(pageIndex - siblingCount, 0)
     const rightSibling = Math.min(pageIndex + siblingCount, pageCount - 1)
     // Show an ellipsis only when it hides more than one page (otherwise just show the page).
-    const showLeftEllipsis = leftSibling > 1
-    const showRightEllipsis = rightSibling < pageCount - 2
+    const showLeftEllipsis = leftSibling > 2
+    const showRightEllipsis = rightSibling < pageCount - 3
     const first = 0
     const last = pageCount - 1
 

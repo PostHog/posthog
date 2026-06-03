@@ -202,7 +202,7 @@ function DataTable<TData, TValue>({
         columns,
         state: { sorting, ...(paginated ? { pagination } : {}) },
         onSortingChange: setSorting,
-        onPaginationChange: setPagination,
+        ...(paginated ? { onPaginationChange: setPagination } : {}),
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         ...(paginated ? { getPaginationRowModel: getPaginationRowModel() } : {}),
