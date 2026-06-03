@@ -75,7 +75,6 @@ import {
     WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTrendsQuery,
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
@@ -295,10 +294,6 @@ export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebG
 
 export function isWebNotableChangesQuery(node?: Record<string, any> | null): node is WebNotableChangesQuery {
     return node?.kind === NodeKind.WebNotableChangesQuery
-}
-
-export function isWebTrendsQuery(node?: Record<string, any> | null): node is WebTrendsQuery {
-    return node?.kind === NodeKind.WebTrendsQuery
 }
 
 export function isMarketingAnalyticsTableQuery(

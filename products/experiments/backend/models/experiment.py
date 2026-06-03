@@ -156,6 +156,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
             "has_description": bool(self.description),
+            "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
             "created_at": self.created_at,
         }
