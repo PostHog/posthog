@@ -112,7 +112,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
 
     # BatchExport requires deleted=False filter to match delete_batch_exports() behavior
     try:
-        from posthog.batch_exports.models import BatchExport
+        from products.batch_exports.backend.models.batch_export import BatchExport
 
         batch_export_count = BatchExport.objects.filter(team_id__in=team_ids, deleted=False).count()
         results.append(
@@ -127,7 +127,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
             {
                 "name": "Batch Exports",
                 "count": f"Error: {e}",
-                "model": "posthog.batch_exports.models.BatchExport",
+                "model": "products.batch_exports.backend.models.batch_export.BatchExport",
             }
         )
 
