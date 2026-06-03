@@ -564,8 +564,11 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     if thread_ts:
         if is_bot:
             # Allow other bots' thread replies but skip our own bot to prevent loops
-            client = get_slack_client(team)
-            own_bot_user_id = get_bot_user_id(client) if client else None
+            try:
+                client = get_slack_client(team)
+                own_bot_user_id = get_bot_user_id(client)
+            except Exception:
+                own_bot_user_id = None
             if own_bot_user_id and slack_user_id == own_bot_user_id:
                 return
 
