@@ -24,7 +24,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,

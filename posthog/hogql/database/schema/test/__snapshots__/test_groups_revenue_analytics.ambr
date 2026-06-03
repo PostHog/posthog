@@ -55,7 +55,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         WHERE notEmpty(group_key)
@@ -101,7 +101,7 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            WHERE notEmpty(group_key)) AS customer_to_group
@@ -154,7 +154,7 @@
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -191,13 +191,13 @@
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                          HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id
                           FROM person
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
-                          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                          HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                        WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                        GROUP BY subscription_id,
                                 person_id)
@@ -520,7 +520,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         WHERE notEmpty(group_key)
@@ -566,7 +566,7 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            WHERE notEmpty(group_key)) AS customer_to_group
@@ -619,7 +619,7 @@
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -1901,7 +1901,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         WHERE notEmpty(group_key)
@@ -1947,7 +1947,7 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            WHERE notEmpty(group_key)) AS customer_to_group
@@ -2000,7 +2000,7 @@
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -2037,13 +2037,13 @@
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                          HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id
                           FROM person
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
-                          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                          HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                        WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                        GROUP BY subscription_id,
                                 person_id)

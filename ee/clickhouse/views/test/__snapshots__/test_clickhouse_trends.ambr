@@ -37,7 +37,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -113,7 +113,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id))
         GROUP BY day_start
@@ -170,7 +170,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -223,7 +223,7 @@
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                     LEFT JOIN
                       (SELECT person.id AS id,
                               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key
@@ -233,7 +233,7 @@
                                                                       FROM person
                                                                       WHERE equals(person.team_id, 99999)
                                                                       GROUP BY person.id
-                                                                      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                     WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), ifNull(equals(e__person.properties___key, 'some_val'), 0), ifNull(equals(e__person.properties___key, 'some_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))))
                     GROUP BY timestamp, actor_id,
                                         breakdown_value) AS e
@@ -254,7 +254,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -299,7 +299,7 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
               GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                        breakdown_value)
@@ -312,7 +312,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -344,7 +344,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -381,7 +381,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -418,7 +418,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-14 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -455,7 +455,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-16 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start

@@ -13,7 +13,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), in(persons.properties___group, tuple('0', '1', '2', '3')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -207,7 +207,7 @@
                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
                                                                 (SELECT cohortpeople.person_id AS person_id
                                                                  FROM cohortpeople
@@ -256,7 +256,7 @@
                                                                                                                                                           FROM person_static_cohort
                                                                                                                                                           WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
                                                                 (SELECT person_static_cohort.person_id AS person_id
                                                                  FROM person_static_cohort
@@ -314,7 +314,7 @@
                                                                                                                                                                                                                                                                          FROM cohortpeople
                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
                                                                 (SELECT person_static_cohort.person_id AS person_id
                                                                  FROM person_static_cohort
@@ -348,7 +348,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -400,7 +400,7 @@
                                                                                                                                                           FROM cohortpeople
                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), in(persons.id,
                                                             (SELECT cohortpeople.person_id AS person_id
                                                              FROM cohortpeople
