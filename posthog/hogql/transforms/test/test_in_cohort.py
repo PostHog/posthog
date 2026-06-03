@@ -284,7 +284,8 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
         )
         # person1 matches both cohorts (2 rows) + person2 matches only cohort2 (1 row) = 3
         assert len(off_response.results or []) == 3
-        assert pretty_print_response_in_tests(off_response, self.team.pk) == self.snapshot
+        off_pretty_response = pretty_print_response_in_tests(off_response, self.team.pk)
+        assert "\n".join(line.rstrip() for line in off_pretty_response.split("\n")) == self.snapshot
 
         always_response = execute_hogql_query(
             query,

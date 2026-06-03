@@ -232,8 +232,6 @@ class MultipleInCohortResolver(TraversingVisitor):
                             SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                             FROM raw_cohort_people
                             WHERE {clause}
-                            GROUP BY person_id, cohort_id
-                            HAVING sum(sign) > 0
                         """,
                         placeholders={"clause": get_dynamic_cohort_clause()},
                     )
