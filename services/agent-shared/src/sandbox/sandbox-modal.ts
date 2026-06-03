@@ -178,11 +178,17 @@ class ModalSandbox implements Sandbox {
         const resPath = `/workdir/res-${n}.json`
         try {
             await this.state.handle.filesystem.writeText(JSON.stringify(req), reqPath)
-            const proc = await this.state.handle.exec(['node', '/sandbox/dispatch.js', reqPath, resPath], {
+            // `timeoutMs: 0` is rejected by Modal even though the doc says
+            // "default 0 (no timeout)" — only pass it when the caller
+            // actually wants a bound.
+            const execOpts: { stdout: 'pipe'; stderr: 'pipe'; timeoutMs?: number } = {
                 stdout: 'pipe',
                 stderr: 'pipe',
-                timeoutMs: req.timeoutMs ?? 0,
-            })
+            }
+            if (req.timeoutMs && req.timeoutMs > 0) {
+                execOpts.timeoutMs = req.timeoutMs
+            }
+            const proc = await this.state.handle.exec(['node', '/sandbox/dispatch.js', reqPath, resPath], execOpts)
             const [exitCode, stderr] = await Promise.all([proc.wait(), proc.stderr.readText()])
             if (exitCode !== 0) {
                 return {
