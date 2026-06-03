@@ -1,9 +1,8 @@
 import { render } from '@testing-library/react'
 
-import type { ChartTheme } from '@posthog/quill-charts'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
-
-import { MetricCard, type MetricChange } from './metric-card'
+import type { ChartTheme } from '../../core/types'
+import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import { MetricCard, type MetricChange } from './MetricCard'
 
 const THEME: ChartTheme = { colors: ['#22d3ee'], backgroundColor: '#ffffff' }
 const LABELS = ['Jan', 'Feb', 'Mar', 'Apr']

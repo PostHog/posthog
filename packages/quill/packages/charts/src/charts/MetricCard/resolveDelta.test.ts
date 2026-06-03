@@ -1,4 +1,4 @@
-import { type MetricChange, resolveDelta } from './resolve-delta'
+import { type MetricChange, resolveDelta } from './resolveDelta'
 
 const formatChange = (p: number): string => (p > 0 ? `+${p.toFixed(1)}%` : `${p.toFixed(1)}%`)
 

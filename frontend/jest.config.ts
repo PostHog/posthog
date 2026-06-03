@@ -62,12 +62,7 @@ const esmModules = [
     'yaml/browser',
 ]
 function rootDirectories(): string[] {
-    return [
-        '<rootDir>/src',
-        '<rootDir>/../products',
-        '<rootDir>/../packages/quill/packages/charts/src',
-        '<rootDir>/../packages/quill/packages/components/src',
-    ]
+    return ['<rootDir>/src', '<rootDir>/../products', '<rootDir>/../packages/quill/packages/charts/src']
 }
 
 const config: Config = {

@@ -30,7 +30,6 @@
         "build": "vite build"
     },
     "dependencies": {
-        "@posthog/quill-charts": "workspace:^",
         "@posthog/quill-primitives": "workspace:^",
         "@posthog/quill-tokens": "workspace:^",
         "date-fns": "^4.0.0",

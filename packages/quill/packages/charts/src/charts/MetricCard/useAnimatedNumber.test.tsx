@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 
-import { useAnimatedNumber } from './use-animated-number'
+import { useAnimatedNumber } from './useAnimatedNumber'
 
 interface RafController {
     step: (now: number) => void

@@ -3,8 +3,7 @@ import { useMemo } from 'react'
 
 import { IconBolt } from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
-import { MetricCard } from '@posthog/quill'
-import { type ChartTheme } from '@posthog/quill-charts'
+import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
