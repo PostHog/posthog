@@ -27,6 +27,7 @@ import {
     computePercentStackData,
     computeStackData,
     createBarScales,
+    groupedBandSlot,
     type StackedBand,
     yTickCountForHeight,
 } from '../../core/scales'
@@ -66,12 +67,8 @@ function bandCenter(scales: BarChartPrivate['__barChart'], label: string): numbe
  *  to anchor on the current-period bar in compare-against-previous grouped layouts.
  *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
 function groupedBarCenter(scales: BarChartPrivate['__barChart'], label: string, seriesKey: string): number | undefined {
-    const start = scales.band(label)
-    const groupOffset = scales.group?.(seriesKey)
-    if (start == null || groupOffset == null) {
-        return undefined
-    }
-    return start + groupOffset + (scales.group?.bandwidth() ?? 0) / 2
+    const slot = groupedBandSlot(scales, label, seriesKey)
+    return slot && slot.x + slot.width / 2
 }
 
 export interface BarChartProps<Meta = unknown> {

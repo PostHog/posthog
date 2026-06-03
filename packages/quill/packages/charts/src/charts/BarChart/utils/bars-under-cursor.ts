@@ -1,6 +1,6 @@
 import { computeBarAtIndex } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
-import type { BarScaleSet, StackedBand } from '../../../core/scales'
+import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
 import type { BandSlot, Series } from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 
@@ -119,11 +119,11 @@ export function resolveBarsAtCursor(
     return { hits, strictHit }
 }
 
-/** Resolve the grouped bar nearest the cursor along the band axis, returning its center and
- *  width. `bandAxisCursor` is the cursor coordinate on the band axis (x for vertical charts).
+/** Resolve the grouped bar nearest the cursor along the band axis, returning its `{ x, width }`
+ *  slot. `bandAxisCursor` is the cursor coordinate on the band axis (x for vertical charts).
  *  Returns undefined for non-grouped layouts (no `group` scale) or an unknown label.
- *  A `scaleBand` is uniform, so the nearest slot is the cursor's offset from the first slot
- *  center divided by the step — O(1), no scan over the domain. */
+ *  A `scaleBand` is uniform, so the nearest slot index is the cursor's offset from the first
+ *  slot center divided by the step — O(1), no scan over the domain. */
 export function resolveGroupedBandSlot(
     scales: BarScaleSet,
     label: string,
@@ -135,12 +135,11 @@ export function resolveGroupedBandSlot(
     if (!group || start == null || !domain?.length) {
         return undefined
     }
-    const width = group.bandwidth()
     const step = group.step()
-    const firstCenter = (group(domain[0]) ?? 0) + width / 2
+    const firstCenter = (group(domain[0]) ?? 0) + group.bandwidth() / 2
     const rawIndex = Math.round((bandAxisCursor - start - firstCenter) / step)
     const index = Math.max(0, Math.min(domain.length - 1, rawIndex))
-    return { center: start + firstCenter + index * step, width }
+    return groupedBandSlot(scales, label, domain[index])
 }
 
 /** Pixel coordinate of a bar's baseline (value-0) edge — the side the bar grows from. */

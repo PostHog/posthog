@@ -123,7 +123,7 @@ export function buildTooltipContext<Meta = unknown>(
         valueAnchor = interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
     }
 
-    const bandAxisCoord = bandSlot?.center ?? bandPixel
+    const bandAxisCoord = bandSlot ? bandSlot.x + bandSlot.width / 2 : bandPixel
     const position: TooltipContext<Meta>['position'] =
         interactionAxis === 'y' ? { x: valueAnchor, y: bandAxisCoord } : { x: bandAxisCoord, y: valueAnchor }
     const extentWidth = bandSlot?.width ?? positionExtent

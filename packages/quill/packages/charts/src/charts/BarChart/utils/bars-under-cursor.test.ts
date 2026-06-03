@@ -176,15 +176,18 @@ describe('resolveGroupedBandSlot', () => {
     const grouped = createBarScales(series, labels, dimensions, { barLayout: 'grouped', axisOrientation: 'vertical' })
     const start = grouped.band('x')!
     const bandwidth = grouped.group!.bandwidth()
-    const centerOf = (key: string): number => start + grouped.group!(key)! + bandwidth / 2
+    const slotXOf = (key: string): number => start + grouped.group!(key)!
+    const centerOf = (key: string): number => slotXOf(key) + bandwidth / 2
+    const farLeft = start - 1000
+    const farRight = start + 1000
 
     it.each(['a', 'b', 'c'])('returns the slot of the bar the cursor sits inside (%s)', (key) => {
-        expect(resolveGroupedBandSlot(grouped, 'x', centerOf(key))).toEqual({ center: centerOf(key), width: bandwidth })
+        expect(resolveGroupedBandSlot(grouped, 'x', centerOf(key))).toEqual({ x: slotXOf(key), width: bandwidth })
     })
 
-    it('snaps to the nearest bar by center when the cursor falls in the inter-bar padding', () => {
-        expect(resolveGroupedBandSlot(grouped, 'x', start - 1000)?.center).toBeCloseTo(centerOf('a'), 5)
-        expect(resolveGroupedBandSlot(grouped, 'x', start + 1000)?.center).toBeCloseTo(centerOf('c'), 5)
+    it('snaps to the nearest bar by center when the cursor falls outside the bars', () => {
+        expect(resolveGroupedBandSlot(grouped, 'x', farLeft)?.x).toBeCloseTo(slotXOf('a'), 5)
+        expect(resolveGroupedBandSlot(grouped, 'x', farRight)?.x).toBeCloseTo(slotXOf('c'), 5)
     })
 
     it('returns undefined for an unknown label', () => {

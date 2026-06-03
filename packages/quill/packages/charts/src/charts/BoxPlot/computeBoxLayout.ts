@@ -1,5 +1,6 @@
 import type { BoxRect } from '../../core/canvas-renderer'
-import type { BarScaleSet } from '../../core/scales'
+import { type BarScaleSet, groupedBandSlot } from '../../core/scales'
+import type { BandSlot } from '../../core/types'
 
 export type { BoxRect }
 
@@ -35,11 +36,6 @@ export interface BoxPlotSeries<Meta = unknown> {
     }
 }
 
-interface BoxBandRect {
-    x: number
-    width: number
-}
-
 /** Resolve only the band-axis extent of a (series, x) slot. Cheap — touches the band/group
  *  scales and nothing on the value axis — so callers like band-only hit-testing don't pay
  *  for six value-axis lookups they'd immediately throw away. */
@@ -48,18 +44,13 @@ export function computeBoxBand(
     label: string,
     scales: BarScaleSet,
     grouped: boolean
-): BoxBandRect | null {
+): BandSlot | null {
+    if (grouped) {
+        return groupedBandSlot(scales, label, seriesKey) ?? null
+    }
     const bandStart = scales.band(label)
     if (bandStart == null) {
         return null
-    }
-    if (grouped) {
-        const groupOffset = scales.group?.(seriesKey)
-        const groupBandwidth = scales.group?.bandwidth()
-        if (groupOffset == null || groupBandwidth == null) {
-            return null
-        }
-        return { x: bandStart + groupOffset, width: groupBandwidth }
     }
     return { x: bandStart, width: scales.band.bandwidth() }
 }

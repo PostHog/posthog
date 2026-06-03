@@ -332,9 +332,10 @@ export interface YAxisScale {
     position: 'left' | 'right'
 }
 
-/** Band-axis center and width of a single bar — lets a tooltip anchor on the hovered bar. */
+/** Band-axis slot of a single bar: left-edge coordinate (`x`) and width along the band axis.
+ *  Callers derive the center as `x + width / 2` (e.g. to anchor a tooltip on the hovered bar). */
 export interface BandSlot {
-    center: number
+    x: number
     width: number
 }
 
@@ -357,9 +358,9 @@ export interface ChartScales {
      *  tooltip overlay. Point-style charts (line, scatter) leave it unset. */
     extent?: (label: string) => number | undefined
     /** Optional cursor-aware band-slot resolver for grouped layouts. Given the hovered label
-     *  and cursor (canvas pixels), returns the band-axis center and width of the specific bar
-     *  under the cursor, so the tooltip anchors on that bar rather than the whole group. Falls
-     *  back to `x`/`extent` when absent or when it returns undefined. */
+     *  and cursor (canvas pixels), returns the `{ x, width }` slot of the specific bar under the
+     *  cursor, so the tooltip anchors on that bar rather than the whole group. Falls back to
+     *  `x`/`extent` when absent or when it returns undefined. */
     bandSlotAtCursor?: (label: string, cursor: { x: number; y: number }) => BandSlot | undefined
     /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
      *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
