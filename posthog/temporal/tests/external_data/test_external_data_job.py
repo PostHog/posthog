@@ -518,27 +518,23 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert schema.should_sync is False
 
 
-@pytest.mark.parametrize(
-    "source_type,expected_error",
-    [
-        # Non-SQL source falls back to the generic catch-all message.
-        ("Stripe", Any_Source_Errors[_SCHEMA_DRIFT_KEY]),
-        # SQL sources override the same key with the sharper family-specific message.
-        ("Postgres", SQLSource.default_non_retryable_errors()[_SCHEMA_DRIFT_KEY]),
-    ],
+_DRIFT_INTERNAL_ERROR = (
+    "max retries exceeded: Generic DeltaTable error: External error: "
+    "Invalid data found: 2245 rows failed validation check. \nPreview of invalid data:\n+----+\n| id |\n+----+"
 )
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_external_job_activity_with_schema_drift_error(
-    activity_environment, team, source_type, expected_error, **kwargs
-):
+async def test_update_external_job_activity_with_schema_drift_error(activity_environment, team, **kwargs):
+    # SQL source: the delta validation error maps to the friendly family message and disables sync.
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
         team=team,
         status="running",
-        source_type=source_type,
+        source_type="Postgres",
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -560,7 +556,7 @@ async def test_update_external_job_activity_with_schema_drift_error(
         job_id=str(new_job.id),
         status=ExternalDataJob.Status.FAILED,
         latest_error=None,
-        internal_error="max retries exceeded: Generic DeltaTable error: External error: Invalid data found: 2245 rows failed validation check. \nPreview of invalid data:\n+----+\n| id |\n+----+",
+        internal_error=_DRIFT_INTERNAL_ERROR,
         schema_id=str(schema.pk),
         source_id=str(new_source.pk),
         team_id=team.id,
@@ -576,8 +572,58 @@ async def test_update_external_job_activity_with_schema_drift_error(
 
     assert new_job.status == ExternalDataJob.Status.FAILED
     assert schema.should_sync is False
-    assert schema.latest_error == expected_error
+    assert schema.latest_error == SQLSource.default_non_retryable_errors()[_SCHEMA_DRIFT_KEY]
     assert "Preview of invalid data" not in (schema.latest_error or "")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_schema_drift_error_does_not_disable_non_sql_source(activity_environment, team, **kwargs):
+    # The delta validation error is scoped to the SQL source family — a non-SQL source must NOT be
+    # auto-disabled by it (no generic Any_Source_Errors catch).
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.FAILED,
+        latest_error=None,
+        internal_error=_DRIFT_INTERNAL_ERROR,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch(
+        "products.warehouse_sources.backend.models.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert schema.should_sync is True
+    assert schema.latest_error != SQLSource.default_non_retryable_errors()[_SCHEMA_DRIFT_KEY]
 
 
 @pytest.fixture
