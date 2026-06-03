@@ -174,15 +174,6 @@ export interface HeatmapsResponseApi {
     fold?: HeatmapFoldSummaryApi | null
 }
 
-export interface PaginatedHeatmapsResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: HeatmapsResponseApi[]
-}
-
 export interface HeatmapEventItemApi {
     /** @nullable */
     session_id?: string | null
@@ -204,15 +195,6 @@ export interface SavedHeatmapListResponseApi {
     results: HeatmapScreenshotResponseApi[]
     /** Total number of saved heatmaps matching the filters. */
     count: number
-}
-
-export interface PaginatedSavedHeatmapListResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SavedHeatmapListResponseApi[]
 }
 
 export interface SavedHeatmapRequestApi {
@@ -461,14 +443,6 @@ export type HeatmapsListParams = {
      * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
      */
     hide_zero_coordinates?: boolean
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1

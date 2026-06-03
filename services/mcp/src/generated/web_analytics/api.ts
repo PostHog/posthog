@@ -58,8 +58,6 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .default(heatmapsListQueryHideZeroCoordinatesDefault)
         .describe('When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
     type: zod
         .string()
         .min(1)

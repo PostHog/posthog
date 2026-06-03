@@ -115,7 +115,7 @@ tools:
             - heatmap:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         feature_flag: heatmaps-mcp
         title: Update a saved heatmap
@@ -130,8 +130,8 @@ tools:
             - heatmap:write
         annotations:
             readOnly: false
-            destructive: false
-            idempotent: true
+            destructive: true
+            idempotent: false
         feature_flag: heatmaps-mcp
         title: Regenerate a saved heatmap screenshot
         description: >

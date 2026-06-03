@@ -18,15 +18,12 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const HeatmapsListSchema = HeatmapsListQueryParams
 
-const heatmapsList = (): ToolBase<
-    typeof HeatmapsListSchema,
-    WithPostHogUrl<Schemas.PaginatedHeatmapsResponseList>
-> => ({
+const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Schemas.HeatmapsResponse[]>> => ({
     name: 'heatmaps-list',
     schema: HeatmapsListSchema,
     handler: async (context: Context, params: z.infer<typeof HeatmapsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedHeatmapsResponseList>({
+        const result = await context.api.request<Schemas.HeatmapsResponse[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/heatmaps/`,
             query: {
@@ -36,8 +33,6 @@ const heatmapsList = (): ToolBase<
                 date_to: params.date_to,
                 filter_test_accounts: params.filter_test_accounts,
                 hide_zero_coordinates: params.hide_zero_coordinates,
-                limit: params.limit,
-                offset: params.offset,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -84,13 +79,13 @@ const HeatmapsSavedListSchema = SavedListQueryParams
 
 const heatmapsSavedList = (): ToolBase<
     typeof HeatmapsSavedListSchema,
-    WithPostHogUrl<Schemas.PaginatedSavedHeatmapListResponseList>
+    WithPostHogUrl<Schemas.SavedHeatmapListResponse[]>
 > => ({
     name: 'heatmaps-saved-list',
     schema: HeatmapsSavedListSchema,
     handler: async (context: Context, params: z.infer<typeof HeatmapsSavedListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSavedHeatmapListResponseList>({
+        const result = await context.api.request<Schemas.SavedHeatmapListResponse[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/`,
             query: {

@@ -14,11 +14,11 @@ import type {
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
-    PaginatedHeatmapsResponseListApi,
-    PaginatedSavedHeatmapListResponseListApi,
+    HeatmapsResponseApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
+    SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
     WebAnalyticsFilterPresetApi,
@@ -105,8 +105,8 @@ export const heatmapsList = async (
     projectId: string,
     params?: HeatmapsListParams,
     options?: RequestInit
-): Promise<PaginatedHeatmapsResponseListApi> => {
-    return apiMutator<PaginatedHeatmapsResponseListApi>(getHeatmapsListUrl(projectId, params), {
+): Promise<HeatmapsResponseApi[]> => {
+    return apiMutator<HeatmapsResponseApi[]>(getHeatmapsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -165,8 +165,8 @@ export const savedList = async (
     projectId: string,
     params?: SavedListParams,
     options?: RequestInit
-): Promise<PaginatedSavedHeatmapListResponseListApi> => {
-    return apiMutator<PaginatedSavedHeatmapListResponseListApi>(getSavedListUrl(projectId, params), {
+): Promise<SavedHeatmapListResponseApi[]> => {
+    return apiMutator<SavedHeatmapListResponseApi[]>(getSavedListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

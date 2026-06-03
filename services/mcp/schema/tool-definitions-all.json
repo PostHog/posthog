@@ -2761,8 +2761,8 @@
         "title": "Regenerate a saved heatmap screenshot",
         "required_scopes": ["heatmap:write"],
         "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -2776,7 +2776,7 @@
         "title": "Update a saved heatmap",
         "required_scopes": ["heatmap:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

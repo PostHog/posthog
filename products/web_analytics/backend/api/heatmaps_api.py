@@ -375,6 +375,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
+    # list() returns a bespoke aggregated payload, not a paged queryset — opt out of the
+    # project-global LimitOffsetPagination so the schema doesn't advertise a Paginated
+    # envelope or phantom limit/offset params the endpoint ignores.
+    pagination_class = None
 
     @extend_schema(
         parameters=[HeatmapsRequestSerializer],
@@ -885,6 +889,9 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     serializer_class = HeatmapScreenshotResponseSerializer
     queryset = SavedHeatmap.objects.all()
     lookup_field = "short_id"
+    # list() returns its own {results, count} shape (paginated via the query serializer), so
+    # opt out of the project-global LimitOffsetPagination to avoid a double-wrapped schema.
+    pagination_class = None
 
     def get_throttles(self):
         if self.action == "create":
