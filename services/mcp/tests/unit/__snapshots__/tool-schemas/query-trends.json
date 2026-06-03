@@ -1288,6 +1288,11 @@
                                 },
                                 "type": "array"
                             },
+                            "propertiesOperator": {
+                                "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`.",
+                                "enum": ["AND", "OR"],
+                                "type": "string"
+                            },
                             "version": {
                                 "description": "version of the node, used for schema migrations",
                                 "type": "number"
@@ -1927,6 +1932,11 @@
                                     ]
                                 },
                                 "type": "array"
+                            },
+                            "propertiesOperator": {
+                                "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`.",
+                                "enum": ["AND", "OR"],
+                                "type": "string"
                             },
                             "version": {
                                 "description": "version of the node, used for schema migrations",
@@ -2801,6 +2811,11 @@
                                                     },
                                                     "type": "array"
                                                 },
+                                                "propertiesOperator": {
+                                                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`.",
+                                                    "enum": ["AND", "OR"],
+                                                    "type": "string"
+                                                },
                                                 "version": {
                                                     "description": "version of the node, used for schema migrations",
                                                     "type": "number"
@@ -3548,6 +3563,11 @@
                                                         ]
                                                     },
                                                     "type": "array"
+                                                },
+                                                "propertiesOperator": {
+                                                    "description": "Logical operator used to combine `properties` for this series. Defaults to `AND`.",
+                                                    "enum": ["AND", "OR"],
+                                                    "type": "string"
                                                 },
                                                 "version": {
                                                     "description": "version of the node, used for schema migrations",
