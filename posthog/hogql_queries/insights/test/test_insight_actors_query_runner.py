@@ -276,9 +276,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p2",)], response.results)
         assert "in(id," in queries[0]
-        # Predicate pushdown wraps the events scan in `FROM events AS e`, so the inner subquery's timestamp
-        # projection is now `e.`-prefixed like the outer one (same projections, consistent alias).
-        self.assertEqual(4, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV1(self):
@@ -306,9 +304,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p2", ["p2"])], response.results)
         assert "in(id," in queries[0]
-        # Predicate pushdown wraps the events scan in `FROM events AS e`, so the inner subquery's timestamp
-        # projection is now `e.`-prefixed like the outer one (same projections, consistent alias).
-        self.assertEqual(4, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV2(self):
@@ -336,9 +332,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p2", ["p2"])], response.results)
         assert "in(person.id" in queries[0]
-        # Predicate pushdown wraps the events scan in `FROM events AS e`, so the inner subquery's timestamp
-        # projection is now `e.`-prefixed like the outer one (same projections, consistent alias).
-        self.assertEqual(4, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
     def test_insight_events_trends_query(self):

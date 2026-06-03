@@ -460,6 +460,70 @@ class TestEventsPredicatePushdownTransformUnit:
 
         assert transform._should_apply_pushdown(node) is False
 
+    _TS_PRED = ast.CompareOperation(
+        op=ast.CompareOperationOp.GtEq,
+        left=ast.Field(chain=["timestamp"]),
+        right=ast.Constant(value="2024-01-01"),
+    )
+
+    def test_should_not_apply_pushdown_without_effective_limit(self):
+        # No explicit LIMIT and not an outermost select → nothing for the pushdown to short-circuit, decline.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.limit = None
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_apply_pushdown_for_top_level_without_explicit_limit(self):
+        # An outermost select gets a top-level LIMIT injected later, so it counts as limited even with no
+        # LIMIT on the AST yet (the auto-limit mechanism the gate relies on).
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.limit = None
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1), top_level_select_ids={id(node)})
+
+        assert transform._should_apply_pushdown(node) is True
+
+    def test_should_not_apply_pushdown_with_aggregate_nested_in_call(self):
+        # The aggregate is wrapped in a non-aggregate call, so the blocker finder must recurse into call args
+        # to detect it; otherwise the whole-set read would be missed and the subquery wasted.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.select = [
+            ast.Call(
+                name="round", args=[ast.Call(name="avg", args=[ast.Field(chain=["timestamp"])]), ast.Constant(value=2)]
+            )
+        ]
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_not_apply_pushdown_with_aggregate_only_in_having(self):
+        # An aggregate reachable only via HAVING still consumes the whole filtered set before the LIMIT.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.having = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt, left=ast.Call(name="count", args=[]), right=ast.Constant(value=0)
+        )
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+
+        assert transform._should_apply_pushdown(node) is False
+
+    def test_should_apply_pushdown_ignoring_aggregate_in_scalar_subquery(self):
+        # An aggregate inside a scalar subquery in the SELECT list belongs to that subquery's scope, not this
+        # one — it must NOT make this (non-aggregate) query decline, or we'd lose the optimization needlessly.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        scalar_subquery = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        )
+        node.select = [ast.Field(chain=["event"]), scalar_subquery]
+
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+
+        assert transform._should_apply_pushdown(node) is True
+
     def test_collect_joined_aliases_single_join(self):
         node = self._make_events_select_with_join(where_clause=ast.Constant(value=True))
 
@@ -1105,6 +1169,12 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         (
             "aliased_function_shadowing",
             f"SELECT upper(event) AS event, session.$session_duration FROM events WHERE {_RANGE} AND event = 'WATCHED MOVIE' ORDER BY timestamp",
+        ),
+        (
+            # An aggregate inside a scalar subquery belongs to that subquery's scope; this outer query is
+            # non-aggregate and must still push (the gate must not be fooled into declining).
+            "scalar_subquery_aggregate",
+            f"SELECT event, (SELECT count() FROM events) AS total, session.$session_duration FROM events WHERE {_RANGE} ORDER BY timestamp",
         ),
     ]
 
