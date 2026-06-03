@@ -367,6 +367,22 @@ export function activeTabMatchesUrlTarget(
     return !activeTab?.draft && !activeTab?.view && !activeTab?.insight
 }
 
+// Apply `text` to the tab's persistent Monaco model as a single undoable edit. The model is
+// kept alive across the diff <-> editor swap by `keepCurrentModel` (see QueryWindow), so its
+// full undo history survives — pushEditOperations adds one more undoable step rather than
+// wiping the stack. This also keeps the editor content in sync after accepting/rejecting a
+// suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
+// the `value` prop, so the content has to be written onto the model directly.
+function applyUndoableModelEdit(monaco: Monaco, uri: Uri, text: string): void {
+    const model = monaco.editor.getModel(uri)
+    if (!model || model.getValue() === text) {
+        return
+    }
+    model.pushStackElement()
+    model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null)
+    model.pushStackElement()
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -912,48 +928,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
                 values.suggestionPayload?.onAccept(!!shouldRunQuery, actions, values, props)
 
-                // Re-create the model to prevent it from being purged
+                // Write the accepted query onto the tab's persistent model as one undoable
+                // edit. The model survives the diff <-> editor swap (keepCurrentModel), so its
+                // existing undo history is preserved and cmd+z walks back through the accepted
+                // query to the pre-AI query and the rest of the edit history.
                 if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.suggestedQueryInput,
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
-
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.suggestedQueryInput,
-                                language: 'hogQL',
-                            })
-                        )
-
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
-                    } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
-                    }
+                    applyUndoableModelEdit(props.monaco, values.activeTab.uri, values.queryInput ?? '')
                 }
+
                 posthog.capture('sql-editor-accepted-suggestion', {
                     source: values.suggestedSource,
                 })
@@ -962,47 +944,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)
 
-                // Re-create the model to prevent it from being purged
+                // Keep the persistent model's content in sync with the reverted query (the
+                // suggestion was shown in a throwaway diff model, not this one). This is a
+                // no-op when the model already matches, so rejecting adds no undo step.
                 if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.queryInput ?? '',
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.queryInput ?? '',
-                                language: 'hogQL',
-                            })
-                        )
-
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
-                    } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
-                    }
+                    applyUndoableModelEdit(props.monaco, values.activeTab.uri, values.queryInput ?? '')
                 }
+
                 posthog.capture('sql-editor-rejected-suggestion', {
                     source: values.suggestedSource,
                 })

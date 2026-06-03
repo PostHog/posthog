@@ -253,6 +253,11 @@ export function QueryWindow({
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
                         queryKey: codeEditorKey,
+                        // Bind the editor to the tab's persistent Monaco model and keep it
+                        // alive across the diff <-> editor swap, so undo history survives an
+                        // accepted AI suggestion. Must match the URI created in createTab.
+                        path: `tab-${tabId}`,
+                        keepCurrentModel: true,
                         metadataQuery: activeQueryText ?? undefined,
                         metadataQueryOffset: activeQueryOffset,
                         onChange: (v) => {

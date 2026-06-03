@@ -1358,4 +1358,113 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
     })
+
+    describe('AI suggestion undo', () => {
+        const ORIGINAL = 'SELECT 1'
+        const ACCEPTED = 'SELECT 2 FROM events'
+
+        // A Monaco model that records pushEditOperations as if it had a real undo stack,
+        // so we can assert the accepted query is applied as an undoable edit rather than a
+        // model.setValue (which would wipe history).
+        function createUndoTrackingModel(initialValue: string): any {
+            let value = initialValue
+            return {
+                getValue: () => value,
+                getFullModelRange: () => ({
+                    startLineNumber: 1,
+                    startColumn: 1,
+                    endLineNumber: 1,
+                    endColumn: value.length + 1,
+                }),
+                pushStackElement: jest.fn(),
+                pushEditOperations: jest.fn((_before: any, ops: any[]) => {
+                    value = ops[0].text
+                    return null
+                }),
+                setValue: jest.fn((next: string) => {
+                    value = next
+                }),
+                onDidChangeContent: jest.fn(() => ({ dispose: jest.fn() })),
+                dispose: jest.fn(),
+            }
+        }
+
+        function createMonacoWithModel(model: any): any {
+            return {
+                Uri: { parse: (uri: string) => ({ toString: () => uri, path: uri }) },
+                editor: {
+                    getModel: () => model,
+                    createModel: () => model,
+                },
+            }
+        }
+
+        function mountWithModel(model: any): any {
+            const monaco = createMonacoWithModel(model)
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco, editor: createMockEditor() })
+            logic.mount()
+            // Establish an active tab so accept/reject can resolve the model URI.
+            logic.actions.updateTab({ uri: monaco.Uri.parse(`tab-${TAB_ID}`), name: 'SQL' } as any)
+            return monaco
+        }
+
+        it('applies an accepted suggestion to the persistent model as an undoable edit', () => {
+            const model = createUndoTrackingModel(ORIGINAL)
+            mountWithModel(model)
+
+            logic.actions.setQueryInput(ORIGINAL)
+            logic.actions._setSuggestionPayload({
+                suggestedValue: ACCEPTED,
+                originalValue: ORIGINAL,
+                source: 'max_ai',
+                onAccept: (_shouldRun, actions) => actions.setQueryInput(ACCEPTED),
+                onReject: () => {},
+            })
+            logic.actions.onAcceptSuggestedQueryInput()
+
+            // Undoable edit, not setValue — preserves the existing undo history.
+            expect(model.pushEditOperations).toHaveBeenCalledWith(
+                [],
+                [expect.objectContaining({ text: ACCEPTED })],
+                expect.any(Function)
+            )
+            expect(model.setValue).not.toHaveBeenCalled()
+            expect(model.getValue()).toEqual(ACCEPTED)
+        })
+
+        it('does not edit the model when the accepted query already matches', () => {
+            const model = createUndoTrackingModel(ORIGINAL)
+            mountWithModel(model)
+
+            logic.actions.setQueryInput(ORIGINAL)
+            logic.actions._setSuggestionPayload({
+                suggestedValue: ORIGINAL,
+                originalValue: ORIGINAL,
+                source: 'max_ai',
+                onAccept: (_shouldRun, actions) => actions.setQueryInput(ORIGINAL),
+                onReject: () => {},
+            })
+            logic.actions.onAcceptSuggestedQueryInput()
+
+            expect(model.pushEditOperations).not.toHaveBeenCalled()
+        })
+
+        it('does not add an undo step when a suggestion is rejected', () => {
+            const model = createUndoTrackingModel(ORIGINAL)
+            mountWithModel(model)
+
+            logic.actions.setQueryInput(ORIGINAL)
+            logic.actions._setSuggestionPayload({
+                suggestedValue: ACCEPTED,
+                originalValue: ORIGINAL,
+                source: 'max_ai',
+                onAccept: () => {},
+                onReject: (actions) => actions.setQueryInput(ORIGINAL),
+            })
+            logic.actions.onRejectSuggestedQueryInput()
+
+            // Model already holds the reverted query, so no edit is pushed.
+            expect(model.pushEditOperations).not.toHaveBeenCalled()
+        })
+    })
 })
