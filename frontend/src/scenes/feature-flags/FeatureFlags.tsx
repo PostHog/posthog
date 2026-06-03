@@ -58,7 +58,7 @@ import {
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
-import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
@@ -408,13 +408,13 @@ export function OverviewTab({
             width: 120,
             render: function RenderType(_, featureFlag: FeatureFlagType) {
                 const labels: string[] = []
-                if (featureFlag.is_remote_configuration) {
+                if (flagMatchesType(featureFlag, 'remote_config')) {
                     labels.push('Remote config')
                 }
-                if ((featureFlag.experiment_set?.length || 0) > 0) {
+                if (flagMatchesType(featureFlag, 'experiment')) {
                     labels.push('Experiment')
                 }
-                if ((featureFlag.filters?.multivariate?.variants?.length || 0) > 0) {
+                if (flagMatchesType(featureFlag, 'multivariant')) {
                     labels.push('Multiple variants')
                 }
                 if (labels.length === 0) {
