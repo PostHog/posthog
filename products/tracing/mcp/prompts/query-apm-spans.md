@@ -90,6 +90,10 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 Number of spans to return per matching trace (1-100), root span first. Useful to preview trace structure without a separate `apm-trace-get`. With the default (1) you get one span per trace (the root); raise it to also pull the matching children and their siblings (check `matched_filter` to tell them apart). Ignored when `rootSpans: true`, which always returns just the root.
 
+## query.excludeAttributes
+
+Set `true` to drop the per-span `attributes` map from results (the map stays present but empty). The attribute map holds multi-KB values like `db.statement`, so excluding it keeps large result sets compact — set it when you only need span structure/timing (`name`, `service_name`, `duration_nano`, `parent_span_id`) and not the OTel attributes. Defaults to false.
+
 # Examples
 
 ## List recent error spans

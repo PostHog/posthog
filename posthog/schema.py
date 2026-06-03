@@ -23423,6 +23423,10 @@ class TraceSpansQuery(BaseModel):
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
+    excludeAttributes: bool | None = Field(
+        default=None,
+        description=("Omit the per-span `attributes` map from results to keep payloads compact"),
+    )
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None

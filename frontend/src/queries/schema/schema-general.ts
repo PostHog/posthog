@@ -3191,6 +3191,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Omit the per-span `attributes` map from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
