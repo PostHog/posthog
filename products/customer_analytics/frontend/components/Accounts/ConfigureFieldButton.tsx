@@ -17,19 +17,23 @@ export function ConfigureFieldButton({ field, loading, onSave }: ConfigureFieldB
     const [open, setOpen] = useState(false)
     const [value, setValue] = useState('')
 
+    const close = (): void => {
+        setOpen(false)
+        setValue('')
+    }
+
     const submit = (): void => {
-        const trimmed = value.trim()
-        if (!trimmed) {
+        if (!value.trim()) {
             return
         }
-        onSave(trimmed)
+        onSave(value)
     }
 
     return (
         <LemonDropdown
             closeOnClickInside={false}
             visible={open}
-            onVisibilityChange={setOpen}
+            onVisibilityChange={(visible) => (visible ? setOpen(true) : close())}
             showArrow
             overlay={
                 <div className="flex flex-col gap-1 w-64">
@@ -48,7 +52,7 @@ export function ConfigureFieldButton({ field, loading, onSave }: ConfigureFieldB
                         <LemonButton
                             size="xsmall"
                             type="secondary"
-                            onClick={() => setOpen(false)}
+                            onClick={close}
                             sideIcon={<KeyboardShortcut escape />}
                         >
                             Cancel
