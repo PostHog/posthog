@@ -427,14 +427,19 @@ class TeamAdmin(admin.ModelAdmin):
     def policy_cache_blob(self, team: Team):
         if not team.pk:
             return "-"
-        from posthog.storage.team_llm_gateway_policy_cache import get_team_llm_gateway_policy
+        from posthog.storage.team_llm_gateway_policy_cache import get_team_llm_gateway_policy_from_redis
 
         try:
-            blob = get_team_llm_gateway_policy(team)
+            blob, source = get_team_llm_gateway_policy_from_redis(team)
         except Exception as exc:
             return format_html("<em>(cache read failed: {})</em>", str(exc))
-        if blob is None:
-            return format_html("<em>(empty, gateway will repopulate from S3 on next request)</em>")
+        if source == "absent":
+            return format_html("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
+        if source == "redis_negative":
+            return format_html(
+                "<em>(negative-cache sentinel in Redis; gateway treats as default-deny "
+                "until the entry expires, default 24h)</em>"
+            )
         return format_html("<pre>{}</pre>", json.dumps(blob, indent=2, default=str))
 
     def get_urls(self):

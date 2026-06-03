@@ -187,18 +187,30 @@ class TestTeamAdminLLMGateway(BaseTest):
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is None
 
-    def test_policy_cache_blob_handles_empty(self) -> None:
+    def test_policy_cache_blob_absent(self) -> None:
         with patch(
-            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy",
-            return_value=None,
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(None, "absent"),
         ):
             rendered = str(self.admin.policy_cache_blob(self.team))
-        assert "empty" in rendered.lower()
+        assert "no entry in Redis" in rendered
+
+    def test_policy_cache_blob_negative_sentinel(self) -> None:
+        with patch(
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(None, "redis_negative"),
+        ):
+            rendered = str(self.admin.policy_cache_blob(self.team))
+        assert "negative-cache sentinel" in rendered
+        assert "default-deny" in rendered
 
     def test_policy_cache_blob_renders_blob(self) -> None:
         with patch(
-            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy",
-            return_value={"id": self.team.id, "llm_gateway_enabled_at": "2026-06-02T00:00:00+00:00"},
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(
+                {"id": self.team.id, "llm_gateway_enabled_at": "2026-06-02T00:00:00+00:00"},
+                "redis_hit",
+            ),
         ):
             rendered = str(self.admin.policy_cache_blob(self.team))
         assert "llm_gateway_enabled_at" in rendered
@@ -207,8 +219,11 @@ class TestTeamAdminLLMGateway(BaseTest):
         # api_token is settable by staff via set_api_token_view, so the
         # cache projection can carry HTML/JS that must not render raw.
         with patch(
-            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy",
-            return_value={"id": self.team.id, "api_token": "<script>alert(1)</script>"},
+            "posthog.storage.team_llm_gateway_policy_cache.get_team_llm_gateway_policy_from_redis",
+            return_value=(
+                {"id": self.team.id, "api_token": "<script>alert(1)</script>"},
+                "redis_hit",
+            ),
         ):
             rendered = str(self.admin.policy_cache_blob(self.team))
         assert "<script>" not in rendered
