@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.test.testcases import TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -29,7 +29,7 @@ base_trends: dict[str, Any] = {"series": []}
 base_funnel: dict[str, Any] = {"series": []}
 
 
-class TestSchemaHelpers(TestCase):
+class TestSchemaHelpers(SimpleTestCase):
     maxDiff = None
 
     def test_serializes_to_differing_json_for_default_value(self):
