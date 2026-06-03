@@ -54,6 +54,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
+    _rls_active_from_conn,
+    _role_subject_to_rls,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -2591,3 +2593,63 @@ class TestIteratePartitionsRealDb:
                 )
             )
             assert sum(t.num_rows for t in tables) == 80
+
+
+class TestRlsDetectionRealDb:
+    @pytest.mark.django_db
+    def test_role_subject_to_rls_false_without_rls(self):
+        logger = structlog.get_logger()
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_rls_plain (id SERIAL PRIMARY KEY, data TEXT)")
+            assert _role_subject_to_rls(cast(Any, dj_cursor), "public", "test_rls_plain", logger) is False
+
+    @pytest.mark.django_db
+    def test_rls_active_from_conn_maps_plain_table_to_false(self):
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_rls_batch (id SERIAL PRIMARY KEY, data TEXT)")
+            result = _rls_active_from_conn(cast(Any, _DjangoBackedConnection(dj_cursor)), "public", ["test_rls_batch"])
+            assert result == {"test_rls_batch": False}
+
+    @pytest.mark.django_db
+    def test_role_subject_to_rls_true_when_role_is_subject(self):
+        logger = structlog.get_logger()
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_rls_secured (id SERIAL PRIMARY KEY, user_id INTEGER)")
+            dj_cursor.execute("ALTER TABLE test_rls_secured ENABLE ROW LEVEL SECURITY")
+            dj_cursor.execute("ALTER TABLE test_rls_secured FORCE ROW LEVEL SECURITY")
+            dj_cursor.execute("CREATE POLICY test_rls_secured_policy ON test_rls_secured USING (false)")
+
+            dj_cursor.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+            if dj_cursor.fetchone()[0]:
+                dj_cursor.execute("CREATE ROLE test_rls_unprivileged NOLOGIN")
+                dj_cursor.execute("GRANT SELECT ON test_rls_secured TO test_rls_unprivileged")
+                dj_cursor.execute("SET LOCAL ROLE test_rls_unprivileged")
+
+            try:
+                assert _role_subject_to_rls(cast(Any, dj_cursor), "public", "test_rls_secured", logger) is True
+            finally:
+                dj_cursor.execute("RESET ROLE")
+
+    @pytest.mark.django_db
+    def test_rls_active_from_conn_maps_secured_table_to_true(self):
+        # Same role handling as above: FORCE subjects a non-superuser owner directly; a superuser
+        # bypasses even FORCE, so observe via a freshly created unprivileged role.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_rls_batch_secured (id SERIAL PRIMARY KEY, user_id INTEGER)")
+            dj_cursor.execute("ALTER TABLE test_rls_batch_secured ENABLE ROW LEVEL SECURITY")
+            dj_cursor.execute("ALTER TABLE test_rls_batch_secured FORCE ROW LEVEL SECURITY")
+            dj_cursor.execute("CREATE POLICY test_rls_batch_secured_policy ON test_rls_batch_secured USING (false)")
+
+            dj_cursor.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+            if dj_cursor.fetchone()[0]:
+                dj_cursor.execute("CREATE ROLE test_rls_batch_role NOLOGIN")
+                dj_cursor.execute("GRANT SELECT ON test_rls_batch_secured TO test_rls_batch_role")
+                dj_cursor.execute("SET LOCAL ROLE test_rls_batch_role")
+
+            try:
+                result = _rls_active_from_conn(
+                    cast(Any, _DjangoBackedConnection(dj_cursor)), "public", ["test_rls_batch_secured"]
+                )
+                assert result == {"test_rls_batch_secured": True}
+            finally:
+                dj_cursor.execute("RESET ROLE")

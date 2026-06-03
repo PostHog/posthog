@@ -1890,6 +1890,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
                 "permission_error": endpoint_permissions.get(schema.name),
+                "rls_warning": schema.rls_warning,
             }
             for schema in schemas
         ]

@@ -31,6 +31,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgresImplementation,
     SSLRequiredError,
+    _rls_active_from_conn,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
@@ -59,6 +60,12 @@ PostgresErrors = {
 
 
 _POSTGRES_IMPLEMENTATION = PostgresImplementation()
+
+RLS_WARNING_MESSAGE = (
+    "Row-level security is active on this table for the sync role, so PostHog can only read "
+    "rows the policy permits, and cannot detect how many rows are hidden. "
+    "Granting the sync role BYPASSRLS will silence the check."
+)
 
 
 @SourceRegistry.register
@@ -294,6 +301,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # indexes — that's how we tell "no indexes" apart from "couldn't check".
             indexed_columns_by_table: dict[str, set[str]] | None = {}
             tables_with_pks: set[str] = set()
+            rls_active_by_table: dict[str, bool] = {}
 
             try:
                 with pg_connection(
@@ -353,12 +361,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                             "Failed to detect leading index columns for Postgres schemas", exc_info=e
                         )
                         indexed_columns_by_table = None
+
+                    # Row-level security check powers the advisory warning in the table picker.
+                    try:
+                        rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
+                    except Exception as e:
+                        capture_exception(e)
+                        rls_active_by_table = {}
             except Exception as e:
                 # Connection-level failure: neither lookup is usable.
                 capture_exception(e)
                 pk_columns_by_table = {}
                 indexed_columns_by_table = None
                 tables_with_pks = set()
+                rls_active_by_table = {}
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
@@ -394,6 +410,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         pk_columns_by_table.get(table_name),
                         discovered_schema.columns,
                     ),
+                    rls_warning=RLS_WARNING_MESSAGE if rls_active_by_table.get(table_name) else None,
                 )
             )
 
