@@ -8,7 +8,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from dateutil import parser, tz
 from rest_framework.exceptions import ValidationError
@@ -41,7 +41,7 @@ class TestBase(APIBaseTest):
         )
 
 
-class TestMatchProperties(TestCase):
+class TestMatchProperties(SimpleTestCase):
     def test_match_properties_exact(self):
         property_a = Property(key="key", value="value")
 
@@ -96,7 +96,12 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_a, {"key": "value"}))
         self.assertTrue(match_property(property_a, {"key": "value2"}))
         self.assertTrue(match_property(property_a, {"key": ""}))
-        self.assertTrue(match_property(property_a, {"key": None}))
+        self.assertFalse(match_property(property_a, {"key": None}))
+
+        property_b = Property(key="key", operator="is_not_set")
+        self.assertTrue(match_property(property_b, {"key": None}))
+        self.assertFalse(match_property(property_b, {"key": ""}))
+        self.assertFalse(match_property(property_b, {"key": "value"}))
 
         with self.assertRaises(ValidationError):
             match_property(property_a, {"key2": "value"})

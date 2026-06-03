@@ -1774,7 +1774,8 @@ def test_prop_filter_json_extract_materialized(
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 
-    assert "JSONExtract" not in query
+    if property.operator not in ("is_set", "is_not_set"):
+        assert "JSONExtract" not in query
 
     uuids = sorted(
         [
@@ -1818,6 +1819,55 @@ def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
         expected = sorted([test_events[index] for index in expected_event_indexes])
 
         assert uuids == expected
+
+
+@pytest.mark.parametrize(
+    "property,expected_query",
+    [
+        (
+            Property(key="email", operator="is_set", value="is_set"),
+            "(JSONHas(properties, %(k_0)s) AND JSONExtractRaw(properties, %(k_0)s) != 'null')",
+        ),
+        (
+            Property(key="email", operator="is_not_set", value="is_not_set"),
+            "(isNull(replaceRegexpAll(JSONExtractRaw(properties, %(k_0)s), '^\"|\"$', '')) OR JSONExtractRaw(properties, %(k_0)s) = 'null' OR NOT JSONHas(properties, %(k_0)s))",
+        ),
+    ],
+)
+def test_prop_filter_json_extract_set_operators_handle_json_null_values(property, expected_query):
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
+
+    assert expected_query in query
+    assert params == {"k_0": "email", "v_0": property.value}
+
+
+@pytest.mark.parametrize(
+    "property,expected_query,unexpected_query",
+    [
+        (
+            Property(key="email", operator="is_set", value="is_set"),
+            "JSONExtractRaw(properties, %(k_0)s) != 'null'",
+            "materialized_email != 'null'",
+        ),
+        (
+            Property(key="email", operator="is_not_set", value="is_not_set"),
+            "JSONExtractRaw(properties, %(k_0)s) = 'null'",
+            "materialized_email = 'null'",
+        ),
+    ],
+)
+def test_prop_filter_json_extract_set_operators_use_raw_json_when_materialized(
+    monkeypatch, property, expected_query, unexpected_query
+):
+    monkeypatch.setattr(
+        "posthog.models.property.util.get_property_string_expr",
+        lambda *args, **kwargs: ("materialized_email", True),
+    )
+
+    query, _ = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+
+    assert expected_query in query
+    assert unexpected_query not in query
 
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)

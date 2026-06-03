@@ -81,7 +81,7 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> list:
 
 def match_property(property: Property, override_property_values: dict[str, Any]) -> bool:
     # only looks for matches where key exists in override_property_values
-    # doesn't support operator is_not_set
+    # supports is_not_set when the key is present with a None value
 
     if property.key not in override_property_values:
         raise ValidationError("can't match properties without an override value")
@@ -110,12 +110,10 @@ def match_property(property: Property, override_property_values: dict[str, Any])
             return not compute_exact_match(value, override_value)
 
     if operator == "is_set":
-        return key in override_property_values
+        return override_value is not None
 
     if operator == "is_not_set":
-        if key in override_property_values:
-            return False
-        raise ValidationError("can't match properties with operator is_not_set")
+        return override_value is None
 
     if operator == "icontains":
         return str(value).lower() in str(override_value).lower()
@@ -413,10 +411,10 @@ def property_to_Q(
 
     if property.operator == "is_set":
         # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
-        return Q(**{f"{column}__{property.key}__isnull": False})
+        return Q(**{f"{column}__{property.key}__isnull": False}) & ~Q(**{f"{column}__{property.key}": None})
     if property.operator == "is_not_set":
         # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
-        return Q(**{f"{column}__{property.key}__isnull": True})
+        return Q(**{f"{column}__{property.key}__isnull": True}) | Q(**{f"{column}__{property.key}": None})
     if property.operator in ("regex", "not_regex") and not is_valid_regex(str(value)):
         # Return no data for invalid regexes
         return Q(pk=-1)

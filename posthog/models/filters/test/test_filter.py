@@ -443,7 +443,14 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                     properties={"is_first_user": True},
                 ).uuid
             )
-            p2_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p2"]).uuid)
+            p2_uuid = str(
+                person_factory(
+                    team_id=self.team.pk,
+                    distinct_ids=["p2"],
+                    properties={"is_first_user": None},
+                ).uuid
+            )
+            p3_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p3"]).uuid)
 
             filter = Filter(
                 data={
@@ -473,7 +480,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             results = filter_persons(filter, self.team)
-            self.assertEqual(results, [p2_uuid])
+            self.assertCountEqual(results, [p2_uuid, p3_uuid])
 
         def test_is_not_true_false_persons(self):
             person_factory(
