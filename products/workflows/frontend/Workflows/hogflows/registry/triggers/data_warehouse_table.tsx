@@ -32,6 +32,7 @@ export function isDataWarehouseTableTriggerConfig(
 
 function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
     const { dataWarehouseTables, databaseLoading } = useValues(databaseTableListLogic)
     const { loadDatabase } = useActions(databaseTableListLogic)
 
@@ -46,6 +47,8 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
     const config = node.data.config as DataWarehouseTableTriggerConfig
     const selectedTableName = config.table_name || null
     const properties = config.filters?.properties ?? []
+    const validationResult = actionValidationErrorsById[node.data.id]
+    const hasNoTables = !databaseLoading && dataWarehouseTables.length === 0
 
     const tableOptions = dataWarehouseTables.map((table) => ({
         label: table.name,
@@ -68,19 +71,20 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
                 This workflow runs once for each new row synced into the selected data warehouse table. Runs are
                 row-scoped — there is no associated person, so person-dependent steps are unavailable.
             </p>
-            <LemonField.Pure label="Data warehouse table">
+            <LemonField.Pure label="Data warehouse table" error={validationResult?.errors?.table_name}>
                 <LemonSelect
                     options={tableOptions}
                     value={selectedTableName}
                     loading={databaseLoading}
+                    disabledReason={hasNoTables ? 'Sync a data warehouse source first' : undefined}
                     onChange={(tableName) => updateTriggerConfig(tableName, properties)}
                     placeholder="Select a table"
                 />
-                {!databaseLoading && dataWarehouseTables.length === 0 && (
+                {hasNoTables && (
                     <LemonBanner type="warning" className="w-full mt-1">
                         <p className="mb-0">
-                            You don't have any data warehouse tables yet. This workflow won't run until you sync a
-                            source.{' '}
+                            You don't have any data warehouse tables yet, so this trigger has nothing to listen to. Sync
+                            a source first, then come back and pick the table this workflow should run on.{' '}
                             <Link to={urls.dataPipelinesNew('source')} target="_blank" className="font-semibold">
                                 Set up a source
                             </Link>

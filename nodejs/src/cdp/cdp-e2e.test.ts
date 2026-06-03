@@ -10,6 +10,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpDatawarehouseEventsConsumer } from '../../src/cdp/consumers/cdp-data-warehouse-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
@@ -311,6 +312,142 @@ describe('CDP Consumer loop', () => {
                 expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying in '),
                 expect.stringContaining('HTTP fetch failed on attempt 2 with status code 500. Retrying in '),
             ])
+        })
+    })
+
+    describe('e2e data warehouse destination', () => {
+        let dwhConsumer: CdpDatawarehouseEventsConsumer
+        let cyclotronWorker: CdpCyclotronWorker
+
+        let hub: Hub
+        let kafkaProducer: KafkaProducerWrapper = undefined as unknown as KafkaProducerWrapper
+        let team: Team
+        let fnDataWarehouseDestination: HogFunctionType
+        let mockProducerObserver: KafkaProducerObserver
+
+        const TABLE_NAME = 'postgres.orders'
+
+        const insertHogFunction = async (hogFunction: Partial<HogFunctionType>): Promise<HogFunctionType> => {
+            return await _insertHogFunction(hub.postgres, team.id, hogFunction)
+        }
+
+        /** Row-scoped globals the DWH consumer produces for a synced warehouse row. */
+        const createDwhGlobals = (rowProperties: Record<string, any> = {}): HogFunctionInvocationGlobals =>
+            createHogExecutionGlobals({
+                project: { id: team.id } as any,
+                event: {
+                    uuid: 'data-warehouse-table-uuid-do-not-use',
+                    event: 'data-warehouse-table-event-do-not-use',
+                    distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
+                    properties: rowProperties,
+                    timestamp: '2024-09-03T09:00:00Z',
+                } as any,
+                dataWarehouseTable: TABLE_NAME,
+            })
+
+        beforeEach(async () => {
+            MockKafkaProducerWrapper.create = jest.fn((...args) => {
+                return ActualKafkaProducerWrapper.create(...args)
+            })
+
+            await resetKafka()
+            await resetTestDatabase()
+            hub = await createHub()
+
+            kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+            mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+
+            team = await getFirstTeam(hub.postgres)
+            mockProducerObserver.resetKafkaProducer()
+
+            hub.CDP_FETCH_RETRIES = 2
+            hub.CDP_FETCH_BACKOFF_BASE_MS = 100
+            hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA = true
+
+            const hog = `
+            let res := fetch(inputs.url, { 'body': inputs.body, 'method': inputs.method });
+            print('Fetch response:', res);
+            `
+
+            // Destination subscribed to the data-warehouse-table source — only fires on synced rows.
+            fnDataWarehouseDestination = await insertHogFunction({
+                type: 'destination',
+                hog,
+                bytecode: await compileHog(hog),
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
+            })
+
+            const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+            const postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+
+            dwhConsumer = new CdpDatawarehouseEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+                hogQueue: kafkaQueue,
+                hogflowQueue: postgresV2Queue,
+            })
+            await dwhConsumer.start()
+
+            cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
+            await cyclotronWorker.start()
+
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({ success: true }),
+                text: () => Promise.resolve(JSON.stringify({ success: true })),
+                headers: { 'Content-Type': 'application/json' },
+                dump: () => Promise.resolve(),
+            })
+
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
+        })
+
+        afterEach(async () => {
+            await Promise.all([dwhConsumer?.stop(), cyclotronWorker?.stop()])
+            await kafkaProducer.disconnect()
+            await closeHub(hub)
+            mockProducerObserver.resetKafkaProducer()
+        })
+
+        afterAll(() => {
+            jest.useRealTimers()
+        })
+
+        it('invokes a data-warehouse-sourced destination for a synced row', async () => {
+            const { invocations } = await dwhConsumer.processBatch([createDwhGlobals({ order_id: 42 })])
+            expect(invocations).toHaveLength(1)
+
+            try {
+                await waitForExpect(() => {
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')).toHaveLength(2)
+                }, 5000)
+            } catch (e) {
+                logger.warn('[TESTS] Failed to wait for log messages', {
+                    messages: mockProducerObserver.getProducedKafkaMessages(),
+                })
+                throw e
+            }
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/posthog-webhook',
+                expect.objectContaining({ method: 'POST' })
+            )
+
+            const metricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            expect(metricsMessages).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: expect.objectContaining({
+                            app_source: 'hog_function',
+                            app_source_id: fnDataWarehouseDestination.id.toString(),
+                            metric_kind: 'success',
+                            metric_name: 'succeeded',
+                            team_id: team.id,
+                        }),
+                    }),
+                ])
+            )
         })
     })
 })

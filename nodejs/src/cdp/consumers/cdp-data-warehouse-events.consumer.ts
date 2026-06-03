@@ -81,6 +81,16 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             this.hogFlowPipeline.buildInvocations(invocationGlobals),
         ])
 
+        const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
+
+        // Emit a `running` lifecycle row for each freshly-created invocation so the runs UI shows
+        // warehouse-triggered flows as in-flight (matching the event consumer). The terminal row is
+        // queued later by the cyclotron worker; both collapse under the same `invocation_id` via
+        // ReplacingMergeTree, with the terminal row's later `version` superseding the running row.
+        for (const invocation of invocationsToBeQueued) {
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+        }
+
         return {
             backgroundTask: Promise.all([
                 instrumentFn({ key: 'cdp.background_task.queue_hog_invocations', sendException: false }, () =>
@@ -97,8 +107,11 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
                         logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                     }
                 }),
+                instrumentFn({ key: 'cdp.background_task.lifecycle_running_flush', sendException: false }, () =>
+                    this.invocationResultsService.invocationResultsRowsService.flush()
+                ),
             ]),
-            invocations: [...hogInvocations, ...hogflowInvocations],
+            invocations: invocationsToBeQueued,
         }
     }
 

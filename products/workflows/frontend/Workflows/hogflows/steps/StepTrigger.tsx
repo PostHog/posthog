@@ -277,6 +277,10 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
 
     const selectedItem = allTriggerItems.find((item) => item.value === displayType)
 
+    // Registered trigger types (e.g. data warehouse) can own non-event configs, so resolve the
+    // matching definition regardless of config.type and render its ConfigComponent below.
+    const registeredMatch = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
+
     const handleSelect = (value: string): void => {
         const registered = getRegisteredTriggerTypes().find((t) => t.value === value)
         if (registered) {
@@ -328,14 +332,10 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 </LemonField.Pure>
                 {type === 'schedule' && <ScheduleStatusBadge />}
             </div>
-            {node.data.config.type === 'event' ? (
-                (() => {
-                    const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
-                    if (match?.ConfigComponent) {
-                        return <match.ConfigComponent node={node} />
-                    }
-                    return <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
-                })()
+            {registeredMatch?.ConfigComponent ? (
+                <registeredMatch.ConfigComponent node={node} />
+            ) : node.data.config.type === 'event' ? (
+                <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'manual' ? (

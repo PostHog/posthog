@@ -328,6 +328,19 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             )
         })
 
+        it('should queue a running lifecycle row for each invocation so the runs UI shows in-flight work', async () => {
+            const queueLifecycleRowSpy = jest.spyOn(
+                processor['invocationResultsService']['invocationResultsRowsService'],
+                'queueLifecycleRow'
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(queueLifecycleRowSpy).toHaveBeenCalledTimes(1)
+            expect(queueLifecycleRowSpy).toHaveBeenCalledWith(invocations[0], 'running')
+        })
+
         it('should bill once per event when multiple destinations match', async () => {
             // Add a second function that also matches
             const fnSecondDestination = await insertHogFunction({
