@@ -28,6 +28,8 @@ from posthog.schema import (
 
 from posthog.api.services.query import process_query_dict
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.query_executor.nodes import QueryExecutorNode
 from ee.hogai.context.insight.prompts import (
@@ -39,7 +41,6 @@ from ee.hogai.context.insight.prompts import (
 )
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, PartialAssistantState
-from ee.models import AgentArtifact, Conversation
 
 
 class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
