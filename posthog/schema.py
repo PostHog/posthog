@@ -1426,6 +1426,12 @@ class DataWarehouseSyncWarning(BaseModel):
         ...,
         description="Name of the ExternalDataSchema responsible for syncing the table",
     )
+    source_id: str | None = Field(
+        default=None,
+        description=(
+            "ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables."
+        ),
+    )
     source_type: str = Field(..., description='Source type, e.g. "Stripe", "Hubspot"')
     status: str = Field(
         ...,
@@ -2396,7 +2402,6 @@ class FileSystemIconType(StrEnum):
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
-    DEPLOYMENTS = "deployments"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -4018,7 +4023,6 @@ class ProductKey(StrEnum):
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
-    DEPLOYMENTS = "deployments"
     EARLY_ACCESS_FEATURES = "early_access_features"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"
@@ -9596,6 +9600,13 @@ class TrendsFilter(BaseModel):
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
+    stackBreakdownValues: bool | None = Field(
+        default=False,
+        description=(
+            "On the horizontal bar-value chart, stack a series' breakdown values into a"
+            " single bar instead of rendering one bar per breakdown value."
+        ),
+    )
     xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
     yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
@@ -10054,6 +10065,10 @@ class AccountsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -11454,6 +11469,10 @@ class CachedAccountsQueryResponse(BaseModel):
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     last_refresh: AwareDatetime
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -15456,6 +15475,10 @@ class Response27(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -19823,6 +19846,10 @@ class QueryResponseAlternative66(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -20609,6 +20636,10 @@ class QueryResponseAlternative91(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -21899,8 +21930,24 @@ class AccountsQuery(BaseModel):
     accountOwner: str | int | None = None
     allRolesUnassigned: bool | None = None
     csm: str | int | None = None
+    filterExpression: str | None = Field(
+        default=None,
+        description=(
+            "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by"
+            " the overview tile click-to-filter affordance."
+        ),
+    )
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int | None = None
+    metrics: list[str] | None = Field(
+        default=None,
+        description=(
+            "Aggregation expressions evaluated against the filtered account set; one"
+            " value per metric is returned in `metricsResults`. When `metrics` is set"
+            " without a `select`, the runner skips the regular row fetch and returns"
+            " only the aggregated values."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
