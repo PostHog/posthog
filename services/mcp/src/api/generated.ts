@@ -20112,6 +20112,7 @@ export namespace Schemas {
     * `reddit-ads` - Reddit Ads
     * `salesforce` - Salesforce
     * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
     * `snapchat` - Snapchat
     * `stripe` - Stripe
     * `tiktok-ads` - Tiktok Ads
@@ -20151,6 +20152,7 @@ export namespace Schemas {
       RedditAds: 'reddit-ads',
       Salesforce: 'salesforce',
       Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
@@ -42066,6 +42068,7 @@ export namespace Schemas {
     * `reddit-ads` - Reddit Ads
     * `salesforce` - Salesforce
     * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
     * `snapchat` - Snapchat
     * `stripe` - Stripe
     * `tiktok-ads` - Tiktok Ads
@@ -42116,6 +42119,7 @@ export namespace Schemas {
       RedditAds: 'reddit-ads',
       Salesforce: 'salesforce',
       Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
@@ -47508,6 +47512,7 @@ export namespace Schemas {
     * `reddit-ads` - Reddit Ads
     * `salesforce` - Salesforce
     * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
     * `snapchat` - Snapchat
     * `stripe` - Stripe
     * `tiktok-ads` - Tiktok Ads
@@ -47558,6 +47563,7 @@ export namespace Schemas {
       RedditAds: 'reddit-ads',
       Salesforce: 'salesforce',
       Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
