@@ -262,7 +262,7 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class CloseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -288,7 +288,8 @@ class ConvexSourceConfig(config.Config):
 
 @config.config
 class CopperSourceConfig(config.Config):
-    pass
+    api_key: str
+    user_email: str
 
 
 @config.config
@@ -568,7 +569,8 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class OktaSourceConfig(config.Config):
-    pass
+    okta_domain: str
+    api_key: str
 
 
 @config.config
@@ -801,7 +803,8 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SquareSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
