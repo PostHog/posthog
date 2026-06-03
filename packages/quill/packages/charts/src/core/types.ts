@@ -332,6 +332,12 @@ export interface YAxisScale {
     position: 'left' | 'right'
 }
 
+/** Band-axis center and width of a single bar — lets a tooltip anchor on the hovered bar. */
+export interface BandSlot {
+    center: number
+    width: number
+}
+
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. For chart types where data points
@@ -354,7 +360,7 @@ export interface ChartScales {
      *  and cursor (canvas pixels), returns the band-axis center and width of the specific bar
      *  under the cursor, so the tooltip anchors on that bar rather than the whole group. Falls
      *  back to `x`/`extent` when absent or when it returns undefined. */
-    bandSlotAtCursor?: (label: string, cursor: { x: number; y: number }) => { center: number; width: number } | undefined
+    bandSlotAtCursor?: (label: string, cursor: { x: number; y: number }) => BandSlot | undefined
     /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
      *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
      *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.

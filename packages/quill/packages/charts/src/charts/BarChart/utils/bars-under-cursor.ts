@@ -1,7 +1,7 @@
 import { computeBarAtIndex } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
 import type { BarScaleSet, StackedBand } from '../../../core/scales'
-import type { Series } from '../../../core/types'
+import type { BandSlot, Series } from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 
 export type BarLayout = 'stacked' | 'grouped' | 'percent'
@@ -117,12 +117,6 @@ export function resolveBarsAtCursor(
         }
     }
     return { hits, strictHit }
-}
-
-/** Band-axis center and width of a single bar — lets a tooltip anchor on the hovered bar. */
-export interface BandSlot {
-    center: number
-    width: number
 }
 
 /** Resolve the grouped bar nearest the cursor along the band axis, returning its center and

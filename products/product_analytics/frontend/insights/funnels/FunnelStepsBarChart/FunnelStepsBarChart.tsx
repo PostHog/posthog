@@ -78,10 +78,7 @@ export function FunnelStepsBarChart({
     const showTime = steps.some((step) => step.average_conversion_time != null)
 
     const breakdownCount = series.length
-    const isBreakdown = breakdownCount > 1
-    const stepWidthPx = isBreakdown
-        ? Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
-        : BASE_STEP_WIDTH_PX
+    const stepWidthPx = Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
     const barsWidth = steps.length * stepWidthPx
     const chartWidth = DEFAULT_MARGINS.left + barsWidth + DEFAULT_MARGINS.right
 

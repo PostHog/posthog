@@ -2,6 +2,7 @@ import { bisector } from 'd3-array'
 
 import { barColorAt } from './color-utils'
 import type {
+    BandSlot,
     ChartDimensions,
     PointClickData,
     ResolvedSeries,
@@ -81,7 +82,7 @@ export function buildTooltipContext<Meta = unknown>(
     positionExtent?: number,
     /** Optional per-bar anchor for grouped layouts — overrides the band-axis center and extent
      *  so the tooltip anchors on the hovered bar rather than the whole group. */
-    bandSlot?: { center: number; width: number }
+    bandSlot?: BandSlot
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
