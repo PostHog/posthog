@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
@@ -21,6 +22,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
@@ -233,14 +235,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 name="unique_cohort_kind_per_team",
             ),
         ]
+        indexes = [
+            # Backs the default list ordering (filter by team, order by -created_at).
+            models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
+            # Backs `name__icontains` search (the cohort picker's server-side search).
+            GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+        ]
 
     def __str__(self):
         return self.name or "Untitled cohort"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Cohort"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

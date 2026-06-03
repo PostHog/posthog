@@ -275,6 +275,14 @@ pub struct Config {
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER", default = "0.0")]
     pub remote_resolution_routing_jitter: f64,
 
+    /// Maximum number of remote resolution items that can concurrently wait
+    /// for a pod to accept routing ownership.
+    #[envconfig(
+        from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_ACCEPTANCE_CONCURRENCY",
+        default = "10"
+    )]
+    pub remote_resolution_routing_acceptance_concurrency: usize,
+
     /// Tick cadence hint sent on `SubscribeRequest.tick_hint_ms` to the
     /// cymbal-resolution freshness/draining stream. The server clamps to its own bounds
     /// (see cymbal-resolution `SUBSCRIBE_MIN_TICK_MS`/`SUBSCRIBE_MAX_TICK_MS`),
