@@ -12,28 +12,19 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::metric_consts::{
-    PROCESS_GRPC_IN_FLIGHT_ITEMS, PROCESS_GRPC_ITEMS_RECEIVED_TOTAL,
-    PROCESS_GRPC_ITEM_DURATION_SECONDS, PROCESS_GRPC_STREAMS_TOTAL,
-    PROCESS_GRPC_TERMINAL_OUTCOMES_TOTAL,
+    PROCESS_SERVICE_IN_FLIGHT_ITEMS, PROCESS_SERVICE_ITEM_DURATION_SECONDS,
+    PROCESS_SERVICE_STREAMS_TOTAL, PROCESS_SERVICE_TERMINAL_OUTCOMES_TOTAL,
 };
 
 #[derive(Clone, Debug)]
 pub struct ProcessServiceConfig {
     pub stream_output_buffer: usize,
-    pub per_stream_max_in_flight_items: usize,
-    pub item_deadline_ms: u64,
 }
 
 impl ProcessServiceConfig {
-    pub fn new(
-        stream_output_buffer: usize,
-        per_stream_max_in_flight_items: usize,
-        item_deadline_ms: u64,
-    ) -> Self {
+    pub fn new(stream_output_buffer: usize) -> Self {
         Self {
             stream_output_buffer: stream_output_buffer.max(1),
-            per_stream_max_in_flight_items: per_stream_max_in_flight_items.max(1),
-            item_deadline_ms: item_deadline_ms.max(1),
         }
     }
 }
@@ -66,11 +57,10 @@ impl CymbalProcess for CymbalProcessService {
     ) -> Result<Response<Self::ProcessStream>, Status> {
         let (tx, rx) = mpsc::channel(self.config.stream_output_buffer);
         let input = request.into_inner();
-        let config = self.config.clone();
         let item_limiter = self.item_limiter.clone();
 
         tokio::spawn(async move {
-            run_process(input, tx, config, item_limiter).await;
+            run_process(input, tx, item_limiter).await;
         });
 
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
@@ -80,19 +70,17 @@ impl CymbalProcess for CymbalProcessService {
 async fn run_process<S>(
     mut input: S,
     tx: mpsc::Sender<Result<ProcessOutcome, Status>>,
-    config: ProcessServiceConfig,
     item_limiter: Arc<Semaphore>,
 ) where
     S: Stream<Item = Result<ProcessItem, Status>> + Unpin,
 {
-    metrics::counter!(PROCESS_GRPC_STREAMS_TOTAL, "event" => "opened").increment(1);
-    let stream_limiter = Arc::new(Semaphore::new(config.per_stream_max_in_flight_items));
+    metrics::counter!(PROCESS_SERVICE_STREAMS_TOTAL, "event" => "opened").increment(1);
     let mut item_tasks = tokio::task::JoinSet::new();
 
     loop {
         tokio::select! {
             _ = tx.closed() => {
-                metrics::counter!(PROCESS_GRPC_STREAMS_TOTAL, "event" => "closed", "reason" => "cancelled").increment(1);
+                metrics::counter!(PROCESS_SERVICE_STREAMS_TOTAL, "event" => "closed", "reason" => "cancelled").increment(1);
                 return;
             }
             maybe_item = input.next() => {
@@ -100,40 +88,18 @@ async fn run_process<S>(
                     Some(Ok(item)) => item,
                     Some(Err(err)) => {
                         warn!(error = %err, "process gRPC input stream failed");
-                        metrics::counter!(PROCESS_GRPC_STREAMS_TOTAL, "event" => "closed", "reason" => "input_error").increment(1);
+                        metrics::counter!(PROCESS_SERVICE_STREAMS_TOTAL, "event" => "closed", "reason" => "input_error").increment(1);
                         return;
                     }
                     None => break,
                 };
 
-                metrics::counter!(PROCESS_GRPC_ITEMS_RECEIVED_TOTAL).increment(1);
                 let processing_id = Uuid::now_v7();
                 let item_started_at = Instant::now();
-
-                let stream_permit = match stream_limiter.clone().try_acquire_owned() {
-                    Ok(permit) => permit,
-                    Err(_) => {
-                        let outcome = error_outcome(
-                            item.id,
-                            ProcessErrorKind::Processing,
-                            ProcessErrorCode::Overloaded,
-                            true,
-                            0,
-                            "process stream item concurrency limit reached",
-                        );
-                        record_terminal_outcome(&outcome, item_started_at);
-                        if tx.send(Ok(outcome)).await.is_err() {
-                            metrics::counter!(PROCESS_GRPC_STREAMS_TOTAL, "event" => "closed", "reason" => "cancelled").increment(1);
-                            return;
-                        }
-                        continue;
-                    }
-                };
 
                 let global_permit = match item_limiter.clone().try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {
-                        drop(stream_permit);
                         let outcome = error_outcome(
                             item.id,
                             ProcessErrorKind::Processing,
@@ -144,7 +110,7 @@ async fn run_process<S>(
                         );
                         record_terminal_outcome(&outcome, item_started_at);
                         if tx.send(Ok(outcome)).await.is_err() {
-                            metrics::counter!(PROCESS_GRPC_STREAMS_TOTAL, "event" => "closed", "reason" => "cancelled").increment(1);
+                            metrics::counter!(PROCESS_SERVICE_STREAMS_TOTAL, "event" => "closed", "reason" => "cancelled").increment(1);
                             return;
                         }
                         continue;
@@ -152,12 +118,10 @@ async fn run_process<S>(
                 };
 
                 let item_tx = tx.clone();
-                let item_deadline_ms = config.item_deadline_ms;
                 item_tasks.spawn(async move {
-                    let _stream_permit = stream_permit;
                     let _global_permit = global_permit;
-                    let _in_flight = ProcessGrpcInFlightGuard::start();
-                    let outcome = process_item_placeholder(processing_id, item, item_deadline_ms).await;
+                    let _in_flight = ProcessServiceInFlightGuard::start();
+                    let outcome = process_item_placeholder(processing_id, item).await;
                     let _ignored = item_tx.send(Ok(outcome)).await;
                 });
             }
@@ -165,36 +129,32 @@ async fn run_process<S>(
     }
 
     while item_tasks.join_next().await.is_some() {}
-    metrics::counter!(PROCESS_GRPC_STREAMS_TOTAL, "event" => "closed", "reason" => "completed")
+    metrics::counter!(PROCESS_SERVICE_STREAMS_TOTAL, "event" => "closed", "reason" => "completed")
         .increment(1);
 }
 
-struct ProcessGrpcInFlightGuard;
+struct ProcessServiceInFlightGuard;
 
-impl ProcessGrpcInFlightGuard {
+impl ProcessServiceInFlightGuard {
     fn start() -> Self {
-        metrics::gauge!(PROCESS_GRPC_IN_FLIGHT_ITEMS).increment(1.0);
+        metrics::gauge!(PROCESS_SERVICE_IN_FLIGHT_ITEMS).increment(1.0);
         Self
     }
 }
 
-impl Drop for ProcessGrpcInFlightGuard {
+impl Drop for ProcessServiceInFlightGuard {
     fn drop(&mut self) {
-        metrics::gauge!(PROCESS_GRPC_IN_FLIGHT_ITEMS).decrement(1.0);
+        metrics::gauge!(PROCESS_SERVICE_IN_FLIGHT_ITEMS).decrement(1.0);
     }
 }
 
-async fn process_item_placeholder(
-    processing_id: Uuid,
-    item: ProcessItem,
-    item_deadline_ms: u64,
-) -> ProcessOutcome {
+async fn process_item_placeholder(processing_id: Uuid, item: ProcessItem) -> ProcessOutcome {
     let started_at = Instant::now();
     let caller_id = item.id;
     let timeout_caller_id = caller_id.clone();
 
     let outcome = tokio::time::timeout(
-        std::time::Duration::from_millis(item_deadline_ms),
+        std::time::Duration::from_millis(item.timeout_ms as u64),
         async move {
             warn!(
                 processing_id = %processing_id,
@@ -271,14 +231,14 @@ fn record_terminal_outcome(outcome: &ProcessOutcome, started_at: Instant) {
     };
 
     metrics::counter!(
-        PROCESS_GRPC_TERMINAL_OUTCOMES_TOTAL,
+        PROCESS_SERVICE_TERMINAL_OUTCOMES_TOTAL,
         "type" => outcome_type,
         "kind" => kind,
         "code" => code,
     )
     .increment(1);
     metrics::histogram!(
-        PROCESS_GRPC_ITEM_DURATION_SECONDS,
+        PROCESS_SERVICE_ITEM_DURATION_SECONDS,
         "type" => outcome_type,
         "kind" => kind,
         "code" => code,
@@ -298,20 +258,16 @@ mod tests {
             Ok(ProcessItem {
                 id: "duplicate".to_string(),
                 event_json: b"{}".to_vec(),
+                timeout_ms: 1_000,
             }),
             Ok(ProcessItem {
                 id: "duplicate".to_string(),
                 event_json: b"{}".to_vec(),
+                timeout_ms: 1_000,
             }),
         ]);
 
-        run_process(
-            input,
-            tx,
-            ProcessServiceConfig::new(4, 2, 1_000),
-            Arc::new(Semaphore::new(2)),
-        )
-        .await;
+        run_process(input, tx, Arc::new(Semaphore::new(2))).await;
 
         let mut outcomes = Vec::new();
         while let Some(Ok(outcome)) = rx.recv().await {

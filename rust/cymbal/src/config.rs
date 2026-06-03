@@ -139,20 +139,9 @@ pub struct Config {
     #[envconfig(from = "CYMBAL_PROCESS_GRPC_MAX_CONCURRENT_STREAMS", default = "128")]
     pub process_grpc_max_concurrent_streams: usize,
 
-    // Maximum concurrently handled items for one Process stream.
-    #[envconfig(
-        from = "CYMBAL_PROCESS_GRPC_PER_STREAM_MAX_IN_FLIGHT_ITEMS",
-        default = "64"
-    )]
-    pub process_grpc_per_stream_max_in_flight_items: usize,
-
     // Process stream response buffer capacity.
     #[envconfig(from = "CYMBAL_PROCESS_GRPC_STREAM_OUTPUT_BUFFER", default = "64")]
     pub process_grpc_stream_output_buffer: usize,
-
-    // Server-configured per-item deadline for the Process API.
-    #[envconfig(from = "CYMBAL_PROCESS_GRPC_ITEM_DEADLINE_MS", default = "60000")]
-    pub process_grpc_item_deadline_ms: u64,
 
     // Global maximum number of gRPC Process items in flight.
     #[envconfig(from = "CYMBAL_PROCESS_GRPC_MAX_IN_FLIGHT_ITEMS", default = "512")]

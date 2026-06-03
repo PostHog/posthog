@@ -88,13 +88,13 @@ pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_durat
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 
-// gRPC cymbal.process.v1 observability metrics
-pub const PROCESS_GRPC_STREAMS_TOTAL: &str = "cymbal_process_grpc_streams_total";
-pub const PROCESS_GRPC_ITEMS_RECEIVED_TOTAL: &str = "cymbal_process_grpc_items_received_total";
-pub const PROCESS_GRPC_TERMINAL_OUTCOMES_TOTAL: &str =
-    "cymbal_process_grpc_terminal_outcomes_total";
-pub const PROCESS_GRPC_ITEM_DURATION_SECONDS: &str = "cymbal_process_grpc_item_duration_seconds";
-pub const PROCESS_GRPC_IN_FLIGHT_ITEMS: &str = "cymbal_process_grpc_in_flight_items";
+// cymbal.process.v1 service observability metrics
+pub const PROCESS_SERVICE_STREAMS_TOTAL: &str = "cymbal_process_service_streams_total";
+pub const PROCESS_SERVICE_TERMINAL_OUTCOMES_TOTAL: &str =
+    "cymbal_process_service_terminal_outcomes_total";
+pub const PROCESS_SERVICE_ITEM_DURATION_SECONDS: &str =
+    "cymbal_process_service_item_duration_seconds";
+pub const PROCESS_SERVICE_IN_FLIGHT_ITEMS: &str = "cymbal_process_service_in_flight_items";
 
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";

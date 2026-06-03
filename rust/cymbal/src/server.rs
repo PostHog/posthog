@@ -46,11 +46,7 @@ pub async fn start_server(config: Config, context: Arc<AppContext>) -> () {
 }
 
 async fn start_process_grpc_server(config: Config, context: Arc<AppContext>) {
-    let service_config = ProcessServiceConfig::new(
-        config.process_grpc_stream_output_buffer,
-        config.process_grpc_per_stream_max_in_flight_items,
-        config.process_grpc_item_deadline_ms,
-    );
+    let service_config = ProcessServiceConfig::new(config.process_grpc_stream_output_buffer);
     let service =
         CymbalProcessService::new(service_config, context.process_grpc_item_limiter.clone());
 
@@ -69,9 +65,7 @@ async fn start_process_grpc_server(config: Config, context: Arc<AppContext>) {
     info!(
         bind = %config.process_grpc_bind_addr,
         max_concurrent_streams = config.process_grpc_max_concurrent_streams,
-        per_stream_max_in_flight_items = config.process_grpc_per_stream_max_in_flight_items,
         max_in_flight_items = config.process_grpc_max_in_flight_items,
-        item_deadline_ms = config.process_grpc_item_deadline_ms,
         "Cymbal process gRPC server listening"
     );
 
