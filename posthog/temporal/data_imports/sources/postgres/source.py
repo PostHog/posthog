@@ -363,11 +363,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         indexed_columns_by_table = None
 
                     # Row-level security check powers the advisory warning in the table picker.
-                    try:
-                        rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
-                    except Exception as e:
-                        capture_exception(e)
-                        rls_active_by_table = {}
+                    rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
             except Exception as e:
                 # Connection-level failure: neither lookup is usable.
                 capture_exception(e)
