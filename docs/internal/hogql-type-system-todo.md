@@ -82,6 +82,11 @@ Still intentionally left as follow-up work:
 - Strict resolver mode.
 - Query-corpus unknown-type baselines and broader ClickHouse integration tests for inferred result types, nullability, timezone-sensitive behavior, and planner/index wins beyond the typed materialized-property cases already covered.
 
+Branch hygiene before merge:
+
+- [ ] Regenerate the revenue analytics `.ambr` snapshots from the full snapshot-bearing test classes.
+      The current branch diff drops many live revenue snapshot entries while the Python tests still exist, which looks like a partial snapshot update rather than an intentional type-system change.
+
 The compatibility constraint below still applies.
 Unknown or partially-known expressions remain printable by default; missing signatures are optimizer barriers, not user-facing errors.
 
