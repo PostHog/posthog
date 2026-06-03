@@ -522,7 +522,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 2)
 
     @parameterized.expand([("impersonated", True), ("not_impersonated", False)])
-    def test_list_hides_impersonation_exports_outside_impersonation(self, _name: str, impersonated: bool) -> None:
+    def test_list_shows_impersonation_exports(self, _name: str, impersonated: bool) -> None:
         impersonation_asset = ExportedAsset.objects.create(
             team=self.team,
             dashboard_id=self.dashboard.id,
@@ -536,10 +536,10 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = {result["id"] for result in response.json()["results"]}
-        # Always visible: the regular asset from setUpTestData. The impersonation asset is
-        # only visible when the viewer is themselves in an impersonated session.
+        # Staff-initiated exports are never hidden from the customer; they show in the
+        # customer's own list regardless of whether the viewer is impersonating.
         self.assertIn(self.exported_asset.id, ids)
-        self.assertEqual(impersonation_asset.id in ids, impersonated)
+        self.assertIn(impersonation_asset.id, ids)
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):

@@ -400,11 +400,6 @@ class ExportedAssetViewSet(
         if self.action == "list":
             queryset = queryset.filter(created_by=self.request.user)
 
-            # Exports created by staff while impersonating a user are hidden from that
-            # user's own list; they are only visible from within an impersonated session.
-            if not is_impersonated_session(self.request):
-                queryset = queryset.exclude(created_during_impersonation=True)
-
             session_recording_filter = self.request.query_params.get("session_recording_id")
             if session_recording_filter:
                 queryset = queryset.filter(
