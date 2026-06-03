@@ -294,6 +294,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                             serializer.is_valid(raise_exception=True)
                             condition["filters"] = serializer.validated_data
 
+        if data.get("type") == "wait_until_condition":
+            wait_events = data.get("config", {}).get("events") or []
+            for event_config in wait_events:
+                filters = event_config.get("filters")
+                if filters is not None:
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    if is_draft:
+                        if serializer.is_valid():
+                            event_config["filters"] = serializer.validated_data
+                    else:
+                        serializer.is_valid(raise_exception=True)
+                        event_config["filters"] = serializer.validated_data
+
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")
             if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
@@ -598,6 +611,23 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     data["conversion"]["bytecode"] = compiled_filters.get("bytecode", [])
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
+
+            for event_config in conversion.get("events") or []:
+                event_filters = event_config.get("filters")
+                if event_filters is not None:
+                    event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
+                    if self.context.get("is_draft"):
+                        if event_serializer.is_valid():
+                            event_config["filters"] = event_serializer.validated_data
+                        elif isinstance(event_filters, dict):
+                            # Draft with invalid filters: never keep client-supplied bytecode.
+                            # Conversion isn't revalidated on a status-only activation, so stored
+                            # bytecode would activate unvalidated and the matcher would execute it.
+                            # Strip it so the filter fails closed (no bytecode = never matches).
+                            event_filters.pop("bytecode", None)
+                    else:
+                        event_serializer.is_valid(raise_exception=True)
+                        event_config["filters"] = event_serializer.validated_data
 
         return data
 
