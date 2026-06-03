@@ -3,9 +3,10 @@ import { useMemo } from 'react'
 
 import { IconBolt } from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
-import { type ChartTheme, Metric } from '@posthog/quill-charts'
+import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { Metric } from 'lib/hog-charts/blocks/Metric/Metric'
 import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
