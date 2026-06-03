@@ -29,6 +29,9 @@ If you need to cut a release by hand, keep the same file and tag contract:
 ```bash
 cd cli
 sampo release
+new_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+git restore Cargo.lock
+cargo update -p posthog-cli --precise "$new_version"
 cargo metadata --format-version 1 --no-deps > /dev/null
 git add Cargo.toml Cargo.lock CHANGELOG.md .sampo/changesets
 git commit -m "chore(cli): release v0.1.0"

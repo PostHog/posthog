@@ -112,8 +112,13 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   sampo release
-                  cargo metadata --format-version 1 --no-deps > /dev/null
                   new_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+
+                  # Sampo regenerates the whole lockfile; keep the release bump scoped to the local package version.
+                  git restore Cargo.lock
+                  cargo update -p posthog-cli --precise "$new_version"
+                  cargo metadata --format-version 1 --no-deps > /dev/null
+
                   echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
                   echo "Prepared posthog-cli v$new_version"
 
@@ -130,6 +135,11 @@ jobs:
                   if [ -n "$unexpected" ]; then
                       echo "::error::Unexpected files changed during CLI release prep:"
                       echo "$unexpected"
+                      exit 1
+                  fi
+
+                  if ! echo "$changed_files" | grep -qx 'cli/Cargo.lock'; then
+                      echo "::error::CLI release prep did not update cli/Cargo.lock"
                       exit 1
                   fi
 
