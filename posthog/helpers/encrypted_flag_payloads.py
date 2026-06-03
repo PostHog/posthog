@@ -21,7 +21,7 @@ def get_decrypted_flag_payloads(encrypted_payloads: dict, should_decrypt: bool) 
 
 
 def get_decrypted_flag_payload(encrypted_payload: str | object, should_decrypt: bool) -> str:
-    codec = EncryptionCodec(settings)
+    codec = EncryptionCodec.from_settings(settings)
     return (
         codec.decrypt(str(encrypted_payload).encode("utf-8")).decode("utf-8")
         if should_decrypt
@@ -41,7 +41,7 @@ def encrypt_flag_payloads(validated_data: dict):
 
     payloads = validated_data["filters"]["payloads"]
 
-    codec = EncryptionCodec(settings)
+    codec = EncryptionCodec.from_settings(settings)
 
     for key, value in payloads.items():
         try:

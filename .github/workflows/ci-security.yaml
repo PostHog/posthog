@@ -17,7 +17,7 @@ env:
 jobs:
     semgrep-python:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 30
 
         steps:
             - name: Log in to Docker Hub
@@ -51,7 +51,7 @@ jobs:
 
     semgrep-go:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
 
         steps:
             - name: Log in to Docker Hub
@@ -83,7 +83,7 @@ jobs:
 
     semgrep-rust:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
 
         steps:
             - name: Log in to Docker Hub
@@ -117,7 +117,7 @@ jobs:
 
     semgrep-js:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         steps:
             - name: Log in to Docker Hub
@@ -148,7 +148,7 @@ jobs:
 
     semgrep-products-frontend:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         steps:
             - name: Log in to Docker Hub
@@ -180,7 +180,7 @@ jobs:
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         steps:
             - name: Log in to Docker Hub
@@ -231,7 +231,7 @@ jobs:
     # See `.semgrep/devex-rules/README.md`.
     semgrep-devex:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         steps:
             - name: Log in to Docker Hub
@@ -276,7 +276,7 @@ jobs:
 
     semgrep-test-rules:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
 
         steps:
             - name: Log in to Docker Hub

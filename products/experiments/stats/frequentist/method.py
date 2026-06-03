@@ -4,13 +4,16 @@ from typing import Any, Optional
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import AnyStatistic, StatisticError
-from .tests import TestResult, TwoSidedTTest
+from .tests import SequentialTwoSidedTTest, StatisticalTest, TestResult, TwoSidedTTest
 
 
 class TestType(Enum):
     """Available test types."""
 
     TWO_SIDED = "two_sided"
+
+
+DEFAULT_SEQUENTIAL_TUNING_PARAMETER: float = SequentialTwoSidedTTest.DEFAULT_TUNING_PARAMETER
 
 
 @dataclass
@@ -20,11 +23,15 @@ class FrequentistConfig:
     alpha: float = 0.05
     difference_type: DifferenceType = DifferenceType.RELATIVE
     test_type: TestType = TestType.TWO_SIDED
+    sequential_testing_enabled: bool = False
+    sequential_tuning_parameter: float = DEFAULT_SEQUENTIAL_TUNING_PARAMETER
 
     def __post_init__(self):
         """Validate configuration parameters."""
         if not (0 < self.alpha < 1):
             raise StatisticError("Alpha must be between 0 and 1")
+        if self.sequential_testing_enabled and self.sequential_tuning_parameter <= 0:
+            raise StatisticError("Sequential tuning parameter must be positive")
 
 
 class FrequentistMethod:
@@ -74,7 +81,13 @@ class FrequentistMethod:
             StatisticError: If inputs are invalid or test fails
         """
         if self.config.test_type == TestType.TWO_SIDED:
-            test = TwoSidedTTest(self.config.alpha)
+            if self.config.sequential_testing_enabled:
+                test: StatisticalTest = SequentialTwoSidedTTest(
+                    alpha=self.config.alpha,
+                    sequential_tuning_parameter=self.config.sequential_tuning_parameter,
+                )
+            else:
+                test = TwoSidedTTest(self.config.alpha)
         else:
             raise StatisticError(f"Unknown test type: {self.config.test_type}")
 

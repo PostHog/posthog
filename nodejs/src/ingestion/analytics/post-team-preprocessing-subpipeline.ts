@@ -96,10 +96,18 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             .pipeBatch(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-            // Prefetch must run after cookieless, as cookieless changes distinct IDs
-            .pipeBatch(prefetchPersonsStep(personsStore, personsPrefetchEnabled))
+            // Prefetch must run after cookieless, as cookieless changes distinct IDs.
+            // Retry transient persons-Postgres failures (e.g. PgBouncer scale-down) instead
+            // of letting them crash the consumer loop.
+            .pipeBatchWithRetry(prefetchPersonsStep(personsStore, personsPrefetchEnabled), {
+                tries: 3,
+                sleepMs: 100,
+            })
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
-            .pipeBatch(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled))
+            .pipeBatchWithRetry(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled), {
+                tries: 3,
+                sleepMs: 100,
+            })
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )
