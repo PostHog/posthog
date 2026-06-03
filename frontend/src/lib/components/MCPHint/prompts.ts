@@ -20,11 +20,6 @@ export const SURFACE_KEYS = [
 
 export type SurfaceKey = (typeof SURFACE_KEYS)[number]
 
-export type SurfacePromptContext = {
-    /** Human-readable name/key of the entity the user just acted on (e.g. a feature flag key). */
-    entityName?: string
-}
-
 export type SurfacePrompts = {
     toast: string
     examples: string[]
