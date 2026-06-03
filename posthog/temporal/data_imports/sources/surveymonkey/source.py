@@ -82,7 +82,6 @@ Make sure to grant the following read scopes:
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

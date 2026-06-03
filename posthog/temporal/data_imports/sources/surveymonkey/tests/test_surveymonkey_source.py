@@ -44,9 +44,9 @@ class TestSurveyMonkeySourceConfigFields:
         assert dc_field.defaultValue == "us"
         assert {opt.value for opt in dc_field.options} == {"us", "eu", "ca"}
 
-    def test_is_unreleased_alpha(self) -> None:
+    def test_is_released_alpha(self) -> None:
         cfg = SurveyMonkeySource().get_source_config
-        assert cfg.unreleasedSource is True
+        assert not cfg.unreleasedSource
         assert cfg.releaseStatus == ReleaseStatus.ALPHA
 
 
