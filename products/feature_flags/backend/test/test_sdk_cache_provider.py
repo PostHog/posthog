@@ -1,5 +1,6 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -85,6 +86,61 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
         from posthoganalytics.flag_definition_cache import FlagDefinitionCacheProvider
 
         assert isinstance(self.provider, FlagDefinitionCacheProvider)
+
+
+class TestHyperCacheFlagProviderTeamResolution(SimpleTestCase):
+    # Lazy, injected self-team resolution (the local/self-hosted dynamic path).
+
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_injected_resolver_used_for_lookup(self, mock_hypercache):
+        mock_hypercache.get_from_cache.return_value = None
+        provider = HyperCacheFlagProvider(team_id_resolver=lambda: 7)
+
+        provider.get_flag_definitions()
+
+        mock_hypercache.get_from_cache.assert_called_once_with(7)
+
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_none_resolution_short_circuits_lookup(self, mock_hypercache):
+        provider = HyperCacheFlagProvider(team_id_resolver=lambda: None)
+
+        assert provider.get_flag_definitions() is None
+        mock_hypercache.get_from_cache.assert_not_called()
+
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_resolver_memoized_after_first_success(self, mock_hypercache):
+        mock_hypercache.get_from_cache.return_value = None
+        resolver = Mock(return_value=7)
+        provider = HyperCacheFlagProvider(team_id_resolver=resolver)
+
+        provider.get_flag_definitions()
+        provider.get_flag_definitions()
+
+        resolver.assert_called_once()
+
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_resolver_retried_until_success(self, mock_hypercache):
+        mock_hypercache.get_from_cache.return_value = None
+        resolver = Mock(side_effect=[None, 7])
+        provider = HyperCacheFlagProvider(team_id_resolver=resolver)
+
+        # First poll: resolver returns None → lookup skipped, retried next time.
+        assert provider.get_flag_definitions() is None
+        mock_hypercache.get_from_cache.assert_not_called()
+
+        # Second poll: resolver returns 7 → lookup runs against the resolved id.
+        provider.get_flag_definitions()
+        assert resolver.call_count == 2
+        mock_hypercache.get_from_cache.assert_called_once_with(7)
+
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_missing_team_returns_none(self, mock_hypercache):
+        # A configured team that doesn't exist makes get_from_cache raise Team.DoesNotExist
+        # on a cache miss; the provider returns None so the SDK falls back to its API.
+        mock_hypercache.get_from_cache.side_effect = ObjectDoesNotExist
+        provider = HyperCacheFlagProvider(team_id=2)
+
+        assert provider.get_flag_definitions() is None
 
 
 SAMPLE_FLAGS = {

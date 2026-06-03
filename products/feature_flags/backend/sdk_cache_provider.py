@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -21,9 +22,21 @@ class HyperCacheFlagProvider:
     by reading directly from the same Redis cache.
     """
 
-    def __init__(self, team_id: int):
-        self._team_id = team_id
+    def __init__(
+        self,
+        team_id: Optional[int] = None,
+        team_id_resolver: Optional[Callable[[], Optional[int]]] = None,
+    ):
+        self._team_id = team_id  # static (Cloud) or memoized dynamic result
+        self._team_id_resolver = team_id_resolver  # lazy resolver (local/self-hosted)
         self._hypercache: Optional[HyperCache] = None
+
+    def _resolve_team_id(self) -> Optional[int]:
+        # Resolve once and memoize; a None result is NOT cached, so we retry next poll
+        # (e.g. resolution attempted before the first team exists / before migrations).
+        if self._team_id is None and self._team_id_resolver is not None:
+            self._team_id = self._team_id_resolver()
+        return self._team_id
 
     def _get_hypercache(self):
         """Lazily resolve the hypercache reference.
@@ -41,8 +54,12 @@ class HyperCacheFlagProvider:
         return self._hypercache
 
     def get_flag_definitions(self) -> Optional[FlagDefinitionCacheData]:
+        team_id = self._resolve_team_id()
+        if team_id is None:
+            # No self-team resolved (yet) — skip the lookup; the SDK falls back.
+            return None
         try:
-            data = self._get_hypercache().get_from_cache(self._team_id)
+            data = self._get_hypercache().get_from_cache(team_id)
             if data is not None:
                 # Defensive: ensure a valid FlagDefinitionCacheData even if
                 # the HyperCache shape drifts in the future.
@@ -56,10 +73,10 @@ class HyperCacheFlagProvider:
             # Expected during Django startup — local_evaluation.py has a
             # circular import chain through cohort.util that resolves once
             # all modules finish loading. The SDK's next poll cycle will retry.
-            logger.debug("hypercache_flag_provider_import_pending", team_id=self._team_id)
+            logger.debug("hypercache_flag_provider_import_pending", team_id=team_id)
             return None
         except Exception:
-            logger.exception("hypercache_flag_provider_read_error", team_id=self._team_id)
+            logger.exception("hypercache_flag_provider_read_error", team_id=team_id)
             return None
 
     def should_fetch_flag_definitions(self) -> bool:

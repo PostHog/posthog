@@ -14,6 +14,7 @@ from posthog.utils import (
     get_available_timezones_with_offsets,
     get_instance_region,
     get_machine_id,
+    get_self_capture_team_id,
     initialize_self_capture_api_token,
     str_to_bool,
 )
@@ -93,9 +94,18 @@ class PostHogConfig(AppConfig):
         if not posthoganalytics.disabled:
             from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 
-            posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
-                team_id=int(os.environ.get("POSTHOG_SELF_TEAM_ID", "2"))
-            )
+            explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+            if explicit_team_id is None and settings.SELF_CAPTURE and not settings.E2E_TESTING:
+                # Local/self-hosted: resolve the self-team lazily (like self-capture), instead
+                # of assuming team 2 exists. Resolution happens inside get_flag_definitions.
+                posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
+                    team_id_resolver=get_self_capture_team_id
+                )
+            else:
+                # Cloud (SELF_CAPTURE off), E2E, or an explicit operator override: static team id.
+                posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
+                    team_id=int(explicit_team_id) if explicit_team_id else 2
+                )
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:

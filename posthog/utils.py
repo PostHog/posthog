@@ -40,7 +40,7 @@ import orjson
 import lzstring
 import structlog
 import posthoganalytics
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
@@ -676,29 +676,37 @@ def render_template(
     return response
 
 
-async def initialize_self_capture_api_token():
-    """
-    Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
-    """
+def resolve_self_capture_team() -> Optional["Team"]:
+    """Resolve the team a local/self-hosted instance should treat as its own.
 
+    Mirrors the self-capture chain: the most-recently-active user's current team,
+    then the first team on the instance, then None. Safe before migrations have run
+    and when no users/teams exist. Loads a full Team row (no `.only(...)`) so callers
+    can read any field without a deferred-field lazy query on a background thread.
+    """
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
     try:
         user = (
-            await User.objects.filter(last_login__isnull=False)
-            .order_by("-last_login")
-            .select_related("current_team")
-            .afirst()
+            User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
         )
-        # Get the current user's team (or first team in the instance) to set self capture configs
-        team = None
         if user and getattr(user, "current_team", None):
-            team = user.current_team
-        else:
-            team = await Team.objects.only("api_token").afirst()
-        local_api_key = team.api_token if team else None
+            return user.current_team
+        return Team.objects.first()
     except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
-        local_api_key = None
+        return None
+
+
+def get_self_capture_team_id() -> Optional[int]:
+    """team_id form of `resolve_self_capture_team()`, for callers that only need the id."""
+    team = resolve_self_capture_team()
+    return team.id if team is not None else None
+
+
+async def initialize_self_capture_api_token():
+    """Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way."""
+    team = await sync_to_async(resolve_self_capture_team)()
+    local_api_key = team.api_token if team else None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
     if local_api_key is not None:

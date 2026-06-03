@@ -19,7 +19,7 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, GroupTypeMapping
+from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team, User
 from posthog.settings.utils import get_from_env
 from posthog.utils import (
     PotentialSecurityProblemException,
@@ -34,10 +34,12 @@ from posthog.utils import (
     get_default_event_name,
     get_ip_address,
     get_js_url,
+    get_self_capture_team_id,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    resolve_self_capture_team,
     str_to_int_set,
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
@@ -1059,3 +1061,53 @@ class TestTemplateContextHistogram(TestCase):
             get_context_for_template("index.html", request)
 
         assert self._count_for_labels("index.html", expected_label) == before + 1
+
+
+class TestResolveSelfCaptureTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_self_capture_team() reads the whole users/teams tables, so each test must
+        # control global state. Clear any rows left in the reused test DB; deleting an
+        # organization cascades to its projects and teams, and these deletes roll back with
+        # the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_prefers_most_recently_logged_in_users_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        older_user = User.objects.create_and_join(organization, "older@posthog.com", self.PASSWORD)
+        older_user.current_team = first_team
+        older_user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        older_user.save()
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_self_capture_team() == recent_team
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_falls_back_to_first_team_when_no_qualifying_user(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        second_team = Team.objects.create(organization=organization, name="Second")
+
+        # A user that has never logged in (last_login is None) must not qualify,
+        # even though its current_team points at the second team.
+        never_logged_in = User.objects.create_and_join(organization, "never@posthog.com", self.PASSWORD)
+        never_logged_in.current_team = second_team
+        never_logged_in.last_login = None
+        never_logged_in.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_self_capture_team() is None
+        assert get_self_capture_team_id() is None
