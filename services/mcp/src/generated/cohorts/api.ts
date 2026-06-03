@@ -17,6 +17,12 @@ export const CohortsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
+    basic: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
