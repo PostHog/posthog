@@ -20,7 +20,7 @@ from posthog.sync import database_sync_to_async
 
 from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
@@ -101,16 +101,16 @@ def _flag_on(request):
 
 
 @pytest.fixture(autouse=True)
-def _stub_canonical_seed(request):
-    """Stub `seed_canonical_skills` to a no-op so tests assert on hand-authored skills only.
+def _stub_canonical_sync(request):
+    """Stub `sync_canonical_skills` to a no-op so tests assert on hand-authored skills only.
 
-    Tests that exercise the real sync opt out via `@pytest.mark.real_canonical_seed`.
+    Tests that exercise the real sync opt out via `@pytest.mark.real_canonical_sync`.
     """
-    if request.node.get_closest_marker("real_canonical_seed"):
+    if request.node.get_closest_marker("real_canonical_sync"):
         yield
         return
     with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.seed_canonical_skills",
+        "products.signals.backend.temporal.agentic.scout_coordinator.sync_canonical_skills",
         return_value=None,
     ):
         yield
@@ -290,7 +290,7 @@ async def test_seed_failure_does_not_abort_tick(ateam):
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.seed_canonical_skills",
+        "products.signals.backend.temporal.agentic.scout_coordinator.sync_canonical_skills",
         side_effect=RuntimeError("simulated seed failure"),
     ):
         planned = await _run_activity()
@@ -300,11 +300,11 @@ async def test_seed_failure_does_not_abort_tick(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.real_canonical_seed
+@pytest.mark.real_canonical_sync
 async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     # Enrolling a team seeds the canonical fleet; the coordinator then auto-registers a
     # config per seeded skill and dispatches the due ones.
-    await database_sync_to_async(seed_canonical_skills)(ateam)
+    await database_sync_to_async(sync_canonical_skills)(ateam)
     seeded = await database_sync_to_async(
         lambda: set(
             LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").values_list("name", flat=True)

@@ -18,7 +18,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 
@@ -100,13 +100,17 @@ def _collect_planned_runs() -> list[PlannedRun]:
     now = timezone.now()
     due: list[_DueRun] = []
     for team in _participating_teams():
-        # Seed canonical scouts so a freshly-enrolled team has skills to register on.
-        # Idempotent; a failure here doesn't abort the tick.
+        # Sync canonical scouts so a freshly-enrolled team has skills to register on.
+        # `prune=True`: the periodic tick is a deliberate reconciliation path, so it also
+        # tombstones rows whose canonical was removed from disk (the runner cold-start sync
+        # leaves prune off). The sync also propagates updates to canonical content for any
+        # harness-seeded row the team hasn't edited, so a merged SKILL.md change rolls out
+        # within one coordinator tick. Idempotent; a failure here doesn't abort the tick.
         try:
-            seed_canonical_skills(team)
+            sync_canonical_skills(team, prune=True)
         except Exception:
             logger.exception(
-                "signals_scout coordinator: canonical skill seed failed for team; continuing",
+                "signals_scout coordinator: canonical skill sync failed for team; continuing",
                 team_id=team.id,
             )
         live_skills = _register_missing_configs(team)
