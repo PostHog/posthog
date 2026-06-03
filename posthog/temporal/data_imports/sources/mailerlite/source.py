@@ -35,7 +35,6 @@ class MailerLiteSource(ResumableSource[MailerLiteSourceConfig, MailerLiteResumeC
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILER_LITE,
             label="MailerLite",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your MailerLite API key to pull your MailerLite data into the PostHog Data warehouse.
 

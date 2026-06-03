@@ -24,7 +24,7 @@ class TestMailerLiteSourceClass:
     def test_source_config_fields(self) -> None:
         config = MailerLiteSource().get_source_config
         assert config.label == "MailerLite"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is not True
         assert [field.name for field in config.fields] == ["api_key"]
         api_key_field = config.fields[0]
         assert isinstance(api_key_field, SourceFieldInputConfig)
