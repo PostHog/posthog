@@ -116,9 +116,7 @@ class TestTicketAPI(APIBaseTest):
 
     def test_retrieve_ticket_by_display_id(self, mock_on_commit):
         """Tickets resolve by their display ID just like by UUID or ticket_number."""
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.display_id}/"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.display_id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
 
@@ -131,9 +129,7 @@ class TestTicketAPI(APIBaseTest):
     def test_retrieve_ticket_by_display_id_wrong_prefix_returns_404(self, mock_on_commit):
         """A display ID with another model's prefix is not treated as a ticket lookup."""
         foreign_display_id = encode_display_id("cus", self.ticket.id)
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/conversations/tickets/{foreign_display_id}/"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{foreign_display_id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update_ticket_by_ticket_number(self, mock_on_commit):
