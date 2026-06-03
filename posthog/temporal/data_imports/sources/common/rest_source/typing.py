@@ -127,8 +127,8 @@ class ClientConfig(TypedDict, total=False):
     headers: Optional[dict[str, str]]
     auth: Optional[AuthConfig]
     paginator: Optional[PaginatorConfig]
-    # Pre-built session, e.g. one that disables redirects for SSRF-sensitive sources.
-    # When omitted, `RESTClient` builds a tracked session itself.
+    # Optional pre-built session. Sources that need SSRF-guarding or other custom
+    # transport behaviour pass one here; left unset, RESTClient builds a tracked session.
     session: Optional[Session]
 
 

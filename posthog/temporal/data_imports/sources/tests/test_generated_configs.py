@@ -4,6 +4,7 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     DoItSourceConfig,
     GoogleAdsSourceConfig,
     GoogleSheetsSourceConfig,
+    GorgiasSourceConfig,
     HubspotSourceConfig,
     MetaAdsSourceConfig,
     MongoDBSourceConfig,
@@ -71,6 +72,13 @@ def test_google_ads_config():
 def test_google_sheets_config():
     config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "google.com"})
     assert config.spreadsheet_url == "google.com"
+
+
+def test_gorgias_config():
+    config = GorgiasSourceConfig.from_dict({"gorgias_domain": "acme", "email": "you@acme.com", "api_key": "api_key"})
+    assert config.gorgias_domain == "acme"
+    assert config.email == "you@acme.com"
+    assert config.api_key == "api_key"
 
 
 def test_hubspot_config():

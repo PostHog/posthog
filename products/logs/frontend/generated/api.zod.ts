@@ -12,7 +12,6 @@ import * as zod from 'zod'
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
-
 export const logsAlertsCreateBodyThresholdCountDefault = 100
 export const logsAlertsCreateBodyThresholdCountMin = 0
 
@@ -53,16 +52,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.null(),
                 ])
-                .nullish()
-                .default(null),
-            serviceNames: zod
-                .union([zod.array(zod.string()), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
             severityLevels: zod
                 .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
         })
         .optional()
         .describe(
@@ -112,7 +106,6 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsUpdateBodyNameMax = 255
 
 export const logsAlertsUpdateBodyEnabledDefault = true
-
 export const logsAlertsUpdateBodyThresholdCountDefault = 100
 export const logsAlertsUpdateBodyThresholdCountMin = 0
 
@@ -153,16 +146,11 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.null(),
                 ])
-                .nullish()
-                .default(null),
-            serviceNames: zod
-                .union([zod.array(zod.string()), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
             severityLevels: zod
                 .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
         })
         .optional()
         .describe(
@@ -212,7 +200,6 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsPartialUpdateBodyNameMax = 255
 
 export const logsAlertsPartialUpdateBodyEnabledDefault = true
-
 export const logsAlertsPartialUpdateBodyThresholdCountDefault = 100
 export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
@@ -253,16 +240,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.null(),
                 ])
-                .nullish()
-                .default(null),
-            serviceNames: zod
-                .union([zod.array(zod.string()), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
             severityLevels: zod
                 .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
         })
         .optional()
         .describe(
@@ -340,7 +322,6 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
 /**
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
-
 export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
 
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
@@ -372,16 +353,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.null(),
                 ])
-                .nullish()
-                .default(null),
-            serviceNames: zod
-                .union([zod.array(zod.string()), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
             severityLevels: zod
                 .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
-                .nullish()
-                .default(null),
+                .optional(),
         })
         .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
     threshold_count: zod
