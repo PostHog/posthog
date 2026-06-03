@@ -347,8 +347,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
 class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     """Tracks batch recalculation of all metrics for an experiment.
 
-    The primary key (`id`, a uuid7 from UUIDModel) is the recalculation_id passed to the workflow and folded into
-    each result's per-run recalc fingerprint (sha256(config_fp + str(id))).
+    The primary key (`id`, a uuid7 from UUIDModel) is the recalculation_id passed to the recalculation workflow.
     """
 
     class Status(models.TextChoices):
