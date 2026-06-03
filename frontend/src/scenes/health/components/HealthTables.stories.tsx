@@ -194,9 +194,12 @@ const SDK_OUTDATED_ISSUE: HealthIssue = createMockIssue('sdk-1', {
         sdk_name: 'web',
         latest_version: '1.142.0',
         current_version: '1.142.0',
+        is_outdated: true,
+        is_old: false,
         // The latest in-use version already matches latest, but an older version is still
         // serving a significant share of traffic — the reason explains both.
         reason: 'Latest in-use version 1.142.0 matches latest 1.142.0. Outdated versions still handling >= 20% of traffic: 1.130.0.',
+        banners: ['Version 1.130.0 of the Web SDK has captured more than 20% of events in the last 7 days.'],
         usage: [
             {
                 lib_version: '1.142.0',
