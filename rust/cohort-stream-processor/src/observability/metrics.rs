@@ -61,8 +61,9 @@ pub const REVOKE_DRAIN_DURATION_SECONDS: &str = "revoke_drain_duration_seconds";
 /// Per-partition RocksDB state slices reclaimed on revoke (counter). Pairs with
 /// [`PARTITIONS_REVOKED_TOTAL`]; the gap is revokes that re-acquired before cleanup ran.
 pub const PARTITION_STATE_DELETED_TOTAL: &str = "partition_state_deleted_total";
-/// Revoke cleanups skipped because the partition was re-assigned before the async drain ran — the
-/// rapid revoke→assign race (counter).
+/// Revoke cleanups skipped because the partition was re-acquired before the wipe ran — the rapid
+/// revoke→assign race (counter). Labelled by `phase`: `entry` (re-acquired before the drain started)
+/// or `post_join` (re-acquired during the worker join, so the slice is preserved for the new tenure).
 pub const REBALANCE_CLEANUP_SKIPPED_TOTAL: &str = "rebalance_cleanup_skipped_total";
 
 // ── Stage 1 worker ─────────────────────────────────────────────────────────────
@@ -97,9 +98,17 @@ pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_s
 // ── `cohort_stream_events` consumer ────────────────────────────────────────────
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
-/// Events routed to a per-partition worker (counter). Conservation chain: `consumed == dispatched`
-/// and `dispatched == processed + Σskipped + route_errors`.
+/// Events actually routed to a per-partition worker (counter). Counts only routed events — events
+/// for a partition this consumer no longer owns are excluded (see
+/// [`COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED`]). Conservation chain:
+/// `consumed == dispatched + not_owned_skipped` and `dispatched == processed + Σskipped + route_errors`.
 pub const COHORT_STREAM_EVENTS_DISPATCHED: &str = "cohort_stream_events_dispatched_total";
+/// Events dropped in `dispatch` because this consumer no longer owns their partition (counter): a
+/// revoke that raced an already-`recv()`'d in-flight batch. The event is never routed and never
+/// marked processed, so Kafka replays it on the partition's true owner. Closes the consumer half of
+/// the conservation chain: `consumed == dispatched + not_owned_skipped`.
+pub const COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED: &str =
+    "cohort_stream_events_skipped_not_owned_total";
 /// A worker tried to mark an offset past what the dispatcher routed to it, so the
 /// [`OffsetTracker`](crate::partitions::OffsetTracker) capped it (counter). A non-zero rate should
 /// page.

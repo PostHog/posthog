@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use dashmap::mapref::entry::Entry;
 use dashmap::{DashMap, DashSet};
 use lifecycle::Handle;
 use metrics::{counter, histogram};
@@ -24,10 +25,10 @@ use crate::filters::manager::CatalogHandle;
 use crate::observability::metrics::{
     COHORT_STREAM_CONSUME_BATCH_SIZE, COHORT_STREAM_DESERIALIZE_ERRORS,
     COHORT_STREAM_EMPTY_PAYLOAD, COHORT_STREAM_EVENTS_CONSUMED, COHORT_STREAM_EVENTS_DISPATCHED,
-    COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_OFFSET_COMMITS,
-    COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS, COHORT_STREAM_WORKERS_SPAWNED,
-    PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL,
-    REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
+    COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED, COHORT_STREAM_KAFKA_RECV_ERRORS,
+    COHORT_STREAM_OFFSET_COMMITS, COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS,
+    COHORT_STREAM_WORKERS_SPAWNED, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_REVOKED_TOTAL,
+    PARTITION_STATE_DELETED_TOTAL, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
@@ -131,12 +132,20 @@ impl EventDispatcher {
     /// needs no special handling — a message that reached no worker is never processed, so its
     /// offset stays below the committable point (the ceiling is a cap, never a floor) and Kafka
     /// replays it.
+    ///
+    /// An event whose partition this consumer no longer [`owns`](Self::owns) is dropped before any
+    /// worker spawn or ceiling bump: a revoke clears `owned` synchronously on the poll thread
+    /// (`revoke_partition_sync`), but an already-`recv()`'d batch can still arrive here afterwards.
+    /// Routing it would resurrect a partition the revoke drain has reclaimed, so the gate skips it.
+    /// The skipped event is never marked processed, so Kafka replays it on the true owner. The gate
+    /// sits *before* `mark_dispatched` deliberately: bumping the ceiling for a dropped event would
+    /// leak a tracker entry that the next reassignment would inherit.
     pub async fn dispatch(&self, batch: Vec<ConsumedEvent>) {
         if batch.is_empty() {
             return;
         }
 
-        let dispatched = batch.len() as u64;
+        let mut not_owned_skipped: u64 = 0;
         let mut messages: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(batch.len());
         for ConsumedEvent {
             event,
@@ -144,6 +153,10 @@ impl EventDispatcher {
             offset,
         } in batch
         {
+            if !self.owned.contains(&partition) {
+                not_owned_skipped += 1;
+                continue;
+            }
             self.ensure_worker(partition);
             // `+ 1` is the next-offset-to-consume convention.
             self.tracker.mark_dispatched(partition, offset + 1);
@@ -155,7 +168,8 @@ impl EventDispatcher {
                 },
             ));
         }
-        counter!(COHORT_STREAM_EVENTS_DISPATCHED).increment(dispatched);
+        counter!(COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED).increment(not_owned_skipped);
+        counter!(COHORT_STREAM_EVENTS_DISPATCHED).increment(messages.len() as u64);
 
         let errors = self.router.route_batch(messages).await;
         if !errors.is_empty() {
@@ -163,36 +177,56 @@ impl EventDispatcher {
         }
     }
 
-    /// Spawn a worker the first time a partition delivers, registering its router channel; a no-op
-    /// once the worker exists. `partition as u16` is exact (64-part shuffler output, non-negative)
-    /// and matches the store's `partition_id` key type. The `None` arm is effectively unreachable,
-    /// but is logged rather than asserted so a concurrent-spawn race degrades to a replayed batch
-    /// instead of a panic.
+    /// Spawn a worker the first time an *owned* partition delivers, registering its router channel; a
+    /// no-op once the worker exists, and a no-op for a partition this consumer no longer owns. The
+    /// ownership check and the worker insert happen atomically under the `workers` shard guard, so a
+    /// late in-flight batch can never resurrect a partition a concurrent revoke drain is reclaiming
+    /// (the drain's `workers.remove` takes the same shard lock). `partition as u16` is exact (64-part
+    /// shuffler output, non-negative) and matches the store's `partition_id` key type. The `None` arm
+    /// is effectively unreachable, but is logged rather than asserted so a concurrent-spawn race
+    /// degrades to a replayed batch instead of a panic.
     fn ensure_worker(&self, partition: i32) {
-        if self.workers.contains_key(&partition) {
-            return;
-        }
-        match self.router.add_partition(partition) {
-            Some(receiver) => {
-                let worker = Stage1Worker::spawn(
-                    partition as u16,
-                    receiver,
-                    self.store.clone(),
-                    self.catalog.clone(),
-                    self.sink.clone(),
-                    self.tracker.clone(),
-                );
-                self.workers.insert(partition, worker);
-                counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
-                info!(
-                    partition,
-                    "spawned stage 1 worker for newly-delivered partition"
-                );
+        match self.workers.entry(partition) {
+            Entry::Occupied(_) => {}
+            Entry::Vacant(slot) => {
+                // INVARIANT: nothing in this arm may become `.await` — the DashMap shard guard is held
+                // across the whole arm, and holding a guard across an await would both deadlock the
+                // shard and risk UB. `owned.contains`, `router.add_partition`, and `Stage1Worker::spawn`
+                // (which only calls `tokio::spawn`, never `.await`) are all synchronous; keep them so.
+                //
+                // The ownership check + insert are atomic under this guard, serializing the spawn
+                // against a concurrent revoke drain's `workers.remove` (same shard lock). A revoke
+                // clears `owned` synchronously *before* the drain is queued, so observing
+                // `owned(partition) = true` here means no drain for this epoch has begun: either we
+                // spawn first (the drain then removes + joins our worker and wipes its slice), or the
+                // drain removed first (we see `Vacant` and `owned` is false — unless legitimately
+                // re-acquired, where spawning is correct). Never spawn for an unowned partition.
+                if !self.owned.contains(&partition) {
+                    return;
+                }
+                match self.router.add_partition(partition) {
+                    Some(receiver) => {
+                        let worker = Stage1Worker::spawn(
+                            partition as u16,
+                            receiver,
+                            self.store.clone(),
+                            self.catalog.clone(),
+                            self.sink.clone(),
+                            self.tracker.clone(),
+                        );
+                        slot.insert(worker);
+                        counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
+                        info!(
+                            partition,
+                            "spawned stage 1 worker for newly-delivered partition"
+                        );
+                    }
+                    None => warn!(
+                        partition,
+                        "router holds a live channel but no worker is registered; skipping spawn",
+                    ),
+                }
             }
-            None => warn!(
-                partition,
-                "router holds a live channel but no worker is registered; skipping spawn",
-            ),
         }
     }
 
@@ -223,18 +257,22 @@ impl EventDispatcher {
     /// Asynchronous half of a revoke: reclaim the partition unless a reassign re-acquired it.
     ///
     /// Run off the poll thread (it does async I/O). Re-checks ownership against the *current* state,
-    /// not the queued snapshot — the rapid revoke→assign guard:
-    /// - **Re-acquired** → skip entirely. The worker, its channel, and its state are still ours.
+    /// not the queued snapshot, at **two** points — the rapid revoke→assign guard:
+    /// - **Re-acquired before the drain starts** → skip entirely. The worker, its channel, and its
+    ///   state are still ours.
     /// - **Truly revoked** → drop the sender (the worker drains its tail, produces, and exits), evict
     ///   it from `workers`, then delete its on-disk state slice.
+    /// - **Re-acquired *during* the worker join** → skip the wipe after the join. The new tenure reuses
+    ///   its own `partition_id`-prefixed slice, so there is nothing foreign to reclaim, and the worker
+    ///   respawns lazily on the next dispatch.
     ///
-    /// Evicting from `workers` is mandatory: [`ensure_worker`](Self::ensure_worker) gates on
-    /// `workers.contains_key`, so a stale entry would block a future reassignment from respawning the
+    /// Evicting from `workers` is mandatory: [`ensure_worker`](Self::ensure_worker) only spawns into a
+    /// vacant `workers` entry, so a stale entry would block a future reassignment from respawning the
     /// partition — its messages would `RouteError` and replay forever. The eviction sits *after* the
-    /// ownership re-check so it never tears down a re-acquired partition.
+    /// entry ownership re-check so it never tears down a re-acquired partition.
     pub async fn revoke_partition_drain(&self, partition: i32) {
         if self.owned.contains(&partition) {
-            counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL).increment(1);
+            counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL, "phase" => "entry").increment(1);
             debug!(
                 partition,
                 "skipping revoke cleanup: partition re-assigned before cleanup ran"
@@ -249,6 +287,19 @@ impl EventDispatcher {
                 warn!(partition, error = %err, "stage 1 worker panicked during revoke drain");
             }
             histogram!(REVOKE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+        }
+
+        // A reassign that landed *during* the join means the slice and tracker entry belong to the new
+        // tenure now — re-acquiring a partition reuses its own `partition_id`-prefixed slice, so there
+        // is no foreign state to reclaim. Skip the wipe; the worker respawns lazily on the next
+        // dispatch. (The entry re-check above can't catch this window because the join awaits.)
+        if self.owned.contains(&partition) {
+            counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL, "phase" => "post_join").increment(1);
+            debug!(
+                partition,
+                "skipping revoke cleanup post-join: partition re-acquired during the worker drain"
+            );
+            return;
         }
 
         // Drop the offset entry, or the commit loop keeps committing this partition after we lost it.
@@ -797,6 +848,10 @@ mod tests {
         let lsk = behavioral_lsk(&catalog);
         let dispatcher = dispatcher_with(&store, catalog);
 
+        // `dispatch` now drops events for unowned partitions, so the batch's partitions must be owned.
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+
         let batch = vec![
             consumed(person(1), 0, 10),
             consumed(person(2), 0, 11),
@@ -851,6 +906,8 @@ mod tests {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
 
+        dispatcher.assign_partition(0);
+
         dispatcher.dispatch(vec![consumed(person(1), 0, 1)]).await;
         assert_eq!(dispatcher.workers.len(), 1);
 
@@ -866,9 +923,10 @@ mod tests {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
 
-        // Spawn a worker for partition 9, then revoke its router channel: the dispatcher still
+        // Spawn a worker for owned partition 9, then revoke its router channel: the dispatcher still
         // "knows" the partition (so won't re-spawn), but `route_batch` finds no sender and surfaces
         // a RouteError. The dropped event reaches no worker, so its offset is never marked.
+        dispatcher.assign_partition(9);
         dispatcher.ensure_worker(9);
         dispatcher.router.remove_partition(9);
 
@@ -1091,5 +1149,229 @@ mod tests {
         assert!(dispatcher.owns(3));
         dispatcher.revoke_partition_sync(3);
         assert!(!dispatcher.owns(3));
+    }
+
+    #[tokio::test]
+    async fn dispatch_after_full_revoke_does_not_resurrect_partition() {
+        // The #1 rebalance race: a batch that `recv()`'d before the revoke must not respawn a worker
+        // (or write a fresh slice) for a partition this pod has fully reclaimed. Both the dispatch gate
+        // and the spawn gate consult `owned`, which the sync revoke clears before the drain runs.
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = dispatcher_with(&store, catalog);
+
+        dispatcher.assign_partition(0);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.revoke_partition_drain(0).await;
+
+        // Fully reclaimed: no worker, no sender, no slice.
+        assert_eq!(dispatcher.workers.len(), 0);
+        assert_eq!(dispatcher.router.partition_count(), 0);
+        assert!(behavioral_state(&store, 0, person(1), lsk).is_none());
+
+        // A late, already-`recv()`'d batch for the now-unowned partition is dropped, not resurrected.
+        dispatcher.dispatch(vec![consumed(person(2), 0, 11)]).await;
+
+        assert_eq!(
+            dispatcher.workers.len(),
+            0,
+            "no worker respawned for the unowned partition",
+        );
+        assert_eq!(
+            dispatcher.router.partition_count(),
+            0,
+            "no sender re-registered",
+        );
+        assert!(
+            behavioral_state(&store, 0, person(2), lsk).is_none(),
+            "no fresh slice written for the reclaimed partition",
+        );
+        // The gate sits before `mark_dispatched`, so the dropped event leaks no tracker entry/ceiling.
+        assert_eq!(
+            dispatcher.tracker().partition_count(),
+            0,
+            "the dropped event raised no dispatch ceiling",
+        );
+        assert!(!dispatcher.tracker().committable_offsets().contains_key(&0));
+        assert!(!dispatcher.owned_committable_offsets().contains_key(&0));
+    }
+
+    #[tokio::test]
+    async fn ensure_worker_does_not_spawn_for_an_unowned_partition() {
+        // The spawn gate (layer 2): even called directly, `ensure_worker` creates neither a worker nor
+        // a router channel for a partition this consumer does not own.
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        dispatcher.ensure_worker(5);
+        assert_eq!(
+            dispatcher.workers.len(),
+            0,
+            "no worker for an unowned partition",
+        );
+        assert_eq!(
+            dispatcher.router.partition_count(),
+            0,
+            "no channel registered",
+        );
+
+        // Once owned, the same call spawns.
+        dispatcher.assign_partition(5);
+        dispatcher.ensure_worker(5);
+        assert_eq!(dispatcher.workers.len(), 1);
+        assert_eq!(dispatcher.router.partition_count(), 1);
+
+        let _tracker = dispatcher.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn dispatch_routes_owned_and_drops_revoked_without_raising_its_ceiling() {
+        // A batch spanning an owned partition and a just-revoked one routes the owned and drops the
+        // rest — without raising the dropped partition's dispatch ceiling (the gate precedes
+        // `mark_dispatched`).
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = dispatcher_with(&store, catalog);
+
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        // Revoke (and drain) partition 1 so only 0 is owned when the mixed batch arrives.
+        dispatcher.revoke_partition_sync(1);
+        dispatcher.revoke_partition_drain(1).await;
+
+        dispatcher
+            .dispatch(vec![consumed(person(1), 0, 10), consumed(person(2), 1, 20)])
+            .await;
+
+        // Owned partition 0 spawned + routed; revoked partition 1 dropped — no worker, no ceiling.
+        assert_eq!(dispatcher.workers.len(), 1);
+        assert!(dispatcher.workers.contains_key(&0));
+        assert!(!dispatcher.workers.contains_key(&1));
+        assert!(
+            dispatcher.tracker().committed_offset(1).is_none(),
+            "the dropped partition's dispatch ceiling was never raised",
+        );
+
+        let tracker = dispatcher.shutdown().await;
+        assert_eq!(
+            tracker.committable_offsets().get(&0),
+            Some(&11),
+            "the owned partition advanced",
+        );
+        assert!(behavioral_state(&store, 0, person(1), lsk).is_some());
+        assert!(
+            behavioral_state(&store, 1, person(2), lsk).is_none(),
+            "the revoked partition wrote no state",
+        );
+    }
+
+    #[tokio::test]
+    async fn revoke_drain_of_a_never_spawned_partition_is_a_clean_noop() {
+        // Assigned then revoked without ever dispatching: the drain has no worker to join, no tracker
+        // entry to forget, and an empty slice to delete — all a clean no-op.
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        dispatcher.assign_partition(3);
+        dispatcher.revoke_partition_sync(3);
+        dispatcher.revoke_partition_drain(3).await;
+
+        assert_eq!(dispatcher.workers.len(), 0);
+        assert_eq!(dispatcher.router.partition_count(), 0);
+        assert!(!dispatcher.owns(3));
+        assert_eq!(dispatcher.tracker().partition_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown_drains_a_late_dispatch_without_stranding_its_worker() {
+        // The consume loop's final `dispatch` always completes *before* `process()` breaks to
+        // `shutdown` — the biased `select!` only ever cancels an idle `consume_batch`, never an
+        // in-flight dispatch (see `process`). So a worker a last-moment dispatch spawns is guaranteed
+        // to be in `workers` when shutdown drains it. (`shutdown` deliberately does not race a live
+        // dispatch: it does not clear `owned`, so a *concurrent* dispatch could register a worker after
+        // its `router.clear()` and never be signalled to stop — which is exactly why the loop never
+        // dispatches once shutdown has begun.) This pins the no-strand + replay-safe-offset property of
+        // that ordering; the genuine dispatch-vs-cleanup race is covered by the revoke stress test.
+        let (_dir, store) = temp_store();
+        let (dispatcher, sink) = dispatcher_and_sink(&store, behavioral_catalog());
+
+        dispatcher.assign_partition(0);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+        assert_eq!(
+            dispatcher.workers.len(),
+            1,
+            "the late dispatch spawned a worker",
+        );
+
+        let tracker = dispatcher.shutdown().await;
+
+        assert_eq!(
+            dispatcher.workers.len(),
+            0,
+            "shutdown joined the late worker rather than stranding it",
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&0),
+            Some(&11),
+            "its produced tail's offset is committable, so a crash here would replay",
+        );
+        assert_eq!(sink.changes().len(), 1, "the worker flushed before exiting");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_revoke_and_dispatch_never_resurrects_an_unowned_partition() {
+        // Stress the rebalance race the sequential tests can't: a revoke (sync clear + async drain)
+        // runs concurrently with an in-flight dispatch, over many rounds. Invariant under test: once
+        // the partition is un-owned, no worker and no on-disk slice may survive — and neither the
+        // dispatch nor the drain may hang (the awaits below are the no-progress tripwire).
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = Arc::new(dispatcher_with(&store, catalog));
+
+        const P: i32 = 0;
+        for round in 0..200u128 {
+            // Own it so the dispatch can attempt a (racing) spawn, then revoke it out from under it.
+            dispatcher.assign_partition(P);
+
+            let dispatch = {
+                let dispatcher = dispatcher.clone();
+                tokio::spawn(async move {
+                    dispatcher
+                        .dispatch(vec![consumed(person(round + 1), P, round as i64)])
+                        .await;
+                })
+            };
+
+            dispatcher.revoke_partition_sync(P);
+            let drain = {
+                let dispatcher = dispatcher.clone();
+                tokio::spawn(async move {
+                    dispatcher.revoke_partition_drain(P).await;
+                })
+            };
+
+            // No re-assign this round, so both paths must make progress and the partition ends unowned.
+            dispatch.await.unwrap();
+            drain.await.unwrap();
+
+            assert!(!dispatcher.owns(P));
+            assert!(
+                !dispatcher.workers.contains_key(&P),
+                "round {round}: a worker survived an unowned partition",
+            );
+            assert_eq!(
+                dispatcher.router.partition_count(),
+                0,
+                "round {round}: a sender survived an unowned partition",
+            );
+            assert!(
+                behavioral_state(&store, P as u16, person(round + 1), lsk).is_none(),
+                "round {round}: a state slice survived an unowned partition",
+            );
+        }
     }
 }
