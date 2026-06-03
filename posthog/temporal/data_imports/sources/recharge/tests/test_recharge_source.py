@@ -23,7 +23,7 @@ class TestRechargeSourceConfigFields:
     def test_exposes_required_secret_api_key(self) -> None:
         cfg = RechargeSource().get_source_config
 
-        assert cfg.unreleasedSource is True
+        assert cfg.unreleasedSource is None
         names = {f.name for f in cfg.fields}
         assert names == {"api_key"}
 
