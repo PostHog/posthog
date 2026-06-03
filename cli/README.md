@@ -34,8 +34,9 @@ Full precedence: CLI args → process env → `--env-file` → `~/.posthog/crede
 
 ## Skipping uploads (dry run)
 
-Pass `--dry-run` (or set `POSTHOG_CLI_DRY_RUN=true`) to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
+Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
 The CLI logs that it skipped the upload and exits `0` without contacting PostHog or requiring credentials.
+(This top-level flag is separate from the `exp endpoints` `--dry-run`, which previews endpoint changes.)
 
 This is meant for CI gates that still want to run the bundling step (to catch Metro/Hermes or sourcemap regressions) but must not — or cannot — upload artifacts, for example pull-request checks that don't have PostHog credentials.
 Do not use it for release builds, since no symbols are uploaded.

@@ -38,10 +38,11 @@ pub struct Cli {
 
     /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting
     /// PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but
-    /// must not (or cannot) upload. Not for release builds.
+    /// must not (or cannot) upload. Not for release builds. Pass it before the subcommand
+    /// (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct
+    /// from the `exp endpoints` `--dry-run`, which previews endpoint changes.
     #[arg(
         long,
-        global = true,
         env = "POSTHOG_CLI_DRY_RUN",
         value_parser = clap::builder::BoolishValueParser::new(),
         num_args = 0..=1,
@@ -366,56 +367,99 @@ mod tests {
     }
 
     #[test]
-    fn dry_run_flag_sets_true_before_or_after_subcommand() {
-        let before = Cli::try_parse_from(["posthog-cli", "--dry-run", "login"]).unwrap();
-        assert!(before.dry_run);
-
-        // global = true means position relative to the subcommand doesn't matter
-        let after = Cli::try_parse_from(["posthog-cli", "login", "--dry-run"]).unwrap();
-        assert!(after.dry_run);
+    fn dry_run_flag_sets_true_before_subcommand() {
+        let cli = Cli::try_parse_from(["posthog-cli", "--dry-run", "login"]).unwrap();
+        assert!(cli.dry_run);
     }
 
     #[test]
-    fn upload_commands_are_skipped_under_dry_run() {
-        let hermes = Cli::try_parse_from([
-            "posthog-cli",
-            "hermes",
-            "clone",
-            "--minified-map-path",
-            "min.map",
-            "--composed-map-path",
-            "composed.map",
-        ])
-        .unwrap();
-        assert_eq!(
-            dry_run_skipped_command(&hermes.command),
-            Some("hermes sourcemap")
-        );
+    fn dry_run_classifies_every_command() {
+        // (argv, expected kind). `dry_run_skipped_command` matches on the top-level command, so one
+        // representative subcommand per family is enough; the `exp` aliases get their own rows.
+        let cases: &[(&[&str], Option<&str>)] = &[
+            (&["sourcemap", "upload"], Some("sourcemap")),
+            (&["dsym", "upload", "--directory", "d"], Some("dSYM")),
+            (
+                &[
+                    "hermes",
+                    "clone",
+                    "--minified-map-path",
+                    "m",
+                    "--composed-map-path",
+                    "c",
+                ],
+                Some("hermes sourcemap"),
+            ),
+            (
+                &["proguard", "upload", "--path", "p", "--map-id", "m"],
+                Some("proguard"),
+            ),
+            // hidden `exp` aliases must skip too
+            (&["exp", "dsym", "upload", "--directory", "d"], Some("dSYM")),
+            (
+                &[
+                    "exp",
+                    "hermes",
+                    "clone",
+                    "--minified-map-path",
+                    "m",
+                    "--composed-map-path",
+                    "c",
+                ],
+                Some("hermes sourcemap"),
+            ),
+            (
+                &["exp", "proguard", "upload", "--path", "p", "--map-id", "m"],
+                Some("proguard"),
+            ),
+            // commands that don't upload artifacts must run normally
+            (&["login"], None),
+            (&["exp", "schema", "status"], None),
+            (&["exp", "endpoints", "push", "f.yaml"], None),
+        ];
 
-        // the hidden exp aliases must skip too
-        let exp_hermes = Cli::try_parse_from([
+        for (argv, expected) in cases {
+            let cli = Cli::try_parse_from(std::iter::once(&"posthog-cli").chain(argv.iter()))
+                .unwrap_or_else(|e| panic!("failed to parse {argv:?}: {e}"));
+            assert_eq!(
+                dry_run_skipped_command(&cli.command),
+                *expected,
+                "wrong dry-run classification for {argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn endpoints_dry_run_is_independent_of_top_level_flag() {
+        // The `exp endpoints` commands have their own `--dry-run` (preview). The top-level flag is
+        // not global, so `exp endpoints push --dry-run` sets only the endpoint flag, and the
+        // top-level skip never fires for endpoints — preview semantics stay intact.
+        use crate::experimental::endpoints::EndpointCommand;
+        let cli = Cli::try_parse_from([
             "posthog-cli",
             "exp",
-            "hermes",
-            "clone",
-            "--minified-map-path",
-            "min.map",
-            "--composed-map-path",
-            "composed.map",
+            "endpoints",
+            "push",
+            "f.yaml",
+            "--dry-run",
         ])
         .unwrap();
-        assert_eq!(
-            dry_run_skipped_command(&exp_hermes.command),
-            Some("hermes sourcemap")
+
+        assert!(
+            !cli.dry_run,
+            "endpoint --dry-run must not set the top-level flag"
         );
-    }
+        assert_eq!(dry_run_skipped_command(&cli.command), None);
 
-    #[test]
-    fn read_only_commands_run_normally_under_dry_run() {
-        let login = Cli::try_parse_from(["posthog-cli", "login"]).unwrap();
-        assert_eq!(dry_run_skipped_command(&login.command), None);
-
-        let schema = Cli::try_parse_from(["posthog-cli", "exp", "schema", "status"]).unwrap();
-        assert_eq!(dry_run_skipped_command(&schema.command), None);
+        let Commands::Exp {
+            cmd:
+                ExpCommand::Endpoints {
+                    cmd: EndpointCommand::Push(args),
+                },
+        } = &cli.command
+        else {
+            panic!("expected `exp endpoints push`");
+        };
+        assert!(args.dry_run, "endpoint preview flag should be set");
     }
 }
