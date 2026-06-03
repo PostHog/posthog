@@ -11,7 +11,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 from ee.models.rbac.access_control import AccessControl
-from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
+from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
 
 class TestSingleSessionSummaryViewSet(APIBaseTest):
@@ -197,11 +197,52 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "order")
 
+    def test_list_rejects_invalid_created_by(self) -> None:
+        self._make_summary("session-a")
+        response = self.client.get(self._url(), {"created_by": "not-a-uuid"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "created_by")
+
+    def test_list_rejects_unparseable_date(self) -> None:
+        self._make_summary("session-a")
+        response = self.client.get(self._url(), {"date_from": "yesterday"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "date_from")
+
+    def test_list_accepts_relative_date_shorthand(self) -> None:
+        self._make_summary("session-a")
+        response = self.client.get(self._url(), {"date_from": "-30d"})
+        self.assertEqual(response.status_code, 200)
+
+    def test_list_state_filter_reflects_latest_summary(self) -> None:
+        # A session whose older summary failed but latest succeeded must NOT appear under
+        # outcome=failure (list stays consistent with what retrieve returns — the latest).
+        older = self._make_summary("sess-flip", success=False)
+        older.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        older.save(update_fields=["created_at"])
+        self._make_summary("sess-flip", success=True)
+
+        failure = self.client.get(self._url(), {"outcome": "failure"})
+        self.assertEqual([row["session_id"] for row in failure.json()["results"]], [])
+
+        success = self.client.get(self._url(), {"outcome": "success"})
+        self.assertEqual({row["session_id"] for row in success.json()["results"]}, {"sess-flip"})
+
+    def test_list_and_retrieve_exclude_deleted_recordings(self) -> None:
+        self._make_summary("live-rec")
+        self._make_summary("deleted-rec")
+        SessionRecording.objects.create(team=self.team, session_id="deleted-rec", deleted=True)
+
+        ids = {row["session_id"] for row in self.client.get(self._url()).json()["results"]}
+        self.assertIn("live-rec", ids)
+        self.assertNotIn("deleted-rec", ids)
+
+        self.assertEqual(self.client.get(self._url("deleted-rec")).status_code, 404)
+
     def test_retrieve_returns_full_summary(self) -> None:
         self._make_summary(
             "session-a",
             exception_event_ids=["evt-1"],
-            focus_area="checkout",
             visual_confirmation=True,
         )
 
@@ -214,9 +255,28 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self.assertIn("key_actions", body["summary"])
         self.assertIn("session_outcome", body["summary"])
         self.assertEqual(body["exception_event_ids"], ["evt-1"])
-        self.assertEqual(body["extra_summary_context"], {"focus_area": "checkout"})
+        self.assertIsNone(body["extra_summary_context"])
         self.assertEqual(body["run_metadata"]["model_used"], "gpt-4o")
         self.assertEqual(body["run_metadata"]["visual_confirmation"], True)
+
+    def test_retrieve_returns_default_context_over_newer_focused_summary(self) -> None:
+        # The retrieve path matches `get_summary(..., extra_summary_context=None)`: a focused
+        # (`focus_area`) summary must not shadow the default one, even if it's newer.
+        default = self._make_summary("sess-ctx", model_used="default-model")
+        default.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        default.save(update_fields=["created_at"])
+        self._make_summary("sess-ctx", model_used="focused-model", focus_area="checkout")
+
+        response = self.client.get(self._url("sess-ctx"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["extra_summary_context"])
+        self.assertEqual(response.json()["run_metadata"]["model_used"], "default-model")
+
+    def test_retrieve_404_when_only_focused_context_exists(self) -> None:
+        self._make_summary("sess-focused-only", focus_area="checkout")
+        response = self.client.get(self._url("sess-focused-only"))
+        self.assertEqual(response.status_code, 404)
 
     def test_retrieve_returns_latest_summary_when_multiple_exist(self) -> None:
         older = self._make_summary("session-a", model_used="gpt-old")
@@ -271,6 +331,11 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self.assertIsNone(row["model_used"])
         self.assertFalse(row["visual_confirmation"])
 
+        # Retrieve serializes the null run_metadata without crashing (schema marks it nullable).
+        retrieve = self.client.get(self._url("legacy-session"))
+        self.assertEqual(retrieve.status_code, 200)
+        self.assertIsNone(retrieve.json()["run_metadata"])
+
     def test_dataclass_round_trip_via_manager(self) -> None:
         # Sanity check that the serializer produces what the manager writes via the production code path.
         summary_data = get_mock_enriched_llm_json_response("session-a")
@@ -281,7 +346,7 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
             session_id="session-a",
             summary=serializer,
             exception_event_ids=["evt-1"],
-            extra_summary_context=ExtraSummaryContext(focus_area="checkout"),
+            extra_summary_context=None,
             run_metadata=SessionSummaryRunMeta(model_used="gpt-4o", visual_confirmation=False),
             created_by=self.user,
         )
@@ -292,7 +357,7 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         body = response.json()
         self.assertEqual(body["session_id"], "session-a")
         self.assertIn("segments", body["summary"])
-        self.assertEqual(body["extra_summary_context"], {"focus_area": "checkout"})
+        self.assertIsNone(body["extra_summary_context"])
 
 
 @pytest.mark.ee
@@ -379,3 +444,24 @@ class TestSingleSessionSummaryViewSetAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         session_ids = {row["session_id"] for row in response.json()["results"]}
         self.assertEqual(session_ids, {"rec-allowed", "rec-denied"})
+
+    def test_list_honors_object_level_deny_with_team_access(self) -> None:
+        # Team-wide viewer access, but one recording explicitly denied: the list must exclude it
+        # (the fast path can't blanket-skip filtering when per-recording denies exist).
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        AccessControl.objects.filter(team=self.team, organization_member=membership, resource_id=None).update(
+            access_level="viewer"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="session_recording",
+            resource_id=str(self.recording_denied.id),
+            access_level="none",
+            organization_member=membership,
+        )
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        session_ids = {row["session_id"] for row in response.json()["results"]}
+        self.assertEqual(session_ids, {"rec-allowed"})

@@ -24825,7 +24825,7 @@ export namespace Schemas {
          */
       readonly extra_summary_context: SingleSessionSummaryMinimalExtraSummaryContext;
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
     }
 
     export interface PaginatedSingleSessionSummaryMinimalList {
@@ -37122,8 +37122,9 @@ export namespace Schemas {
 
     /**
      * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+     * @nullable
      */
-    export type SingleSessionSummaryRunMetadata = { [key: string]: unknown };
+    export type SingleSessionSummaryRunMetadata = { [key: string]: unknown } | null;
 
     /**
      * Full session summary, including the generated `summary` JSON content.
@@ -37156,10 +37157,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly extra_summary_context: SingleSessionSummaryExtraSummaryContext;
-      /** `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings. */
+      /**
+         * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+         * @nullable
+         */
       readonly run_metadata: SingleSessionSummaryRunMetadata;
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
     }
 
     export interface SlackChannel {

@@ -382,7 +382,7 @@ export interface SingleSessionSummaryMinimalApi {
      */
     readonly extra_summary_context: SingleSessionSummaryMinimalApiExtraSummaryContext
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
 }
 
 export interface PaginatedSingleSessionSummaryMinimalListApi {
@@ -409,8 +409,9 @@ export type SingleSessionSummaryApiExtraSummaryContext = {
 
 /**
  * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+ * @nullable
  */
-export type SingleSessionSummaryApiRunMetadata = { [key: string]: unknown }
+export type SingleSessionSummaryApiRunMetadata = { [key: string]: unknown } | null
 
 /**
  * Full session summary, including the generated `summary` JSON content.
@@ -443,10 +444,13 @@ export interface SingleSessionSummaryApi {
      * @nullable
      */
     readonly extra_summary_context: SingleSessionSummaryApiExtraSummaryContext
-    /** `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings. */
+    /**
+     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+     * @nullable
+     */
     readonly run_metadata: SingleSessionSummaryApiRunMetadata
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
 }
 
 export type SessionRecordingPlaylistsListParams = {

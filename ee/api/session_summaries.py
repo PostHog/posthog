@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import asyncio
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -84,6 +85,30 @@ class SessionSummariesSerializer(serializers.Serializer):
 _PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
 _CUSTOM_TAG_NAME_RE = re.compile(rf"^[a-z0-9_]{{1,{CUSTOM_TAG_NAME_MAX_LENGTH}}}$")
 _WHITESPACE_RUN_RE = re.compile(r"\s+")
+# Relative-date shorthand accepted by `relative_date_parse` (e.g. `-7d`, `-1dStart`). Its own regex is
+# loose enough that free text like `yesterday` matches on a stray `y` and silently parses to a wrong
+# instant, so the list endpoint validates against this stricter anchored form before parsing.
+_RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqsy](?:Start|End)?$", re.IGNORECASE)
+
+
+def _validate_date_param(field: str, value: str) -> None:
+    """Reject values `relative_date_parse` can't meaningfully parse, so a bad query param is a 400
+    rather than a silently-wrong (or empty) page. Accepts strict relative shorthand or an ISO date."""
+    if _RELATIVE_DATE_RE.match(value):
+        return
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return
+    except ValueError:
+        pass
+    try:
+        datetime.strptime(value, "%Y-%m-%d")  # unpadded ISO, e.g. 2021-1-1
+        return
+    except ValueError:
+        pass
+    raise exceptions.ValidationError(
+        {field: f"Invalid date value '{value}'. Use an ISO date (YYYY-MM-DD) or relative shorthand like `-7d`."}
+    )
 
 
 def _sanitize_custom_tag_description(value: str) -> str:
@@ -756,10 +781,11 @@ class ExtraSummaryContextField(serializers.JSONField):
     """Optional `ExtraSummaryContext` dict — `focus_area` keyword used when generating the summary."""
 
 
-@extend_schema_field(OpenApiTypes.OBJECT)
+@extend_schema_field({"type": "object", "nullable": True})
 class RunMetadataField(serializers.JSONField):
     """`SessionSummaryRunMeta` dict — `model_used`, `visual_confirmation`, and (for video runs)
-    `visual_confirmation_results` plus any `failed_sessions` entries."""
+    `visual_confirmation_results` plus any `failed_sessions` entries. Null on legacy rows that
+    predate run metadata."""
 
 
 _SESSION_OUTCOME_SCHEMA = {
@@ -781,7 +807,7 @@ _OUTCOME_CHOICES = (
 class SingleSessionSummaryMinimalSerializer(serializers.ModelSerializer):
     """Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row)."""
 
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     session_outcome = serializers.SerializerMethodField(
         help_text=(
             "Headline outcome from the summary: `{success: bool, description: string}` or null if the "
@@ -856,7 +882,7 @@ class SingleSessionSummaryMinimalSerializer(serializers.ModelSerializer):
 class SingleSessionSummarySerializer(serializers.ModelSerializer):
     """Full session summary, including the generated `summary` JSON content."""
 
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     summary = SessionSummaryContentField(
         read_only=True,
         help_text=(
@@ -915,14 +941,22 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         return SingleSessionSummaryMinimalSerializer if self.action == "list" else SingleSessionSummarySerializer
 
     def safely_get_object(self, queryset: QuerySet) -> SingleSessionSummary:
-        """Return the latest stored summary for a given `session_id` (matches `get_summary` semantics)."""
-        obj = queryset.filter(session_id=self.kwargs[self.lookup_field]).order_by("-created_at").first()
+        """Return the latest stored *default-context* summary for a `session_id`, matching
+        `SingleSessionSummaryManager.get_summary(..., extra_summary_context=None)` — a focused
+        (`focus_area`) summary must not shadow the default one."""
+        obj = (
+            queryset.filter(session_id=self.kwargs[self.lookup_field], extra_summary_context__isnull=True)
+            .order_by("-created_at")
+            .first()
+        )
         if obj is None:
             raise exceptions.NotFound("No stored summary found for this session.")
         # `SingleSessionSummary` is not a mapped access-control resource, so the resource-level
         # `scope_object` check admits users who only hold object-level grants to *some* recording.
         # Gate on the underlying recording so summary access mirrors `SessionRecordingViewSet`.
         recording = SessionRecording.get_or_build(session_id=obj.session_id, team=self.team)
+        if recording.deleted:
+            raise exceptions.NotFound("The recording for this summary has been deleted.")
         if not self.user_access_control.check_access_level_for_object(recording, required_level="viewer"):
             raise exceptions.PermissionDenied("You do not have access to this recording.")
         return obj
@@ -938,9 +972,12 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         if self.action != "list":
             return queryset
 
+        # Scope filters (which sessions) run *before* the latest-per-session dedupe; state filters
+        # (the latest summary's outcome / exception / visual flags) run *after*, so the list never
+        # surfaces a session whose latest summary no longer matches — keeping list and retrieve in sync.
         queryset = self._filter_list_request(self.request, queryset)
-        # Deduplicate to the latest summary per session_id, then re-order by recency. The latest-per-session
-        # subquery has to use `ORDER BY session_id, -created_at` to be valid with `DISTINCT ON (session_id)`.
+        # The latest-per-session subquery has to use `ORDER BY session_id, -created_at` to be valid
+        # with `DISTINCT ON (session_id)`.
         latest_ids = queryset.order_by("session_id", "-created_at").distinct("session_id").values("id")
         # Defer the heavy `summary` column and project just `session_outcome` so a page of rows doesn't
         # pull the full ~50 KB summary JSON per row (see `SingleSessionSummaryMinimalSerializer`).
@@ -950,7 +987,9 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
             .defer("summary")
             .annotate(session_outcome_json=KeyTransform("session_outcome", "summary"))
         )
+        deduped = self._apply_state_filters(self.request, deduped)
         deduped = self._restrict_to_accessible_recordings(deduped)
+        deduped = self._exclude_deleted_recordings(deduped)
 
         order = self.request.GET.get("order") or "-created_at"
         if order not in self.ALLOWED_ORDER_FIELDS:
@@ -960,31 +999,45 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         return deduped.order_by(order)
 
     def _restrict_to_accessible_recordings(self, queryset: QuerySet) -> QuerySet:
-        """Mirror `SessionRecordingViewSet` object-level access for the list path.
+        """Mirror `SessionRecordingViewSet` object-level access for the list path, entirely in SQL.
 
-        When the user has team-wide recording access (the common case, incl. when advanced access
-        controls are off) this is a no-op. Otherwise they reached the endpoint via object-level grants,
-        so restrict summaries to the recordings they can actually view.
+        Most recordings live only in ClickHouse and have no Postgres `SessionRecording` row, so we must
+        never blanket-restrict to recordings that exist here. Two modes:
+        - no team-wide recording access (admitted via object grants only) → restrict to granted sessions;
+        - team-wide access → keep everything (incl. ClickHouse-only sessions) but drop explicit denies.
+        Filtering uses subqueries so the database applies the predicate before pagination.
         """
         uac = self.user_access_control
-        if uac.check_access_level_for_resource("session_recording", required_level="viewer"):
-            return queryset
-        session_ids = list(queryset.values_list("session_id", flat=True))
-        accessible_recordings = uac.filter_queryset_by_access_level(
-            SessionRecording.objects.filter(team=self.team, session_id__in=session_ids)
-        )
-        accessible_session_ids = set(accessible_recordings.values_list("session_id", flat=True))
-        return queryset.filter(session_id__in=accessible_session_ids)
+        team_recordings = SessionRecording.objects.filter(team=self.team)
+        accessible = uac.filter_queryset_by_access_level(team_recordings)
+        if not uac.check_access_level_for_resource("session_recording", required_level="viewer"):
+            return queryset.filter(session_id__in=Subquery(accessible.values("session_id")))
+        blocked = team_recordings.exclude(id__in=accessible.values("id")).values("session_id")
+        return queryset.exclude(session_id__in=Subquery(blocked))
+
+    def _exclude_deleted_recordings(self, queryset: QuerySet) -> QuerySet:
+        """Don't surface summaries whose recording was soft-deleted in Postgres (e.g. crypto-shredded).
+        ClickHouse-side retention/TTL expiry is not enforced here — that needs the recordings query and
+        is tracked as a follow-up."""
+        deleted = SessionRecording.objects.filter(team=self.team, deleted=True).values("session_id")
+        return queryset.exclude(session_id__in=Subquery(deleted))
 
     def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+        """Scope filters — narrow *which sessions* are considered, before the latest-per-session dedupe."""
         params = request.GET
         if date_from := params.get("date_from"):
+            _validate_date_param("date_from", date_from)
             queryset = queryset.filter(created_at__gte=relative_date_parse(date_from, self.team.timezone_info))
         if date_to := params.get("date_to"):
+            _validate_date_param("date_to", date_to)
             queryset = queryset.filter(created_at__lte=relative_date_parse(date_to, self.team.timezone_info))
         if distinct_id := params.get("distinct_id"):
             queryset = queryset.filter(distinct_id=distinct_id)
         if created_by := params.get("created_by"):
+            try:
+                uuid.UUID(created_by)
+            except (ValueError, TypeError):
+                raise exceptions.ValidationError({"created_by": "Must be a valid UUID."})
             queryset = queryset.filter(created_by__uuid=created_by)
         # Multi-value filter: agents typically arrive with a list of session IDs from `query-session-recordings-list`
         # and want the persisted summaries for that exact set.
@@ -993,6 +1046,12 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
             session_ids = [sid.strip() for sid in session_ids_raw.split(",") if sid.strip()]
             if session_ids:
                 queryset = queryset.filter(session_id__in=session_ids)
+        return queryset
+
+    def _apply_state_filters(self, request: Request, queryset: QuerySet) -> QuerySet:
+        """State filters — applied to the deduped latest-per-session rows, so a match reflects each
+        session's *latest* summary (consistent with what the retrieve endpoint returns)."""
+        params = request.GET
         outcome = params.get("outcome")
         if outcome == "success":
             queryset = queryset.filter(summary__session_outcome__success=True)
