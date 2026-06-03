@@ -67,16 +67,6 @@ async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentRunnerConfig()
 
-    // Fail-fast prod guard for the dev-only SSRF escape on external MCP URLs.
-    // The flag exists so a local-loopback bundle (concierge against
-    // localhost:8787/mcp) can run under `hogli start`; it must never be
-    // truthy in production, where the SSRF guard is part of the threat model
-    // for bundle-authored URLs (see services/agent-runner/src/loop/mcp-clients.ts).
-    if (config.allowPrivateMcpHosts && !isDev()) {
-        throw new Error(
-            'AGENT_MCP_ALLOW_PRIVATE_HOSTS is a dev-only escape hatch on the external-MCP SSRF guard and must not be set when NODE_ENV=production.'
-        )
-    }
     // Fail-fast prod guard for the dev-only bearer attached to auth-less
     // external MCP refs. Prod must route auth via integrations or the
     // resolver-minted `kind: agent` path, not via a global bearer.
@@ -318,7 +308,6 @@ async function main(): Promise<void> {
         tabularStore,
         isAskerInApproverScope,
         agentMcpResolver,
-        allowPrivateMcpHosts: config.allowPrivateMcpHosts,
         devMcpBearerToken: config.devMcpBearerToken,
         // Per-integration-kind host allowlist. Without this, any external MCP
         // ref with `auth.integration` fails closed at open with

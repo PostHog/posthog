@@ -143,13 +143,6 @@ export interface OpenMcpClientsDeps {
      */
     integrationHostValidator?: IntegrationHostValidator
     /**
-     * Dev-only escape passed through to `assertSafeExternalMcpUrl`. Lets a
-     * bundle declare `kind: external` against a loopback/private URL so the
-     * concierge can talk to the local MCP server during `hogli start`.
-     * Production refuses to set this at boot.
-     */
-    allowPrivateMcpHosts?: boolean
-    /**
      * Dev-only bearer attached to `kind: external` MCP requests when the
      * ref has no `auth.integration` of its own (`ref.auth` wins if set).
      * Bridges the local-dev auth gap until external-MCP credentials are
@@ -273,9 +266,14 @@ async function resolveTarget(
         }
         return deps.agentMcpResolver(ref.slug, deps.callerContext)
     }
-    // `external` variant.
+    // `external` variant. SSRF protection is handled at the infra layer by
+    // smokescreen (see charts/shared/agent-platform/common.yaml
+    // `httpProxy.enabled: true`). Author chose the URL; smokescreen denies
+    // RFC1918 / loopback / link-local / cloud-IMDS + closes the DNS-rebinding
+    // gap via per-IP resolution at connect time. The runner only handles the
+    // logical-binding check (integration → host allowlist), which smokescreen
+    // can't do.
     const url = substituteSecrets(ref.url, ref.secrets, deps.secrets)
-    assertSafeExternalMcpUrl(url, { allowPrivateHosts: deps.allowPrivateMcpHosts })
     const headers: Record<string, string> = {}
     if (ref.auth?.integration) {
         const cred = deps.integrations[ref.auth.integration]
@@ -293,6 +291,16 @@ async function resolveTarget(
             throw new Error(`mcp_integration_host_validator_not_wired: ${ref.auth.integration}`)
         }
         const parsed = new URL(url)
+        // Smokescreen owns SSRF, but it can't guarantee the OAuth bearer isn't
+        // sent in cleartext to an allowlisted public host — it filters by
+        // destination, not scheme. The host validator below only checks
+        // `url.host`, so without this an author could set `http://api.slack.com`
+        // and have the team's token stamped onto a plaintext request. Enforce
+        // https on the credential path only; non-auth external URLs stay
+        // smokescreen's concern.
+        if (parsed.protocol !== 'https:') {
+            throw new Error(`mcp_integration_unsafe_scheme: ${ref.auth.integration} → ${parsed.protocol}`)
+        }
         if (!deps.integrationHostValidator(ref.auth.integration, parsed)) {
             throw new Error(`mcp_integration_host_not_allowed: ${ref.auth.integration} → ${parsed.host}`)
         }
@@ -305,88 +313,6 @@ async function resolveTarget(
         headers['Authorization'] = `Bearer ${deps.devMcpBearerToken}`
     }
     return { url, headers }
-}
-
-/**
- * SSRF floor for `kind: 'external'` MCP URLs. The author-supplied URL passes
- * Zod's `.url()` validator (a syntactic check) and could otherwise resolve
- * to private / loopback / cloud-metadata addresses. This rejects the
- * obvious cases at open time:
- *
- *   - non-HTTPS schemes (no plaintext, no `ws://`, no `file://`)
- *   - IPv4 loopback / RFC1918 / link-local / cloud-metadata literals
- *   - IPv6 loopback / link-local / unique-local
- *   - hostnames ending in `.local` or `.internal` (mDNS / private DNS)
- *
- * This is a best-effort string-pattern check, NOT DNS-time validation —
- * a hostname like `evil.com` that A-records to `127.0.0.1` slips through.
- * Closing that gap requires a custom HTTP agent that resolves DNS and
- * inspects the resolved IP before connect; tracked as a follow-up in the
- * plan. The string check still raises the floor enough to address the
- * concrete attacks called out in the PR-6 security review:
- *   - `https://169.254.169.254/...` (AWS / Azure IMDS)
- *   - `https://10.0.0.1/...` (private LAN)
- *   - `http://...` (downgrade to plaintext for credential capture)
- *
- * `kind: 'agent'` URLs are minted by the resolver — not author input —
- * so they don't pass through here.
- */
-export function assertSafeExternalMcpUrl(url: string, opts: { allowPrivateHosts?: boolean } = {}): void {
-    let parsed: URL
-    try {
-        parsed = new URL(url)
-    } catch {
-        throw new Error(`mcp_unsafe_url: not a valid URL`)
-    }
-    // Dev-only escape: skip the scheme + host blocklist so a local-loopback
-    // bundle (e.g. concierge against `http://localhost:8787/mcp`) can run.
-    // Gated at boot — `index.ts` refuses to set this when NODE_ENV=production.
-    if (opts.allowPrivateHosts) {
-        return
-    }
-    if (parsed.protocol !== 'https:') {
-        throw new Error(`mcp_unsafe_url: scheme must be https (got '${parsed.protocol}')`)
-    }
-    if (isUnsafeMcpHost(parsed.hostname)) {
-        throw new Error(`mcp_unsafe_url: hostname '${parsed.hostname}' is private / loopback / link-local`)
-    }
-}
-
-const UNSAFE_HOST_PATTERNS: ReadonlyArray<RegExp> = [
-    /^localhost$/i,
-    /^localhost\./i,
-    // IPv4 loopback / link-local / RFC1918 / first-octet 0.x / cloud-IMDS.
-    /^0\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
-    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
-    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
-    /^192\.168\.\d{1,3}\.\d{1,3}$/,
-    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
-    /^169\.254\.\d{1,3}\.\d{1,3}$/,
-    // IPv6 loopback / link-local / unique-local. URL hostnames bracket
-    // literal v6 addresses (`[::1]`), but `URL.hostname` strips the
-    // brackets — match the unbracketed form.
-    /^::1$/,
-    // IPv4-mapped IPv6 (`::ffff:x.x.x.x`). Node's WHATWG URL parser rewrites
-    // the dotted-decimal tail to hex groups, so `[::ffff:169.254.169.254]`
-    // and `[::ffff:10.0.0.1]` arrive here as `::ffff:a9fe:a9fe` / `::ffff:a00:1`.
-    // On dual-stack hosts these route to the embedded IPv4 address — block the
-    // whole prefix to cover every form rather than chasing each literal.
-    /^::ffff:/i,
-    /^fe[89ab][0-9a-f]:/i,
-    /^fc[0-9a-f][0-9a-f]:/i,
-    /^fd[0-9a-f][0-9a-f]:/i,
-    // Cloud / internal-DNS suffixes used as private resolvers.
-    /\.internal$/i,
-    /\.local$/i,
-    /^metadata\.google\.internal$/i,
-]
-
-export function isUnsafeMcpHost(host: string): boolean {
-    // `URL.hostname` keeps the brackets on IPv6 literals (`[::1]`,
-    // `[fe80::1%eth0]`); strip them so the IPv6 patterns can match without
-    // having to anchor on the bracket form too.
-    const normalized = host.toLowerCase().replace(/^\[|\]$/g, '')
-    return UNSAFE_HOST_PATTERNS.some((re) => re.test(normalized))
 }
 
 /**
