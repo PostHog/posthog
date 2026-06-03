@@ -78,16 +78,26 @@ the split back. **`/api/projects/:team_id/...` is the canonical path** for any
 team-nested endpoint. `/api/environments/:team_id/...` is a backward-compat alias
 preserved only for clients that integrated against it during the split.
 
-For a **new** team-nested endpoint, register directly under `projects_router` in
-`posthog/api/__init__.py`:
+For a **new** team-nested endpoint, register it under `projects_router`. Routes
+now live in each product's own `products/<name>/backend/routes.py`, in a
+`register_routes(routers)` function that `posthog/api/__init__.py` calls — add it
+there:
 
 ```python
-projects_router.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])
+# products/<name>/backend/routes.py
+def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])
 ```
 
-Do **not** register new endpoints under `environments_router`. Do **not** use
-`register_grandfathered_environment_nested_viewset` — it exists only for
-endpoints that were already exposed on both routes before the rollback.
+If the product has no `routes.py` yet, create one (a `register_routes(routers)`
+function wired up with `register_<name>_routes(routers)` in `posthog/api/__init__.py`).
+Only core, non-product viewsets still register directly in `__init__.py`.
+
+Do **not** register new endpoints under `environments_router`. Do **not** use the
+dual-route helper (`routers.register_legacy_dual_route`, or
+`register_legacy_dual_route_team_nested_viewset` in `__init__.py`) — it exists only
+for endpoints already exposed on both `/api/projects/` and `/api/environments/`
+before the rollback.
 
 If existing clients need `/api/environments/...` too, the OpenAPI postprocess
 hook at `posthog.api.documentation.preprocess_exclude_path_format` auto-marks

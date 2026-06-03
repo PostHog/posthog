@@ -24,6 +24,7 @@ products/
       apps.py
       models.py
       logic.py              # business logic
+      routes.py             # API routes: register_routes(routers), called from posthog/api/__init__.py
       migrations/
       facade/               # cross-product Python interface
         __init__.py
