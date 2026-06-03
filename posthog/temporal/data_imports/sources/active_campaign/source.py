@@ -35,7 +35,6 @@ class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCam
         return SourceConfig(
             name=SchemaExternalDataSourceType.ACTIVE_CAMPAIGN,
             label="ActiveCampaign",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your ActiveCampaign API URL and key to sync your CRM and marketing data into the PostHog Data warehouse.
 

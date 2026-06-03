@@ -48,7 +48,7 @@ class TestActiveCampaignSource:
 
         assert config.name.value == "ActiveCampaign"
         assert config.label == "ActiveCampaign"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/activecampaign.png"
 
