@@ -116,8 +116,8 @@ export class EmailService {
             result.finished = true
         }
 
-        // Finally we create the response object as the VM expects
-        result.invocation.state.vmState!.stack.push({
+        // Push the response to the VM stack if running inline (not from the email queue)
+        result.invocation.state.vmState?.stack.push({
             success,
         })
 
@@ -237,7 +237,7 @@ export class EmailService {
         // webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
-        const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'
+        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
             const unsubscribeHeaders = !isTransactionalEmail
                 ? this.generateUnsubscribeHeaders({

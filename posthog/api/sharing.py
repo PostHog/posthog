@@ -24,7 +24,6 @@ from rest_framework.request import Request
 from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
-from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
@@ -36,13 +35,6 @@ from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_ex
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Cohort, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.exported_asset import (
-    EXPORTED_ASSET_PURPOSE_RENDER,
-    EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
-    ExportedAsset,
-    asset_for_token,
-    get_content_response,
-)
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -54,6 +46,14 @@ from posthog.views import preflight_check
 
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.api.exports import ExportedAssetSerializer
+from products.exports.backend.models.exported_asset import (
+    EXPORTED_ASSET_PURPOSE_RENDER,
+    EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
+    ExportedAsset,
+    asset_for_token,
+    get_content_response,
+)
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
