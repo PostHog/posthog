@@ -134,7 +134,7 @@ def test_list_is_partitioned_by_team(client: HttpClient, organization, team, use
 @pytest.fixture
 def enable_backfilling_workflows(team):
     with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
+        "products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True
     ) as feature_enabled:
         yield
 

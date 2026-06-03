@@ -12,9 +12,10 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.batch_exports.http import BatchExportDestinationSerializer, BatchExportSerializer
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
+
+from products.batch_exports.backend.api.batch_export import BatchExportDestinationSerializer, BatchExportSerializer
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
