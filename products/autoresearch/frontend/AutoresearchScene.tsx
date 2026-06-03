@@ -178,7 +178,7 @@ export function AutoresearchScene(): JSX.Element {
                 }}
                 actions={
                     <LemonButton type="primary" icon={<IconPlus />} size="small" to={urls.autoresearchNew()}>
-                        New prediction
+                        New model
                     </LemonButton>
                 }
             />

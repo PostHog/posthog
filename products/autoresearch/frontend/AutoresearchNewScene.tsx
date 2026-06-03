@@ -142,7 +142,7 @@ export function AutoresearchNewScene(): JSX.Element {
                 </LemonButton>
             </div>
             <SceneTitleSection
-                name="New prediction"
+                name="New model"
                 description="Define a target event, horizon, and population. Autoresearch will train models to predict it."
                 resourceType={{ type: 'experiment' }}
             />
