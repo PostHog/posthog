@@ -312,6 +312,10 @@ export interface PatchedRemovePersonRequestApi {
 
 export type CohortsListParams = {
     /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
