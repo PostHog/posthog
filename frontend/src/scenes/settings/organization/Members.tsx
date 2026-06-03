@@ -195,19 +195,7 @@ export function Members(): JSX.Element | null {
     const { updateOrganization } = useActions(organizationLogic)
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
-    const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
-    const downloadMembersListRestrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
-    const membersCanInviteRestrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
-    const membersCanCreateProjectsRestrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
-    const membersCanUsePersonalApiKeysRestrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
+    const adminRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     useOnMountEffect(ensureAllMembersLoaded)
 
@@ -342,7 +330,7 @@ export function Members(): JSX.Element | null {
                     onChange={setSearch}
                     className="flex-1 basis-[min(100%,18rem)]"
                 />
-                {!downloadMembersListRestrictionReason && (
+                {!adminRestrictionReason && (
                     <LemonButton
                         type="secondary"
                         onClick={downloadMembersList}
@@ -372,7 +360,7 @@ export function Members(): JSX.Element | null {
                     bordered
                     checked={!!currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
-                    disabledReason={twoFactorRestrictionReason}
+                    disabledReason={adminRestrictionReason}
                 />
             </PayGateMini>
 
@@ -389,7 +377,7 @@ export function Members(): JSX.Element | null {
                     data-attr="org-members-can-invite-toggle"
                     checked={!!currentOrganization?.members_can_invite}
                     onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
-                    disabledReason={membersCanInviteRestrictionReason}
+                    disabledReason={adminRestrictionReason}
                 />
                 <p className="mt-4">
                     Control who can create new projects. Admins and owners can always create projects.
@@ -404,7 +392,7 @@ export function Members(): JSX.Element | null {
                     data-attr="org-members-can-create-projects-toggle"
                     checked={!!currentOrganization?.members_can_create_projects}
                     onChange={(members_can_create_projects) => updateOrganization({ members_can_create_projects })}
-                    disabledReason={membersCanCreateProjectsRestrictionReason}
+                    disabledReason={adminRestrictionReason}
                 />
             </PayGateMini>
 
@@ -428,7 +416,7 @@ export function Members(): JSX.Element | null {
                             onChange={(members_can_use_personal_api_keys) =>
                                 updateOrganization({ members_can_use_personal_api_keys })
                             }
-                            disabledReason={membersCanUsePersonalApiKeysRestrictionReason}
+                            disabledReason={adminRestrictionReason}
                         />
                     </PayGateMini>
                 </>
