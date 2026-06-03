@@ -141,6 +141,10 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub backend_timeout_ms: u64,
 
+    /// Connect timeout for backend connections in milliseconds (k8s mode only)
+    #[envconfig(default = "2000")]
+    pub backend_connect_timeout_ms: u64,
+
     #[envconfig(default = "9101")]
     pub metrics_port: u16,
 
@@ -427,6 +431,10 @@ mod tests {
 impl Config {
     pub fn backend_timeout(&self) -> Duration {
         Duration::from_millis(self.backend_timeout_ms)
+    }
+
+    pub fn backend_connect_timeout(&self) -> Duration {
+        Duration::from_millis(self.backend_connect_timeout_ms)
     }
 
     pub fn grpc_keepalive_interval(&self) -> Option<Duration> {

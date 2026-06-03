@@ -113,7 +113,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let monitor_guard = manager.monitor_background();
 
-    // Metrics/health HTTP server (observability handle — stays alive during standard drain)
+    // Create backend connection(s) to personhog-replica
+    let (replica_backend, discovery_readiness) = match config.replica_discovery_mode {
+        ReplicaDiscoveryMode::Dns => (
+            Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
+                url: config.replica_url.clone(),
+                timeout: config.backend_timeout(),
+                retry_config: config.retry_config(),
+                keepalive_interval: config.backend_keepalive_interval(),
+                keepalive_timeout: config.backend_keepalive_timeout(),
+                max_send_message_size: config.grpc_max_send_message_size,
+                max_recv_message_size: config.grpc_max_recv_message_size,
+            })),
+            None,
+        ),
+        ReplicaDiscoveryMode::K8s => {
+            let kube_client = kube::Client::try_default()
+                .await
+                .expect("failed to create K8s client for replica discovery");
+            let namespace = config
+                .resolve_replica_namespace()
+                .expect("failed to resolve replica service namespace");
+
+            let discovery_handle =
+                discovery_handle.expect("discovery handle must be registered in k8s mode");
+
+            let (channel, disc_readiness, discovery) = EndpointDiscovery::new(
+                kube_client,
+                namespace,
+                config.replica_service_name.clone(),
+                config.replica_port,
+                EndpointConfig {
+                    timeout: config.backend_timeout(),
+                    connect_timeout: config.backend_connect_timeout(),
+                    keepalive_interval: config.backend_keepalive_interval(),
+                    keepalive_timeout: config.backend_keepalive_timeout(),
+                },
+                discovery_handle.shutdown_token(),
+            );
+
+            tokio::spawn(async move {
+                let _guard = discovery_handle.process_scope();
+                discovery.run().await;
+            });
+
+            (
+                Arc::new(ReplicaBackend::new_k8s(
+                    channel,
+                    config.retry_config(),
+                    config.grpc_max_send_message_size,
+                    config.grpc_max_recv_message_size,
+                )),
+                Some(disc_readiness),
+            )
+        }
+    };
+
+    // Metrics/health HTTP server (spawned after backend creation so it can
+    // include discovery readiness in the health check)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
@@ -144,7 +201,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "/_readiness",
                 get(move || {
                     let r = readiness.clone();
-                    async move { r.check().await }
+                    let dr = discovery_readiness.clone();
+                    async move {
+                        if let Some(ref dr) = dr {
+                            if !dr.is_ready() {
+                                return axum::http::StatusCode::SERVICE_UNAVAILABLE;
+                            }
+                        }
+                        r.check().await
+                    }
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }))
@@ -163,55 +228,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .expect("Metrics server error");
     });
-
-    // Create backend connection(s) to personhog-replica
-    let replica_backend = match config.replica_discovery_mode {
-        ReplicaDiscoveryMode::Dns => Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
-            url: config.replica_url.clone(),
-            timeout: config.backend_timeout(),
-            retry_config: config.retry_config(),
-            keepalive_interval: config.backend_keepalive_interval(),
-            keepalive_timeout: config.backend_keepalive_timeout(),
-            max_send_message_size: config.grpc_max_send_message_size,
-            max_recv_message_size: config.grpc_max_recv_message_size,
-        })),
-        ReplicaDiscoveryMode::K8s => {
-            let kube_client = kube::Client::try_default()
-                .await
-                .expect("failed to create K8s client for replica discovery");
-            let namespace = config
-                .resolve_replica_namespace()
-                .expect("failed to resolve replica service namespace");
-
-            let discovery_handle =
-                discovery_handle.expect("discovery handle must be registered in k8s mode");
-
-            let (channel, discovery) = EndpointDiscovery::new(
-                kube_client,
-                namespace,
-                config.replica_service_name.clone(),
-                config.replica_port,
-                EndpointConfig {
-                    timeout: config.backend_timeout(),
-                    keepalive_interval: config.backend_keepalive_interval(),
-                    keepalive_timeout: config.backend_keepalive_timeout(),
-                },
-                discovery_handle.shutdown_token(),
-            );
-
-            tokio::spawn(async move {
-                let _guard = discovery_handle.process_scope();
-                discovery.run().await;
-            });
-
-            Arc::new(ReplicaBackend::new_k8s(
-                channel,
-                config.retry_config(),
-                config.grpc_max_send_message_size,
-                config.grpc_max_recv_message_size,
-            ))
-        }
-    };
 
     // In leader mode, wire up etcd coordination and the leader backend
     // for person writes / strong reads.
