@@ -34,6 +34,8 @@ import {
     isDev,
     KafkaLogSink,
     MemoryStore,
+    S3JsonlTabularStore,
+    TabularStore,
     NoopAnalyticsSink,
     NoopSessionEventBus,
     PgCredentialBroker,
@@ -203,6 +205,9 @@ async function main(): Promise<void> {
     // `memory_store_unavailable` to the model) when the bucket isn't
     // configured — dev/CI without object storage still boots cleanly.
     let memoryStore: MemoryStore | undefined
+    // Tabular reference store - shares the memory S3 client + bucket (agent_tables
+    // prefix); same enable condition as memory.
+    let tabularStore: TabularStore | undefined
     if (config.memoryS3Bucket && config.memoryS3Endpoint) {
         const s3 = new S3Client({
             endpoint: config.memoryS3Endpoint,
@@ -221,6 +226,7 @@ async function main(): Promise<void> {
             bucket: config.memoryS3Bucket,
             bucketPrefix: config.memoryS3Prefix,
         })
+        tabularStore = new S3JsonlTabularStore({ client: s3, bucket: config.memoryS3Bucket, bucketPrefix: 'agent_tables' })
         log.info(
             { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
             'memory.s3.enabled'
@@ -311,6 +317,7 @@ async function main(): Promise<void> {
         analytics,
         maxConcurrency: config.maxConcurrency,
         memoryStore,
+        tabularStore,
         isAskerInApproverScope,
         agentMcpResolver,
         allowPrivateMcpHosts: config.allowPrivateMcpHosts,

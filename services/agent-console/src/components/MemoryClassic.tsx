@@ -12,7 +12,7 @@
 
 'use client'
 
-import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { PencilIcon, PlusIcon, Table2Icon, Trash2Icon } from 'lucide-react'
 import { useCallback, useState } from 'react'
 
 import { Markdown } from '@posthog/agent-chat'
@@ -22,6 +22,7 @@ import {
     createMemoryFile,
     deleteMemoryFile,
     getMemoryTree,
+    listTables,
     readMemoryFile,
     searchMemoryApi,
     updateMemoryFile,
@@ -31,9 +32,13 @@ import {
 import { useResource } from '@/lib/useResource'
 
 import { FileExplorer, type FileExplorerSearchResult, type FileTreeNode } from './FileExplorer'
+import { TableView } from './MemoryTables'
 import { RefreshIndicator } from './RefreshIndicator'
 
 const NEW_FILE_SENTINEL = '__new__'
+// Selecting a tabular-reference table uses this synthetic path in the shared
+// tree; the right pane renders <TableView> instead of the file reader.
+const TABLE_PREFIX = 'table:'
 
 type ViewMode = 'rendered' | 'raw'
 
@@ -58,16 +63,26 @@ export function MemoryClassic({ slug }: MemoryClassicProps): React.ReactElement 
     const [draft, setDraft] = useState<DraftState | null>(null)
 
     const tree = useResource(() => getMemoryTree(teamId, slug), [teamId, slug])
+    const tables = useResource(() => listTables(teamId, slug), [teamId, slug])
     const search = useResource(
         () => (query.trim() ? searchMemoryApi(teamId, slug, query.trim()) : Promise.resolve(null)),
         [teamId, slug, query]
     )
 
+    // A table is selected when the path carries the table prefix — the right
+    // pane shows its rows instead of a file.
+    const selectedTable = selectedPath?.startsWith(TABLE_PREFIX) ? selectedPath.slice(TABLE_PREFIX.length) : null
+
     // Active file is what the reader pane should fetch. The "__new__"
-    // sentinel + the draft state together drive editor mode.
+    // sentinel + the draft state together drive editor mode; a selected table
+    // is not a file.
     const isEditingExisting = !!draft && !draft.isNew
     const activeFilePath =
-        draft?.isNew || selectedPath === NEW_FILE_SENTINEL ? null : isEditingExisting ? null : selectedPath
+        selectedTable || draft?.isNew || selectedPath === NEW_FILE_SENTINEL
+            ? null
+            : isEditingExisting
+              ? null
+              : selectedPath
 
     const file = useResource(
         () => (activeFilePath ? readMemoryFile(teamId, slug, activeFilePath) : Promise.resolve(null)),
@@ -139,7 +154,27 @@ export function MemoryClassic({ slug }: MemoryClassicProps): React.ReactElement 
         [teamId, slug, selectedPath, tree]
     )
 
-    const treeRoot: FileTreeNode | null = tree.data?.root ? toFileTreeNode(tree.data.root) : null
+    // The shared sidebar tree = memory files/folders, plus a "Tables" group at
+    // the end whose leaves are the agent's tabular-reference tables.
+    const memoryRoot = tree.data?.root ? toFileTreeNode(tree.data.root) : null
+    const tableNodes: FileTreeNode[] = (tables.data?.tables ?? []).map((t) => ({
+        type: 'file',
+        name: t.name,
+        path: `${TABLE_PREFIX}${t.name}`,
+        icon: <Table2Icon className="h-3.5 w-3.5 text-muted-foreground" />,
+    }))
+    const treeRoot: FileTreeNode | null =
+        memoryRoot || tableNodes.length
+            ? {
+                  type: 'folder',
+                  name: memoryRoot?.name ?? 'memory',
+                  path: memoryRoot?.path,
+                  children: [
+                      ...(memoryRoot?.children ?? []),
+                      ...(tableNodes.length ? [{ type: 'folder' as const, name: 'Tables', children: tableNodes }] : []),
+                  ],
+              }
+            : null
     const searchResults: FileExplorerSearchResult[] | null = query.trim()
         ? (search.data?.results ?? []).map((r) => ({
               path: r.path,
@@ -180,6 +215,8 @@ export function MemoryClassic({ slug }: MemoryClassicProps): React.ReactElement 
         >
             {draft ? (
                 <MemoryEditor initial={draft} onSave={saveDraft} onCancel={cancelDraft} />
+            ) : selectedTable ? (
+                <TableView slug={slug} name={selectedTable} />
             ) : selectedPath && selectedPath !== NEW_FILE_SENTINEL ? (
                 <MemoryReader
                     file={file.data}

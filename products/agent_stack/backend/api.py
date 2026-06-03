@@ -1853,6 +1853,37 @@ _MEMORY_FILE_RESPONSE = inline_serializer(
     },
 )
 
+_AGENT_TABLES_LIST_RESPONSE = inline_serializer(
+    name="AgentTablesListResponse",
+    fields={
+        "count": drf_serializers.IntegerField(help_text="Number of tables."),
+        "tables": drf_serializers.ListField(
+            child=inline_serializer(
+                name="AgentTableHeader",
+                fields={
+                    "name": drf_serializers.CharField(help_text="Table name."),
+                    "size": drf_serializers.IntegerField(help_text="Object size in bytes."),
+                },
+            ),
+            help_text="Tabular-reference tables for this agent (the @posthog/table-* JSONL tables).",
+        ),
+    },
+)
+
+_AGENT_TABLE_ROWS_RESPONSE = inline_serializer(
+    name="AgentTableRowsResponse",
+    fields={
+        "name": drf_serializers.CharField(),
+        "total": drf_serializers.IntegerField(help_text="Total rows in the table."),
+        "returned": drf_serializers.IntegerField(help_text="Rows in this response (capped by limit)."),
+        "limit": drf_serializers.IntegerField(),
+        "rows": drf_serializers.ListField(
+            child=drf_serializers.DictField(),
+            help_text="The rows (arbitrary JSON objects).",
+        ),
+    },
+)
+
 _MEMORY_TREE_RESPONSE = inline_serializer(
     name="AgentMemoryTreeResponse",
     fields={
@@ -1938,7 +1969,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
 
     scope_object = "agent_application"  # share the parent's scope
-    scope_object_read_actions = ["list_files", "tree", "get_file", "search"]
+    scope_object_read_actions = ["list_files", "tree", "get_file", "search", "tables", "table_rows"]
     scope_object_write_actions = ["create_file", "update_file", "delete_file"]
     # The parent URL kwarg is `application_id`; we override resolution to
     # accept slug-or-UUID via _resolve_application.
@@ -1951,6 +1982,12 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         if app is None:
             raise NotFound("Application not found")
+        # This is a plain ViewSet, so it bypasses the mixin's get_object() and
+        # the object-level RBAC it runs. Enforce per-application access control
+        # explicitly (mirrors TeamAndOrgViewSetMixin.get_object) — otherwise a
+        # user with team access but no access to THIS application could read its
+        # memory files / tables by guessing the slug or UUID.
+        self.check_object_permissions(self.request, app)
         return app
 
     def _log_memory_change(
@@ -2004,6 +2041,52 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 str(application.id),
                 prefix=request.query_params.get("prefix") or None,
             )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_memory_list_tables",
+        request=None,
+        responses=OpenApiResponse(response=_AGENT_TABLES_LIST_RESPONSE),
+        description="List the agent's tabular-reference tables (the @posthog/table-* JSONL tables): name + byte size.",
+    )
+    @action(detail=False, methods=["get"], url_path="tables")
+    def tables(self, request: Request, **kwargs) -> Response:
+        application = self._get_application()
+        try:
+            payload = _janitor().list_tables(int(self.team_id), str(application.id))
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_memory_read_table",
+        parameters=[
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Max rows to return (default 500, max 5000).",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_AGENT_TABLE_ROWS_RESPONSE),
+        description="Read rows from one tabular-reference table (capped via ?limit).",
+    )
+    @action(detail=False, methods=["get"], url_path="tables/(?P<name>[^/]+)")
+    def table_rows(self, request: Request, name: str | None = None, **kwargs) -> Response:
+        application = self._get_application()
+        limit_raw = request.query_params.get("limit")
+        limit: int | None = None
+        if limit_raw:
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise ValidationError("limit must be an integer")
+        try:
+            payload = _janitor().read_table(int(self.team_id), str(application.id), str(name), limit=limit)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)

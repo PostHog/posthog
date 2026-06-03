@@ -35,6 +35,7 @@ import {
     CredentialBroker,
     IntegrationCredentials,
     MemoryStore,
+    TabularStore,
     Sandbox,
     ToolContext,
 } from '@posthog/agent-shared'
@@ -106,6 +107,8 @@ export interface AgentToolDeps {
      * `memory_store_unavailable` to the model.
      */
     memoryStore?: MemoryStore
+    /** Deterministic tabular store for @posthog/table-* tools. */
+    tabularStore?: TabularStore
     /**
      * Dispatcher for `kind: "client"` tools. The driver wires this up
      * over the session event bus: `execute` publishes a
@@ -409,6 +412,7 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
             }
         },
         memoryStore: deps.memoryStore,
+        tabularStore: deps.tabularStore,
         credentials: credentialBroker
             ? {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),

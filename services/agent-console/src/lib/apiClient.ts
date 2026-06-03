@@ -926,6 +926,35 @@ export async function readMemoryFile(teamId: number, slug: string, path: string)
     return getJson(memoryUrl(teamId, slug, `/files/by_path/?path=${encodeURIComponent(path)}`))
 }
 
+/* ── Tabular reference (the @posthog/table-* JSONL tables) ─────────── */
+
+export interface AgentTableHeader {
+    name: string
+    size: number
+}
+
+export interface AgentTableRows {
+    name: string
+    total: number
+    returned: number
+    limit: number
+    rows: Record<string, unknown>[]
+}
+
+export async function listTables(teamId: number, slug: string): Promise<{ count: number; tables: AgentTableHeader[] }> {
+    return getJson(memoryUrl(teamId, slug, `/tables/`))
+}
+
+export async function readTable(
+    teamId: number,
+    slug: string,
+    name: string,
+    opts: { limit?: number } = {}
+): Promise<AgentTableRows> {
+    const qs = opts.limit ? `?limit=${opts.limit}` : ''
+    return getJson(memoryUrl(teamId, slug, `/tables/${encodeURIComponent(name)}/${qs}`))
+}
+
 export async function searchMemoryApi(
     teamId: number,
     slug: string,

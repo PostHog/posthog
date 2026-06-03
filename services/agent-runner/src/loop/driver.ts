@@ -61,6 +61,7 @@ import {
     LogLevel,
     LogSink,
     MemoryStore,
+    TabularStore,
     NoopAnalyticsSink,
     NoopLogSink,
     NoopSessionEventBus,
@@ -134,6 +135,8 @@ export interface RunSessionDeps {
      * `AGENT_MEMORY_S3_*` config.
      */
     memoryStore?: MemoryStore
+    /** Deterministic tabular store for @posthog/table-* tools. */
+    tabularStore?: TabularStore
     /**
      * Per-session static HTTP headers stamped on every outbound model call.
      * On the ai-gateway path this carries `X-PostHog-Distinct-Id` +
@@ -281,6 +284,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             bundle: deps.bundle,
             log,
             memoryStore: deps.memoryStore,
+            tabularStore: deps.tabularStore,
             dispatchClientTool,
             credentialBroker: deps.credentialBroker,
             mcpClients: deps.mcpClients,

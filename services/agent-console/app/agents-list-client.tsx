@@ -38,19 +38,29 @@ export function AgentsListClient(): React.ReactElement {
     useSetDockPage({ kind: 'agent-list' })
     useSetDockConciergeAgent({ slug: 'agent-concierge' })
 
-    const agents = useResource(() => listAgents(teamId), [teamId])
+    // Poll the fleet dashboard — this is the "what's happening right now"
+    // surface, so it refreshes on a short interval (visibility-aware, so a
+    // backgrounded tab goes quiet and catches up on focus).
+    const POLL_MS = 10_000
+    const agents = useResource(() => listAgents(teamId), [teamId], { pollMs: POLL_MS })
     // Fleet endpoints are Phase C — tolerate 404 so the agents list still
     // renders against bare Django.
-    const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId])
+    const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId], {
+        pollMs: POLL_MS,
+    })
     // The fleet live-sessions endpoint returns `application_id` only —
     // we have to enrich each row with the agent's slug + name so the
     // LiveNowPanel can render and navigate. Sequence on agents so the
     // lookup is ready when the mapper runs.
-    const live = useResource(async (): Promise<ChatSession[]> => {
-        const agentList = await listAgents(teamId)
-        const agentsById = new Map(agentList.map((a) => [a.id, { id: a.id, name: a.name, slug: a.slug }]))
-        return tolerateMissing(listLiveSessions(teamId, agentsById), [])
-    }, [teamId])
+    const live = useResource(
+        async (): Promise<ChatSession[]> => {
+            const agentList = await listAgents(teamId)
+            const agentsById = new Map(agentList.map((a) => [a.id, { id: a.id, name: a.name, slug: a.slug }]))
+            return tolerateMissing(listLiveSessions(teamId, agentsById), [])
+        },
+        [teamId],
+        { pollMs: POLL_MS }
+    )
 
     const error = agents.error ?? fleet.error ?? live.error
 
