@@ -13,7 +13,7 @@ import {
     MOCK_EXPERIMENTS_STATS_RESPONSE,
 } from 'lib/api.mock'
 
-import { HttpResponse } from 'msw'
+import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
 import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
 
@@ -26,7 +26,7 @@ import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
-import { MockResolverInfo, MockSignature, Mocks, mocksToHandlers } from './utils'
+import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = {
     count: 0,
@@ -41,39 +41,38 @@ export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESP
     previous: null,
 })
 
-const hogFunctionTemplateRetrieveMock: MockSignature = ({ params }) => {
+const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
     const hogFunctionTemplate =
-        _hogFunctionTemplatesDestinations.results.find((conf) => conf.id === params.id) ||
-        _hogFunctionTemplatesTransformations.results.find((conf) => conf.id === params.id)
+        _hogFunctionTemplatesDestinations.results.find((conf) => conf.id === req.params.id) ||
+        _hogFunctionTemplatesTransformations.results.find((conf) => conf.id === req.params.id)
     if (!hogFunctionTemplate) {
-        return new HttpResponse(null, { status: 404 })
+        return res(ctx.status(404))
     }
-    return HttpResponse.json({ ...hogFunctionTemplate })
+    return res(ctx.json({ ...hogFunctionTemplate }))
 }
 
-const hogFunctionTemplatesMock: MockSignature = ({ request }) => {
-    const types = new URL(request.url).searchParams.get('types')
-    const results = types?.includes('transformation')
+const hogFunctionTemplatesMock: MockSignature = (req, res, ctx) => {
+    const results = req.url.searchParams.get('types')?.includes('transformation')
         ? _hogFunctionTemplatesTransformations
-        : types?.includes('destination')
+        : req.url.searchParams.get('types')?.includes('destination')
           ? _hogFunctionTemplatesDestinations
           : []
 
-    return HttpResponse.json(results)
+    return res(ctx.json(results))
 }
 
-function posthogCORSResponse({ request }: MockResolverInfo): Response {
-    const referer = request.headers.get('referer')
-    return HttpResponse.json('ok', {
-        status: 200,
+// this really returns MaybePromise<ResponseFunction<any>>
+// but MSW doesn't export MaybePromise 🤷
+function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: RestContext): any {
+    return res(
+        ctx.status(200),
+        ctx.json('ok'),
         // some of our tests try to make requests via posthog-js e.g. userLogic calls identify
         // they have to have CORS allowed, or they pass but print noise to the console
-        headers: {
-            'Access-Control-Allow-Origin': referer && referer.length ? referer : 'http://localhost',
-            'Access-Control-Allow-Credentials': 'true',
-            'Access-Control-Allow-Headers': '*',
-        },
-    })
+        ctx.set('Access-Control-Allow-Origin', req.referrer.length ? req.referrer : 'http://localhost'),
+        ctx.set('Access-Control-Allow-Credentials', 'true'),
+        ctx.set('Access-Control-Allow-Headers', '*')
+    )
 }
 
 export const defaultMocks: Mocks = {
@@ -136,7 +135,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
         '/api/user_home_settings/@me/': { tabs: [], homepage: null },
-        '/api/organizations/@current/': () => [
+        '/api/organizations/@current/': (): MockSignature => [
             200,
             {
                 ...MOCK_DEFAULT_ORGANIZATION,
@@ -158,7 +157,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/persons': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],
-        '/api/users/@me/': () => [
+        '/api/users/@me/': (): MockSignature => [
             200,
             {
                 ...MOCK_DEFAULT_USER,
@@ -268,16 +267,16 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/tags/': [],
     },
     post: {
-        'https://us.i.posthog.com/e/': posthogCORSResponse,
-        '/e/': posthogCORSResponse,
-        'https://us.i.posthog.com/decide/': posthogCORSResponse,
-        'https://us.i.posthog.com/flags/': posthogCORSResponse,
-        '/decide/': posthogCORSResponse,
-        '/flags/': posthogCORSResponse,
-        'https://us.i.posthog.com/engage/': posthogCORSResponse,
+        'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/environments/:team_id/query/': [200, { results: [] }],
         '/api/environments/:team_id/query/:query_kind/': [200, { results: [] }],
-        '/api/environments/:team_id/insights/viewed/': () => [201, null],
+        '/api/environments/:team_id/insights/viewed/': (): MockSignature => [201, null],
         'api/environments/:team_id/query': [200, { results: [] }],
         'api/environments/:team_id/query/:query_kind/': [200, { results: [] }],
         '/api/environments/:team_id/file_system/log_view/': {},
@@ -289,7 +288,7 @@ export const defaultMocks: Mocks = {
         '/api/user_home_settings/@me/': { tabs: [], homepage: null },
     },
     options: {
-        'https://us.i.posthog.com/decide/': posthogCORSResponse,
+        'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)
