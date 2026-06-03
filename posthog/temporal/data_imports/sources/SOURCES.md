@@ -44,56 +44,56 @@ the row lists both.
 
 | Source          | Comm method                 | Primary library                                                 | Tracked transport           |
 | --------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
-| active_campaign | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| attio           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| bigquery        | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)             |
+| active_campaign | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| attio           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| bigquery        | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads        | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
-| buildbetter     | HTTP                        | requests                                                        | ✅                           |
-| calendly        | HTTP                        | requests                                                        | ✅                           |
-| chargebee       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| clerk           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| clickhouse      | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                           |
-| convex          | HTTP                        | requests                                                        | ✅                           |
-| customer_io     | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook)   |
-| doit            | HTTP                        | requests                                                        | ✅                           |
-| drip            | HTTP                        | requests                                                        | ✅                           |
-| github          | HTTP                        | requests                                                        | ✅                           |
-| google_ads      | gRPC                        | google-ads (googleads.client)                                   | ✅                           |
-| google_sheets   | HTTP (vendor SDK)           | gspread                                                         | ✅                           |
-| hubspot         | HTTP                        | requests                                                        | ✅                           |
-| klaviyo         | HTTP                        | requests                                                        | ✅                           |
-| linear          | HTTP                        | requests                                                        | ✅                           |
+| buildbetter     | HTTP                        | requests                                                        | ✅                          |
+| calendly        | HTTP                        | requests                                                        | ✅                          |
+| chargebee       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clerk           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clickhouse      | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| convex          | HTTP                        | requests                                                        | ✅                          |
+| customer_io     | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
+| doit            | HTTP                        | requests                                                        | ✅                          |
+| drip            | HTTP                        | requests                                                        | ✅                          |
+| github          | HTTP                        | requests                                                        | ✅                          |
+| google_ads      | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
+| google_sheets   | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
+| hubspot         | HTTP                        | requests                                                        | ✅                          |
+| klaviyo         | HTTP                        | requests                                                        | ✅                          |
+| linear          | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads    | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
-| mailchimp       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| mailjet         | HTTP                        | requests                                                        | ✅                           |
-| meta_ads        | HTTP                        | requests                                                        | ✅                           |
-| mongodb         | DB protocol                 | pymongo                                                         | ➖                           |
-| mssql           | DB protocol                 | pyodbc / pymssql                                                | ➖                           |
-| mysql           | DB protocol                 | pymysql                                                         | ➖                           |
-| paddle          | HTTP                        | requests                                                        | ✅                           |
-| pinterest_ads   | HTTP                        | requests                                                        | ✅                           |
-| plain           | HTTP                        | requests                                                        | ✅                           |
-| polar           | HTTP                        | requests                                                        | ✅                           |
-| postgres        | DB protocol                 | psycopg                                                         | ➖                           |
-| reddit_ads      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| redshift        | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                           |
-| resend          | HTTP                        | requests                                                        | ✅                           |
-| revenuecat      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)      |
-| salesforce      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| sentry          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| shopify         | HTTP                        | requests                                                        | ✅                           |
-| shortcut        | HTTP                        | requests                                                        | ✅                           |
-| slack           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| snapchat_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| snowflake       | DB protocol                 | snowflake-connector-python                                      | ➖                           |
-| stripe          | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)      |
-| supabase        | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                           |
+| mailchimp       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailjet         | HTTP                        | requests                                                        | ✅                          |
+| meta_ads        | HTTP                        | requests                                                        | ✅                          |
+| mongodb         | DB protocol                 | pymongo                                                         | ➖                          |
+| mssql           | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
+| mysql           | DB protocol                 | pymysql                                                         | ➖                          |
+| paddle          | HTTP                        | requests                                                        | ✅                          |
+| pinterest_ads   | HTTP                        | requests                                                        | ✅                          |
+| plain           | HTTP                        | requests                                                        | ✅                          |
+| polar           | HTTP                        | requests                                                        | ✅                          |
+| postgres        | DB protocol                 | psycopg                                                         | ➖                          |
+| reddit_ads      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| redshift        | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
+| resend          | HTTP                        | requests                                                        | ✅                          |
+| revenuecat      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| salesforce      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| sentry          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| shopify         | HTTP                        | requests                                                        | ✅                          |
+| shortcut        | HTTP                        | requests                                                        | ✅                          |
+| slack           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| snapchat_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| snowflake       | DB protocol                 | snowflake-connector-python                                      | ➖                          |
+| stripe          | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
+| supabase        | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | temporalio      | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
-| tiktok_ads      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| typeform        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| vitally         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| workos          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
-| zendesk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
+| tiktok_ads      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| typeform        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| vitally         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| workos          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| zendesk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
 ### Notes on partially-tracked sources
 
