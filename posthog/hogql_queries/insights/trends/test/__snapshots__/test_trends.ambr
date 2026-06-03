@@ -166,7 +166,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -208,7 +208,7 @@
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), equals(e.event, 'sign up')))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
     (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
@@ -226,7 +226,7 @@
                                                              FROM groups
                                                              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                                              GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                          WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), equals(e.event, 'sign up')))
+                                                          WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
                                                        GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -307,7 +307,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -351,7 +351,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -395,7 +395,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -546,8 +546,8 @@
               breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
-                                                                                                                                                   breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -701,7 +701,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -753,7 +753,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -821,7 +821,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -884,7 +884,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -935,7 +935,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -1414,7 +1414,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -1731,7 +1731,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -2440,7 +2440,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -3260,7 +3260,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -3323,7 +3323,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -3459,7 +3459,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -3648,7 +3648,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -3953,7 +3953,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4246,7 +4246,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4294,8 +4294,8 @@
               breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
-                                                                                                                                                   breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4343,8 +4343,8 @@
               breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
-                                                                                                                                                   breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -4834,8 +4834,8 @@
               breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
-                                                                                                                                                   breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -5465,8 +5465,8 @@
               breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
-                                                                                                                                                   breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -5755,7 +5755,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -5813,7 +5813,7 @@
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
-  ORDER BY if(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
