@@ -38,19 +38,6 @@ def pytest_addoption(parser):
             "comparisons. Defaults to anthropic/claude-opus-4-8."
         ),
     )
-    parser.addoption(
-        "--mcp-runtime",
-        action="store",
-        default="cf",
-        choices=("cf", "hono"),
-        help=(
-            "Which PostHog MCP runtime to start for sandboxed evals. "
-            "'cf' (default) runs the Cloudflare Worker via `pnpm wrangler dev`. "
-            "'hono' runs the Node-native Hono server via `pnpm dev:hono` — in "
-            "production the CF worker is now a proxy that forwards to Hono, so "
-            "the Hono server has to be started separately when targeting it."
-        ),
-    )
 
 
 _nodeid_to_results_url_map: dict[str, str] = {}
