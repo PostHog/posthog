@@ -21,7 +21,7 @@
  * build time (see `buildCluster` in agent-tests).
  */
 
-import { Pool } from 'pg'
+import type { Pool } from 'pg'
 
 import { Credential, CredentialBroker, CredentialMap, DEFAULT_CREDENTIAL_TTL_MS } from './credential-broker'
 import { EncryptedFields } from './encryption'

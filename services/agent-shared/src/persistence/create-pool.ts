@@ -13,7 +13,14 @@
  * don't want every service to bundle the CA.
  */
 
-import { Pool, PoolConfig } from 'pg'
+// `pg` is CommonJS (`module.exports = new PG(...)`), so Node's ESM loader
+// can't statically detect named exports. Destructure off the default import
+// at runtime instead of `import { Pool } from 'pg'` — the named-import form
+// works under vitest (its loader patches CJS interop) but fails at boot
+// under `tsx watch` with "does not provide an export named 'Pool'".
+import pg from 'pg'
+import type { Pool as PoolType, PoolConfig } from 'pg'
+const { Pool } = pg
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', ''])
 
@@ -28,7 +35,7 @@ function isLocalHost(connectionString: string): boolean {
 export function createAgentPool(
     connectionString: string,
     options: Omit<PoolConfig, 'connectionString' | 'ssl'> = {}
-): Pool {
+): PoolType {
     return new Pool({
         connectionString,
         ssl: isLocalHost(connectionString) ? false : { rejectUnauthorized: false },
